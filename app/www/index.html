@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Outfit Advisor</title>
+<style>
+  :root{
+    --bg:#0f172a; --bg2:#1e293b; --card:#1e293b; --card2:#273449;
+    --txt:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --accent2:#818cf8;
+    --warn:#fbbf24; --rain:#60a5fa; --line:#334155; --good:#34d399;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:linear-gradient(180deg,#0f172a,#13203a);color:var(--txt);
+    min-height:100vh;padding:env(safe-area-inset-top) 0 40px;}
+  .wrap{max-width:560px;margin:0 auto;padding:0 16px}
+  header{padding:22px 0 8px;display:flex;align-items:center;gap:10px}
+  header h1{font-size:1.35rem;margin:0;font-weight:700;letter-spacing:-.02em}
+  header .logo{font-size:1.7rem}
+  header .sub{color:var(--muted);font-size:.8rem;margin:2px 0 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:16px;margin:14px 0;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+  .card h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted);margin:0 0 12px;font-weight:700}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  input[type=text]{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);
+    color:var(--txt);border-radius:10px;padding:11px 12px;font-size:.95rem}
+  input[type=time]{background:var(--bg);border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:10px 12px;font-size:1rem}
+  input::placeholder{color:#64748b}
+  button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:11px 14px;
+    background:var(--card2);color:var(--txt);font-weight:600;transition:.15s;font-size:.9rem}
+  button:active{transform:scale(.97)}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#06121f}
+  button.ghost{background:transparent;border:1px solid var(--line)}
+  .seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{flex:1;background:transparent;border-radius:0;color:var(--muted);padding:10px}
+  .seg button.on{background:var(--card2);color:var(--txt)}
+  label.lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin:0 0 6px}
+  .switch{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .toggle{position:relative;width:46px;height:26px;flex-shrink:0}
+  .toggle input{opacity:0;width:0;height:0}
+  .toggle .sl{position:absolute;inset:0;background:var(--bg);border:1px solid var(--line);
+    border-radius:999px;transition:.2s}
+  .toggle .sl:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;
+    background:var(--muted);border-radius:50%;transition:.2s}
+  .toggle input:checked + .sl{background:rgba(56,189,248,.25);border-color:var(--accent)}
+  .toggle input:checked + .sl:before{transform:translateX(20px);background:var(--accent)}
+  .wx{display:flex;align-items:center;gap:14px}
+  .wx .emoji{font-size:3rem;line-height:1}
+  .wx .big{font-size:2rem;font-weight:700;letter-spacing:-.02em}
+  .wx .meta{color:var(--muted);font-size:.85rem;margin-top:2px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-size:.72rem;background:var(--bg);border:1px solid var(--line);
+    color:var(--muted);padding:4px 9px;border-radius:999px}
+  .chip.warn{color:var(--warn);border-color:#5b4711}
+  .chip.rain{color:var(--rain);border-color:#1e3a5f}
+  .chip.src{color:var(--good);border-color:#14532d}
+  .chip.off{color:var(--warn);border-color:#5b4711}
+  .timeline{display:flex;justify-content:space-between;margin-top:12px;text-align:center}
+  .timeline div{flex:1}
+  .timeline .t{font-size:.7rem;color:var(--muted)}
+  .timeline .v{font-size:1.05rem;font-weight:700;margin-top:2px}
+  .aitext{white-space:pre-wrap;line-height:1.55;font-size:.95rem;margin:0 0 8px}
+  .outfit{list-style:none;margin:8px 0 0;padding:0}
+  .outfit li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}
+  .outfit li:last-child{border-bottom:none}
+  .outfit .ic{font-size:1.4rem;width:30px;text-align:center;flex-shrink:0}
+  .outfit .lbl2{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .outfit .val{font-weight:600;margin-top:1px}
+  .deliver{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .deliver button{display:flex;align-items:center;justify-content:center;gap:7px;padding:13px 10px}
+  .note{color:var(--muted);font-size:.78rem;margin-top:10px;line-height:1.45}
+  .err{color:#fca5a5;font-size:.85rem;margin-top:8px}
+  .det{margin-top:10px}
+  .det summary{cursor:pointer;color:var(--muted);font-size:.8rem}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);
+    border-top-color:var(--accent);border-radius:50%;animation:r .7s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:#0b1322;border:1px solid var(--line);color:var(--txt);padding:11px 18px;
+    border-radius:12px;font-size:.9rem;opacity:0;pointer-events:none;transition:.25s;z-index:50;
+    box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  footer{text-align:center;color:#475569;font-size:.72rem;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo">🧥</span>
+    <div>
+      <h1>Outfit Advisor</h1>
+      <p class="sub">What to wear today — for the weather where you are.</p>
+    </div>
+  </header>
+
+  <!-- Profile / location -->
+  <div class="card">
+    <h2>Location &amp; style</h2>
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
+      <button class="ghost" id="geoBtn" title="Use my location">📍</button>
+      <button class="primary" id="goBtn">Get advice</button>
+    </div>
+    <div class="seg" id="genderSeg">
+      <button data-g="man">👔 Man</button>
+      <button data-g="woman">👗 Woman</button>
+      <button data-g="neutral">🧍 Neutral</button>
+    </div>
+    <div class="seg" id="styleSeg" style="margin-top:8px">
+      <button data-s="casual">Casual</button>
+      <button data-s="smart">Smart</button>
+      <button data-s="active">Active</button>
+    </div>
+    <div id="err" class="err"></div>
+  </div>
+
+  <!-- Daily push settings -->
+  <div class="card">
+    <h2>Morning push</h2>
+    <div class="switch" style="margin-bottom:12px">
+      <div>
+        <label class="lbl">Notify me every morning</label>
+        <span class="note" style="margin:0">A notification at the time below, for your live location.</span>
+      </div>
+      <label class="toggle"><input type="checkbox" id="pushEnabled"><span class="sl"></span></label>
+    </div>
+    <div class="row" style="align-items:center;gap:12px">
+      <div>
+        <label class="lbl">Time</label>
+        <input type="time" id="pushTime" value="06:45">
+      </div>
+      <button class="ghost" id="saveSchedule" style="align-self:flex-end">Save schedule</button>
+    </div>
+    <details class="det">
+      <summary>Advanced — advisor server</summary>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="baseUrl" placeholder="http://100.112.171.54:8787">
+        <button class="ghost" id="saveUrl">Save</button>
+      </div>
+      <p class="note">The DGX server that writes the outfit text. Reachable over Tailscale.
+        If unreachable, the app falls back to an on-device estimate.</p>
+    </details>
+  </div>
+
+  <!-- Weather -->
+  <div class="card" id="wxCard" style="display:none">
+    <h2 id="wxWhen">Today</h2>
+    <div class="wx">
+      <div class="emoji" id="wxEmoji">⛅</div>
+      <div>
+        <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
+        <div class="meta" id="wxDesc">—</div>
+      </div>
+    </div>
+    <div class="chips" id="wxChips"></div>
+    <div class="timeline" id="wxTimeline"></div>
+  </div>
+
+  <!-- Outfit -->
+  <div class="card" id="outfitCard" style="display:none">
+    <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
+    <p class="aitext" id="aiText"></p>
+    <details class="det"><summary>Item-by-item</summary>
+      <ul class="outfit" id="outfitList"></ul>
+      <p class="note" id="outfitTip"></p>
+    </details>
+    <div class="deliver" style="margin-top:12px">
+      <button id="dShare">💬 Share</button>
+      <button id="dNotify">🔔 Preview push</button>
+    </div>
+  </div>
+
+  <footer>Weather by Open-Meteo · outfit by your local LLM on the DGX · location never stored</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ───────── Capacitor bridges (graceful in plain browser) ───────── */
+const Cap = window.Capacitor || null;
+const isNative = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
+const Plugins = (Cap && Cap.Plugins) || {};
+async function prefGet(k, d){ try{ if(Plugins.Preferences){ const {value}=await Plugins.Preferences.get({key:k}); return value??d; } }catch(e){} return localStorage.getItem(k) ?? d; }
+async function prefSet(k, v){ try{ if(Plugins.Preferences){ await Plugins.Preferences.set({key:k,value:String(v)}); return; } }catch(e){} localStorage.setItem(k, String(v)); }
+
+/* ───────── state ───────── */
+const DEFAULT_BASE = "http://100.112.171.54:8787";
+const state = { city:"", lat:null, lon:null, place:"", gender:"man", style:"casual",
+                baseUrl:DEFAULT_BASE, pushTime:"06:45", pushEnabled:false };
+let lastWeather=null, lastOutfit=null, lastText="", lastSource="";
+const $ = id => document.getElementById(id);
+
+/* ───────── UI helpers ───────── */
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
+function err(msg){ $("err").textContent = msg||""; }
+function paintSeg(seg, kind){ [...seg.children].forEach(b=>
+  b.classList.toggle("on", b.dataset[kind]===state[kind==="g"?"gender":"style"])); }
+
+/* ───────── WMO map + rule engine (offline fallback — mirrors server/engine.py) ───── */
+const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Partly cloudy"],3:["☁️","Overcast"],
+  45:["🌫️","Fog"],48:["🌫️","Rime fog"],51:["🌦️","Light drizzle"],53:["🌦️","Drizzle"],55:["🌧️","Heavy drizzle"],
+  61:["🌦️","Light rain"],63:["🌧️","Rain"],65:["🌧️","Heavy rain"],66:["🌧️","Freezing rain"],67:["🌧️","Freezing rain"],
+  71:["🌨️","Light snow"],73:["🌨️","Snow"],75:["❄️","Heavy snow"],77:["🌨️","Snow grains"],80:["🌦️","Rain showers"],
+  81:["🌧️","Rain showers"],82:["⛈️","Violent showers"],85:["🌨️","Snow showers"],86:["❄️","Snow showers"],
+  95:["⛈️","Thunderstorm"],96:["⛈️","Storm w/ hail"],99:["⛈️","Storm w/ hail"]};
+const SNOW=[71,73,75,77,85,86], RAIN=[51,53,55,61,63,65,66,67,80,81,82,95,96,99];
+function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
+function recommend(w,gender,style){
+  const t = (w.morning ?? w.lo + (w.hi-w.lo)/2); const o={};
+  if(t>=26) o.base=pick(gender,"Breathable cotton/linen tee","Light camisole or linen blouse","Lightweight breathable tee");
+  else if(t>=18) o.base=pick(gender,"Cotton T-shirt","Short-sleeve top or light blouse","Cotton T-shirt");
+  else if(t>=10) o.base=pick(gender,"Long-sleeve shirt","Long-sleeve top","Long-sleeve shirt");
+  else o.base=pick(gender,"Thermal / merino base layer","Thermal or merino base layer","Thermal base layer");
+  if(t>=22) o.mid="None needed";
+  else if(t>=15) o.mid=pick(gender,"Light overshirt or thin knit","Light cardigan or knit","Light layer / thin knit");
+  else if(t>=7) o.mid=pick(gender,"Wool sweater or fleece","Sweater or fleece","Wool sweater or fleece");
+  else o.mid=pick(gender,"Heavy knit + insulating mid-layer","Heavy knit + insulating layer","Heavy knit / insulating layer");
+  if(w.isSnow) o.outer="Insulated waterproof parka";
+  else if(w.isRain||w.rain>=50) o.outer=pick(gender,"Waterproof shell / trench","Waterproof coat or trench","Waterproof shell");
+  else if(t>=24) o.outer="None — but pack a thin layer for AC indoors";
+  else if(t>=16) o.outer=pick(gender,"Light jacket or blazer","Light jacket or trench","Light jacket");
+  else if(t>=8) o.outer=pick(gender,"Wool coat or padded jacket","Wool coat or padded jacket","Insulated jacket");
+  else o.outer=pick(gender,"Heavy winter coat / down","Down coat or heavy wool coat","Heavy winter coat");
+  if(w.wind>=8 && !/waterproof|shell|parka|down/i.test(o.outer)) o.outer+=" (windproof)";
+  if(t>=26) o.bottoms=pick(gender,"Light chinos or shorts","Skirt, dress, or light trousers","Shorts or light trousers");
+  else if(t>=16) o.bottoms=pick(gender,"Chinos or jeans","Jeans, trousers, or midi skirt + tights","Chinos or jeans");
+  else if(t>=6) o.bottoms=pick(gender,"Jeans or wool trousers","Trousers or jeans (consider thermal tights)","Warm trousers or jeans");
+  else o.bottoms=pick(gender,"Lined trousers + base layer","Thermal-lined trousers or thick tights","Insulated / lined trousers");
+  if(style==="active") o.bottoms="Stretch / technical trousers";
+  if(w.isSnow) o.footwear="Insulated waterproof boots";
+  else if(w.isRain||w.rain>=50) o.footwear="Waterproof boots or shoes";
+  else if(t>=24) o.footwear=pick(gender,"Loafers or breathable sneakers","Sandals or breathable flats","Breathable sneakers");
+  else if(t>=10) o.footwear=style==="smart"?"Leather shoes / ankle boots":"Sneakers or casual shoes";
+  else o.footwear="Insulated boots";
+  const acc=[]; if(t<5) acc.push("hat, gloves & scarf"); else if(t<10) acc.push("scarf");
+  if(w.rain>=40||w.isRain) acc.push("umbrella");
+  if(w.hi>=24 && [0,1,2].includes(w.code)) acc.push("sunglasses");
+  if(w.swing>=10) acc.push("a packable layer for the temp swing");
+  o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
+  if(w.swing>=10) o.tip=`Big ${w.swing}° swing today (${w.morning}° → ${w.midday}°). Dress in layers you can shed by midday and add back in the evening.`;
+  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%). Prioritise the waterproof outer + footwear.`;
+  else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
+  else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
+  else o.tip="Comfortable conditions — the layers above keep you flexible through the day.";
+  return o;
+}
+function outfitToBullets(o){
+  return `• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\n💡 ${o.tip}`;
+}
+
+/* ───────── geocoding + on-device weather (offline path) ───────── */
+async function geocode(city){
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`);
+  const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
+  const g=d.results[0]; return {lat:g.latitude,lon:g.longitude,place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", ")};
+}
+async function fetchWeatherLocal(lat,lon){
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
+    `&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,`+
+    `precipitation_probability_max,wind_speed_10m_max,weather_code`+
+    `&hourly=temperature_2m&timezone=auto&forecast_days=2&wind_speed_unit=ms`;
+  const d=await (await fetch(u)).json(); const i=0; const date=d.daily.time[i]; const code=d.daily.weather_code[i];
+  const hp=h=>{const idx=d.hourly.time.indexOf(`${date}T${String(h).padStart(2,"0")}:00`);return idx>=0?Math.round(d.hourly.temperature_2m[idx]):null;};
+  const lo=Math.round(d.daily.temperature_2m_min[i]),hi=Math.round(d.daily.temperature_2m_max[i]);
+  return {date,timezone:d.timezone,code,emoji:(WMO[code]||["🌡️","—"])[0],desc:(WMO[code]||["","—"])[1],lo,hi,swing:hi-lo,
+    feelsLo:Math.round(d.daily.apparent_temperature_min[i]),feelsHi:Math.round(d.daily.apparent_temperature_max[i]),
+    rain:d.daily.precipitation_probability_max[i]??0,wind:Math.round(d.daily.wind_speed_10m_max[i]),
+    morning:hp(8),midday:hp(13),evening:hp(19),isSnow:SNOW.includes(code),isRain:RAIN.includes(code)};
+}
+
+/* ───────── location ───────── */
+async function getPosition(){
+  if(Plugins.Geolocation){
+    const p=await Plugins.Geolocation.getCurrentPosition({enableHighAccuracy:false,timeout:8000});
+    return {lat:p.coords.latitude,lon:p.coords.longitude};
+  }
+  return await new Promise((res,rej)=>{
+    if(!navigator.geolocation) return rej(new Error("Geolocation not supported"));
+    navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lon:p.coords.longitude}),
+      ()=>rej(new Error("Couldn't get location")),{timeout:8000});
+  });
+}
+
+/* ───────── advice (DGX primary, on-device fallback) ───────── */
+async function getAdvice(lat,lon){
+  // primary: DGX /advice (LLM text)
+  try{
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),15000);
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
+      method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
+      body:JSON.stringify({lat,lon,gender:state.gender,style:state.style,day:0})});
+    clearTimeout(to);
+    if(!r.ok) throw new Error("server "+r.status);
+    const d=await r.json();
+    return {weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm"};
+  }catch(e){
+    // fallback: compute everything on-device
+    const w=await fetchWeatherLocal(lat,lon); const o=recommend(w,state.gender,state.style);
+    return {weather:w,outfit:o,text:outfitToBullets(o),source:"offline"};
+  }
+}
+
+/* ───────── rendering ───────── */
+const ICONS={base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+const LABELS={base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
+function renderWeather(w){
+  $("wxCard").style.display="block";
+  const dt=new Date((w.date||new Date().toISOString().slice(0,10))+"T12:00");
+  $("wxWhen").textContent="Today · "+dt.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})+(state.place?" · "+state.place:"");
+  $("wxEmoji").textContent=w.emoji; $("wxLo").textContent=w.lo; $("wxHi").textContent=w.hi;
+  $("wxDesc").textContent=`${w.desc} · feels ${w.feelsLo}°–${w.feelsHi}°`;
+  const chips=[];
+  if(w.swing>=10) chips.push(`<span class="chip warn">⚠ ${w.swing}° swing</span>`);
+  if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">🌧 rain ${w.rain}%</span>`);
+  if(w.isSnow) chips.push(`<span class="chip rain">🌨 snow</span>`);
+  if(w.wind>=8) chips.push(`<span class="chip warn">💨 ${w.wind} m/s</span>`);
+  $("wxChips").innerHTML=chips.join("");
+  $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
+    .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":v+"°"}</div></div>`).join("");
+}
+function renderOutfit(o,text,source){
+  $("outfitCard").style.display="block";
+  $("aiText").textContent=text||"";
+  const b=$("srcBadge"); b.style.display="inline-block";
+  if(source==="offline"){ b.textContent="offline estimate"; b.className="chip off"; }
+  else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
+  $("outfitList").innerHTML=["base","mid","outer","bottoms","footwear","accessories"].map(k=>
+    `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${o[k]}</div></div></li>`).join("");
+  $("outfitTip").textContent="💡 "+(o.tip||"");
+}
+
+/* ───────── main flow ───────── */
+async function run(){
+  err("");
+  const btn=$("goBtn"), old=btn.innerHTML; btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
+  try{
+    const c=$("city").value.trim();
+    if(c && c!==state.city){ state.city=c; const g=await geocode(c); state.lat=g.lat; state.lon=g.lon; state.place=g.place; await persist(); }
+    if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
+    const res=await getAdvice(state.lat,state.lon);
+    lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source;
+    renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source);
+    if(res.source==="offline") toast("Advisor unreachable — on-device estimate");
+    $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
+  }catch(e){ err(e.message||"Something went wrong."); }
+  finally{ btn.innerHTML=old; btn.disabled=false; }
+}
+
+/* ───────── delivery (bonus; the real morning push is native) ───────── */
+function deliveryText(){ const w=lastWeather; if(!lastOutfit) return "";
+  return `Today ${w.lo}°–${w.hi}° (${w.desc}${w.rain>=30?`, rain ${w.rain}%`:""})\n\n${lastText}`; }
+async function shareIt(){ const text=deliveryText();
+  if(navigator.share){ try{ await navigator.share({title:"Today's outfit",text}); }catch(e){} }
+  else{ try{ await navigator.clipboard.writeText(text); toast("Copied"); }catch(e){ toast("Share not supported"); } } }
+async function previewPush(){
+  const w=lastWeather,o=lastOutfit; if(!o){ toast("Get advice first"); return; }
+  const title=`🧥 ${w.lo}°–${w.hi}° ${w.desc}`, body=`${o.base} · ${o.outer} · ${o.footwear}`;
+  if(Plugins.LocalNotifications){
+    try{ await Plugins.LocalNotifications.requestPermissions();
+      await Plugins.LocalNotifications.schedule({notifications:[{id:Date.now()%100000,title,body,schedule:{at:new Date(Date.now()+2000)}}]});
+      toast("Preview push in ~2s"); return; }catch(e){}
+  }
+  if("Notification" in window){ let p=Notification.permission; if(p!=="granted") p=await Notification.requestPermission();
+    if(p==="granted"){ new Notification(title,{body}); toast("Preview sent"); return; } }
+  toast("Notifications not available here");
+}
+
+/* ───────── schedule preference (native exact-alarm wired in Phase 2) ───────── */
+async function saveSchedule(){
+  state.pushTime=$("pushTime").value||"06:45"; state.pushEnabled=$("pushEnabled").checked; await persist();
+  // Phase 2 (native): hand the time to the OutfitAlarm plugin to arm an exact daily alarm.
+  if(state.pushEnabled && Plugins.OutfitAlarm && Plugins.OutfitAlarm.arm){
+    const [h,m]=state.pushTime.split(":").map(Number);
+    try{ await Plugins.OutfitAlarm.arm({hour:h,minute:m}); }catch(e){}
+  } else if(!state.pushEnabled && Plugins.OutfitAlarm && Plugins.OutfitAlarm.cancel){
+    try{ await Plugins.OutfitAlarm.cancel(); }catch(e){}
+  }
+  toast(state.pushEnabled?`Daily push set for ${state.pushTime}`:"Daily push off");
+}
+
+/* ───────── persistence ───────── */
+async function persist(){
+  await prefSet("oa.city",state.city); await prefSet("oa.lat",state.lat??""); await prefSet("oa.lon",state.lon??"");
+  await prefSet("oa.place",state.place); await prefSet("oa.gender",state.gender); await prefSet("oa.style",state.style);
+  await prefSet("oa.baseUrl",state.baseUrl); await prefSet("oa.pushTime",state.pushTime); await prefSet("oa.pushEnabled",state.pushEnabled?"1":"0");
+}
+async function load(){
+  state.city=await prefGet("oa.city",""); const la=await prefGet("oa.lat",""); const lo=await prefGet("oa.lon","");
+  state.lat=la?parseFloat(la):null; state.lon=lo?parseFloat(lo):null; state.place=await prefGet("oa.place","");
+  state.gender=await prefGet("oa.gender","man"); state.style=await prefGet("oa.style","casual");
+  state.baseUrl=await prefGet("oa.baseUrl",DEFAULT_BASE); state.pushTime=await prefGet("oa.pushTime","06:45");
+  state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
+}
+
+/* ───────── wire up ───────── */
+$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");if(lastWeather){lastOutfit=recommend(lastWeather,state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource);}};
+$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");};
+$("goBtn").onclick=run;
+$("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
+$("geoBtn").onclick=async()=>{ toast("Locating…");
+  try{ const p=await getPosition(); state.lat=p.lat; state.lon=p.lon; state.city=""; state.place="My location"; $("city").value=""; await persist(); run(); }
+  catch(e){ toast("Couldn't get location — type a city"); } };
+$("saveSchedule").onclick=saveSchedule;
+$("saveUrl").onclick=async()=>{ const v=$("baseUrl").value.trim(); if(v){ state.baseUrl=v; await persist(); toast("Server saved"); } };
+$("dShare").onclick=shareIt; $("dNotify").onclick=previewPush;
+
+/* ───────── init ───────── */
+(async()=>{
+  await load();
+  $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
+  paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
+})();
+</script>
+</body>
+</html>

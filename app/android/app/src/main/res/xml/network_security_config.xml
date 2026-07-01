@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow cleartext HTTP ONLY to the DGX over the Tailscale tailnet. Everything else
+  (Open-Meteo, geocoding) is HTTPS and stays default-secure. Scoping cleartext to
+  the single tailnet IP keeps the "no public exposure" posture: a WebView on an
+  https:// origin (androidScheme=https) can still fetch the HTTP /advice endpoint.
+
+  If the DGX later moves behind a public HTTPS host + auth, delete this file and
+  drop `cleartext: true` from capacitor.config.json.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.112.171.54</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,20 @@
+# Node
+app/node_modules/
+node_modules/
+npm-debug.log*
+
+# Capacitor / Android build outputs (native project itself IS committed)
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/capacitor-cordova-android-plugins/build/
+app/android/local.properties
+app/android/.idea/
+*.iml
+.gradle/
+
+# Local toolchain / scratch
+test_results/*.log
+
+# OS
+.DS_Store

@@ -1,0 +1,15 @@
+{
+  "appId": "com.korety.outfitadvisor",
+  "appName": "Outfit Advisor",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_outfit",
+      "iconColor": "#38bdf8"
+    }
+  }
+}

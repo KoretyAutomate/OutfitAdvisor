@@ -1,0 +1,26 @@
+# Outfit Advisor — DGX /advice server (systemd USER service, no sudo needed)
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp outfit-advisor.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now outfit-advisor
+#   loginctl enable-linger korety        # keep it running after logout / across reboots
+#
+# Verify:  curl http://127.0.0.1:8787/health   ->  {"ok":true,"vllm":...}
+# Logs:    journalctl --user -u outfit-advisor -f
+
+[Unit]
+Description=Outfit Advisor /advice server (FastAPI + vLLM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/korety/Project/_ideas/outfit-advisor/server
+ExecStart=/home/korety/miniconda3/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8787 --no-access-log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

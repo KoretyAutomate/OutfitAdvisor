@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Theme for the transient WakeActivity. A calm branded background (matches the web
+  app's #0f172a slate) so the ~1–2s wake flash reads as intentional, not a glitch.
+  Graft into app/android/app/src/main/res/values/themes.xml (or merge as a new file).
+-->
+<resources>
+    <style name="Theme.OutfitWake" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/outfit_wake_bg</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:statusBarColor">@color/outfit_wake_bg</item>
+    </style>
+    <color name="outfit_wake_bg">#0f172a</color>
+</resources>

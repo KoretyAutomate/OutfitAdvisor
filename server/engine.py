@@ -1,5 +1,5 @@
 """
-engine.py — rule-based outfit engine, ported from webapp/index.html recommend().
+engine.py — rule-based outfit engine. JS twin: recommend() in app/www/index.html — change them together.
 
 Pure function: recommend(weather, gender, style) -> outfit dict.
 Same logic as the JS so the app's offline fallback and the server agree.
@@ -88,11 +88,15 @@ def recommend(w: dict, gender: str, style: str) -> dict:
         acc.append("sunglasses")
     if w["swing"] >= 10:
         acc.append("a packable layer for the temp swing")
-    o["accessories"] = (", ".join(acc)[:1].upper() + ", ".join(acc)[1:]) if acc else "None essential"
+    acc_text = ", ".join(acc)
+    o["accessories"] = (acc_text[0].upper() + acc_text[1:]) if acc else "None essential"
 
     # ── tip ──
     if w["swing"] >= 10:
-        o["tip"] = (f"Big {w['swing']}° swing today ({w['morning']}° → {w['midday']}°). "
+        # morning/midday can be None (hourly index miss) — don't print "None° → None°"
+        span = (f" ({w['morning']}° → {w['midday']}°)"
+                if w.get("morning") is not None and w.get("midday") is not None else "")
+        o["tip"] = (f"Big {w['swing']}° swing today{span}. "
                     "Dress in layers you can shed by midday and add back in the evening.")
     elif w["isRain"] or w["rain"] >= 50:
         o["tip"] = f"Rain likely ({w['rain']}%). Prioritise the waterproof outer + footwear."

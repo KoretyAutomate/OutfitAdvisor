@@ -8,14 +8,13 @@ import android.content.Intent
  * Exact alarms do NOT survive a reboot — the OS clears them. RECEIVE_BOOT_COMPLETED
  * lets us re-arm from the stored prefs so the morning push keeps working after the
  * phone is restarted. AlarmScheduler.rearm is a no-op if the user disabled the schedule.
+ *
+ * BOOT_COMPLETED only: LOCKED_BOOT_COMPLETED would need directBootAware=true, and the
+ * prefs live in credential-encrypted storage anyway — unreadable before first unlock.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        val action = intent?.action ?: return
-        if (action == Intent.ACTION_BOOT_COMPLETED ||
-            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
-            action == "android.intent.action.QUICKBOOT_POWERON"
-        ) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
             AlarmScheduler.rearm(context)
         }
     }

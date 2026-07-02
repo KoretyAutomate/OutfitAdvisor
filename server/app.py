@@ -9,14 +9,15 @@ request-scoped locals, are passed to Open-Meteo + the engine, and discarded. We 
 only coarse outcome + timing, never lat/lon. Run uvicorn with access_log disabled so
 the framework can't leak the request line.
 
-Run (tailnet-bound):
-    uvicorn app:app --host 0.0.0.0 --port 8787
+Run (tailnet-bound — bind the Tailscale IP, NOT 0.0.0.0, so the LAN never sees it):
+    uvicorn app:app --host 100.112.171.54 --port 8787 --no-access-log
 """
 import logging
 import time
+from typing import Literal
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 import engine
@@ -37,8 +38,10 @@ app = FastAPI(title="Outfit Advisor", version="0.1")
 class AdviceRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
-    gender: str = "neutral"   # man | woman | neutral
-    style: str = "casual"     # casual | smart | active
+    # Closed vocabularies — free strings would flow into the LLM prompt (injection)
+    # and the engine; anything else is a 422 before it touches either.
+    gender: Literal["man", "woman", "neutral"] = "neutral"
+    style: Literal["casual", "smart", "active"] = "casual"
     day: int = Field(0, ge=0, le=1)  # 0 = today (morning push), 1 = tomorrow
 
 
@@ -58,7 +61,14 @@ async def health():
 async def advice(req: AdviceRequest):
     t0 = time.monotonic()
     # NB: req.lat / req.lon are used here but intentionally NEVER logged.
-    w = await weather.fetch_weather(req.lat, req.lon, req.day)
+    try:
+        w = await weather.fetch_weather(req.lat, req.lon, req.day)
+    except Exception as e:
+        # PRIVACY: an httpx error message embeds the full Open-Meteo URL — lat/lon
+        # included. Letting it propagate would put coordinates in the 500 traceback.
+        # Log only the exception TYPE and return a coordinate-free error.
+        log.warning("advice failed: weather fetch error (%s)", type(e).__name__)
+        raise HTTPException(status_code=503, detail="weather unavailable")
     outfit = engine.recommend(w, req.gender, req.style)
 
     text = await llm.outfit_text(w, req.gender, req.style)

@@ -11,7 +11,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
-import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Handler
@@ -34,6 +33,9 @@ import java.net.URL
  * the coordinates (never persisted) -> finish(). If anything fails, post a soft
  * "tap to check your outfit" notification that opens the app (which has its own
  * on-device fallback), so the user always gets *something*.
+ *
+ * Exactly ONE outcome is posted: the finishers race (watchdog vs GPS+POST) and the
+ * first to flip `done` wins; the loser is a no-op. Requires minSdk 30 (getCurrentLocation).
  */
 class WakeActivity : Activity() {
 
@@ -43,35 +45,20 @@ class WakeActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        showWhenLockedAndTurnScreenOn()
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
         ensureChannel()
 
         // Watchdog: never hang the visible activity. If we can't finish in ~11s,
         // post the fallback and bail so we don't strand a wake screen on the lock screen.
-        main.postDelayed({ if (!done) finishWithFallback("timeout") }, 11_000)
+        main.postDelayed({ finishWithFallback() }, 11_000)
 
         if (!hasLocationPermission()) {
             // Can't legitimately read GPS without the runtime grant. Nudge via the app.
-            finishWithFallback("no-location-permission")
+            finishWithFallback()
             return
         }
         readFreshLocation()
-    }
-
-    // ---- lock-screen visibility ------------------------------------------------
-
-    private fun showWhenLockedAndTurnScreenOn() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            )
-        }
     }
 
     // ---- one fresh GPS fix -----------------------------------------------------
@@ -82,38 +69,27 @@ class WakeActivity : Activity() {
             lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
             lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> null
-        } ?: return finishWithFallback("no-location-provider")
+        } ?: return finishWithFallback()
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                gpsCancel = CancellationSignal()
-                lm.getCurrentLocation(provider, gpsCancel, mainExecutor) { loc ->
-                    if (loc != null) onLocation(loc)
-                    else fallbackToLastKnown(lm, provider)
+            gpsCancel = CancellationSignal()
+            lm.getCurrentLocation(provider, gpsCancel, mainExecutor) { loc ->
+                when {
+                    done -> {}
+                    loc != null -> onLocation(loc)
+                    else -> {
+                        // fresh fix unavailable — a recent last-known beats no outfit
+                        val last = try { lm.getLastKnownLocation(provider) } catch (se: SecurityException) { null }
+                        if (last != null) onLocation(last) else finishWithFallback()
+                    }
                 }
-            } else {
-                // Older devices: single-shot request, then give up to last-known.
-                @Suppress("DEPRECATION")
-                lm.requestSingleUpdate(provider, { loc -> onLocation(loc) }, Looper.getMainLooper())
-                main.postDelayed({ if (!done) fallbackToLastKnown(lm, provider) }, 8_000)
             }
         } catch (se: SecurityException) {
-            finishWithFallback("location-security-exception")
-        }
-    }
-
-    private fun fallbackToLastKnown(lm: LocationManager, provider: String) {
-        if (done) return
-        try {
-            val last = lm.getLastKnownLocation(provider)
-            if (last != null) onLocation(last) else finishWithFallback("no-fix")
-        } catch (se: SecurityException) {
-            finishWithFallback("location-security-exception")
+            finishWithFallback()
         }
     }
 
     private fun onLocation(loc: Location) {
-        if (done) return
         val lat = loc.latitude
         val lon = loc.longitude
         // Network off the main thread; coords live only as locals -> discarded on return.
@@ -124,7 +100,7 @@ class WakeActivity : Activity() {
             val style = prefs.getString("oa.style", "casual") ?: "casual"
             val result = fetchAdvice(base, lat, lon, gender, style)
             main.post {
-                if (result != null) finishWithAdvice(result) else finishWithFallback("advice-unreachable")
+                if (result != null) finishWithAdvice(result) else finishWithFallback()
             }
         }.start()
     }
@@ -153,10 +129,10 @@ class WakeActivity : Activity() {
             val o = JSONObject(json)
             val w = o.optJSONObject("weather")
             Advice(
-                text = o.optString("outfit_text", "").ifBlank { o.optString("text", "") },
+                text = o.optString("outfit_text", ""),
                 source = o.optString("source", "llm"),
-                hi = w?.optInt("hi"),
-                lo = w?.optInt("lo"),
+                hi = w?.takeIf { it.has("hi") }?.optInt("hi"),
+                lo = w?.takeIf { it.has("lo") }?.optInt("lo"),
                 emoji = w?.optString("emoji")
             )
         } catch (e: Exception) {
@@ -166,29 +142,31 @@ class WakeActivity : Activity() {
         }
     }
 
-    // ---- notifications + finish ------------------------------------------------
+    // ---- notifications + finish (mutually exclusive — first caller wins) --------
 
     private fun finishWithAdvice(a: Advice) {
+        if (done) return
+        done = true
         val srcBadge = if (a.source == "llm") "122B" else a.source
         val header = buildString {
             a.emoji?.takeIf { it.isNotBlank() }?.let { append(it).append("  ") }
             if (a.lo != null && a.hi != null) append("${a.lo}–${a.hi}°  ")
             append("Today's outfit")
         }
-        val body = a.text.ifBlank { "Tap to see today's outfit." }
-        postOutfit(header, body, "AI · $srcBadge")
+        postOutfit(header, a.text.ifBlank { "Tap to see today's outfit." }, "AI · $srcBadge")
         wrapUp()
     }
 
-    private fun finishWithFallback(reason: String) {
+    private fun finishWithFallback() {
         if (done) return
+        done = true
         // Soft notification that opens the app; the web layer runs its own
         // on-device rule-engine estimate when the DGX is unreachable.
-        postOutfit("Today's outfit", "Tap to check what to wear.", null, openApp = true)
+        postOutfit("Today's outfit", "Tap to check what to wear.", null)
         wrapUp()
     }
 
-    private fun postOutfit(title: String, text: String, badge: String?, openApp: Boolean = false) {
+    private fun postOutfit(title: String, text: String, badge: String?) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val launch = packageManager.getLaunchIntentForPackage(packageName)
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -197,37 +175,34 @@ class WakeActivity : Activity() {
             this, 4774, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val style = Notification.BigTextStyle().bigText(text)
-        val builder = Notification.Builder(this, CHANNEL_OUTFIT)
+        val n = Notification.Builder(this, CHANNEL_OUTFIT)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(title)
             .setContentText(if (badge != null) "$badge · tap for details" else text)
-            .setStyle(style)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(pi)
-        nm.notify(OUTFIT_NOTIF_ID, builder.build())
+            .build()
+        nm.notify(OUTFIT_NOTIF_ID, n)
         // Clear the transient "getting your outfit…" wake notification.
         nm.cancel(AlarmReceiver.WAKE_NOTIF_ID)
     }
 
-    /** Mark done, cancel any pending GPS request, and dismiss the visible activity. */
+    /** Cancel any in-flight GPS request and dismiss the visible activity. */
     private fun wrapUp() {
-        done = true
         gpsCancel?.cancel()
         finish()
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (nm.getNotificationChannel(CHANNEL_OUTFIT) == null) {
-                nm.createNotificationChannel(
-                    NotificationChannel(
-                        CHANNEL_OUTFIT, "Daily outfit",
-                        NotificationManager.IMPORTANCE_DEFAULT
-                    ).apply { description = "Your morning outfit recommendation" }
-                )
-            }
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(CHANNEL_OUTFIT) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_OUTFIT, "Daily outfit",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply { description = "Your morning outfit recommendation" }
+            )
         }
     }
 

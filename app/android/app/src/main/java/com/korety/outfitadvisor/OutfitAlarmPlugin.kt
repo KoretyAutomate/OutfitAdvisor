@@ -2,10 +2,7 @@ package com.korety.outfitadvisor
 
 import android.app.AlarmManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -19,9 +16,8 @@ import com.getcapacitor.annotation.CapacitorPlugin
  *   Plugins.OutfitAlarm.arm({hour, minute})   when the schedule is enabled/saved
  *   Plugins.OutfitAlarm.cancel()              when the toggle is turned off
  *
- * arm() also surfaces whether exact alarms are permitted so the UI can prompt the
- * user to grant SCHEDULE_EXACT_ALARM if the OS revoked it (Android 12+). We never
- * block on it — AlarmScheduler.arm falls back to an inexact allow-while-idle alarm.
+ * arm() reports whether the alarm is exact so the UI *could* surface a degraded-mode
+ * hint; either way AlarmScheduler falls back to an inexact allow-while-idle alarm.
  */
 @CapacitorPlugin(name = "OutfitAlarm")
 class OutfitAlarmPlugin : Plugin() {
@@ -34,14 +30,12 @@ class OutfitAlarmPlugin : Plugin() {
             call.reject("hour/minute out of range")
             return
         }
-        val ctx = context
-        AlarmScheduler.arm(ctx, hour, minute)
+        AlarmScheduler.arm(context, hour, minute)
         val ret = JSObject()
         ret.put("armed", true)
         ret.put("hour", hour)
         ret.put("minute", minute)
-        ret.put("exact", canScheduleExact(ctx))
-        ret.put("nextFireMillis", AlarmScheduler.nextFireMillis(hour, minute))
+        ret.put("exact", canScheduleExact(context))
         call.resolve(ret)
     }
 
@@ -51,26 +45,6 @@ class OutfitAlarmPlugin : Plugin() {
         val ret = JSObject()
         ret.put("armed", false)
         call.resolve(ret)
-    }
-
-    /** Lets the UI ask "are exact alarms allowed?" without arming. */
-    @PluginMethod
-    fun canScheduleExact(call: PluginCall) {
-        val ret = JSObject()
-        ret.put("exact", canScheduleExact(context))
-        call.resolve(ret)
-    }
-
-    /** Opens the OS settings page to grant SCHEDULE_EXACT_ALARM (Android 12+). */
-    @PluginMethod
-    fun openExactAlarmSettings(call: PluginCall) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                .setData(Uri.parse("package:" + context.packageName))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(i)
-        }
-        call.resolve()
     }
 
     private fun canScheduleExact(ctx: Context): Boolean {

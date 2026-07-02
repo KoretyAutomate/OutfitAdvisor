@@ -7,7 +7,7 @@
 #   systemctl --user enable --now outfit-advisor
 #   loginctl enable-linger korety        # keep it running after logout / across reboots
 #
-# Verify:  curl http://127.0.0.1:8787/health   ->  {"ok":true,"vllm":...}
+# Verify:  curl http://100.112.171.54:8787/health   ->  {"ok":true,"vllm":...}
 # Logs:    journalctl --user -u outfit-advisor -f
 
 [Unit]
@@ -18,7 +18,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/korety/Project/_ideas/outfit-advisor/server
-ExecStart=/home/korety/miniconda3/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8787 --no-access-log
+# SECURITY: bind the Tailscale IP, not 0.0.0.0 — the LAN must never see this port.
+# If tailscale0 isn't up yet at boot, the bind fails and Restart retries until it is.
+ExecStart=/home/korety/miniconda3/bin/python3 -m uvicorn app:app --host 100.112.171.54 --port 8787 --no-access-log
 Restart=on-failure
 RestartSec=5
 

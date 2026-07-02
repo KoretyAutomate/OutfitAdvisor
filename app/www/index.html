@@ -198,6 +198,9 @@ const $ = id => document.getElementById(id);
 /* ───────── UI helpers ───────── */
 function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
+// escape anything that came off the network before it goes near innerHTML
+function esc(s){ return String(s).replace(/[&<>"']/g,
+  c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function err(msg){ $("err").textContent = msg||""; }
 function paintSeg(seg, kind){ [...seg.children].forEach(b=>
   b.classList.toggle("on", b.dataset[kind]===state[kind==="g"?"gender":"style"])); }
@@ -243,7 +246,8 @@ function recommend(w,gender,style){
   if(w.hi>=24 && [0,1,2].includes(w.code)) acc.push("sunglasses");
   if(w.swing>=10) acc.push("a packable layer for the temp swing");
   o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
-  if(w.swing>=10) o.tip=`Big ${w.swing}° swing today (${w.morning}° → ${w.midday}°). Dress in layers you can shed by midday and add back in the evening.`;
+  if(w.swing>=10){ const span=(w.morning!=null&&w.midday!=null)?` (${w.morning}° → ${w.midday}°)`:"";
+    o.tip=`Big ${w.swing}° swing today${span}. Dress in layers you can shed by midday and add back in the evening.`; }
   else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%). Prioritise the waterproof outer + footwear.`;
   else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
   else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
@@ -316,13 +320,13 @@ function renderWeather(w){
   $("wxEmoji").textContent=w.emoji; $("wxLo").textContent=w.lo; $("wxHi").textContent=w.hi;
   $("wxDesc").textContent=`${w.desc} · feels ${w.feelsLo}°–${w.feelsHi}°`;
   const chips=[];
-  if(w.swing>=10) chips.push(`<span class="chip warn">⚠ ${w.swing}° swing</span>`);
-  if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">🌧 rain ${w.rain}%</span>`);
+  if(w.swing>=10) chips.push(`<span class="chip warn">⚠ ${esc(w.swing)}° swing</span>`);
+  if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">🌧 rain ${esc(w.rain)}%</span>`);
   if(w.isSnow) chips.push(`<span class="chip rain">🌨 snow</span>`);
-  if(w.wind>=8) chips.push(`<span class="chip warn">💨 ${w.wind} m/s</span>`);
+  if(w.wind>=8) chips.push(`<span class="chip warn">💨 ${esc(w.wind)} m/s</span>`);
   $("wxChips").innerHTML=chips.join("");
   $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
-    .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":v+"°"}</div></div>`).join("");
+    .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":esc(v)+"°"}</div></div>`).join("");
 }
 function renderOutfit(o,text,source){
   $("outfitCard").style.display="block";
@@ -331,7 +335,7 @@ function renderOutfit(o,text,source){
   if(source==="offline"){ b.textContent="offline estimate"; b.className="chip off"; }
   else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
   $("outfitList").innerHTML=["base","mid","outer","bottoms","footwear","accessories"].map(k=>
-    `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${o[k]}</div></div></li>`).join("");
+    `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   $("outfitTip").textContent="💡 "+(o.tip||"");
 }
 
@@ -341,7 +345,11 @@ async function run(){
   const btn=$("goBtn"), old=btn.innerHTML; btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
   try{
     const c=$("city").value.trim();
-    if(c && c!==state.city){ state.city=c; const g=await geocode(c); state.lat=g.lat; state.lon=g.lon; state.place=g.place; await persist(); }
+    // geocode when the city changed OR when coords are absent (coords are never
+    // persisted, so a saved city always re-geocodes on first use after launch)
+    if(c && (c!==state.city || state.lat==null)){
+      state.city=c; const g=await geocode(c); state.lat=g.lat; state.lon=g.lon; state.place=g.place; await persist();
+    }
     if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source;
@@ -384,18 +392,25 @@ async function saveSchedule(){
   toast(state.pushEnabled?`Daily push set for ${state.pushTime}`:"Daily push off");
 }
 
-/* ───────── persistence ───────── */
+/* ───────── persistence ─────────
+   PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
+   Only the typed city NAME is saved; coords are re-derived by geocoding on demand.
+   GPS coords live exclusively in state and die with the page. */
 async function persist(){
-  await prefSet("oa.city",state.city); await prefSet("oa.lat",state.lat??""); await prefSet("oa.lon",state.lon??"");
-  await prefSet("oa.place",state.place); await prefSet("oa.gender",state.gender); await prefSet("oa.style",state.style);
+  await prefSet("oa.city",state.city);
+  await prefSet("oa.gender",state.gender); await prefSet("oa.style",state.style);
   await prefSet("oa.baseUrl",state.baseUrl); await prefSet("oa.pushTime",state.pushTime); await prefSet("oa.pushEnabled",state.pushEnabled?"1":"0");
 }
 async function load(){
-  state.city=await prefGet("oa.city",""); const la=await prefGet("oa.lat",""); const lo=await prefGet("oa.lon","");
-  state.lat=la?parseFloat(la):null; state.lon=lo?parseFloat(lo):null; state.place=await prefGet("oa.place","");
+  state.city=await prefGet("oa.city","");
   state.gender=await prefGet("oa.gender","man"); state.style=await prefGet("oa.style","casual");
   state.baseUrl=await prefGet("oa.baseUrl",DEFAULT_BASE); state.pushTime=await prefGet("oa.pushTime","06:45");
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
+  // one-time cleanup of coords persisted by pre-audit builds
+  for(const k of ["oa.lat","oa.lon","oa.place"]){
+    try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
+    localStorage.removeItem(k);
+  }
 }
 
 /* ───────── wire up ───────── */

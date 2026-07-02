@@ -1,5 +1,5 @@
 ext {
-    minSdkVersion = 29
+    minSdkVersion = 30    // LocationManager.getCurrentLocation (R); MVP targets a Pixel 10 Pro
     compileSdkVersion = 34
     targetSdkVersion = 34
     androidxActivityVersion = '1.8.0'

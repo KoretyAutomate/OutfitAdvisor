@@ -1,5 +1,5 @@
 """
-weather.py — Open-Meteo fetch, ported from webapp/index.html fetchWeather().
+weather.py — Open-Meteo fetch. JS twin: fetchWeatherLocal() in app/www/index.html.
 
 No API key. Returns a structured weather dict for a given day (0=today, 1=tomorrow),
 with morning/midday/evening hourly temps in the location's LOCAL time (timezone=auto).

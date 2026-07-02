@@ -55,14 +55,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- Re-arm the alarm after a reboot. -->
+        <!-- Re-arm the alarm after a reboot. exported=false is safe: BOOT_COMPLETED
+             is a protected broadcast only the system can send, and the system is
+             exempt from the export restriction — other apps can't poke this. -->
         <receiver
             android:name=".BootReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
     </application>

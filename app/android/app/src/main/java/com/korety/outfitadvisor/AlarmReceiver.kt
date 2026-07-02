@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 /**
  * Fires once/day at the armed time (via AlarmScheduler's setExactAndAllowWhileIdle).
@@ -17,8 +16,8 @@ import android.os.Build
  *     re-arm here the schedule dies after a single fire.
  *  2. Wake a briefly-VISIBLE Activity via a full-screen-intent notification. On a
  *     locked/Doze device a bare startActivity() from a receiver is blocked, but a
- *     high-priority notification carrying setFullScreenIntent() is allowed to launch
- *     WakeActivity. Android then treats the ensuing GPS read as legitimate
+ *     high-importance notification carrying setFullScreenIntent() is allowed to
+ *     launch WakeActivity. Android then treats the ensuing GPS read as legitimate
  *     foreground location — the whole reason the MVP avoids ACCESS_BACKGROUND_LOCATION.
  */
 class AlarmReceiver : BroadcastReceiver() {
@@ -40,7 +39,6 @@ class AlarmReceiver : BroadcastReceiver() {
             .setContentTitle("Getting your outfit…")
             .setContentText("Checking the weather at your location")
             .setCategory(Notification.CATEGORY_ALARM)
-            .setPriority(Notification.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setFullScreenIntent(fsi, true)
             .setContentIntent(fsi)
@@ -51,15 +49,13 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (nm.getNotificationChannel(CHANNEL_WAKE) == null) {
-                val ch = NotificationChannel(
-                    CHANNEL_WAKE, "Morning wake",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply { description = "Briefly wakes the app to read weather for your outfit" }
-                nm.createNotificationChannel(ch)
-            }
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(CHANNEL_WAKE) == null) {
+            val ch = NotificationChannel(
+                CHANNEL_WAKE, "Morning wake",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = "Briefly wakes the app to read weather for your outfit" }
+            nm.createNotificationChannel(ch)
         }
     }
 

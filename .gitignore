@@ -22,3 +22,7 @@ test_results/*.log
 
 # OS
 .DS_Store
+
+# Design docs / test artifacts — local only (privacy: device inventory, run logs)
+PLAN.md
+test_results/

@@ -18,6 +18,7 @@ from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import engine
@@ -33,6 +34,16 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = FastAPI(title="Outfit Advisor", version="0.1")
+
+# The Capacitor WebView serves the app from https://localhost (Android) /
+# capacitor://localhost (iOS); its POST preflight needs these CORS headers or the
+# browser layer rejects the response. Native callers (WakeActivity) ignore CORS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://localhost", "capacitor://localhost"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
+)
 
 
 class AdviceRequest(BaseModel):

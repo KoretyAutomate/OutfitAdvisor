@@ -135,6 +135,7 @@ async def advice(req: AdviceRequest):
     outfit = engine.recommend(w, req.gender, req.style)
 
     closet_used = False
+    picks = None
     text = None
     if req.closet:
         items = [i.model_dump() for i in req.closet]
@@ -147,6 +148,9 @@ async def advice(req: AdviceRequest):
             by_id = {i["id"]: i for i in items}
             for slot, item_id in result["picks"].items():
                 outfit[slot] = by_id[item_id]["label"] if item_id else "None"
+            # IDs are already validated against the sent closet — echo them so
+            # the app can wear-log the exact items (plan amendment 2).
+            picks = result["picks"]
         # result None -> honest generic fallback below, closetUsed stays False
         # (plan amendments 3 & 9: never mislabel non-closet advice).
 
@@ -164,7 +168,7 @@ async def advice(req: AdviceRequest):
              int(closet_used), len(req.closet or []), dt)
 
     return {"weather": w, "outfit": outfit, "outfit_text": text, "source": source,
-            "closetUsed": closet_used}
+            "closetUsed": closet_used, "picks": picks}
 
 
 @app.post("/classify")

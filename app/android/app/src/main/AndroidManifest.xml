@@ -77,6 +77,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Closet (C2): photograph clothes for LLM classification. Camera stays
+         optional hardware — gallery upload covers camera-less devices. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Deliberately NO ACCESS_BACKGROUND_LOCATION — the FSI visible-activity path
          makes the fire-time read count as foreground location (see PLAN). -->
 </manifest>

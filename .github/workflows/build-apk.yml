@@ -41,11 +41,15 @@ jobs:
       # keystore and the phone rejects updates (INSTALL_FAILED_UPDATE_INCOMPATIBLE),
       # forcing an uninstall that wipes app data (incl. the closet). The keystore
       # lives in the DEBUG_KEYSTORE_B64 repo secret (master copy on the DGX at
-      # ~/.android-ci/debug.keystore; standard debug alias/passwords).
+      # ~/.android-ci/debug.keystore; standard debug alias/passwords). The path is
+      # handed to Gradle explicitly via DEBUG_KEYSTORE_PATH — writing it to
+      # ~/.android/debug.keystore is NOT enough, AGP resolved its default keystore
+      # elsewhere on this runner and silently signed with a fresh key.
       - name: Restore persistent debug keystore
         run: |
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+          test -s "$RUNNER_TEMP/debug.keystore" || { echo "keystore secret empty"; exit 1; }
+          echo "DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
 
@@ -64,6 +68,19 @@ jobs:
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK" && ls -lh "$APK" || { echo "APK NOT PRODUCED"; exit 1; }
+
+      # Guard the persistent-signing invariant: if the APK is ever signed with a
+      # key other than the DEBUG_KEYSTORE_B64 one, installs on the Pixel would
+      # force a data-wiping uninstall — fail the build instead of shipping that.
+      - name: Verify APK signed with the persistent key
+        working-directory: app/android
+        run: |
+          EXPECTED="067bcb5f27b863b77d75e8dff39b9dc78b7d5998735ece815eb7cf6decd84113"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+          DIGEST=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep -oP 'certificate SHA-256 digest: \K[0-9a-f]+' | head -1)
+          echo "signed with: $DIGEST"
+          [ "$DIGEST" = "$EXPECTED" ] || { echo "WRONG SIGNING KEY (expected $EXPECTED)"; exit 1; }
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

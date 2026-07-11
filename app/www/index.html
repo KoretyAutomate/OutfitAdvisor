@@ -473,12 +473,22 @@ async function addItem(source){
     $("clErr").textContent=e?.message||"Couldn't get the photo."; return;
   }
   const meta=await classifyPhoto(b64);
-  if(!meta) toast("Advisor unreachable — fill in the details yourself");
-  openSheet({ id:"itm-"+uuid(), label:meta?.label||"", category:meta?.category||"base",
+  // Persist the item the instant it exists — photo to Filesystem, metadata to
+  // Preferences — BEFORE opening the edit sheet. Previously a fresh item lived
+  // only in the modal until an explicit Save, so an Android back-gesture (which
+  // minimises the app — no @capacitor/app handler), a backdrop tap, or a
+  // memory-eviction of the camera-heavy WebView would silently discard the whole
+  // classification. Saving up front makes the sheet a plain edit of an item that
+  // is already safe in the closet; dismissing keeps it, Delete removes it.
+  const item={ id:"itm-"+uuid(), label:meta?.label||"Untitled item", category:meta?.category||"base",
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
-    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() },
-    {isNew:true, b64});
+    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() };
+  item.photo=await photoSave(item.id,b64);
+  closet.push(item);
+  await saveCloset();
+  toast(meta?"Added to your closet — tap to tweak":"Saved — advisor unreachable, add the details yourself");
+  openSheet(item,{isNew:false});
 }
 
 /* ── edit sheet ── */

@@ -47,6 +47,25 @@ class OutfitAlarmPlugin : Plugin() {
         call.resolve(ret)
     }
 
+    /**
+     * Ground truth for the UI's "next push" line: reports what is actually
+     * armed (the native prefs the alarm re-arms from), not what the web layer
+     * last saved — the two can diverge and the UI should show the real thing.
+     */
+    @PluginMethod
+    fun status(call: PluginCall) {
+        val enabled = AlarmScheduler.isEnabled(context)
+        val hour = AlarmScheduler.hour(context)
+        val minute = AlarmScheduler.minute(context)
+        val ret = JSObject()
+        ret.put("armed", enabled)
+        ret.put("hour", hour)
+        ret.put("minute", minute)
+        ret.put("exact", canScheduleExact(context))
+        if (enabled) ret.put("nextFireMillis", AlarmScheduler.nextFireMillis(hour, minute))
+        call.resolve(ret)
+    }
+
     private fun canScheduleExact(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager

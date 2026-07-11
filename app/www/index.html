@@ -156,6 +156,7 @@
       </div>
       <button class="ghost" id="saveSchedule" style="align-self:flex-end">Save schedule</button>
     </div>
+    <p class="note" id="schedStatus" style="display:none"></p>
     <details class="det">
       <summary>Advanced — advisor server</summary>
       <div class="row" style="margin-top:10px">
@@ -660,6 +661,27 @@ async function saveSchedule(){
     else if(r && r.exact===false) toast(`Push set for ${state.pushTime} (inexact — may drift a few minutes)`);
     else toast(`Daily push set for ${state.pushTime}`);
   }catch(e){ toast("⚠ Couldn't arm the alarm — push NOT set"); }
+  refreshSchedStatus();
+}
+
+/* "Next push" line — asks the NATIVE side what is actually armed, so the UI
+   shows ground truth instead of the last thing the web layer saved. */
+async function refreshSchedStatus(){
+  const el=$("schedStatus");
+  if(!(Plugins.OutfitAlarm && Plugins.OutfitAlarm.status)){ el.style.display="none"; return; }
+  try{
+    const s=await Plugins.OutfitAlarm.status();
+    el.style.display="block";
+    if(!s.armed){ el.textContent="⏸ No morning push armed."; return; }
+    const hm=`${String(s.hour).padStart(2,"0")}:${String(s.minute).padStart(2,"0")}`;
+    let when="";
+    if(s.nextFireMillis){
+      const d=new Date(s.nextFireMillis), mins=Math.round((s.nextFireMillis-Date.now())/60000);
+      const rel=mins<60?`in ${mins} min`:`in ${Math.round(mins/60)} h`;
+      when=` — next: ${d.toLocaleDateString(undefined,{weekday:"short"})} ${hm} (${rel})`;
+    }
+    el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}`;
+  }catch(e){ el.style.display="none"; }
 }
 
 /* ───────── persistence ─────────
@@ -766,7 +788,7 @@ $("dWear").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset();
+  renderCloset(); refreshSchedStatus();
 })();
 </script>
 </body>

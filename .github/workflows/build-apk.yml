@@ -37,6 +37,18 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
+      # Without a persistent key, every run signs with a fresh throwaway debug
+      # keystore and the phone rejects updates (INSTALL_FAILED_UPDATE_INCOMPATIBLE),
+      # forcing an uninstall that wipes app data (incl. the closet). The keystore
+      # lives in the DEBUG_KEYSTORE_B64 repo secret (master copy on the DGX at
+      # ~/.android-ci/debug.keystore; standard debug alias/passwords).
+      - name: Restore persistent debug keystore
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+
       - name: Install JS dependencies
         run: npm ci
 

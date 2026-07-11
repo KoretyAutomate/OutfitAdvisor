@@ -629,17 +629,37 @@ async function previewPush(){
   toast("Notifications not available here");
 }
 
-/* ───────── schedule preference (native exact-alarm wired in Phase 2) ───────── */
+/* ───────── schedule (native exact-alarm, Phase 2) ─────────
+   The morning fire needs POST_NOTIFICATIONS (Android 13+: notifications are
+   silently DROPPED until granted — including the full-screen wake that drives
+   the whole flow) and location for the fire-time GPS read. Neither is granted
+   by default, so enabling the schedule is the moment to ask. And never claim
+   success unless the alarm actually armed — the old handler toasted
+   "Daily push set" unconditionally, which hid every failure. */
 async function saveSchedule(){
   state.pushTime=$("pushTime").value||"06:45"; state.pushEnabled=$("pushEnabled").checked; await persist();
-  // Phase 2 (native): hand the time to the OutfitAlarm plugin to arm an exact daily alarm.
-  if(state.pushEnabled && Plugins.OutfitAlarm && Plugins.OutfitAlarm.arm){
-    const [h,m]=state.pushTime.split(":").map(Number);
-    try{ await Plugins.OutfitAlarm.arm({hour:h,minute:m}); }catch(e){}
-  } else if(!state.pushEnabled && Plugins.OutfitAlarm && Plugins.OutfitAlarm.cancel){
-    try{ await Plugins.OutfitAlarm.cancel(); }catch(e){}
+  if(!state.pushEnabled){
+    if(Plugins.OutfitAlarm && Plugins.OutfitAlarm.cancel){ try{ await Plugins.OutfitAlarm.cancel(); }catch(e){} }
+    toast("Daily push off"); return;
   }
-  toast(state.pushEnabled?`Daily push set for ${state.pushTime}`:"Daily push off");
+  const warn=[];
+  if(isNative){
+    try{ const p=await Plugins.LocalNotifications.requestPermissions();
+      if(p && p.display!=="granted") warn.push("notifications blocked — the push can't appear"); }catch(e){}
+    try{ const g=await Plugins.Geolocation.requestPermissions();
+      if(g && g.location!=="granted" && g.coarseLocation!=="granted")
+        warn.push("location blocked — can't read the weather where you wake up"); }catch(e){}
+  }
+  if(!(Plugins.OutfitAlarm && Plugins.OutfitAlarm.arm)){
+    toast(isNative?"⚠ Alarm bridge missing — push NOT armed":"Saved (arming only works in the app)"); return;
+  }
+  const [h,m]=state.pushTime.split(":").map(Number);
+  try{
+    const r=await Plugins.OutfitAlarm.arm({hour:h,minute:m});
+    if(warn.length) toast(`⚠ Armed for ${state.pushTime}, but ${warn[0]}`);
+    else if(r && r.exact===false) toast(`Push set for ${state.pushTime} (inexact — may drift a few minutes)`);
+    else toast(`Daily push set for ${state.pushTime}`);
+  }catch(e){ toast("⚠ Couldn't arm the alarm — push NOT set"); }
 }
 
 /* ───────── persistence ─────────

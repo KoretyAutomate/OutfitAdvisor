@@ -23,6 +23,24 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    // @ebarooni/capacitor-calendar 6.7.2 HARD-PINS androidx.core-ktx 1.15.0, which
+    // demands compileSdk 35. This project is compileSdk 34 on AGP 8.2.1 (whose own
+    // max is 34), so accepting 1.15.0 would cascade into an AGP + Gradle upgrade
+    // across a CI pipeline that currently signs release-able APKs reliably.
+    //
+    // 1.13.1 is the newest core that still targets compileSdk 34. The plugin is
+    // built from source as a Gradle subproject, so if it genuinely needed a 1.15-only
+    // API this would fail LOUDLY at compile time rather than break at runtime.
+    // It compiles clean — verified.
+    //
+    // Revisit when the app moves to compileSdk 35 (then drop this block entirely).
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.13.1'
+            force 'androidx.core:core-ktx:1.13.1'
+        }
+    }
 }
 
 task clean(type: Delete) {

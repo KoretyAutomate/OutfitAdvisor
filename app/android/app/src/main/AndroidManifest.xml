@@ -82,6 +82,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Trips: read the device calendar to spot upcoming trips. MUST be declared
+         HERE — @ebarooni/capacitor-calendar ships an EMPTY manifest and injects
+         nothing, so without this line the first CalendarContract query throws
+         SecurityException even though the JS permission prompt appears to succeed.
+         READ only — never WRITE_CALENDAR; we only ever use the plugin's
+         `readCalendar` permission alias. Event text never leaves the phone. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Deliberately NO ACCESS_BACKGROUND_LOCATION — the FSI visible-activity path
          makes the fire-time read count as foreground location (see PLAN). -->
 </manifest>

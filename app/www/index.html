@@ -184,6 +184,21 @@
     <div id="clErr" class="err"></div>
   </div>
 
+  <!-- Trips -->
+  <div class="card">
+    <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
+    <div class="row">
+      <button class="primary" id="calBtn">📅 Check my calendar</button>
+    </div>
+    <div id="tripList"></div>
+    <div id="candList"></div>
+    <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
+      you what to pack — from the clothes you actually own, for the weather where you're going.
+      Your events stay on this phone: only the dates and the city's coordinates are ever sent,
+      never the event's title, notes, or location text.</p>
+    <div id="tripErr" class="err"></div>
+  </div>
+
   <!-- Weather -->
   <div class="card" id="wxCard" style="display:none">
     <h2 id="wxWhen">Today</h2>
@@ -264,6 +279,83 @@
       <button class="ghost" id="shDel" style="display:none;color:#fca5a5">Delete</button>
       <button id="shCancel">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Trip confirm sheet -->
+<div class="modal" id="tripWrap">
+  <div class="sheet">
+    <h3 id="tsTitle">Confirm trip</h3>
+    <p class="note" id="tsWhen" style="margin-top:-6px"></p>
+
+    <label class="lbl">Where are you going?</label>
+    <div class="row">
+      <input type="text" id="tsCity" placeholder="City — e.g. Osaka" style="flex:1">
+      <button class="ghost" id="tsFind">Find</button>
+    </div>
+    <!-- The calendar's own location text is shown as a HINT only. It is never
+         geocoded or sent anywhere: it is routinely a hotel or a street address,
+         and shipping it to a third-party geocoder would leak the one thing this
+         design promises to keep on the phone. The user names the city. -->
+    <p class="note" id="tsHint" style="display:none"></p>
+    <div id="tsMatches"></div>
+    <p class="note" id="tsPlace" style="display:none;color:var(--good)"></p>
+
+    <label class="lbl" style="margin-top:12px">What kind of trip?</label>
+    <div class="seg" id="tsType">
+      <button data-t="business">💼 Business</button>
+      <button data-t="vacation">🏖️ Vacation</button>
+    </div>
+
+    <label class="lbl" style="margin-top:12px">How will you need to dress?</label>
+    <div class="seg" id="tsStyles">
+      <button data-s="casual">Casual</button>
+      <button data-s="smart">Smart</button>
+      <button data-s="active">Active</button>
+    </div>
+    <p class="note">Pick more than one — a business trip usually needs smart for meetings
+      <em>and</em> casual for the evenings.</p>
+
+    <div class="switch" style="margin-top:12px">
+      <div>
+        <label class="lbl">I'll do laundry before I go</label>
+        <span class="note" style="margin:0">Then today's worn clothes count as packable.</span>
+      </div>
+      <label class="toggle"><input type="checkbox" id="tsLaundry"><span class="sl"></span></label>
+    </div>
+
+    <div class="frow">
+      <label class="lbl" style="flex:1">Remind me this many days before</label>
+      <div class="stepper">
+        <button id="tsMinus">−</button><b id="tsDays">2</b><button id="tsPlus">+</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="tsSave" style="flex:2">Save trip</button>
+      <button class="ghost" id="tsDel" style="display:none;color:#fca5a5">Delete</button>
+      <button id="tsCancel">Cancel</button>
+    </div>
+    <div id="tsErr" class="err"></div>
+  </div>
+</div>
+
+<!-- Packing list -->
+<div class="modal" id="packWrap">
+  <div class="sheet">
+    <h3 id="pkTitle">Packing list</h3>
+    <p class="note" id="pkWhen" style="margin-top:-6px"></p>
+    <div class="chips" id="pkChips"></div>
+    <div class="timeline" id="pkDays"></div>
+    <p class="aitext" id="pkText"></p>
+    <ul class="outfit" id="pkList"></ul>
+    <div id="pkGaps"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="pkPacked" style="flex:2">🧳 Packed it — these are with me</button>
+      <button id="pkClose">Close</button>
+    </div>
+    <p class="note" id="pkPackedNote" style="display:none"></p>
+    <div id="pkErr" class="err"></div>
   </div>
 </div>
 
@@ -531,10 +623,138 @@ async function renderCloset(){
   g.innerHTML=tiles.join("");
 }
 
-/* closet payload for /advice — AVAILABLE items only (rotation applied here) */
-function closetPayload(){
+/* ───────── trips (T2/T2.5): calendar → packing list ─────────
+   PRIVACY: the calendar is read ON THIS PHONE and stays here. The event's title,
+   notes and location TEXT are never geocoded and never sent to any host — not the
+   DGX, not Open-Meteo. A calendar location is routinely a hotel, a clinic or a
+   colleague's address, auto-filled by whoever sent the invite. The user names the
+   destination city themselves; only its coordinates and the dates leave the phone. */
+let trips=[];            // {id,calId,title,start,end,lat,lon,place,type,styles[],
+                         //  notifyDays,laundryBefore,packed:[{id,qty}],armedAt}
+let tripsDismissed=[];   // calendar event ids the user said are NOT trips
+let candidates=[];       // scanned, unconfirmed
+const TRIP_SCAN_DAYS=90, TRIP_KEEP_DAYS=30;
+
+const dayISO=ms=>{const d=new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+const todayISO=()=>dayISO(Date.now());
+/* local midnight of an ISO date — trip dates are dates, not instants */
+const isoMs=s=>{const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d).getTime();};
+const nightsBetween=(a,b)=>Math.round((isoMs(b)-isoMs(a))/DAY_MS);
+
+/* An event is a trip candidate if it spans at least one NIGHT. All-day events end
+   at exclusive midnight, so step back 1ms before taking the date — otherwise every
+   single-day all-day event (a birthday) looks like a 1-night trip.
+   NOTE: the plugin's CalendarEvent exposes no recurrence rule, so we cannot filter
+   recurring events explicitly. The overnight test already excludes the daily-standup
+   case, and the user confirms every candidate anyway. */
+function toCandidate(ev){
+  if(!ev.startDate||!ev.endDate) return null;
+  const start=dayISO(ev.startDate);
+  const end=dayISO(ev.isAllDay?ev.endDate-1:ev.endDate);
+  const nights=nightsBetween(start,end);
+  if(nights<1||nights>30) return null;
+  return {calId:ev.id,title:ev.title||"(untitled)",start,end,nights,
+          hint:(ev.location||"").trim()};
+}
+
+async function scanCalendar(){
+  const Cal=Plugins.CapacitorCalendar;
+  if(!Cal){ throw new Error("Calendar isn't available here — open the app on your phone."); }
+  let res;
+  try{ res=await Cal.checkPermission({alias:"readCalendar"}); }catch(e){ res=null; }
+  if(!res||res.result!=="granted"){
+    const r=await Cal.requestPermission({alias:"readCalendar"});
+    if(!r||r.result!=="granted") throw new Error("Calendar permission denied — no trips can be found.");
+  }
+  const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
+  const {result}=await Cal.listEventsInRange({from,to});
+  const have=new Set(trips.map(t=>t.calId));
+  candidates=(result||[]).map(toCandidate).filter(Boolean)
+    .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
+    .sort((a,b)=>a.start<b.start?-1:1);
+  renderTrips();
+  return candidates.length;
+}
+
+/* Geocode a city the USER typed. Returns several matches — "Springfield" is five
+   cities and Open-Meteo ranks only by population, with no confidence score. */
+async function geocodeMany(city){
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=5&language=en`);
+  const d=await r.json();
+  return (d.results||[]).map(g=>({lat:g.latitude,lon:g.longitude,
+    place:[g.name,g.admin1,g.country].filter(Boolean).join(", ")}));
+}
+
+/* Availability AS OF DEPARTURE, not as of now. Packing for a trip 5 days out must
+   not exclude the shirt worn yesterday — it will be clean by then. And if the user
+   says they'll do laundry first, everything is packable (the passive cooldown timer
+   is not the only way clothes get clean — the "Laundry done" button exists). */
+function packAvail(it,departureMs,laundryBefore){
+  if(laundryBefore) return it.count;
+  const n=wearLog.filter(w=>w.itemId===it.id&&(departureMs-w.wornAt)<COOLDOWN_DAYS*DAY_MS).length;
+  return Math.max(0,it.count-n);
+}
+function packPayload(trip){
+  const dep=isoMs(trip.start);
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
-    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,availableCount:avail(i)}))
+    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
+    availableCount:packAvail(i,dep,!!trip.laundryBefore)}))
+    .filter(i=>i.availableCount>=1);
+}
+
+/* The trip you are ON right now — the one whose clothes are physically with you. */
+function tripInProgress(){
+  const t=todayISO();
+  return trips.find(x=>x.packed&&x.packed.length&&x.start<=t&&t<=x.end)||null;
+}
+
+async function saveTrips(){
+  // prune long-past trips — otherwise the phone keeps a record of every place the
+  // user has ever been, forever
+  const cut=dayISO(Date.now()-TRIP_KEEP_DAYS*DAY_MS);
+  trips=trips.filter(t=>t.end>=cut);
+  await prefSet("oa.trips",JSON.stringify(trips));
+  await prefSet("oa.tripsDismissed",JSON.stringify(tripsDismissed.slice(-100)));
+  renderTrips();
+}
+
+/* fire the packing push at 08:00 local, notifyDays before departure */
+function fireAtFor(trip){
+  const d=new Date(isoMs(trip.start)-trip.notifyDays*DAY_MS);
+  d.setHours(8,0,0,0);
+  return d.getTime();
+}
+async function armTrip(trip){
+  if(!(Plugins.OutfitPacking&&Plugins.OutfitPacking.arm)) return false;
+  const at=fireAtFor(trip);
+  if(at<=Date.now()) return false;            // never schedule into the past
+  try{ await Plugins.OutfitPacking.arm({tripId:trip.id,fireAtMillis:at}); return true; }
+  catch(e){ return false; }
+}
+async function cancelTrip(trip){
+  if(!(Plugins.OutfitPacking&&Plugins.OutfitPacking.cancel)) return;
+  try{ await Plugins.OutfitPacking.cancel({tripId:trip.id}); }catch(e){}
+}
+
+/* closet payload for /advice — AVAILABLE items only (rotation applied here).
+
+   T2.5: while you are ON a trip, the only clothes you have are the ones in the
+   suitcase. The morning push follows you to the destination by GPS, so without this
+   it would cheerfully recommend the coat hanging at home, 800km away. During the
+   trip window we send ONLY the packed items, capped at the packed quantity. */
+function closetPayload(){
+  const trip=tripInProgress();
+  const meta=i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
+    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
+  if(trip){
+    const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
+    return closet.filter(i=>packedQty.has(i.id))
+      .map(i=>({...meta(i),
+        availableCount:Math.max(0,Math.min(packedQty.get(i.id),i.count)-activeWears(i.id))}))
+      .filter(i=>i.availableCount>=1);
+  }
+  return closet.map(i=>({...meta(i),availableCount:avail(i)}))
     .filter(i=>i.availableCount>=1);
 }
 
@@ -598,6 +818,165 @@ function renderOutfit(o,text,source,res){
   $("outfitList").innerHTML=["base","mid","outer","bottoms","footwear","accessories"].map(k=>
     `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   $("outfitTip").textContent="💡 "+(o.tip||"");
+}
+
+/* ───────── trips: rendering + sheets ───────── */
+const fmtRange=(s,e)=>{
+  const a=new Date(isoMs(s)), b=new Date(isoMs(e));
+  const o={month:"short",day:"numeric"};
+  return `${a.toLocaleDateString(undefined,o)} – ${b.toLocaleDateString(undefined,o)}`;
+};
+function renderTrips(){
+  const tl=$("tripList"), cl=$("candList"), info=$("tripInfo");
+  const t=todayISO();
+  const upcoming=trips.filter(x=>x.end>=t).sort((a,b)=>a.start<b.start?-1:1);
+  info.style.display=upcoming.length?"inline-block":"none";
+  info.textContent=`${upcoming.length} upcoming`;
+
+  tl.innerHTML=upcoming.map(x=>{
+    const away=x.start<=t&&t<=x.end;
+    const days=Math.round((isoMs(x.start)-isoMs(t))/DAY_MS);
+    const when=away?"on this trip now":days===0?"leaves today":days===1?"leaves tomorrow":`in ${days} days`;
+    const packed=x.packed&&x.packed.length;
+    return `<div class="item2" data-trip="${esc(x.id)}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;cursor:pointer">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+        <b>${x.type==="business"?"💼":"🏖️"} ${esc(x.place||x.title)}</b>
+        <span class="note" style="margin:0">${esc(when)}</span>
+      </div>
+      <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(x.nights||nightsBetween(x.start,x.end))+1} days · ${esc((x.styles||[]).join(" + "))}</div>
+      ${packed?`<span class="chip src" style="margin-top:6px">🧳 packed — ${x.packed.length} items with you</span>`:
+                `<span class="chip" style="margin-top:6px">tap for your packing list</span>`}
+    </div>`;
+  }).join("");
+
+  cl.innerHTML=candidates.length?`<p class="note" style="margin-top:14px"><b>Looks like a trip:</b></p>`+
+    candidates.map(c=>`<div style="border:1px dashed var(--line);border-radius:12px;padding:12px;margin:8px 0">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+        <b>${esc(c.title)}</b><span class="note" style="margin:0">${esc(fmtRange(c.start,c.end))}</span>
+      </div>
+      ${c.hint?`<div class="note" style="margin:2px 0 0">📍 ${esc(c.hint)}</div>`:""}
+      <div class="row" style="margin-top:8px">
+        <button class="primary" data-conf="${esc(c.calId)}">It's a trip →</button>
+        <button class="ghost" data-dis="${esc(c.calId)}">Not a trip</button>
+      </div>
+    </div>`).join(""):"";
+}
+
+/* ── trip confirm sheet ── */
+let tsheet=null; // {trip, isNew, matches[]}
+function paintTripSegs(){
+  [...$("tsType").children].forEach(b=>b.classList.toggle("on",b.dataset.t===tsheet.trip.type));
+  [...$("tsStyles").children].forEach(b=>b.classList.toggle("on",tsheet.trip.styles.includes(b.dataset.s)));
+  $("tsDays").textContent=tsheet.trip.notifyDays;
+  $("tsLaundry").checked=!!tsheet.trip.laundryBefore;
+}
+function openTripSheet(trip,isNew,hint){
+  tsheet={trip:{...trip,styles:[...(trip.styles||["casual"])]},isNew,matches:[]};
+  $("tsTitle").textContent=isNew?"Confirm trip":"Edit trip";
+  $("tsWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
+  $("tsCity").value=trip.place?trip.place.split(",")[0]:"";
+  $("tsMatches").innerHTML=""; $("tsErr").textContent="";
+  const h=$("tsHint");
+  if(hint){ h.style.display="block"; h.textContent=`Your calendar says: "${hint}" — name the city so we can get its weather.`; }
+  else h.style.display="none";
+  const p=$("tsPlace");
+  if(trip.place){ p.style.display="block"; p.textContent="✓ "+trip.place; } else p.style.display="none";
+  $("tsDel").style.display=isNew?"none":"";
+  paintTripSegs();
+  $("tripWrap").classList.add("show");
+}
+function closeTripSheet(){ $("tripWrap").classList.remove("show"); tsheet=null; }
+
+async function findCity(){
+  const c=$("tsCity").value.trim();
+  if(!c){ $("tsErr").textContent="Type a city first."; return; }
+  $("tsErr").textContent=""; $("tsMatches").innerHTML='<span class="spin"></span>';
+  let m=[];
+  try{ m=await geocodeMany(c); }catch(e){ }
+  tsheet.matches=m;
+  if(!m.length){
+    $("tsMatches").innerHTML="";
+    $("tsErr").textContent=`Couldn't find "${c}". Try just the city name — e.g. "Osaka", or "Osaka, Japan".`;
+    return;
+  }
+  if(m.length===1){ pickCity(0); $("tsMatches").innerHTML=""; return; }
+  $("tsMatches").innerHTML=m.map((g,i)=>
+    `<button class="ghost" data-pick="${i}" style="width:100%;text-align:left;margin:4px 0">${esc(g.place)}</button>`).join("");
+}
+function pickCity(i){
+  const g=tsheet.matches[i]; if(!g) return;
+  tsheet.trip.lat=g.lat; tsheet.trip.lon=g.lon; tsheet.trip.place=g.place;
+  $("tsMatches").innerHTML="";
+  const p=$("tsPlace"); p.style.display="block"; p.textContent="✓ "+g.place;
+}
+
+/* ── packing list ── */
+let lastPack=null; // {trip, pack[]}
+async function openPacking(trip){
+  lastPack=null;
+  $("pkTitle").textContent=`${trip.type==="business"?"💼":"🏖️"} ${trip.place}`;
+  $("pkWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
+  $("pkChips").innerHTML=""; $("pkDays").innerHTML=""; $("pkList").innerHTML="";
+  $("pkGaps").innerHTML=""; $("pkErr").textContent="";
+  $("pkText").innerHTML='<span class="spin"></span> Working out what you should take…';
+  $("pkPacked").style.display="none"; $("pkPackedNote").style.display="none";
+  $("packWrap").classList.add("show");
+
+  const cl=packPayload(trip);
+  let d;
+  try{
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),120000);
+    const body={lat:trip.lat,lon:trip.lon,start:trip.start,end:trip.end,
+                type:trip.type,gender:state.gender,styles:trip.styles};
+    if(cl.length) body.closet=cl;
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/packing",{
+      method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
+      body:JSON.stringify(body)});
+    clearTimeout(to);
+    if(!r.ok) throw new Error("server "+r.status);
+    d=await r.json();
+  }catch(e){
+    $("pkText").textContent="";
+    $("pkErr").textContent="Couldn't reach the advisor. Check the connection and try again.";
+    return;
+  }
+  renderPacking(trip,d);
+}
+function renderPacking(trip,d){
+  const s=d.forecast.summary, chips=[];
+  if(s.mode==="normals") chips.push(`<span class="chip warn">⚠ typical for these dates — not a forecast (${esc(s.yearsUsed)} yrs)</span>`);
+  if(d.trip.truncated) chips.push(`<span class="chip warn">forecast only reaches part of the trip</span>`);
+  if(!d.closetUsed) chips.push(`<span class="chip off">generic — your closet wasn't used</span>`);
+  chips.push(`<span class="chip">${esc(s.loMin)}° – ${esc(s.hiMax)}°</span>`);
+  if(s.rainDays) chips.push(`<span class="chip rain">🌧 ${esc(s.rainDays)} of ${esc(s.nDays)} days wet</span>`);
+  if(s.isSnow) chips.push(`<span class="chip rain">🌨 snow</span>`);
+  $("pkChips").innerHTML=chips.join("");
+
+  $("pkDays").innerHTML=d.forecast.days.map(x=>{
+    const dt=new Date(isoMs(x.date));
+    return `<div><div class="t">${dt.toLocaleDateString(undefined,{weekday:"short"})}</div>
+      <div class="v">${esc(x.emoji)} ${esc(x.hi)}°</div>
+      <div class="t">${esc(x.lo)}°${x.rain>=40?` · ${esc(x.rain)}%`:""}</div></div>`;
+  }).join("");
+
+  $("pkText").textContent=d.packing_text||"";
+  $("pkList").innerHTML=(d.pack||[]).map(p=>
+    `<li><span class="ic">${ICONS[p.category]||"👕"}</span><div>
+      <div class="lbl2">${esc(p.qty)}× ${esc(p.label)}</div>
+      <div class="val">${esc(p.why||"")}</div></div></li>`).join("");
+
+  $("pkGaps").innerHTML=(d.gaps||[]).length?
+    `<p class="note" style="margin-top:10px"><b>You don't own:</b></p>`+
+    (d.gaps.map(g=>`<div class="chip warn" style="margin:3px 3px 0 0">${ICONS[g.category]||"•"} ${esc(g.need)}</div>`).join("")):"";
+
+  if(d.closetUsed&&(d.pack||[]).length){
+    lastPack={trip,pack:d.pack};
+    const already=trip.packed&&trip.packed.length;
+    $("pkPacked").style.display="";
+    $("pkPacked").textContent=already?"🧳 Update what's in my suitcase":"🧳 Packed it — these are with me";
+    $("pkPackedNote").style.display="block";
+    $("pkPackedNote").textContent="Tap this once you've packed, and the daily push will dress you from your suitcase while you're away — not from the wardrobe you left at home.";
+  }
 }
 
 /* ───────── main flow ───────── */
@@ -710,6 +1089,8 @@ async function load(){
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
   try{ closet=JSON.parse(await prefGet("oa.closet","[]"))||[]; }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
+  try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
+  try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -793,12 +1174,93 @@ $("dWear").onclick=async()=>{
   await saveCloset();
 };
 
+/* ── trips wiring ── */
+$("calBtn").onclick=async()=>{
+  const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
+  $("tripErr").textContent="";
+  try{
+    const n=await scanCalendar();
+    toast(n?`Found ${n} possible trip${n>1?"s":""}`:"No upcoming trips in your calendar");
+  }catch(e){ $("tripErr").textContent=e.message||"Couldn't read the calendar."; }
+  finally{ b.innerHTML=old; b.disabled=false; }
+};
+$("candList").onclick=async e=>{
+  const conf=e.target.closest("[data-conf]"), dis=e.target.closest("[data-dis]");
+  if(conf){
+    const c=candidates.find(x=>x.calId===conf.dataset.conf); if(!c) return;
+    openTripSheet({id:"trp-"+uuid(),calId:c.calId,title:c.title,start:c.start,end:c.end,
+      type:"vacation",styles:["casual"],notifyDays:2,laundryBefore:false,packed:[]},true,c.hint);
+  }else if(dis){
+    tripsDismissed.push(dis.dataset.dis);
+    candidates=candidates.filter(x=>x.calId!==dis.dataset.dis);
+    await saveTrips(); toast("Won't suggest that one again");
+  }
+};
+$("tripList").onclick=e=>{
+  const t=e.target.closest("[data-trip]"); if(!t) return;
+  const trip=trips.find(x=>x.id===t.dataset.trip); if(trip) openPacking(trip);
+};
+$("tsType").onclick=e=>{const b=e.target.closest("button");if(!b||!tsheet)return;
+  tsheet.trip.type=b.dataset.t;
+  // a business trip almost always needs both registers — offer that, editable
+  if(b.dataset.t==="business"&&tsheet.trip.styles.length===1&&tsheet.trip.styles[0]==="casual")
+    tsheet.trip.styles=["smart","casual"];
+  paintTripSegs();};
+$("tsStyles").onclick=e=>{const b=e.target.closest("button");if(!b||!tsheet)return;
+  const s=b.dataset.s, i=tsheet.trip.styles.indexOf(s);
+  if(i>=0){ if(tsheet.trip.styles.length>1) tsheet.trip.styles.splice(i,1); }
+  else tsheet.trip.styles.push(s);
+  paintTripSegs();};
+$("tsLaundry").onchange=()=>{ if(tsheet) tsheet.trip.laundryBefore=$("tsLaundry").checked; };
+$("tsMinus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays>0){tsheet.trip.notifyDays--;paintTripSegs();}};
+// capped at 14: past that the fire date falls outside Open-Meteo's forecast window
+// and the push would have to be built from climate normals
+$("tsPlus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays<14){tsheet.trip.notifyDays++;paintTripSegs();}};
+$("tsFind").onclick=findCity;
+$("tsCity").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();findCity();}});
+$("tsMatches").onclick=e=>{const b=e.target.closest("[data-pick]");if(b)pickCity(+b.dataset.pick);};
+$("tsCancel").onclick=closeTripSheet;
+$("tripWrap").onclick=e=>{if(e.target===$("tripWrap"))closeTripSheet();};
+$("tsSave").onclick=async()=>{
+  if(!tsheet) return;
+  const t=tsheet.trip;
+  if(t.lat==null||t.lon==null){ $("tsErr").textContent="Find the destination city first."; return; }
+  if(isoMs(t.start)<isoMs(todayISO())){ $("tsErr").textContent="That trip has already started."; return; }
+  const idx=trips.findIndex(x=>x.id===t.id);
+  if(idx>=0) trips[idx]=t; else trips.push(t);
+  candidates=candidates.filter(c=>c.calId!==t.calId);
+  await saveTrips();
+  const armed=await armTrip(t);
+  closeTripSheet();
+  const at=fireAtFor(t);
+  toast(armed?`Trip saved — I'll remind you on ${new Date(at).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}`
+             :(isNative?"Trip saved — but the reminder couldn't be armed":"Trip saved (reminders only work in the app)"));
+  openPacking(t);
+};
+$("tsDel").onclick=async()=>{
+  if(!tsheet) return;
+  const t=tsheet.trip;
+  await cancelTrip(t);
+  trips=trips.filter(x=>x.id!==t.id);
+  await saveTrips(); closeTripSheet(); toast("Trip removed");
+};
+$("pkClose").onclick=()=>$("packWrap").classList.remove("show");
+$("packWrap").onclick=e=>{if(e.target===$("packWrap"))$("packWrap").classList.remove("show");};
+$("pkPacked").onclick=async()=>{
+  if(!lastPack) return;
+  const t=trips.find(x=>x.id===lastPack.trip.id); if(!t) return;
+  t.packed=lastPack.pack.map(p=>({id:p.id,qty:p.qty}));
+  await saveTrips();
+  $("packWrap").classList.remove("show");
+  toast(`🧳 ${t.packed.length} items marked as packed`);
+};
+
 /* ───────── init ───────── */
 (async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset(); refreshSchedStatus();
+  renderCloset(); refreshSchedStatus(); renderTrips();
 })();
 </script>
 </body>

@@ -47,7 +47,7 @@ class PackingWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params
         val prefs = applicationContext.getSharedPreferences("CapacitorStorage",
             Context.MODE_PRIVATE)
 
-        val trip = findTrip(prefs.getString("oa.trips", "[]"), tripId)
+        val trip = findTrip(prefs.getString("oa.trips", "[]") ?: "[]", tripId)
         // The trip was deleted, or its dates already passed. Never fire retroactively.
             ?: return Result.success()
 

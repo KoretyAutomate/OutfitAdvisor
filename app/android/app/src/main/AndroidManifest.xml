@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -91,4 +92,22 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Deliberately NO ACCESS_BACKGROUND_LOCATION — the FSI visible-activity path
          makes the fire-time read count as foreground location (see PLAN). -->
+
+    <!-- androidx.work injects four permissions of its own via manifest merger. Two
+         are load-bearing and stay (WorkManager cannot run a job without them):
+             WAKE_LOCK            — held while a worker runs
+             ACCESS_NETWORK_STATE — backs its network constraints
+         Two are NOT used by our path and are removed, because a library should not
+         get to widen this app's permission list by default:
+             FOREGROUND_SERVICE — only needed for EXPEDITED work. PackingWorker is
+                 ordinary one-time work (a packing push days out is not time-critical),
+                 so this is dead. If anyone ever adds .setExpedited(), they must put
+                 this back — and on targetSdk 34 also add foregroundServiceType.
+             DUMP — only used by WorkManager's own diagnostics receiver (adb dumpsys).
+                 Not something a user-facing app should be requesting.
+         Verified against the built APK's merged manifest, not just asserted here. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.DUMP"
+        tools:node="remove" />
 </manifest>

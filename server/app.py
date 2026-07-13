@@ -3,6 +3,9 @@ app.py — Outfit Advisor DGX server (stateless).
 
 POST /advice   {lat, lon, gender, style, day?, closet?} -> weather + outfit_text
                + structured outfit (+ closetUsed when closet[] was sent)
+POST /packing  {lat, lon, start, end, type, styles[], closet?}
+                                                        -> per-day trip forecast (or
+               climate normals beyond the horizon) + a packing list from the closet
 POST /classify {imageB64}                               -> clothing item metadata
 GET  /health                                            -> {ok, vllm}
 
@@ -10,6 +13,12 @@ Privacy invariant: coordinates AND closet photos are NEVER written to disk or
 logs. They live only as request-scoped locals and are discarded. The closet
 itself lives on the phone; this server stays stateless. We log only coarse
 outcome + timing — never lat/lon, never image bytes, never item labels.
+
+For /packing the invariant extends further: the calendar event's title, notes,
+attendees and location STRING never reach this server at all. The phone resolves
+the destination to coordinates itself, so the server cannot learn the destination
+by name. Trip DATES are also never logged — a real date range plus a destination
+is identifying in a way /advice's day=0|1 never was.
 
 Injection posture: gender/style are Literal vocabularies. Closet labels/colors
 are user-editable free text that flows into the LLM prompt — they are length-
@@ -20,6 +29,7 @@ Run (tailnet-bound — bind the Tailscale IP, NOT 0.0.0.0, so the LAN never sees
     uvicorn app:app --host 100.112.171.54 --port 8787 --no-access-log
 """
 import base64
+import datetime as dt
 import logging
 import re
 import time
@@ -169,6 +179,130 @@ async def advice(req: AdviceRequest):
 
     return {"weather": w, "outfit": outfit, "outfit_text": text, "source": source,
             "closetUsed": closet_used, "picks": picks}
+
+
+class PackingRequest(BaseModel):
+    """Trip packing. NOTE what is deliberately ABSENT: the calendar event's title,
+    notes, attendees, and location STRING. The phone resolves the destination to
+    coordinates at confirm time and sends only those. The server never learns where
+    the user is going by name, and cannot — that is the point (see PLAN.md Trips /
+    privacy posture)."""
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    start: dt.date
+    end: dt.date
+    type: Literal["business", "vacation"] = "vacation"
+    gender: Literal["man", "woman", "neutral"] = "neutral"
+    # A business trip is smart for meetings AND casual for evenings — one scalar
+    # cannot express that, so packing takes a SET of registers (plan amendment T-3).
+    styles: list[Literal["casual", "smart", "active"]] = Field(
+        default_factory=lambda: ["casual"], min_length=1, max_length=3)
+    closet: list[ClosetItem] | None = Field(None, max_length=100)
+
+    @field_validator("end")
+    @classmethod
+    def _order(cls, v: dt.date, info) -> dt.date:
+        start = info.data.get("start")
+        if start and v < start:
+            raise ValueError("end is before start")
+        if start and (v - start).days > 30:
+            raise ValueError("trip longer than 30 days")
+        return v
+
+
+# How many of each category a trip actually needs, given its length. Only base and
+# bottoms scale with duration; you re-wear a coat. Used to catch a SHORTFALL the
+# LLM would otherwise hide by silently packing fewer (plan amendment T-4).
+def _needed(category: str, n_days: int) -> int:
+    if category == "base":
+        return n_days + 1
+    if category == "bottoms":
+        return max(1, -(-n_days // 3))   # ceil(n/3)
+    return 1
+
+
+@app.post("/packing")
+async def packing(req: PackingRequest):
+    t0 = time.monotonic()
+    today = dt.date.today()
+    if req.start < today:
+        raise HTTPException(status_code=422, detail="trip has already started")
+
+    horizon = today + dt.timedelta(days=weather.FORECAST_HORIZON_DAYS)
+    truncated = False
+    try:
+        if req.start > horizon:
+            # Beyond the forecast window entirely -> honest climate normals.
+            wx = await weather.fetch_normals(req.lat, req.lon,
+                                             req.start.isoformat(), req.end.isoformat())
+        else:
+            # Inside the window. A long trip may run PAST the horizon — clamp the
+            # end and say so, rather than letting Open-Meteo 400 the whole request.
+            end = min(req.end, horizon)
+            truncated = end < req.end
+            wx = await weather.fetch_range(req.lat, req.lon,
+                                           req.start.isoformat(), end.isoformat())
+    except Exception as e:
+        # PRIVACY: the httpx error text embeds the Open-Meteo URL — lat/lon and the
+        # trip dates included. Log the TYPE only, exactly as /advice does.
+        log.warning("packing failed: weather fetch error (%s)", type(e).__name__)
+        raise HTTPException(status_code=503, detail="weather unavailable")
+
+    days, summary = wx["days"], wx["summary"]
+    n = summary["nDays"]
+
+    pack, gaps, text, closet_used = [], [], None, False
+    if req.closet:
+        items = [i.model_dump() for i in req.closet]
+        result = await llm.packing_list(days, summary, req.gender, list(req.styles),
+                                        req.type, items)
+        if result is not None:
+            pack, gaps, text = result["pack"], result["gaps"], result["text"]
+            closet_used = True
+
+            # Capacity reconciliation. The LLM cannot pack more than the user owns
+            # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day
+            # trip quietly packing 8 tops. Surface it as a real gap.
+            #
+            # Key off what the wardrobe HAS, not off what the model chose to pack:
+            # a shortfall is a fact about the closet. (First cut gated this on
+            # `have <= got` and stayed silent whenever the model under-packed —
+            # exactly the case the check exists to catch. Caught by T1 test 4.)
+            for cat in ("base", "bottoms"):
+                want = _needed(cat, n)
+                have = sum(i["availableCount"] for i in items if i["category"] == cat)
+                if have < want:
+                    gaps.append({
+                        "category": cat,
+                        "need": f"only {have} of ~{want} clean — plan a laundry day",
+                    })
+        # result None -> honest generic fallback below, closetUsed stays False.
+
+    if not text:
+        # Generic packing advice: dress the trip's WORST case (coldest low, wettest
+        # day) via the existing rule engine, so the user still gets something useful.
+        worst = {
+            "morning": None, "lo": summary["loMin"], "hi": summary["hiMax"],
+            "swing": summary["swing"], "rain": max(d["rain"] for d in days),
+            "wind": summary["windMax"], "isSnow": summary["isSnow"],
+            "isRain": summary["isRain"],
+            "code": max(days, key=lambda d: d["rain"])["code"],
+        }
+        text = engine.outfit_to_bullets(engine.recommend(worst, req.gender,
+                                                         req.styles[0]))
+
+    dt_s = round(time.monotonic() - t0, 2)
+    # Coarse log ONLY. No coords (as /advice). And no DATES — a real date range plus
+    # a destination is itself identifying, unlike /advice's day=0|1.
+    log.info("packing ok n=%s mode=%s closet=%s/%s gaps=%s %.2fs",
+             n, summary["mode"], int(closet_used), len(req.closet or []),
+             len(gaps), dt_s)
+
+    return {"trip": {"nDays": n, "type": req.type, "styles": req.styles,
+                     "truncated": truncated},
+            "forecast": {"mode": summary["mode"], "days": days, "summary": summary},
+            "pack": pack, "gaps": gaps, "packing_text": text,
+            "closetUsed": closet_used}
 
 
 @app.post("/classify")

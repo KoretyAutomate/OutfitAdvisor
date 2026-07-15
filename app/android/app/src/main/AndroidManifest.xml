@@ -90,8 +90,14 @@
          READ only — never WRITE_CALENDAR; we only ever use the plugin's
          `readCalendar` permission alias. Event text never leaves the phone. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
-    <!-- Deliberately NO ACCESS_BACKGROUND_LOCATION — the FSI visible-activity path
-         makes the fire-time read count as foreground location (see PLAN). -->
+    <!-- Background location (ADDED 2026-07-15 at explicit user request — reverses
+         the original "deliberately NO" decision, see PLAN). Declaring it is what
+         makes "Allow all the time" appear in Android's settings at all. The FSI
+         visible-activity wake stays as the notification vehicle; this grant
+         removes the GPS read's dependency on the wake screen actually becoming
+         visible before the fix is requested. Requested via the OutfitAlarm
+         plugin's bgLocation({request:true}) — never at first launch. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- androidx.work adds three uses-permissions of its own via manifest merger.
          Two are load-bearing and stay — WorkManager cannot run a job without them:

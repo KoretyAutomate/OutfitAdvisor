@@ -246,6 +246,7 @@
       <div style="flex:1">
         <label class="lbl">Category</label>
         <select id="shCat">
+          <option value="inner">Inner layer</option>
           <option value="base">Base layer</option><option value="mid">Mid layer</option>
           <option value="outer">Outer layer</option><option value="bottoms">Bottoms</option>
           <option value="footwear">Footwear</option><option value="accessories">Accessories</option>
@@ -399,6 +400,11 @@ const SNOW=[71,73,75,77,85,86], RAIN=[51,53,55,61,63,65,66,67,80,81,82,95,96,99]
 function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
 function recommend(w,gender,style){
   const t = (w.morning ?? w.lo + (w.hi-w.lo)/2); const o={};
+  /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
+  if(t>=24) o.inner="Sweat-wicking breathable inner (AIRism-type)";
+  else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light camisole or undershirt","Light cotton undershirt");
+  else if(t>=5) o.inner="Warm inner (Heattech-type)";
+  else o.inner="Heavyweight thermal inner";
   if(t>=26) o.base=pick(gender,"Breathable cotton/linen tee","Light camisole or linen blouse","Lightweight breathable tee");
   else if(t>=18) o.base=pick(gender,"Cotton T-shirt","Short-sleeve top or light blouse","Cotton T-shirt");
   else if(t>=10) o.base=pick(gender,"Long-sleeve shirt","Long-sleeve top","Long-sleeve shirt");
@@ -438,7 +444,7 @@ function recommend(w,gender,style){
   return o;
 }
 function outfitToBullets(o){
-  return `• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\n💡 ${o.tip}`;
+  return `• Inner: ${o.inner}\n• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\n💡 ${o.tip}`;
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
@@ -481,7 +487,7 @@ async function getPosition(){
    inside the cooldown window, epoch-ms) must stay in lockstep with
    WakeActivity.kt — keep both trivially simple. */
 const DAY_MS=86400000, COOLDOWN_DAYS=4;
-const CAT_ICON={base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
@@ -784,8 +790,8 @@ async function getAdvice(lat,lon){
 }
 
 /* ───────── rendering ───────── */
-const ICONS={base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
-const LABELS={base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
+const ICONS={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+const LABELS={inner:"Inner layer",base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
 function renderWeather(w){
   $("wxCard").style.display="block";
   const dt=new Date((w.date||new Date().toISOString().slice(0,10))+"T12:00");
@@ -815,7 +821,7 @@ function renderOutfit(o,text,source,res){
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
   wb.textContent="✅ Wearing it — update my rotation";
-  $("outfitList").innerHTML=["base","mid","outer","bottoms","footwear","accessories"].map(k=>
+  $("outfitList").innerHTML=["inner","base","mid","outer","bottoms","footwear","accessories"].map(k=>
     `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   $("outfitTip").textContent="💡 "+(o.tip||"");
 }
@@ -1039,6 +1045,17 @@ async function saveSchedule(){
     try{ const g=await Plugins.Geolocation.requestPermissions();
       if(g && g.location!=="granted" && g.coarseLocation!=="granted")
         warn.push("location blocked — can't read the weather where you wake up"); }catch(e){}
+    /* "Allow all the time" (user request 2026-07-15): the morning GPS read is far
+       more reliable with background location. On Android 11+ request:true routes
+       to the settings screen — the promise resolves when the user comes back. */
+    try{ if(Plugins.OutfitAlarm && Plugins.OutfitAlarm.bgLocation){
+      let b=await Plugins.OutfitAlarm.bgLocation();
+      if(!b.granted){
+        toast('Pick "Allow all the time" for a reliable morning fix');
+        b=await Plugins.OutfitAlarm.bgLocation({request:true});
+      }
+      if(!b.granted) warn.push('location isn\'t "Allow all the time" — the morning fix may fail on a locked phone');
+    }}catch(e){}
   }
   if(!(Plugins.OutfitAlarm && Plugins.OutfitAlarm.arm)){
     toast(isNative?"⚠ Alarm bridge missing — push NOT armed":"Saved (arming only works in the app)"); return;
@@ -1069,9 +1086,17 @@ async function refreshSchedStatus(){
       const rel=mins<60?`in ${mins} min`:`in ${Math.round(mins/60)} h`;
       when=` — next: ${d.toLocaleDateString(undefined,{weekday:"short"})} ${hm} (${rel})`;
     }
-    el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}`;
+    let bg="";
+    /* the user can wander to Settings and back without re-saving — reflect the
+       real background-location state every repaint (also fired on app resume) */
+    try{ if(Plugins.OutfitAlarm.bgLocation){
+      const b=await Plugins.OutfitAlarm.bgLocation();
+      if(!b.granted) bg=' · ⚠ location not "Allow all the time"';
+    }}catch(e){}
+    el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}${bg}`;
   }catch(e){ el.style.display="none"; }
 }
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refreshSchedStatus(); });
 
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).

@@ -24,9 +24,12 @@ import java.net.URL
  * The full-screen-intent wake Activity — the spine of the whole app (PLAN risk #1).
  *
  * Launched by AlarmReceiver's FSI notification at the armed morning time. It becomes
- * briefly VISIBLE over the lockscreen, which is what makes the ensuing one-shot GPS
- * read count as legitimate foreground location under plain ACCESS_FINE_LOCATION —
- * no ACCESS_BACKGROUND_LOCATION, no foreground service, no paid SDK.
+ * briefly VISIBLE over the lockscreen, which makes the ensuing one-shot GPS read
+ * count as legitimate foreground location under plain ACCESS_FINE_LOCATION.
+ * Since 2026-07-15 the app ALSO declares ACCESS_BACKGROUND_LOCATION (user request):
+ * when "Allow all the time" is granted, the GPS read no longer depends on this
+ * activity's visibility timing at all — the FSI path remains as the notification
+ * vehicle and as the fallback for users who keep "Only while using the app".
  *
  * Flow: show over lockscreen -> one fresh GPS fix -> POST {lat,lon,gender,style}
  * to the DGX /advice endpoint -> post the outfit as a local notification -> DISCARD
@@ -175,11 +178,21 @@ class WakeActivity : Activity() {
             this, 4774, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // A collapsed notification shows ONE line of contentText. The old code put a
+        // "tap for details" teaser there and hid the outfit in BigTextStyle, so the
+        // advice only appeared when the user manually expanded — which most never do.
+        // Show the advice itself: a compact one-liner collapsed, the full (bulleted)
+        // text when expanded, and demote the source badge to the small sub-text slot.
+        val oneLine = text
+            .replace(Regex("^\\s*[-•]\\s*", RegexOption.MULTILINE), "")
+            .replace('\n', ' ')
+            .trim()
         val n = Notification.Builder(this, CHANNEL_OUTFIT)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(title)
-            .setContentText(if (badge != null) "$badge · tap for details" else text)
+            .setContentText(oneLine)
             .setStyle(Notification.BigTextStyle().bigText(text))
+            .apply { if (badge != null) setSubText(badge) }
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()

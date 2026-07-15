@@ -16,6 +16,9 @@ TODAY = dt.date.today()
 
 # A small but realistic closet, spanning every category, with a multi-count item.
 CLOSET = [
+    {"id": "itm-inner-airism", "label": "grey airism undershirt", "category": "inner",
+     "colors": ["grey"], "warmth": 1, "formality": ["casual", "smart"],
+     "waterproof": False, "availableCount": 5},
     {"id": "itm-base-white-tee", "label": "white v-neck tee", "category": "base",
      "colors": ["white"], "warmth": 1, "formality": ["casual"], "waterproof": False,
      "availableCount": 4},
@@ -166,6 +169,12 @@ if st == 200:
     laundry = [g for g in d["gaps"] if "laundry" in g["need"].lower()]
     check("shortfall surfaced as a gap (not silently truncated)",
           bool(laundry), d["gaps"])
+    # This closet has ZERO inner items: the gap must say buy/register, never
+    # "plan a laundry day" (laundry can't produce items you don't own).
+    inner_gaps = [g for g in d["gaps"] if g["category"] == "inner"]
+    check("inner-less closet surfaces an inner gap", bool(inner_gaps), d["gaps"])
+    check("zero-have gap does not say laundry",
+          all("laundry" not in g["need"].lower() for g in inner_gaps), inner_gaps)
     print(f"   gaps: {d['gaps']}")
 
 # ----------------------------------------------- 5. validation gates

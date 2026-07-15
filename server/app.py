@@ -78,7 +78,7 @@ def _clean(s: str, max_len: int) -> str:
 class ClosetItem(BaseModel):
     id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9\-]+$")
     label: str = Field(..., min_length=1, max_length=60)
-    category: Literal["base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    category: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
     colors: list[str] = Field(default_factory=list, max_length=3)
     warmth: int = Field(3, ge=1, le=5)
     formality: list[Literal["casual", "smart", "active"]] = Field(default_factory=list)
@@ -154,10 +154,15 @@ async def advice(req: AdviceRequest):
             text = result["text"]
             closet_used = True
             # Structured outfit mirrors the validated picks so the notification
-            # renders the ACTUAL items; unfilled slots keep "None".
+            # renders the ACTUAL items. A null pick keeps the engine's GENERIC
+            # recommendation (user feedback 2026-07-15): "None" told a user with
+            # three registered shirts nothing about what bottoms to wear. The
+            # engine value is also honest when the weather nulls a slot — it
+            # already says "None needed" in heat.
             by_id = {i["id"]: i for i in items}
             for slot, item_id in result["picks"].items():
-                outfit[slot] = by_id[item_id]["label"] if item_id else "None"
+                if item_id:
+                    outfit[slot] = by_id[item_id]["label"]
             # IDs are already validated against the sent closet — echo them so
             # the app can wear-log the exact items (plan amendment 2).
             picks = result["picks"]
@@ -210,11 +215,11 @@ class PackingRequest(BaseModel):
         return v
 
 
-# How many of each category a trip actually needs, given its length. Only base and
-# bottoms scale with duration; you re-wear a coat. Used to catch a SHORTFALL the
-# LLM would otherwise hide by silently packing fewer (plan amendment T-4).
+# How many of each category a trip actually needs, given its length. Only inner,
+# base and bottoms scale with duration; you re-wear a coat. Used to catch a SHORTFALL
+# the LLM would otherwise hide by silently packing fewer (plan amendment T-4).
 def _needed(category: str, n_days: int) -> int:
-    if category == "base":
+    if category in ("inner", "base"):
         return n_days + 1
     if category == "bottoms":
         return max(1, -(-n_days // 3))   # ceil(n/3)
@@ -268,13 +273,17 @@ async def packing(req: PackingRequest):
             # a shortfall is a fact about the closet. (First cut gated this on
             # `have <= got` and stayed silent whenever the model under-packed —
             # exactly the case the check exists to catch. Caught by T1 test 4.)
-            for cat in ("base", "bottoms"):
+            for cat in ("inner", "base", "bottoms"):
                 want = _needed(cat, n)
                 have = sum(i["availableCount"] for i in items if i["category"] == cat)
                 if have < want:
                     gaps.append({
                         "category": cat,
-                        "need": f"only {have} of ~{want} clean — plan a laundry day",
+                        # have==0 means the closet has NONE registered — a laundry
+                        # day can't produce items you don't own, so say buy/register.
+                        "need": (f"none in your closet yet — bring/buy ~{want}"
+                                 if have == 0 else
+                                 f"only {have} of ~{want} clean — plan a laundry day"),
                     })
         # result None -> honest generic fallback below, closetUsed stays False.
 

@@ -16,6 +16,16 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     t = w["morning"] if w.get("morning") is not None else w["lo"] + (w["hi"] - w["lo"]) / 2
     o: dict = {}
 
+    # ── inner layer (always worn — user feedback 2026-07-15) ──
+    if t >= 24:
+        o["inner"] = "Sweat-wicking breathable inner (AIRism-type)"
+    elif t >= 15:
+        o["inner"] = pick(gender, "Light cotton undershirt", "Light camisole or undershirt", "Light cotton undershirt")
+    elif t >= 5:
+        o["inner"] = "Warm inner (Heattech-type)"
+    else:
+        o["inner"] = "Heavyweight thermal inner"
+
     # ── base layer ──
     if t >= 26:
         o["base"] = pick(gender, "Breathable cotton/linen tee", "Light camisole or linen blouse", "Lightweight breathable tee")
@@ -111,8 +121,9 @@ def recommend(w: dict, gender: str, style: str) -> dict:
 
 
 def outfit_to_bullets(o: dict) -> str:
-    """Format the structured outfit as 5+1 bullets — the LLM-failure fallback text."""
+    """Format the structured outfit as 6+1 bullets — the LLM-failure fallback text."""
     return (
+        f"• Inner: {o['inner']}\n"
         f"• Base: {o['base']}\n"
         f"• Mid: {o['mid']}\n"
         f"• Outer: {o['outer']}\n"

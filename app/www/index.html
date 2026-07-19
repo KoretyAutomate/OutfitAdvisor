@@ -402,7 +402,7 @@ function recommend(w,gender,style){
   const t = (w.morning ?? w.lo + (w.hi-w.lo)/2); const o={};
   /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
   if(t>=24) o.inner="Sweat-wicking breathable inner (AIRism-type)";
-  else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light camisole or undershirt","Light cotton undershirt");
+  else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light inner camisole or undershirt (worn under the top)","Light cotton undershirt");
   else if(t>=5) o.inner="Warm inner (Heattech-type)";
   else o.inner="Heavyweight thermal inner";
   if(t>=26) o.base=pick(gender,"Breathable cotton/linen tee","Light camisole or linen blouse","Lightweight breathable tee");

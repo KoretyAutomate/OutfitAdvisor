@@ -20,7 +20,7 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     if t >= 24:
         o["inner"] = "Sweat-wicking breathable inner (AIRism-type)"
     elif t >= 15:
-        o["inner"] = pick(gender, "Light cotton undershirt", "Light camisole or undershirt", "Light cotton undershirt")
+        o["inner"] = pick(gender, "Light cotton undershirt", "Light inner camisole or undershirt (worn under the top)", "Light cotton undershirt")
     elif t >= 5:
         o["inner"] = "Warm inner (Heattech-type)"
     else:

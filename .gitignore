@@ -26,3 +26,13 @@ test_results/*.log
 # Design docs / test artifacts — local only (privacy: device inventory, run logs)
 PLAN.md
 test_results/
+
+# Private workflow — weekly-report drafts, approval markers, Telegram/drafts-repo
+# scripts, and project instructions referencing private infra (repo is PUBLIC)
+CLAUDE.md
+reports/
+scripts/
+
+# Build outputs / runtime logs
+*.apk
+server/server.log

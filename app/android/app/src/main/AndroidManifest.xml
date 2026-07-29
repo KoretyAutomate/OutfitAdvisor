@@ -95,6 +95,14 @@
          optional hardware — gallery upload covers camera-less devices. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- In-app updates (2026-07-28). Lets the app hand a downloaded APK to the
+         system installer instead of the user sideloading through a browser. It
+         grants nothing on its own: Android 8+ still requires a per-app "install
+         unknown apps" toggle the USER sets in Settings, and the installer will
+         refuse any APK not signed with this app's key — which is precisely what
+         guarantees an update keeps settings and closet photos. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Trips: read the device calendar to spot upcoming trips. MUST be declared
          HERE — @ebarooni/capacitor-calendar ships an EMPTY manifest and injects

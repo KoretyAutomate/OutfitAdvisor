@@ -115,6 +115,12 @@
   .fbRow button .c{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
   .fbRow button.on{background:var(--card2);border-color:var(--good)}
   .fbRow button.on .c{color:var(--good)}
+  /* in-app update banner (2026-07-28) */
+  .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
+  .updTop{display:flex;gap:11px;align-items:flex-start}
+  .updIcon{font-size:1.3rem;line-height:1.1;color:var(--good)}
+  .upd .row{display:flex;gap:8px}
+  .upd .row button{flex:1}
 </style>
 </head>
 <body>
@@ -126,6 +132,25 @@
       <p class="sub">What to wear today — for the weather where you are.</p>
     </div>
   </header>
+
+  <!-- In-app update banner. Hidden unless the DGX is publishing a build newer
+       than the one running. Same signing key + same package = Android updates in
+       place and keeps settings, closet photos and the wear-log. -->
+  <div class="card upd" id="updCard" style="display:none">
+    <div class="updTop">
+      <span class="updIcon">⬆</span>
+      <div>
+        <b id="updTitle">Update available</b>
+        <div class="note" id="updSub" style="margin-top:2px"></div>
+      </div>
+    </div>
+    <p class="note" id="updNotes" style="display:none"></p>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="updBtn">Install update</button>
+      <button class="ghost" id="updLater">Later</button>
+    </div>
+    <p class="note" id="updWarn" style="display:none"></p>
+  </div>
 
   <!-- Profile / location -->
   <div class="card">
@@ -541,6 +566,55 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
+}
+
+/* ───────── in-app updates (2026-07-28) ─────────
+   The DGX publishes a build at GET /version; if its versionCode beats the running
+   one we offer to install it. Android keeps app data across an update as long as
+   the package name and SIGNING KEY are unchanged — which is exactly what the CI
+   cert-drift gate enforces — so this never costs the user their closet or prefs.
+   `oa.updSkip` remembers a build the user said "Later" to, so the banner asks
+   once per version rather than every launch. */
+let updInfo=null, updBusy=false;
+async function checkUpdate(){
+  if(!Plugins.AppUpdate) return;                 // browser / older build: no-op
+  try{
+    const cur=await Plugins.AppUpdate.current();
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),6000);
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/version",{signal:ctl.signal});
+    clearTimeout(to);
+    if(!r.ok) return;                            // 404 = nothing published yet
+    const v=await r.json();
+    if(!(v.versionCode>cur.versionCode)) return; // already current (or newer, in dev)
+    if(String(await prefGet("oa.updSkip",""))===String(v.versionCode)) return;
+    updInfo={...v,current:cur};
+    $("updCard").style.display="block";
+    $("updTitle").textContent=`Update available — v${v.versionName}`;
+    $("updSub").textContent=`You're on v${cur.versionName} · ${(v.size/1e6).toFixed(1)} MB · your closet and settings are kept`;
+    if(v.notes){ $("updNotes").style.display="block"; $("updNotes").textContent=v.notes; }
+    $("updWarn").style.display=cur.canInstall?"none":"block";
+    if(!cur.canInstall) $("updWarn").textContent="Android will ask you to allow installs from this app first — that's a one-time toggle.";
+  }catch(e){ /* DGX unreachable: updates are never urgent, stay silent */ }
+}
+async function doUpdate(){
+  if(!updInfo||updBusy) return;
+  updBusy=true;
+  const btn=$("updBtn"), old=btn.textContent;
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
+  try{
+    const res=await Plugins.AppUpdate.install({
+      url:state.baseUrl.replace(/\/+$/,"")+"/apk",
+      sha256:updInfo.sha256, size:updInfo.size});
+    if(res&&res.status==="needs-permission"){
+      toast("Allow installs from Outfit Advisor, then tap again");
+    }else{
+      toast("Opening the installer…");
+    }
+  }catch(e){
+    toast("Update failed: "+(e&&e.message?e.message:"download error"));
+  }finally{
+    updBusy=false; btn.disabled=false; btn.textContent=old;
+  }
 }
 
 /* ───────── thermal feedback (2026-07-27) ─────────
@@ -1182,7 +1256,7 @@ async function refreshSchedStatus(){
     el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}${bg}`;
   }catch(e){ el.style.display="none"; }
 }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refreshSchedStatus(); });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); checkUpdate(); } });
 
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
@@ -1288,6 +1362,14 @@ $("dWear").onclick=async()=>{
     toast("Undone");
   }
   await saveCloset();
+};
+
+/* ── in-app update wiring ── */
+$("updBtn").onclick=doUpdate;
+$("updLater").onclick=async()=>{
+  if(updInfo) await prefSet("oa.updSkip",String(updInfo.versionCode));
+  $("updCard").style.display="none";
+  toast("We'll ask again on the next version");
 };
 
 /* ── thermal feedback wiring ── */
@@ -1406,7 +1488,8 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset(); refreshSchedStatus(); renderTrips();
+  renderCloset(); refreshSchedStatus(); renderTrips(); renderFeedback();
+  checkUpdate();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>
 </body>

@@ -155,7 +155,12 @@ async def fetch_range(lat: float, lon: float, start: str, end: str) -> dict:
 
 
 async def _archive_year(
-    client: httpx.AsyncClient, sem: asyncio.Semaphore, lat: float, lon: float, start: dt.date, end: dt.date, year: int
+    client: httpx.AsyncClient,
+    sem: asyncio.Semaphore,
+    lat: float,
+    lon: float,
+    window: tuple[dt.date, dt.date],  # (start, end) — one calendar window, always paired
+    year: int,
 ) -> list[dict] | None:
     """One year's slice of the same calendar window. None if that year is
     genuinely unusable (e.g. a Feb-29 window in a common year).
@@ -166,6 +171,7 @@ async def _archive_year(
     REFUSES to build a normal out of too few years rather than silently averaging
     two years and calling it climate.
     """
+    start, end = window
     try:
         s = start.replace(year=year)
         e = end.replace(year=year)
@@ -208,7 +214,7 @@ async def fetch_normals(lat: float, lon: float, start: str, end: str) -> dict:
 
     sem = asyncio.Semaphore(NORMALS_CONCURRENCY)
     async with httpx.AsyncClient(timeout=30) as client:
-        results = await asyncio.gather(*[_archive_year(client, sem, lat, lon, s, e, y) for y in years])
+        results = await asyncio.gather(*[_archive_year(client, sem, lat, lon, (s, e), y) for y in years])
     usable = [d for d in results if d and d.get("time")]
     # An average of two years is not a climate normal. Fail loudly rather than
     # dress the user for noise while the badge claims "typical for March".

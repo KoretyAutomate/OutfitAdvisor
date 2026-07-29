@@ -156,7 +156,7 @@ async def version():
         d = json.loads(meta.read_text())
     except Exception:
         log.warning("version.json is unreadable")
-        raise HTTPException(status_code=500, detail="bad build metadata")
+        raise HTTPException(status_code=500, detail="bad build metadata") from None
     if not (DIST / d.get("file", "")).is_file():
         log.warning("version.json points at a missing apk")
         raise HTTPException(status_code=404, detail="apk missing")
@@ -173,7 +173,7 @@ async def apk():
     try:
         name = json.loads(meta.read_text()).get("file", "")
     except Exception:
-        raise HTTPException(status_code=500, detail="bad build metadata")
+        raise HTTPException(status_code=500, detail="bad build metadata") from None
     # Never let the metadata escape DIST — it is local, but a path traversal here
     # would turn a config typo into an arbitrary-file read over the tailnet.
     path = (DIST / name).resolve()
@@ -206,7 +206,7 @@ async def advice(req: AdviceRequest):
         # included. Letting it propagate would put coordinates in the 500 traceback.
         # Log only the exception TYPE and return a coordinate-free error.
         log.warning("advice failed: weather fetch error (%s)", type(e).__name__)
-        raise HTTPException(status_code=503, detail="weather unavailable")
+        raise HTTPException(status_code=503, detail="weather unavailable") from None
     # Personal calibration: recommend against SHIFTED temps, but keep `w` — the real
     # forecast — for the response. The weather card and the notification header must
     # never show a temperature the user isn't actually going to walk out into.
@@ -339,7 +339,7 @@ async def packing(req: PackingRequest):
         # PRIVACY: the httpx error text embeds the Open-Meteo URL — lat/lon and the
         # trip dates included. Log the TYPE only, exactly as /advice does.
         log.warning("packing failed: weather fetch error (%s)", type(e).__name__)
-        raise HTTPException(status_code=503, detail="weather unavailable")
+        raise HTTPException(status_code=503, detail="weather unavailable") from None
 
     days, summary = wx["days"], wx["summary"]
     n = summary["nDays"]
@@ -425,7 +425,7 @@ async def classify(req: ClassifyRequest):
     try:
         base64.b64decode(b64[:400], validate=True)
     except Exception:
-        raise HTTPException(status_code=422, detail="imageB64 is not valid base64")
+        raise HTTPException(status_code=422, detail="imageB64 is not valid base64") from None
 
     raw = await llm.classify_image(b64)
     if raw is None:
@@ -446,7 +446,7 @@ async def classify(req: ClassifyRequest):
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)
-        raise HTTPException(status_code=502, detail="classification unusable")
+        raise HTTPException(status_code=502, detail="classification unusable") from None
 
     # Coarse log: outcome + timing only — never the image, never the label.
     log.info("classify ok %.2fs", time.monotonic() - t0)

@@ -149,8 +149,7 @@ async def classify_image(image_b64: str) -> dict | None:
 
 
 def _pack_prompt(
-    days: list[dict],
-    summary: dict,
+    forecast: tuple[list[dict], dict],  # (days, summary) — one forecast, always paired
     gender: str,
     styles: list[str],
     trip_type: str,
@@ -161,6 +160,7 @@ def _pack_prompt(
     capped at ~8 words and pack[] at <=2 entries per category, because unlike
     _closet_prompt (fixed 6 slots) this schema is open-ended and would otherwise
     truncate mid-JSON on a long trip from a big closet."""
+    days, summary = forecast
     lines = [
         f"{i['id']} | {i['category']} | {i['label']} | colors: {','.join(i['colors'])}"
         f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
@@ -236,7 +236,7 @@ async def packing_list(
                 [
                     {
                         "role": "user",
-                        "content": _pack_prompt(days, summary, gender, styles, trip_type, closet, error_note),
+                        "content": _pack_prompt((days, summary), gender, styles, trip_type, closet, error_note),
                     }
                 ],
                 # Open-ended schema (see _pack_prompt) — closet_outfit's 560 is not

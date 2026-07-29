@@ -104,7 +104,7 @@ def apk_version(apk: Path) -> tuple[int, str]:
             strings = _axml_strings(blob, off)
         elif ctype == CHUNK_RESMAP:
             n = (csize - hsize) // 4
-            resmap = list(struct.unpack_from("<%dI" % n, blob, off + hsize))
+            resmap = list(struct.unpack_from(f"<{n}I", blob, off + hsize))
         elif ctype == CHUNK_START_ELEM and strings:
             name_i = struct.unpack_from("<I", blob, off + 20)[0]
             if name_i < len(strings) and strings[name_i] == "manifest":

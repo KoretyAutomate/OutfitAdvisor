@@ -6,9 +6,46 @@ Same logic as the JS so the app's offline fallback and the server agree.
 Used for the structured `outfit{}` in the response and as the LLM-failure fallback.
 """
 
+import math
+
 
 def pick(g: str, man: str, woman: str, neutral: str) -> str:
     return man if g == "man" else woman if g == "woman" else neutral
+
+
+# Temperature fields the personal calibration shifts. JS twin: TEMP_KEYS in index.html.
+_TEMP_KEYS = ("lo", "hi", "feelsLo", "feelsHi", "morning", "midday", "evening")
+
+
+def apply_temp_offset(w: dict, offset: float) -> dict:
+    """Return a COPY of the weather with the user's thermal calibration applied.
+
+    `offset` is ADDED to the temperatures the recommender sees: a user who reported
+    feeling too warm gets a positive offset, the engine/LLM think it is warmer than
+    it is, and they dress the user lighter. Getting this sign backwards is a silent
+    failure, hence the explicit note here and in PLAN.md.
+
+    Only temperatures move. rain/wind/code/isRain/isSnow are not thermal preference,
+    and `swing` (= hi - lo) is invariant under a uniform shift, so it is left alone.
+
+    The caller must keep the ORIGINAL weather for display — the app must never show
+    a temperature that is not the real forecast.
+    JS twin: applyTempOffset() in app/www/index.html — change them together.
+    """
+    if not offset:
+        return w
+    out = dict(w)
+    for k in _TEMP_KEYS:
+        v = out.get(k)
+        if v is not None:
+            # floor(x + 0.5), NOT round(). Python's round() is banker's rounding
+            # (round-half-to-EVEN) while JS Math.round() is half-UP, so the twins
+            # disagree on exact .5 values — and .5 is reachable: five "a bit warm"
+            # taps give offset 1.5, which on an integer 10C morning yields 10 here
+            # and 11 in the app. That is a different outfit at a threshold, from
+            # the same input, depending on whether the DGX was reachable.
+            out[k] = math.floor(v + offset + 0.5)
+    return out
 
 
 def recommend(w: dict, gender: str, style: str) -> dict:

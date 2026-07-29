@@ -107,6 +107,11 @@ class AdviceRequest(BaseModel):
     gender: Literal["man", "woman", "neutral"] = "neutral"
     style: Literal["casual", "smart", "active"] = "casual"
     day: int = Field(0, ge=0, le=1)  # 0 = today (morning push), 1 = tomorrow
+    # Personal thermal calibration from the phone's 5-point feedback (2026-07-27).
+    # ADDED to the temps the recommender sees: positive = user ran warm = dress
+    # lighter. A bounded float, so it adds no prompt-injection surface. The phone
+    # owns the rating history; the server stays stateless and just applies it.
+    tempOffset: float = Field(0.0, ge=-6, le=6)
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
@@ -142,14 +147,18 @@ async def advice(req: AdviceRequest):
         # Log only the exception TYPE and return a coordinate-free error.
         log.warning("advice failed: weather fetch error (%s)", type(e).__name__)
         raise HTTPException(status_code=503, detail="weather unavailable")
-    outfit = engine.recommend(w, req.gender, req.style)
+    # Personal calibration: recommend against SHIFTED temps, but keep `w` — the real
+    # forecast — for the response. The weather card and the notification header must
+    # never show a temperature the user isn't actually going to walk out into.
+    wc = engine.apply_temp_offset(w, req.tempOffset)
+    outfit = engine.recommend(wc, req.gender, req.style)
 
     closet_used = False
     picks = None
     text = None
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await llm.closet_outfit(w, req.gender, req.style, items)
+        result = await llm.closet_outfit(wc, req.gender, req.style, items)
         if result is not None:
             text = result["text"]
             closet_used = True
@@ -171,19 +180,22 @@ async def advice(req: AdviceRequest):
 
     source = "llm"
     if not text:
-        text = await llm.outfit_text(w, req.gender, req.style)
+        text = await llm.outfit_text(wc, req.gender, req.style)
     if not text:
         text = engine.outfit_to_bullets(outfit)
         source = "rule-engine"
 
     dt = round(time.monotonic() - t0, 2)
     # Coarse, coordinate-free log line (closet size only — never item content).
-    log.info("advice ok day=%s tz=%s lo=%s hi=%s source=%s closet=%s/%s %.2fs",
-             req.day, w.get("timezone"), w["lo"], w["hi"], source,
+    # tempOffset is a personal comfort scalar, not identifying — safe to log.
+    log.info("advice ok day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
+             req.day, w.get("timezone"), w["lo"], w["hi"], req.tempOffset, source,
              int(closet_used), len(req.closet or []), dt)
 
+    # tempOffset is echoed for the same reason closetUsed is: the app shows the user
+    # what was actually applied rather than assuming the server honoured it.
     return {"weather": w, "outfit": outfit, "outfit_text": text, "source": source,
-            "closetUsed": closet_used, "picks": picks}
+            "closetUsed": closet_used, "picks": picks, "tempOffset": req.tempOffset}
 
 
 class PackingRequest(BaseModel):

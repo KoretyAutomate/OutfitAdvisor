@@ -66,6 +66,19 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- "How did that feel?" actions on the morning outfit notification.
+             exported=false is correct AND sufficient: the only sender is our own
+             PendingIntent, which carries our identity, so the system delivers it
+             regardless. Exporting it would let any app on the device forge
+             ratings and silently corrupt the user's thermal calibration. -->
+        <receiver
+            android:name=".FeedbackReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.korety.outfitadvisor.FEEDBACK" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->

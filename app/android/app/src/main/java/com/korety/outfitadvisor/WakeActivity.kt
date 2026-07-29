@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
@@ -101,7 +102,10 @@ class WakeActivity : Activity() {
             val base = (prefs.getString("oa.baseUrl", DEFAULT_BASE) ?: DEFAULT_BASE).trimEnd('/')
             val gender = prefs.getString("oa.gender", "man") ?: "man"
             val style = prefs.getString("oa.style", "casual") ?: "casual"
-            val result = fetchAdvice(base, lat, lon, gender, style)
+            // Personal thermal calibration, written by the app AND by FeedbackReceiver.
+            // Read fresh each morning; a bad value must never cost the user their push.
+            val offset = prefs.getString(FeedbackReceiver.KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
+            val result = fetchAdvice(base, lat, lon, gender, style, offset)
             main.post {
                 if (result != null) finishWithAdvice(result) else finishWithFallback()
             }
@@ -112,12 +116,16 @@ class WakeActivity : Activity() {
 
     private data class Advice(val text: String, val source: String, val hi: Int?, val lo: Int?, val emoji: String?)
 
-    private fun fetchAdvice(base: String, lat: Double, lon: Double, gender: String, style: String): Advice? {
+    private fun fetchAdvice(base: String, lat: Double, lon: Double, gender: String,
+                            style: String, tempOffset: Double): Advice? {
         var conn: HttpURLConnection? = null
         return try {
             val body = JSONObject()
                 .put("lat", lat).put("lon", lon)
                 .put("gender", gender).put("style", style).put("day", 0)
+                // Server clamps to +-6 and 422s outside it, so send only sane values —
+                // a corrupt pref must not turn the morning push into a 422.
+                .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
                 .toString()
             conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -195,10 +203,35 @@ class WakeActivity : Activity() {
             .apply { if (badge != null) setSubText(badge) }
             .setAutoCancel(true)
             .setContentIntent(pi)
+            // Thermal feedback without opening the app — the whole point of a
+            // push-first product. Android renders at most 3 actions, so the coarse
+            // verdicts live here and the "a bit cool/warm" steps stay in-app.
+            .addAction(feedbackAction("🥶 Too cold", -2, FeedbackReceiver.REQ_COLD))
+            .addAction(feedbackAction("👌 Just right", 0, FeedbackReceiver.REQ_OK))
+            .addAction(feedbackAction("🥵 Too warm", 2, FeedbackReceiver.REQ_WARM))
             .build()
         nm.notify(OUTFIT_NOTIF_ID, n)
         // Clear the transient "getting your outfit…" wake notification.
         nm.cancel(AlarmReceiver.WAKE_NOTIF_ID)
+    }
+
+    /**
+     * One "how did that feel?" action. Distinct request codes per rating — a shared
+     * code with FLAG_UPDATE_CURRENT would make all three buttons deliver whichever
+     * extras were written last, which is exactly the silent-collision class of bug
+     * the packing work moved to string-keyed unique work to avoid.
+     */
+    private fun feedbackAction(label: String, rating: Int, requestCode: Int): Notification.Action {
+        val i = Intent(this, FeedbackReceiver::class.java)
+            .setAction(FeedbackReceiver.ACTION_FEEDBACK)
+            .putExtra(FeedbackReceiver.EXTRA_RATING, rating)
+        val pi = PendingIntent.getBroadcast(
+            this, requestCode, i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Action.Builder(
+            Icon.createWithResource(this, applicationInfo.icon), label, pi
+        ).build()
     }
 
     /** Cancel any in-flight GPS request and dismiss the visible activity. */

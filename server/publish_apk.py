@@ -19,6 +19,7 @@ once (persistent keystore + CI cert-drift gate, 2026-07-11). This script refuses
 to publish an APK whose signing cert is not the expected one, so a mis-signed
 build can never reach the phone as an "update".
 """
+
 import argparse
 import datetime as dt
 import hashlib
@@ -59,7 +60,7 @@ def _axml_strings(blob: bytes, off: int) -> list[str]:
                 p += 2
             else:
                 p += 1
-            out.append(blob[p:p + n].decode("utf-8", "replace"))
+            out.append(blob[p : p + n].decode("utf-8", "replace"))
         else:
             n = struct.unpack_from("<H", blob, p)[0]
             if n & 0x8000:
@@ -67,7 +68,7 @@ def _axml_strings(blob: bytes, off: int) -> list[str]:
                 p += 4
             else:
                 p += 2
-            out.append(blob[p:p + n * 2].decode("utf-16-le", "replace"))
+            out.append(blob[p : p + n * 2].decode("utf-16-le", "replace"))
     return out
 
 
@@ -90,11 +91,13 @@ def apk_version(apk: Path) -> tuple[int, str]:
 
     strings: list[str] = []
     resmap: list[int] = []
-    off, end = 8, len(blob)          # skip the 8-byte file header
+    off, end = 8, len(blob)  # skip the 8-byte file header
     while off + 8 <= end:
-        ctype, hsize, csize = (struct.unpack_from("<H", blob, off)[0],
-                               struct.unpack_from("<H", blob, off + 2)[0],
-                               struct.unpack_from("<I", blob, off + 4)[0])
+        ctype, hsize, csize = (
+            struct.unpack_from("<H", blob, off)[0],
+            struct.unpack_from("<H", blob, off + 2)[0],
+            struct.unpack_from("<I", blob, off + 4)[0],
+        )
         if csize <= 0 or off + csize > end:
             break
         if ctype == CHUNK_STRINGS:
@@ -136,8 +139,9 @@ def apk_cert(apk: Path) -> str | None:
     if not candidates:
         return None
     try:
-        out = subprocess.run([str(candidates[-1]), "verify", "--print-certs", str(apk)],
-                             capture_output=True, text=True, timeout=120).stdout
+        out = subprocess.run(
+            [str(candidates[-1]), "verify", "--print-certs", str(apk)], capture_output=True, text=True, timeout=120
+        ).stdout
     except Exception:
         return None
     m = re.search(r"certificate SHA-256 digest:\s*([0-9a-f]+)", out)
@@ -148,8 +152,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("apk", type=Path)
     ap.add_argument("--notes", default="")
-    ap.add_argument("--allow-unsigned-check", action="store_true",
-                    help="publish even if the signing cert cannot be verified locally")
+    ap.add_argument(
+        "--allow-unsigned-check",
+        action="store_true",
+        help="publish even if the signing cert cannot be verified locally",
+    )
     args = ap.parse_args()
 
     if not args.apk.is_file():
@@ -158,14 +165,18 @@ def main() -> None:
     cert = apk_cert(args.apk)
     if cert is None:
         if not args.allow_unsigned_check:
-            sys.exit("apksigner not found — cannot verify the signing key. "
-                     "Re-run with --allow-unsigned-check only if you are certain "
-                     "this APK came from the CI pipeline.")
+            sys.exit(
+                "apksigner not found — cannot verify the signing key. "
+                "Re-run with --allow-unsigned-check only if you are certain "
+                "this APK came from the CI pipeline."
+            )
         print("WARNING: signing cert NOT verified (apksigner unavailable)")
     elif cert != EXPECTED_CERT:
-        sys.exit(f"REFUSING TO PUBLISH: signed with {cert}, expected {EXPECTED_CERT}.\n"
-                 "An APK with a different key cannot update the installed app — it "
-                 "would force an uninstall and wipe settings and closet photos.")
+        sys.exit(
+            f"REFUSING TO PUBLISH: signed with {cert}, expected {EXPECTED_CERT}.\n"
+            "An APK with a different key cannot update the installed app — it "
+            "would force an uninstall and wipe settings and closet photos."
+        )
     else:
         print(f"signing cert OK ({cert[:16]}…)")
 

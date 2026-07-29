@@ -32,6 +32,7 @@ the prompt marks as untrusted (plan amendment 1, 2026-07-09).
 Run (tailnet-bound — bind the Tailscale IP, NOT 0.0.0.0, so the LAN never sees it):
     uvicorn app:app --host 100.112.171.54 --port 8787 --no-access-log
 """
+
 import base64
 import datetime as dt
 import json
@@ -179,8 +180,7 @@ async def apk():
     if not name or DIST.resolve() not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="apk missing")
     log.info("apk served (%s)", name)
-    return FileResponse(path, media_type="application/vnd.android.package-archive",
-                        filename=name)
+    return FileResponse(path, media_type="application/vnd.android.package-archive", filename=name)
 
 
 @app.get("/health")
@@ -248,14 +248,30 @@ async def advice(req: AdviceRequest):
     dt = round(time.monotonic() - t0, 2)
     # Coarse, coordinate-free log line (closet size only — never item content).
     # tempOffset is a personal comfort scalar, not identifying — safe to log.
-    log.info("advice ok day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
-             req.day, w.get("timezone"), w["lo"], w["hi"], req.tempOffset, source,
-             int(closet_used), len(req.closet or []), dt)
+    log.info(
+        "advice ok day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
+        req.day,
+        w.get("timezone"),
+        w["lo"],
+        w["hi"],
+        req.tempOffset,
+        source,
+        int(closet_used),
+        len(req.closet or []),
+        dt,
+    )
 
     # tempOffset is echoed for the same reason closetUsed is: the app shows the user
     # what was actually applied rather than assuming the server honoured it.
-    return {"weather": w, "outfit": outfit, "outfit_text": text, "source": source,
-            "closetUsed": closet_used, "picks": picks, "tempOffset": req.tempOffset}
+    return {
+        "weather": w,
+        "outfit": outfit,
+        "outfit_text": text,
+        "source": source,
+        "closetUsed": closet_used,
+        "picks": picks,
+        "tempOffset": req.tempOffset,
+    }
 
 
 class PackingRequest(BaseModel):
@@ -264,6 +280,7 @@ class PackingRequest(BaseModel):
     coordinates at confirm time and sends only those. The server never learns where
     the user is going by name, and cannot — that is the point (see PLAN.md Trips /
     privacy posture)."""
+
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
     start: dt.date
@@ -273,7 +290,8 @@ class PackingRequest(BaseModel):
     # A business trip is smart for meetings AND casual for evenings — one scalar
     # cannot express that, so packing takes a SET of registers (plan amendment T-3).
     styles: list[Literal["casual", "smart", "active"]] = Field(
-        default_factory=lambda: ["casual"], min_length=1, max_length=3)
+        default_factory=lambda: ["casual"], min_length=1, max_length=3
+    )
     closet: list[ClosetItem] | None = Field(None, max_length=100)
 
     @field_validator("end")
@@ -294,7 +312,7 @@ def _needed(category: str, n_days: int) -> int:
     if category in ("inner", "base"):
         return n_days + 1
     if category == "bottoms":
-        return max(1, -(-n_days // 3))   # ceil(n/3)
+        return max(1, -(-n_days // 3))  # ceil(n/3)
     return 1
 
 
@@ -310,15 +328,13 @@ async def packing(req: PackingRequest):
     try:
         if req.start > horizon:
             # Beyond the forecast window entirely -> honest climate normals.
-            wx = await weather.fetch_normals(req.lat, req.lon,
-                                             req.start.isoformat(), req.end.isoformat())
+            wx = await weather.fetch_normals(req.lat, req.lon, req.start.isoformat(), req.end.isoformat())
         else:
             # Inside the window. A long trip may run PAST the horizon — clamp the
             # end and say so, rather than letting Open-Meteo 400 the whole request.
             end = min(req.end, horizon)
             truncated = end < req.end
-            wx = await weather.fetch_range(req.lat, req.lon,
-                                           req.start.isoformat(), end.isoformat())
+            wx = await weather.fetch_range(req.lat, req.lon, req.start.isoformat(), end.isoformat())
     except Exception as e:
         # PRIVACY: the httpx error text embeds the Open-Meteo URL — lat/lon and the
         # trip dates included. Log the TYPE only, exactly as /advice does.
@@ -331,8 +347,7 @@ async def packing(req: PackingRequest):
     pack, gaps, text, closet_used = [], [], None, False
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await llm.packing_list(days, summary, req.gender, list(req.styles),
-                                        req.type, items)
+        result = await llm.packing_list(days, summary, req.gender, list(req.styles), req.type, items)
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
             closet_used = True
@@ -349,41 +364,57 @@ async def packing(req: PackingRequest):
                 want = _needed(cat, n)
                 have = sum(i["availableCount"] for i in items if i["category"] == cat)
                 if have < want:
-                    gaps.append({
-                        "category": cat,
-                        # have==0 means the closet has NONE registered — a laundry
-                        # day can't produce items you don't own, so say buy/register.
-                        "need": (f"none in your closet yet — bring/buy ~{want}"
-                                 if have == 0 else
-                                 f"only {have} of ~{want} clean — plan a laundry day"),
-                    })
+                    gaps.append(
+                        {
+                            "category": cat,
+                            # have==0 means the closet has NONE registered — a laundry
+                            # day can't produce items you don't own, so say buy/register.
+                            "need": (
+                                f"none in your closet yet — bring/buy ~{want}"
+                                if have == 0
+                                else f"only {have} of ~{want} clean — plan a laundry day"
+                            ),
+                        }
+                    )
         # result None -> honest generic fallback below, closetUsed stays False.
 
     if not text:
         # Generic packing advice: dress the trip's WORST case (coldest low, wettest
         # day) via the existing rule engine, so the user still gets something useful.
         worst = {
-            "morning": None, "lo": summary["loMin"], "hi": summary["hiMax"],
-            "swing": summary["swing"], "rain": max(d["rain"] for d in days),
-            "wind": summary["windMax"], "isSnow": summary["isSnow"],
+            "morning": None,
+            "lo": summary["loMin"],
+            "hi": summary["hiMax"],
+            "swing": summary["swing"],
+            "rain": max(d["rain"] for d in days),
+            "wind": summary["windMax"],
+            "isSnow": summary["isSnow"],
             "isRain": summary["isRain"],
             "code": max(days, key=lambda d: d["rain"])["code"],
         }
-        text = engine.outfit_to_bullets(engine.recommend(worst, req.gender,
-                                                         req.styles[0]))
+        text = engine.outfit_to_bullets(engine.recommend(worst, req.gender, req.styles[0]))
 
     dt_s = round(time.monotonic() - t0, 2)
     # Coarse log ONLY. No coords (as /advice). And no DATES — a real date range plus
     # a destination is itself identifying, unlike /advice's day=0|1.
-    log.info("packing ok n=%s mode=%s closet=%s/%s gaps=%s %.2fs",
-             n, summary["mode"], int(closet_used), len(req.closet or []),
-             len(gaps), dt_s)
+    log.info(
+        "packing ok n=%s mode=%s closet=%s/%s gaps=%s %.2fs",
+        n,
+        summary["mode"],
+        int(closet_used),
+        len(req.closet or []),
+        len(gaps),
+        dt_s,
+    )
 
-    return {"trip": {"nDays": n, "type": req.type, "styles": req.styles,
-                     "truncated": truncated},
-            "forecast": {"mode": summary["mode"], "days": days, "summary": summary},
-            "pack": pack, "gaps": gaps, "packing_text": text,
-            "closetUsed": closet_used}
+    return {
+        "trip": {"nDays": n, "type": req.type, "styles": req.styles, "truncated": truncated},
+        "forecast": {"mode": summary["mode"], "days": days, "summary": summary},
+        "pack": pack,
+        "gaps": gaps,
+        "packing_text": text,
+        "closetUsed": closet_used,
+    }
 
 
 @app.post("/classify")
@@ -398,8 +429,7 @@ async def classify(req: ClassifyRequest):
 
     raw = await llm.classify_image(b64)
     if raw is None:
-        log.warning("classify failed: LLM unavailable or non-JSON (%.2fs)",
-                    time.monotonic() - t0)
+        log.warning("classify failed: LLM unavailable or non-JSON (%.2fs)", time.monotonic() - t0)
         raise HTTPException(status_code=502, detail="classification unavailable")
 
     # Re-validate the LLM's output through the same schema as incoming closet
@@ -411,13 +441,11 @@ async def classify(req: ClassifyRequest):
             category=raw.get("category"),
             colors=[str(c) for c in raw.get("colors") or [] if str(c).strip()][:3],
             warmth=int(raw.get("warmth") or 3),
-            formality=[f for f in (raw.get("formality") or [])
-                       if f in ("casual", "smart", "active")],
+            formality=[f for f in (raw.get("formality") or []) if f in ("casual", "smart", "active")],
             waterproof=bool(raw.get("waterproof")),
         )
     except Exception:
-        log.warning("classify failed: LLM output failed validation (%.2fs)",
-                    time.monotonic() - t0)
+        log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)
         raise HTTPException(status_code=502, detail="classification unusable")
 
     # Coarse log: outcome + timing only — never the image, never the label.

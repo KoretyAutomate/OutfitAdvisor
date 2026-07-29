@@ -57,7 +57,12 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     if t >= 24:
         o["inner"] = "Sweat-wicking breathable inner (AIRism-type)"
     elif t >= 15:
-        o["inner"] = pick(gender, "Light cotton undershirt", "Light inner camisole or undershirt (worn under the top)", "Light cotton undershirt")
+        o["inner"] = pick(
+            gender,
+            "Light cotton undershirt",
+            "Light inner camisole or undershirt (worn under the top)",
+            "Light cotton undershirt",
+        )
     elif t >= 5:
         o["inner"] = "Warm inner (Heattech-type)"
     else:
@@ -65,7 +70,9 @@ def recommend(w: dict, gender: str, style: str) -> dict:
 
     # ── base layer ──
     if t >= 26:
-        o["base"] = pick(gender, "Breathable cotton/linen tee", "Light camisole or linen blouse", "Lightweight breathable tee")
+        o["base"] = pick(
+            gender, "Breathable cotton/linen tee", "Light camisole or linen blouse", "Lightweight breathable tee"
+        )
     elif t >= 18:
         o["base"] = pick(gender, "Cotton T-shirt", "Short-sleeve top or light blouse", "Cotton T-shirt")
     elif t >= 10:
@@ -81,7 +88,12 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     elif t >= 7:
         o["mid"] = pick(gender, "Wool sweater or fleece", "Sweater or fleece", "Wool sweater or fleece")
     else:
-        o["mid"] = pick(gender, "Heavy knit + insulating mid-layer", "Heavy knit + insulating layer", "Heavy knit / insulating layer")
+        o["mid"] = pick(
+            gender,
+            "Heavy knit + insulating mid-layer",
+            "Heavy knit + insulating layer",
+            "Heavy knit / insulating layer",
+        )
 
     # ── outer layer ──
     if w["isSnow"]:
@@ -101,13 +113,22 @@ def recommend(w: dict, gender: str, style: str) -> dict:
 
     # ── bottoms ──
     if t >= 26:
-        o["bottoms"] = pick(gender, "Light chinos or shorts", "Skirt, dress, or light trousers", "Shorts or light trousers")
+        o["bottoms"] = pick(
+            gender, "Light chinos or shorts", "Skirt, dress, or light trousers", "Shorts or light trousers"
+        )
     elif t >= 16:
         o["bottoms"] = pick(gender, "Chinos or jeans", "Jeans, trousers, or midi skirt + tights", "Chinos or jeans")
     elif t >= 6:
-        o["bottoms"] = pick(gender, "Jeans or wool trousers", "Trousers or jeans (consider thermal tights)", "Warm trousers or jeans")
+        o["bottoms"] = pick(
+            gender, "Jeans or wool trousers", "Trousers or jeans (consider thermal tights)", "Warm trousers or jeans"
+        )
     else:
-        o["bottoms"] = pick(gender, "Lined trousers + base layer", "Thermal-lined trousers or thick tights", "Insulated / lined trousers")
+        o["bottoms"] = pick(
+            gender,
+            "Lined trousers + base layer",
+            "Thermal-lined trousers or thick tights",
+            "Insulated / lined trousers",
+        )
     if style == "active":
         o["bottoms"] = "Stretch / technical trousers"
 
@@ -117,7 +138,9 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     elif w["isRain"] or w["rain"] >= 50:
         o["footwear"] = "Waterproof boots or shoes"
     elif t >= 24:
-        o["footwear"] = pick(gender, "Loafers or breathable sneakers", "Sandals or breathable flats", "Breathable sneakers")
+        o["footwear"] = pick(
+            gender, "Loafers or breathable sneakers", "Sandals or breathable flats", "Breathable sneakers"
+        )
     elif t >= 10:
         o["footwear"] = "Leather shoes / ankle boots" if style == "smart" else "Sneakers or casual shoes"
     else:
@@ -141,10 +164,14 @@ def recommend(w: dict, gender: str, style: str) -> dict:
     # ── tip ──
     if w["swing"] >= 10:
         # morning/midday can be None (hourly index miss) — don't print "None° → None°"
-        span = (f" ({w['morning']}° → {w['midday']}°)"
-                if w.get("morning") is not None and w.get("midday") is not None else "")
-        o["tip"] = (f"Big {w['swing']}° swing today{span}. "
-                    "Dress in layers you can shed by midday and add back in the evening.")
+        span = (
+            f" ({w['morning']}° → {w['midday']}°)"
+            if w.get("morning") is not None and w.get("midday") is not None
+            else ""
+        )
+        o["tip"] = (
+            f"Big {w['swing']}° swing today{span}. Dress in layers you can shed by midday and add back in the evening."
+        )
     elif w["isRain"] or w["rain"] >= 50:
         o["tip"] = f"Rain likely ({w['rain']}%). Prioritise the waterproof outer + footwear."
     elif w["wind"] >= 8:

@@ -106,6 +106,15 @@
   .stepper b{min-width:24px;text-align:center;font-size:1.05rem}
   select{background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px 12px;font:inherit;flex:1}
   .wearBtn{width:100%;margin-top:12px;background:rgba(52,211,153,.12);border:1px solid #14532d;color:var(--good)}
+  /* thermal feedback — 5-point scale (2026-07-27) */
+  .fb{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  .fbRow{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}
+  .fbRow button{background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:9px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
+  .fbRow button .e{font-size:1.15rem}
+  .fbRow button .c{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .fbRow button.on{background:var(--card2);border-color:var(--good)}
+  .fbRow button.on .c{color:var(--good)}
 </style>
 </head>
 <body>
@@ -222,6 +231,19 @@
       <p class="note" id="outfitTip"></p>
     </details>
     <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+    <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
+         the LLM plan against. Never shifts the weather shown above. -->
+    <div class="fb">
+      <label class="lbl" style="margin:0">How did that feel?</label>
+      <div class="fbRow" id="fbRow">
+        <button data-r="-2"><span class="e">🥶</span><span class="c">Too cold</span></button>
+        <button data-r="-1"><span class="e">🟦</span><span class="c">A bit cool</span></button>
+        <button data-r="0"><span class="e">👌</span><span class="c">Just right</span></button>
+        <button data-r="1"><span class="e">🟧</span><span class="c">A bit warm</span></button>
+        <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
+      </div>
+      <p class="note" id="fbNote"></p>
+    </div>
     <div class="deliver" style="margin-top:12px">
       <button id="dShare">💬 Share</button>
       <button id="dNotify">🔔 Preview push</button>
@@ -398,6 +420,18 @@ const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Par
   95:["⛈️","Thunderstorm"],96:["⛈️","Storm w/ hail"],99:["⛈️","Storm w/ hail"]};
 const SNOW=[71,73,75,77,85,86], RAIN=[51,53,55,61,63,65,66,67,80,81,82,95,96,99];
 function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
+/* Personal thermal calibration. Twin: apply_temp_offset() in server/engine.py.
+   `offset` is ADDED to the temps the recommender sees — felt too warm ⇒ positive
+   ⇒ we plan for a warmer day ⇒ lighter clothes. Only temperatures move; swing
+   (= hi−lo) is invariant under a uniform shift. Returns a COPY: the caller keeps
+   the real forecast for display. */
+const TEMP_KEYS=["lo","hi","feelsLo","feelsHi","morning","midday","evening"];
+function applyTempOffset(w,offset){
+  if(!offset) return w;
+  const o={...w};
+  for(const k of TEMP_KEYS) if(o[k]!=null) o[k]=Math.round(o[k]+offset);
+  return o;
+}
 function recommend(w,gender,style){
   const t = (w.morning ?? w.lo + (w.hi-w.lo)/2); const o={};
   /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
@@ -507,6 +541,54 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
+}
+
+/* ───────── thermal feedback (2026-07-27) ─────────
+   A 5-point verdict on how the day actually felt tunes ONE scalar, oa.tempOffset,
+   which is sent to /advice and applied to the offline engine too.
+
+   Incremental, NOT an average of the raw ratings: every rating judges an outfit
+   that was already adjusted by the offset in force that morning, so averaging
+   absolutes re-counts corrections already applied and oscillates. Feeding back
+   only the residual error converges — "just right" is Δ0, so a calibrated user's
+   offset simply stops moving. Kotlin twin: FeedbackReceiver.kt. */
+const FB_DELTA={"-2":-1.5,"-1":-0.6,"0":0,"1":0.6,"2":1.5};
+const FB_LABEL={"-2":"too cold","-1":"a bit cool","0":"just right","1":"a bit warm","2":"too warm"};
+const FB_RATE=0.5, FB_CLAMP=6, FB_KEEP=60;
+let tempOffset=0;   // °C added to the temps the recommender sees
+let feedback=[];    // {at: epoch-ms, rating: -2..2}
+let ratedThisAdvice=null;  // rating applied to the CURRENT card, so a re-tap can revert it
+
+function fbApply(rating){
+  const d=FB_DELTA[String(rating)]??0;
+  tempOffset=Math.max(-FB_CLAMP,Math.min(FB_CLAMP,
+    Math.round((tempOffset+FB_RATE*d)*100)/100));
+}
+function fbRevert(rating){
+  const d=FB_DELTA[String(rating)]??0;
+  tempOffset=Math.max(-FB_CLAMP,Math.min(FB_CLAMP,
+    Math.round((tempOffset-FB_RATE*d)*100)/100));
+}
+async function saveFeedback(){
+  feedback=feedback.slice(-FB_KEEP);            // same hygiene rule as the wear-log
+  await prefSet("oa.tempOffset",String(tempOffset));
+  await prefSet("oa.feedback",JSON.stringify(feedback));
+}
+function fbCalibrationText(){
+  if(!feedback.length) return "Rate a few mornings and the advice adjusts to how you actually run.";
+  const o=tempOffset, n=feedback.length;
+  const who=o>0.2?"you run warm — dressing you lighter"
+          :o<-0.2?"you run cold — dressing you warmer"
+          :"you're calibrated";
+  const sign=o>0?"+":"";
+  return `Calibration ${sign}${o.toFixed(1)}° · ${who} · from ${n} rating${n===1?"":"s"}. Tap to reset.`;
+}
+function renderFeedback(){
+  const note=$("fbNote"); if(!note) return;
+  note.textContent=fbCalibrationText();
+  note.style.cursor=feedback.length?"pointer":"default";
+  [...document.querySelectorAll("#fbRow button")].forEach(b=>
+    b.classList.toggle("on", ratedThisAdvice!==null && +b.dataset.r===ratedThisAdvice));
 }
 
 /* photos: app-private Filesystem on device, localStorage in a plain browser */
@@ -771,7 +853,7 @@ async function getAdvice(lat,lon){
   try{
     // closet requests generate ~2x the tokens — give them a longer leash
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?30000:15000);
-    const body={lat,lon,gender:state.gender,style:state.style,day:0};
+    const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(cl.length) body.closet=cl;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
@@ -782,8 +864,10 @@ async function getAdvice(lat,lon){
     return {weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0};
   }catch(e){
-    // fallback: compute everything on-device
-    const w=await fetchWeatherLocal(lat,lon); const o=recommend(w,state.gender,state.style);
+    // fallback: compute everything on-device. The calibration applies here too —
+    // recommend against shifted temps, but return the REAL weather for display.
+    const w=await fetchWeatherLocal(lat,lon);
+    const o=recommend(applyTempOffset(w,tempOffset),state.gender,state.style);
     return {weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
             closetUsed:false,picks:null,closetSent:cl.length>0};
   }
@@ -824,6 +908,8 @@ function renderOutfit(o,text,source,res){
   $("outfitList").innerHTML=["inner","base","mid","outer","bottoms","footwear","accessories"].map(k=>
     `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   $("outfitTip").textContent="💡 "+(o.tip||"");
+  ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
+  renderFeedback();
 }
 
 /* ───────── trips: rendering + sheets ───────── */
@@ -1116,6 +1202,11 @@ async function load(){
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
   try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
+  // thermal calibration — written by this page AND by the native FeedbackReceiver,
+  // so re-read it on every load rather than trusting the in-memory copy.
+  const off=parseFloat(await prefGet("oa.tempOffset","0"));
+  tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
+  try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -1124,7 +1215,7 @@ async function load(){
 }
 
 /* ───────── wire up ───────── */
-$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");if(lastWeather){lastOutfit=recommend(lastWeather,state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource,lastRes);}};
+$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");if(lastWeather){lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource,lastRes);}};
 $("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
@@ -1197,6 +1288,36 @@ $("dWear").onclick=async()=>{
     toast("Undone");
   }
   await saveCloset();
+};
+
+/* ── thermal feedback wiring ── */
+$("fbRow").onclick=async e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const rating=+b.dataset.r;
+  // Re-tapping a different verdict on the SAME suggestion replaces it: revert the
+  // delta already applied, then apply the new one. Without this, changing your mind
+  // stacks two corrections for one morning.
+  if(ratedThisAdvice!==null){
+    fbRevert(ratedThisAdvice);
+    feedback.pop();
+    if(ratedThisAdvice===rating){        // tapping the same verdict again = undo
+      ratedThisAdvice=null; await saveFeedback(); renderFeedback();
+      return toast("Rating removed");
+    }
+  }
+  fbApply(rating);
+  feedback.push({at:Date.now(),rating});
+  ratedThisAdvice=rating;
+  await saveFeedback(); renderFeedback();
+  const sign=tempOffset>0?"+":"";
+  toast(rating===0 ? "Noted — keeping this calibration"
+                   : `Noted (${FB_LABEL[String(rating)]}) — now ${sign}${tempOffset.toFixed(1)}°`);
+};
+$("fbNote").onclick=async()=>{
+  if(!feedback.length) return;
+  tempOffset=0; feedback=[]; ratedThisAdvice=null;
+  await saveFeedback(); renderFeedback();
+  toast("Calibration reset");
 };
 
 /* ── trips wiring ── */

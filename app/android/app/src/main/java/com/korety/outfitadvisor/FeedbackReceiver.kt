@@ -57,7 +57,7 @@ class FeedbackReceiver : BroadcastReceiver() {
 
         // The notification is done: the user answered it.
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .cancel(WakeActivity.OUTFIT_NOTIF_ID)
+            .cancel(OutfitNotification.OUTFIT_NOTIF_ID)
 
         val msg = if (rating == 0) "Thanks — keeping this calibration"
                   else "Noted — now ${if (updated > 0) "+" else ""}${fmt(updated)}°"

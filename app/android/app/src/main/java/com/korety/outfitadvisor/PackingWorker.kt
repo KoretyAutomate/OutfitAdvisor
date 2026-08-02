@@ -54,8 +54,8 @@ class PackingWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params
         val startMs = localMidnight(trip.optString("start"))
         if (startMs <= 0L || System.currentTimeMillis() > startMs) return Result.success()
 
-        val base = prefs.getString("oa.baseUrl", WakeActivity.DEFAULT_BASE)
-            ?: WakeActivity.DEFAULT_BASE
+        val base = prefs.getString("oa.baseUrl", AdviceWorker.DEFAULT_BASE)
+            ?: AdviceWorker.DEFAULT_BASE
         val gender = prefs.getString("oa.gender", "man") ?: "man"
         val place = trip.optString("place").ifBlank { "your trip" }
 

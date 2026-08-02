@@ -1,25 +1,16 @@
 package com.korety.outfitadvisor
 
-import android.Manifest
 import android.app.Activity
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.drawable.Icon
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
-import androidx.core.content.ContextCompat
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 
 /**
  * The full-screen-intent wake Activity — the spine of the whole app (PLAN risk #1).
@@ -29,17 +20,21 @@ import java.net.URL
  * count as legitimate foreground location under plain ACCESS_FINE_LOCATION.
  * Since 2026-07-15 the app ALSO declares ACCESS_BACKGROUND_LOCATION (user request):
  * when "Allow all the time" is granted, the GPS read no longer depends on this
- * activity's visibility timing at all — the FSI path remains as the notification
- * vehicle and as the fallback for users who keep "Only while using the app".
+ * activity's visibility timing at all.
  *
- * Flow: show over lockscreen -> one fresh GPS fix -> POST {lat,lon,gender,style}
- * to the DGX /advice endpoint -> post the outfit as a local notification -> DISCARD
- * the coordinates (never persisted) -> finish(). If anything fails, post a soft
- * "tap to check your outfit" notification that opens the app (which has its own
- * on-device fallback), so the user always gets *something*.
+ * SCOPE (changed 2026-08-02): this activity now does ONLY the fast part — read one
+ * fresh fix, hand it to AdviceWorker, finish. It used to do the POST too, under an
+ * 11-second watchdog with a 9-second read timeout, while real /advice calls take
+ * 20-30s against a 122B model. The watchdog therefore always won and the user got
+ * "Tap to check what to wear" EVERY morning — the server log shows this path never
+ * once reached it in 30 days. The slow half now lives in AdviceWorker, which has no
+ * visible UI waiting on it and can take as long as the model needs.
  *
- * Exactly ONE outcome is posted: the finishers race (watchdog vs GPS+POST) and the
- * first to flip `done` wins; the loser is a no-op. Requires minSdk 30 (getCurrentLocation).
+ * PRIVACY: the fix is handed over in process memory (LocationHandoff), never as
+ * WorkManager input Data — that gets persisted to disk, which would break the
+ * RAM-only coordinates invariant.
+ *
+ * Requires minSdk 30 (getCurrentLocation).
  */
 class WakeActivity : Activity() {
 
@@ -51,21 +46,20 @@ class WakeActivity : Activity() {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        ensureChannel()
+        OutfitNotification.ensureChannel(this)
 
-        // Watchdog: never hang the visible activity. If we can't finish in ~11s,
-        // post the fallback and bail so we don't strand a wake screen on the lock screen.
-        main.postDelayed({ finishWithFallback() }, 11_000)
+        // Watchdog covers the GPS read ONLY now, so it can be short again — the
+        // point of this screen is a 1-2s flash, not a spinner on the lock screen.
+        main.postDelayed({ handOff(null) }, GPS_WATCHDOG_MS)
 
-        if (!hasLocationPermission()) {
-            // Can't legitimately read GPS without the runtime grant. Nudge via the app.
-            finishWithFallback()
+        if (!LocationReader.hasPermission(this)) {
+            // No runtime grant: let the worker try (it may hold background location)
+            // and post the soft fallback if not.
+            handOff(null)
             return
         }
         readFreshLocation()
     }
-
-    // ---- one fresh GPS fix -----------------------------------------------------
 
     private fun readFreshLocation() {
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -73,194 +67,48 @@ class WakeActivity : Activity() {
             lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
             lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> null
-        } ?: return finishWithFallback()
+        } ?: return handOff(null)
 
         try {
             gpsCancel = CancellationSignal()
             lm.getCurrentLocation(provider, gpsCancel, mainExecutor) { loc ->
-                when {
-                    done -> {}
-                    loc != null -> onLocation(loc)
-                    else -> {
-                        // fresh fix unavailable — a recent last-known beats no outfit
-                        val last = try { lm.getLastKnownLocation(provider) } catch (se: SecurityException) { null }
-                        if (last != null) onLocation(last) else finishWithFallback()
-                    }
-                }
+                if (done) return@getCurrentLocation
+                // a recent last-known beats no outfit
+                val fix = loc ?: try { lm.getLastKnownLocation(provider) } catch (se: SecurityException) { null }
+                handOff(fix)
             }
         } catch (se: SecurityException) {
-            finishWithFallback()
+            handOff(null)
         }
-    }
-
-    private fun onLocation(loc: Location) {
-        val lat = loc.latitude
-        val lon = loc.longitude
-        // Network off the main thread; coords live only as locals -> discarded on return.
-        Thread {
-            val prefs = getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
-            val base = (prefs.getString("oa.baseUrl", DEFAULT_BASE) ?: DEFAULT_BASE).trimEnd('/')
-            val gender = prefs.getString("oa.gender", "man") ?: "man"
-            val style = prefs.getString("oa.style", "casual") ?: "casual"
-            // Personal thermal calibration, written by the app AND by FeedbackReceiver.
-            // Read fresh each morning; a bad value must never cost the user their push.
-            val offset = prefs.getString(FeedbackReceiver.KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
-            val result = fetchAdvice(base, lat, lon, gender, style, offset)
-            main.post {
-                if (result != null) finishWithAdvice(result) else finishWithFallback()
-            }
-        }.start()
-    }
-
-    // ---- DGX /advice call ------------------------------------------------------
-
-    private data class Advice(val text: String, val source: String, val hi: Int?, val lo: Int?, val emoji: String?)
-
-    private fun fetchAdvice(base: String, lat: Double, lon: Double, gender: String,
-                            style: String, tempOffset: Double): Advice? {
-        var conn: HttpURLConnection? = null
-        return try {
-            val body = JSONObject()
-                .put("lat", lat).put("lon", lon)
-                .put("gender", gender).put("style", style).put("day", 0)
-                // Server clamps to +-6 and 422s outside it, so send only sane values —
-                // a corrupt pref must not turn the morning push into a 422.
-                .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
-                .toString()
-            conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 4_000
-                readTimeout = 9_000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            if (conn.responseCode != 200) return null
-            val json = conn.inputStream.bufferedReader().use { it.readText() }
-            val o = JSONObject(json)
-            val w = o.optJSONObject("weather")
-            Advice(
-                text = o.optString("outfit_text", ""),
-                source = o.optString("source", "llm"),
-                hi = w?.takeIf { it.has("hi") }?.optInt("hi"),
-                lo = w?.takeIf { it.has("lo") }?.optInt("lo"),
-                emoji = w?.optString("emoji")
-            )
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
-        }
-    }
-
-    // ---- notifications + finish (mutually exclusive — first caller wins) --------
-
-    private fun finishWithAdvice(a: Advice) {
-        if (done) return
-        done = true
-        val srcBadge = if (a.source == "llm") "122B" else a.source
-        val header = buildString {
-            a.emoji?.takeIf { it.isNotBlank() }?.let { append(it).append("  ") }
-            if (a.lo != null && a.hi != null) append("${a.lo}–${a.hi}°  ")
-            append("Today's outfit")
-        }
-        postOutfit(header, a.text.ifBlank { "Tap to see today's outfit." }, "AI · $srcBadge")
-        wrapUp()
-    }
-
-    private fun finishWithFallback() {
-        if (done) return
-        done = true
-        // Soft notification that opens the app; the web layer runs its own
-        // on-device rule-engine estimate when the DGX is unreachable.
-        postOutfit("Today's outfit", "Tap to check what to wear.", null)
-        wrapUp()
-    }
-
-    private fun postOutfit(title: String, text: String, badge: String?) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val launch = packageManager.getLaunchIntentForPackage(packageName)
-            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            ?: Intent(this, WakeActivity::class.java)
-        val pi = PendingIntent.getActivity(
-            this, 4774, launch,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        // A collapsed notification shows ONE line of contentText. The old code put a
-        // "tap for details" teaser there and hid the outfit in BigTextStyle, so the
-        // advice only appeared when the user manually expanded — which most never do.
-        // Show the advice itself: a compact one-liner collapsed, the full (bulleted)
-        // text when expanded, and demote the source badge to the small sub-text slot.
-        val oneLine = text
-            .replace(Regex("^\\s*[-•]\\s*", RegexOption.MULTILINE), "")
-            .replace('\n', ' ')
-            .trim()
-        val n = Notification.Builder(this, CHANNEL_OUTFIT)
-            .setSmallIcon(applicationInfo.icon)
-            .setContentTitle(title)
-            .setContentText(oneLine)
-            .setStyle(Notification.BigTextStyle().bigText(text))
-            .apply { if (badge != null) setSubText(badge) }
-            .setAutoCancel(true)
-            .setContentIntent(pi)
-            // Thermal feedback without opening the app — the whole point of a
-            // push-first product. Android renders at most 3 actions, so the coarse
-            // verdicts live here and the "a bit cool/warm" steps stay in-app.
-            .addAction(feedbackAction("🥶 Too cold", -2, FeedbackReceiver.REQ_COLD))
-            .addAction(feedbackAction("👌 Just right", 0, FeedbackReceiver.REQ_OK))
-            .addAction(feedbackAction("🥵 Too warm", 2, FeedbackReceiver.REQ_WARM))
-            .build()
-        nm.notify(OUTFIT_NOTIF_ID, n)
-        // Clear the transient "getting your outfit…" wake notification.
-        nm.cancel(AlarmReceiver.WAKE_NOTIF_ID)
     }
 
     /**
-     * One "how did that feel?" action. Distinct request codes per rating — a shared
-     * code with FLAG_UPDATE_CURRENT would make all three buttons deliver whichever
-     * extras were written last, which is exactly the silent-collision class of bug
-     * the packing work moved to string-keyed unique work to avoid.
+     * Hand the fix (or the absence of one) to AdviceWorker and get off the screen.
+     * First caller wins — the watchdog and the GPS callback race, exactly as before.
      */
-    private fun feedbackAction(label: String, rating: Int, requestCode: Int): Notification.Action {
-        val i = Intent(this, FeedbackReceiver::class.java)
-            .setAction(FeedbackReceiver.ACTION_FEEDBACK)
-            .putExtra(FeedbackReceiver.EXTRA_RATING, rating)
-        val pi = PendingIntent.getBroadcast(
-            this, requestCode, i,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return Notification.Action.Builder(
-            Icon.createWithResource(this, applicationInfo.icon), label, pi
-        ).build()
-    }
+    private fun handOff(fix: Location?) {
+        if (done) return
+        done = true
 
-    /** Cancel any in-flight GPS request and dismiss the visible activity. */
-    private fun wrapUp() {
+        if (fix != null) LocationHandoff.put(fix.latitude, fix.longitude)
+
+        // Ordinary (non-expedited) work: expedited would promote to a foreground
+        // service on API < 31 and drag in FOREGROUND_SERVICE_DATA_SYNC on
+        // targetSdk 34 — the permission creep PLAN explicitly ruled out. The FSI
+        // has just turned the screen on, so the device is out of Doze and ordinary
+        // work starts immediately in practice.
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            AdviceWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<AdviceWorker>().build()
+        )
+
         gpsCancel?.cancel()
         finish()
     }
 
-    private fun ensureChannel() {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (nm.getNotificationChannel(CHANNEL_OUTFIT) == null) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_OUTFIT, "Daily outfit",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).apply { description = "Your morning outfit recommendation" }
-            )
-        }
-    }
-
-    private fun hasLocationPermission(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
-
-    companion object {
-        const val CHANNEL_OUTFIT = "outfit_daily"
-        const val OUTFIT_NOTIF_ID = 4775
-        const val DEFAULT_BASE = "http://100.112.171.54:8787"
+    private companion object {
+        // Only has to cover a GPS fix now, not a 30-second LLM round trip.
+        const val GPS_WATCHDOG_MS = 8_000L
     }
 }

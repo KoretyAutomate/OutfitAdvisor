@@ -421,7 +421,7 @@ async function prefSet(k, v){ try{ if(Plugins.Preferences){ await Plugins.Prefer
 /* ───────── state ───────── */
 const DEFAULT_BASE = "http://100.112.171.54:8787";
 const state = { city:"", lat:null, lon:null, place:"", gender:"man", style:"casual",
-                baseUrl:DEFAULT_BASE, pushTime:"06:45", pushEnabled:false };
+                baseUrl:DEFAULT_BASE, pushTime:"06:45", pushEnabled:false, useGps:false };
 let lastWeather=null, lastOutfit=null, lastText="", lastSource="", lastRes=null;
 let lastPickIds=[], wornLogged=false;
 const $ = id => document.getElementById(id);
@@ -1154,7 +1154,18 @@ async function run(){
     // geocode when the city changed OR when coords are absent (coords are never
     // persisted, so a saved city always re-geocodes on first use after launch)
     if(c && (c!==state.city || state.lat==null)){
-      state.city=c; const g=await geocode(c); state.lat=g.lat; state.lon=g.lon; state.place=g.place; await persist();
+      state.city=c; state.useGps=false; const g=await geocode(c); state.lat=g.lat; state.lon=g.lon; state.place=g.place; await persist();
+    }
+    // No city typed? Then GPS is what the user means — go and get it instead of
+    // refusing. Coordinates are still never persisted (the RAM-only decision), so
+    // they are gone at every launch; the old code turned that into a mandatory 📍
+    // tap EVERY time, which is just a chore, not a privacy control. `oa.useGps`
+    // remembers the intent — the choice, not the location.
+    if(state.lat==null && !c){
+      toast("Locating…");
+      const p=await getPosition();          // throws -> caught below with a clear message
+      state.lat=p.lat; state.lon=p.lon; state.place="My location";
+      state.city=""; state.useGps=true; await persist();
     }
     if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
     const res=await getAdvice(state.lat,state.lon);
@@ -1266,12 +1277,15 @@ async function persist(){
   await prefSet("oa.city",state.city);
   await prefSet("oa.gender",state.gender); await prefSet("oa.style",state.style);
   await prefSet("oa.baseUrl",state.baseUrl); await prefSet("oa.pushTime",state.pushTime); await prefSet("oa.pushEnabled",state.pushEnabled?"1":"0");
+  await prefSet("oa.useGps",state.useGps?"1":"0");
 }
 async function load(){
   state.city=await prefGet("oa.city","");
   state.gender=await prefGet("oa.gender","man"); state.style=await prefGet("oa.style","casual");
   state.baseUrl=await prefGet("oa.baseUrl",DEFAULT_BASE); state.pushTime=await prefGet("oa.pushTime","06:45");
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
+  // remembers the CHOICE (GPS vs a typed city), never the location itself
+  state.useGps=(await prefGet("oa.useGps","0"))==="1";
   try{ closet=JSON.parse(await prefGet("oa.closet","[]"))||[]; }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
@@ -1294,7 +1308,7 @@ $("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");
-  try{ const p=await getPosition(); state.lat=p.lat; state.lon=p.lon; state.city=""; state.place="My location"; $("city").value=""; await persist(); run(); }
+  try{ const p=await getPosition(); state.lat=p.lat; state.lon=p.lon; state.city=""; state.useGps=true; state.place="My location"; $("city").value=""; await persist(); run(); }
   catch(e){ toast("Couldn't get location — type a city"); } };
 $("saveSchedule").onclick=saveSchedule;
 $("saveUrl").onclick=async()=>{ const v=$("baseUrl").value.trim(); if(v){ state.baseUrl=v; await persist(); toast("Server saved"); } };

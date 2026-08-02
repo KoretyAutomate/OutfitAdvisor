@@ -15,7 +15,13 @@ caller validates (never prompt-hoped). Images are request-scoped locals only.
 """
 
 import json
+import logging
+
 import httpx
+
+# Same handler app.py configures; never log prompt or closet CONTENT here — the
+# privacy invariant is that item labels never reach the logs. Ids only.
+log = logging.getLogger("outfit.llm")
 
 VLLM_URL = "http://127.0.0.1:8000/v1/chat/completions"
 MODEL = "Intel/Qwen3.5-122B-A10B-int4-AutoRound"
@@ -349,6 +355,30 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict], error_n
     )
 
 
+def _dedupe_picks(picks: dict, by_cat: dict) -> dict:
+    """Keep a duplicated item in ONE slot; null it everywhere else.
+
+    The item's own category decides which slot it keeps — a garment classified as
+    `base` stays in `base` and is dropped from `inner`. When the category is not
+    among the slots it was duplicated into, the first slot in CATEGORIES order
+    wins, so the outcome is deterministic rather than dict-order dependent.
+
+    A nulled slot is not a hole: app.py keeps the rule engine's generic
+    recommendation for null picks (F3, 2026-07-15), so the user still gets told
+    what to wear there — just not the garment they are already wearing elsewhere.
+    """
+    out = dict(picks)
+    chosen = [v for v in out.values() if v]
+    for item_id in {v for v in chosen if chosen.count(v) > 1}:
+        slots = [c for c in CATEGORIES if out.get(c) == item_id]
+        keep = by_cat.get(item_id) if by_cat.get(item_id) in slots else slots[0]
+        for c in slots:
+            if c != keep:
+                out[c] = None
+        log.warning("closet picks: %s was in %s, kept only %s", item_id, slots, keep)
+    return out
+
+
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) -> dict | None:
     """Outfit constrained to the user's items. Returns
     {"picks": {slot: id|None}, "text": str} with every pick VALIDATED against
@@ -357,7 +387,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) ->
     """
     valid_ids = {i["id"] for i in closet}
     error_note = ""
-    for _ in range(2):
+    for attempt in range(2):
         # 280 (plan estimate) truncated mid-JSON on a 6-item closet; 560 fit
         # 6 slots. Now 7 slots + up to 8 bullets, some carrying the longer
         # "(not in your closet yet)" generic-suggestion wording → ~650 worst
@@ -376,6 +406,24 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) ->
         if bad:
             error_note = f"Your last reply used ids not present in the wardrobe: {bad}. Use ONLY listed ids or null. "
             continue
+        # One garment cannot fill two slots. The prompt says inner is an undershirt
+        # and base is the visible top, but saying it was never enough — with a small
+        # closet the model happily returns the same id for both, and the old code
+        # only checked that ids EXIST, so it shipped "wear your tee under your tee".
+        # Same class as plan amendment 3: validate in code, never hope in prose.
+        chosen = [v for v in picks.values() if v]
+        dup = sorted({v for v in chosen if chosen.count(v) > 1})
+        if dup:
+            if attempt == 0:
+                error_note = (
+                    f"Your last reply put the same item in more than one slot: {dup}. "
+                    "One garment is worn in exactly ONE slot — an undershirt is not "
+                    "also the visible top. Use a different item, or null. "
+                )
+                continue
+            # Retry didn't fix it: resolve it ourselves rather than throw away the
+            # whole closet answer and fall back to generic advice.
+            picks = _dedupe_picks(picks, {i["id"]: i["category"] for i in closet})
         bullets = [str(b).strip() for b in out["bullets"] if str(b).strip()]
         if not bullets:
             error_note = "Your last reply had empty bullets. "

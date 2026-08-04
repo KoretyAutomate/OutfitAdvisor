@@ -1,0 +1,11 @@
+[Unit]
+Description=Outfit Advisor watchdog (Tailscale reachability + /health)
+Documentation=file:///home/korety/Project/outfit-advisor/server/deploy/README-watchdog.md
+# Deliberately NOT Requires=outfit-advisor: the whole point is to run when that
+# unit looks healthy to systemd but is unreachable in reality.
+
+[Service]
+Type=oneshot
+ExecStart=/home/korety/Project/outfit-advisor/server/deploy/outfit-watchdog.sh
+# The check itself must never hang around; the timer will fire again shortly.
+TimeoutStartSec=120

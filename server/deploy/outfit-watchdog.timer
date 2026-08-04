@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the Outfit Advisor watchdog every 5 minutes
+
+[Timer]
+# Soon after boot, then every 5 minutes. Five minutes is chosen against the
+# consequence, not the failure rate: the outage this exists to catch is rare but
+# costs a whole morning's push, and the check is a status call plus one curl.
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Catch up after suspend/downtime rather than silently skipping the window.
+Persistent=true
+AccuracySec=30s
+Unit=outfit-watchdog.service
+
+[Install]
+WantedBy=timers.target

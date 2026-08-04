@@ -128,6 +128,46 @@ res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
 check("bogus id triggers the id retry", len(calls) == 2)
 check("and the valid retry is accepted", res is not None and res["picks"]["base"] == "aaaaaaaa-1")
 
+# ---- 5. slot/category compatibility ----------------------------------------
+# The model's favourite way to dodge the duplicate rule is to demote the tee into
+# `inner` and let the engine fill `base` generically — which the user reads as the
+# SAME "tee under tee" complaint. Observed live 2026-08-04.
+print("\n[5] an item may only fill a slot its own category allows")
+check("a base tee is not an inner",
+      llm._slot_mismatches({"inner": "aaaaaaaa-1", "base": None}, by_cat) == ["inner"])
+check("an inner in the base slot is also wrong",
+      llm._slot_mismatches({"inner": None, "base": "aaaaaaaa-2"}, by_cat) == ["base"])
+check("correct placement is accepted",
+      llm._slot_mismatches({"inner": "aaaaaaaa-2", "base": "aaaaaaaa-1"}, by_cat) == [])
+check("null slots are not mismatches",
+      llm._slot_mismatches({"inner": None, "base": None}, by_cat) == [])
+
+MID_OUTER = CLOSET + [
+    {"id": "aaaaaaaa-4", "label": "grey fleece", "category": "mid", "colors": ["grey"],
+     "warmth": 4, "formality": ["casual"], "waterproof": False, "availableCount": 1}]
+mo_cat = {i["id"]: i["category"] for i in MID_OUTER}
+check("mid may stand in for outer (a fleece as the outer layer is real)",
+      llm._slot_mismatches({"outer": "aaaaaaaa-4"}, mo_cat) == [])
+
+print("\n[6] a slot mismatch retries, then is cleared rather than left wrong")
+calls.clear()
+misplaced = {"inner": "aaaaaaaa-1", "base": None, "mid": None, "outer": None,
+             "bottoms": "aaaaaaaa-3", "footwear": None, "accessories": None}
+llm._chat = stub([reply(misplaced), reply(good)])
+res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
+check("retried on the mismatch", len(calls) == 2, f"{len(calls)}")
+check("the retry prompt explains the slot rule",
+      "category" in calls[1] and "inner" in calls[1], calls[1][-200:] if len(calls) > 1 else "")
+check("the corrected answer is used", res["picks"]["inner"] == "aaaaaaaa-2")
+
+calls.clear()
+llm._chat = stub([reply(misplaced), reply(misplaced)])
+res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
+check("a stubborn mismatch clears the slot (engine's generic advice fills it)",
+      res is not None and res["picks"]["inner"] is None, res["picks"] if res else None)
+check("the legitimate pick in the same reply survives",
+      res is not None and res["picks"]["bottoms"] == "aaaaaaaa-3")
+
 print("=" * 68)
 print(f"RESULT: {passed} passed, {failed} failed")
 print("=" * 68)

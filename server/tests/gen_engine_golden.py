@@ -41,7 +41,7 @@ def w_of(morning, *, hi=None, lo=None, midday=None, rain=0, wind=0, code=0, snow
 
 # Weather shapes chosen to hit each non-temperature branch, including the
 # precedence between them (snow beats rain beats temperature for outer/footwear).
-SHAPES = {
+SHAPES: dict[str, dict] = {
     "calm":        dict(),
     "snow":        dict(snow=True),
     "rain_flag":   dict(is_rain=True, rain=80),

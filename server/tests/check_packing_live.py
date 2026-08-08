@@ -19,7 +19,7 @@ BASE = "http://100.112.171.54:8787"
 TODAY = dt.date.today()
 
 # A small but realistic closet, spanning every category, with a multi-count item.
-CLOSET = [
+CLOSET: list[dict] = [
     {
         "id": "itm-inner-airism",
         "label": "grey airism undershirt",
@@ -179,7 +179,7 @@ if st == 200:
     check("every packed id is real", not bad, bad)
     over = [(p["id"], p["qty"], AVAIL.get(p["id"])) for p in d["pack"] if p["qty"] > AVAIL.get(p["id"], 0)]
     check("no qty exceeds availableCount", not over, over)
-    percat = {}
+    percat: dict[str, int] = {}
     for p in d["pack"]:
         percat[p["category"]] = percat.get(p["category"], 0) + 1
     check("<=2 pack entries per category", all(v <= 2 for v in percat.values()), percat)

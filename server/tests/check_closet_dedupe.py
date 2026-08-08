@@ -84,7 +84,7 @@ check("a clean answer is passed through unchanged",
 
 # ---- 2. the retry ----------------------------------------------------------
 print("\n[2] a duplicate triggers ONE corrective retry")
-calls = []
+calls: list[str] = []
 
 
 def stub(sequence):
@@ -107,7 +107,8 @@ check("retried after the duplicate", len(calls) == 2, f"{len(calls)} call(s)")
 check("the retry prompt names the offending id",
       "aaaaaaaa-1" in calls[1] and "more than one slot" in calls[1])
 check("the corrected answer is used",
-      res["picks"]["inner"] == "aaaaaaaa-2" and res["picks"]["base"] == "aaaaaaaa-1", res["picks"])
+      res is not None and res["picks"]["inner"] == "aaaaaaaa-2" and res["picks"]["base"] == "aaaaaaaa-1",
+      res["picks"] if res else "closet_outfit returned None")
 
 # ---- 3. a stubborn model ---------------------------------------------------
 print("\n[3] if the retry ALSO duplicates, resolve it rather than lose closet advice")
@@ -160,7 +161,9 @@ res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
 check("retried on the mismatch", len(calls) == 2, f"{len(calls)}")
 check("the retry prompt explains the slot rule",
       "category" in calls[1] and "inner" in calls[1], calls[1][-200:] if len(calls) > 1 else "")
-check("the corrected answer is used", res["picks"]["inner"] == "aaaaaaaa-2")
+check("the corrected answer is used",
+      res is not None and res["picks"]["inner"] == "aaaaaaaa-2",
+      res["picks"] if res else "closet_outfit returned None")
 
 calls.clear()
 llm._chat = stub([reply(misplaced), reply(misplaced)])

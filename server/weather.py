@@ -161,9 +161,14 @@ async def _archive_year(
     lon: float,
     window: tuple[dt.date, dt.date],  # (start, end) — one calendar window, always paired
     year: int,
-) -> list[dict] | None:
+) -> dict[str, list] | None:
     """One year's slice of the same calendar window. None if that year is
     genuinely unusable (e.g. a Feb-29 window in a common year).
+
+    Returns Open-Meteo's `daily` object, which is a dict of PARALLEL ARRAYS
+    ({"time": [...], "temperature_2m_min": [...]}), not a list of day records.
+    This was annotated `list[dict]` — backwards — and every caller indexes it
+    as a dict, which is where all eleven of this file's mypy errors came from.
 
     Open-Meteo 429s ("Too many concurrent requests") if all NORMALS_YEARS requests
     are fired at once — verified 2026-07-13, 5 of 10 years were rejected. The
@@ -255,13 +260,16 @@ async def fetch_normals(lat: float, lon: float, start: str, end: str) -> dict:
     if not days:
         raise ValueError("archive returned no usable days")
 
-    out = {"mode": "normals", "days": days, "summary": _summarize(days, "normals", None)}
+    # Fill the summary before composing the result. Mutating it through
+    # out["summary"] made mypy widen the literal's value type to the join of
+    # str/list/dict, i.e. Collection[Any], which is not indexable-assignable.
+    summary = _summarize(days, "normals", None)
     # The means understate what you must pack for: a 3.8C mean low with a -2.4C
     # coldest year is a winter-coat trip. Carry the extremes so the prompt can.
-    out["summary"]["yearsUsed"] = len(usable)
-    out["summary"]["loMinEver"] = round(min(v for d in usable for v in d["temperature_2m_min"] if v is not None))
-    out["summary"]["hiMaxEver"] = round(max(v for d in usable for v in d["temperature_2m_max"] if v is not None))
-    return out
+    summary["yearsUsed"] = len(usable)
+    summary["loMinEver"] = round(min(v for d in usable for v in d["temperature_2m_min"] if v is not None))
+    summary["hiMaxEver"] = round(max(v for d in usable for v in d["temperature_2m_max"] if v is not None))
+    return {"mode": "normals", "days": days, "summary": summary}
 
 
 async def fetch_weather(lat: float, lon: float, day: int = 0) -> dict:

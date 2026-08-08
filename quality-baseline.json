@@ -1,0 +1,40 @@
+{
+  "config": {
+    "bigfiles": true,
+    "mypy": true,
+    "pytest": true,
+    "ruff": {
+      "config": "~/.config/prepush/ruff.toml",
+      "select": null
+    },
+    "suppressions": true
+  },
+  "frozen_at": "2026-08-08T15:07:42+00:00",
+  "metrics": {
+    "bigfiles:over600": {
+      "limit": 0
+    },
+    "inline:noqa": {
+      "limit": 3
+    },
+    "inline:type-ignore": {
+      "limit": 0
+    },
+    "min:tests": {
+      "limit": 362
+    },
+    "ruff:PLR0913": {
+      "limit": 1
+    },
+    "ruff:S310": {
+      "limit": 3
+    },
+    "ruff:S603": {
+      "limit": 1
+    }
+  },
+  "rebaselined_at": "2026-08-08T15:07:42+00:00",
+  "tool": "quality-ceiling",
+  "updated_at": "2026-08-08T15:07:42+00:00",
+  "version": 1
+}

@@ -261,7 +261,9 @@ async def packing_list(
             if not isinstance(entry, dict):
                 continue
             iid = entry.get("id")
-            if iid not in by_id:
+            # An entry with no id at all is malformed model output, and belongs
+            # in `bad` with every other unknown id rather than reaching seen/by_id.
+            if iid is None or iid not in by_id:
                 bad.append(iid)
                 continue
             if iid in seen:  # the model listing the same item twice

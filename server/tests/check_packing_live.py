@@ -1,10 +1,13 @@
 """
-test_packing_live.py — T1 verification for POST /packing against the LIVE server.
+check_packing_live.py — T1 verification for POST /packing against the LIVE server.
 
-Not a unit test: it exercises the real endpoint, the real Open-Meteo calls and the
-real vLLM, because "ran without error" is not verification (workspace rule).
+Not a unit test, and deliberately NOT named test_*: it exercises the real endpoint,
+the real Open-Meteo calls and the real vLLM, because "ran without error" is not
+verification (workspace rule). Under a test_* name pytest imported it during
+collection, ran ~55s of live network, then died on its module-level sys.exit() —
+which took the whole suite down with it.
 
-Run:  python3 test_packing_live.py            (server must be up on the tailnet IP)
+Run:  python3 server/tests/check_packing_live.py   (server must be up on the tailnet IP)
 """
 
 import datetime as dt

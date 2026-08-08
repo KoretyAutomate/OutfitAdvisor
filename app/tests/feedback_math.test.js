@@ -96,7 +96,7 @@ console.log("\n--- 5b. twin parity: the SAME table server/engine.py asserts ----
 // Python round() is banker's rounding, JS Math.round() is half-up. A .5 offset is
 // reachable (five "a bit warm" taps = 1.5), so the two twins must agree digit for
 // digit or the same weather yields different outfits depending on whether the DGX
-// was reachable. This table is duplicated verbatim in scripts/test_feedback_fb1.py
+// was reachable. This table is duplicated verbatim in scripts/check_feedback_fb1.py
 // section [8] — both sides must pass it.
 const HALF_UP = [
   [10, 1.5, 12], [11, 1.5, 13], [10, 0.5, 11], [11, 0.5, 12],

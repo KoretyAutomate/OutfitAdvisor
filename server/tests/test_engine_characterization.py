@@ -14,7 +14,7 @@ WHY THIS EXISTS
     with `python3 server/tests/gen_engine_golden.py` and review the diff:
     a golden diff is the blast radius, and the JS twin must move with it.
 
-    Runs fully offline — no server, unlike test_packing_live.py.
+    Runs fully offline — no server, unlike check_packing_live.py.
 """
 
 import json

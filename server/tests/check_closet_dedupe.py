@@ -7,7 +7,9 @@ visible top; the validator only checked that ids EXIST, so nothing caught it. Sa
 class as plan amendment 3: validate in code, never hope in prose.
 
 Stubs the vLLM call so this is deterministic and needs neither the network nor a
-resident model. Run: python3 server/tests/test_closet_dedupe.py
+resident model. Not named test_* on purpose: it sys.exit()s at module level, which
+kills pytest collection for the whole tree.
+Run: python3 server/tests/check_closet_dedupe.py
 """
 import asyncio
 import json

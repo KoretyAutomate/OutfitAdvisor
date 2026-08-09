@@ -191,6 +191,13 @@
       <button class="ghost" id="saveSchedule" style="align-self:flex-end">Save schedule</button>
     </div>
     <p class="note" id="schedStatus" style="display:none"></p>
+    <!-- Everything that must be true for the push to deliver with the phone
+         ASLEEP. Each of these fails silently and looks identical from outside,
+         which is why a broken push looked "armed" for weeks. -->
+    <div id="readyBox" style="display:none;margin-top:10px">
+      <label class="lbl" style="margin:0 0 6px">Will it work while the phone sleeps?</label>
+      <ul id="readyList" style="list-style:none;padding:0;margin:0;font-size:.8rem"></ul>
+    </div>
     <details class="det">
       <summary>Advanced — advisor server</summary>
       <div class="row" style="margin-top:10px">
@@ -1267,7 +1274,46 @@ async function refreshSchedStatus(){
     el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}${bg}`;
   }catch(e){ el.style.display="none"; }
 }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); checkUpdate(); } });
+/* Push readiness — the prerequisites that decide whether the morning push can
+   deliver with the phone asleep. Reported honestly rather than assumed: the app
+   was "armed" for weeks while the push could not possibly have worked. */
+const READY_ROWS=[
+  {k:"notifications", label:"Notifications allowed",
+   why:"Android 13+ drops every notification without this."},
+  {k:"exactAlarm", label:"Exact alarm allowed",
+   why:"Without it the wake time drifts."},
+  {k:"bgLocation", label:'Location "Allow all the time"',
+   why:"Needed to read GPS while the screen is off. Without it the push depends on the wake screen appearing.",
+   fix:async()=>{ await Plugins.OutfitAlarm.bgLocation({request:true}); }},
+  {k:"batteryUnrestricted", label:"Battery unrestricted",
+   why:"In Doze, Android defers network access. The outfit call takes 20–30s and gets cut off while you sleep.",
+   fix:async()=>{ await Plugins.OutfitAlarm.requestBatteryUnrestricted(); }},
+  {k:"fullScreenIntent", label:"Full-screen intents (optional)",
+   why:"Only a faster GPS read. The push no longer depends on it.",
+   optional:true,
+   fix:async()=>{ await Plugins.OutfitAlarm.requestFullScreenIntent(); }},
+];
+async function refreshReadiness(){
+  const box=$("readyBox"), list=$("readyList");
+  if(!(Plugins.OutfitAlarm && Plugins.OutfitAlarm.pushReadiness)){ box.style.display="none"; return; }
+  let r; try{ r=await Plugins.OutfitAlarm.pushReadiness(); }catch(e){ box.style.display="none"; return; }
+  box.style.display="block";
+  list.innerHTML=READY_ROWS.map((row,i)=>{
+    const ok=!!r[row.k];
+    const icon=ok?"✅":(row.optional?"⚪":"❌");
+    const colour=ok?"var(--good)":(row.optional?"var(--muted)":"var(--warn)");
+    const btn=(!ok&&row.fix)?`<button class="ghost" data-fix="${i}" style="padding:4px 9px;font-size:.7rem;margin-left:auto">Fix</button>`:"";
+    return `<li style="display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid var(--line)">
+      <span style="color:${colour}">${icon}</span>
+      <span style="color:${ok?'var(--txt)':'var(--muted)'}">${row.label}</span>${btn}
+    </li>${ok?"":`<li class="note" style="margin:0 0 4px 22px">${row.why}</li>`}`;
+  }).join("");
+  list.querySelectorAll("button[data-fix]").forEach(b=>{
+    b.onclick=async()=>{ try{ await READY_ROWS[+b.dataset.fix].fix(); }catch(e){}
+      setTimeout(refreshReadiness,600); };
+  });
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); } });
 
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
@@ -1310,7 +1356,7 @@ $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");
   try{ const p=await getPosition(); state.lat=p.lat; state.lon=p.lon; state.city=""; state.useGps=true; state.place="My location"; $("city").value=""; await persist(); run(); }
   catch(e){ toast("Couldn't get location — type a city"); } };
-$("saveSchedule").onclick=saveSchedule;
+$("saveSchedule").onclick=async()=>{ await saveSchedule(); refreshReadiness(); };
 $("saveUrl").onclick=async()=>{ const v=$("baseUrl").value.trim(); if(v){ state.baseUrl=v; await persist(); toast("Server saved"); } };
 $("dShare").onclick=shareIt; $("dNotify").onclick=previewPush;
 
@@ -1502,7 +1548,7 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset(); refreshSchedStatus(); renderTrips(); renderFeedback();
+  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback();
   checkUpdate();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

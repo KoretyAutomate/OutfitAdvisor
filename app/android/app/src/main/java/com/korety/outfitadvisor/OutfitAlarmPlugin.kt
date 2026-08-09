@@ -2,8 +2,13 @@ package com.korety.outfitadvisor
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -103,6 +108,84 @@ class OutfitAlarmPlugin : Plugin() {
     private fun bgLocationResult(call: PluginCall) {
         call.resolve(JSObject().put(
             "granted", getPermissionState("bgLocation") == PermissionState.GRANTED))
+    }
+
+    /**
+     * Everything that must be true for the morning push to work WITH THE PHONE
+     * ASLEEP, reported honestly so the UI can stop guessing.
+     *
+     * Added 2026-08-09 after the user observed the push only ever delivered full
+     * advice when the phone happened to be awake. Each of these fails silently and
+     * in a way that looks identical from the outside, which is why it took a user
+     * report to find: the app looked armed, and was.
+     */
+    @PluginMethod
+    fun pushReadiness(call: PluginCall) {
+        val ctx = context
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+
+        // Android 14+ stopped auto-granting USE_FULL_SCREEN_INTENT to apps that are
+        // not calling/alarm apps. When false the FSI silently degrades to a heads-up
+        // notification and WakeActivity never launches on a locked phone — which is
+        // why the alarm must no longer depend on it.
+        val fsi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            nm.canUseFullScreenIntent() else true
+
+        call.resolve(
+            JSObject()
+                .put("notifications", nm.areNotificationsEnabled())
+                .put("exactAlarm", canScheduleExact(ctx))
+                .put("bgLocation", getPermissionState("bgLocation") == PermissionState.GRANTED)
+                .put("batteryUnrestricted", pm.isIgnoringBatteryOptimizations(ctx.packageName))
+                .put("fullScreenIntent", fsi)
+        )
+    }
+
+    /**
+     * Ask to be exempt from Doze network deferral. There is no inline dialog we can
+     * host — the OS owns this screen — so we open it and the web layer re-checks on
+     * resume, same pattern as bgLocation().
+     */
+    @PluginMethod
+    fun requestBatteryUnrestricted(call: PluginCall) {
+        val ctx = context
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(ctx.packageName)) {
+            call.resolve(JSObject().put("granted", true))
+            return
+        }
+        try {
+            ctx.startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            // Some OEM builds hide the direct dialog; fall back to the settings list.
+            try {
+                ctx.startActivity(
+                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (ignored: Exception) {}
+        }
+        call.resolve(JSObject().put("granted", false))
+    }
+
+    /** Open the OS screen where "Allow full screen intents" can be turned on. */
+    @PluginMethod
+    fun requestFullScreenIntent(call: PluginCall) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                        .setData(Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (ignored: Exception) {}
+        }
+        call.resolve(JSObject().put("opened", true))
     }
 
     private fun canScheduleExact(ctx: Context): Boolean {

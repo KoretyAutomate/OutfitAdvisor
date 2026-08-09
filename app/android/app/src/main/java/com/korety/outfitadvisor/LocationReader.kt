@@ -57,6 +57,16 @@ object LocationReader {
         }
     }
 
+    /**
+     * "Allow all the time". This is what decides whether the morning push can work
+     * with the phone asleep: without it, nothing in this process may read location
+     * unless a visible activity is on screen.
+     */
+    fun hasBackgroundPermission(context: Context): Boolean =
+        hasPermission(context) &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
     fun hasPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED ||

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 
 /**
@@ -92,15 +93,19 @@ class WakeActivity : Activity() {
 
         if (fix != null) LocationHandoff.put(fix.latitude, fix.longitude)
 
-        // Ordinary (non-expedited) work: expedited would promote to a foreground
-        // service on API < 31 and drag in FOREGROUND_SERVICE_DATA_SYNC on
-        // targetSdk 34 — the permission creep PLAN explicitly ruled out. The FSI
-        // has just turned the screen on, so the device is out of Doze and ordinary
-        // work starts immediately in practice.
+        // KEEP, not REPLACE. AlarmReceiver now enqueues the worker itself (that is
+        // what makes the push work on a locked phone), so by the time this activity
+        // runs a worker is usually already going — and REPLACE would CANCEL that
+        // in-flight worker, throwing away the request it had already started.
+        // Handing over the fix above is this activity's real contribution now; the
+        // enqueue is only a safety net for the case where the receiver's did not
+        // land.
         WorkManager.getInstance(this).enqueueUniqueWork(
             AdviceWorker.WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<AdviceWorker>().build()
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<AdviceWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
         )
 
         gpsCancel?.cancel()

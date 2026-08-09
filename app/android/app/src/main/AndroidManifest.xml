@@ -96,6 +96,19 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!-- Doze exemption (2026-08-09). In Doze the system defers an app's NETWORK
+         access to periodic maintenance windows. setExactAndAllowWhileIdle wakes us
+         at the armed time and grants a brief allowlist, but that window is a few
+         seconds and the /advice call against the 122B takes 20-30s — so on a
+         sleeping phone the request is cut off and the user gets the fallback.
+         That is precisely the reported symptom: full advice when the phone was
+         awake, never when it was asleep.
+
+         This permission does NOT grant anything by itself; it only lets the app
+         ASK, and the user answers a system dialog. Legitimate for an alarm-class
+         app whose entire purpose is one scheduled network call per day. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- In-app updates (2026-07-28). Lets the app hand a downloaded APK to the
          system installer instead of the user sideloading through a browser. It
          grants nothing on its own: Android 8+ still requires a per-app "install

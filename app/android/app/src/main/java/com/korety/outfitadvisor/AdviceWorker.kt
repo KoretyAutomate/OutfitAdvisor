@@ -31,8 +31,7 @@ import java.net.URL
 class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
 
     override fun doWork(): Result {
-        val fix = LocationHandoff.take()
-            ?: LocationReader.readBlocking(applicationContext)   // process died, or worker ran cold
+        val fix = acquireLocation()
             ?: run {
                 postFallback()
                 return Result.success()   // a missed morning is not worth a retry storm
@@ -63,6 +62,31 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             withFeedback = advice.text.isNotBlank()
         )
         return Result.success()
+    }
+
+    /**
+     * Get a fix, by whichever route this device actually allows.
+     *
+     * Order matters and depends on the background-location grant:
+     *  - "Allow all the time" → read it here, directly. No activity involved, so a
+     *    locked phone is no obstacle. This is the path that makes the push work
+     *    when the phone is asleep.
+     *  - only "while using the app" → we CANNOT read location from here. The only
+     *    legitimate source is the visible WakeActivity, which the FSI may be
+     *    starting right now. Wait briefly for its handoff instead of failing
+     *    instantly — the receiver enqueues us before posting that notification, so
+     *    without this grace period we would always lose the race.
+     */
+    private fun acquireLocation(): Pair<Double, Double>? {
+        LocationHandoff.take()?.let { return it }
+
+        if (LocationReader.hasBackgroundPermission(applicationContext)) {
+            LocationReader.readBlocking(applicationContext)?.let { return it }
+        }
+
+        // Either background location is missing, or the direct read failed.
+        // WakeActivity is our remaining hope; give it a chance to hand one over.
+        return LocationHandoff.await(HANDOFF_GRACE_MS)
     }
 
     private fun postFallback() {
@@ -120,6 +144,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     companion object {
         const val DEFAULT_BASE = "http://100.112.171.54:8787"
         const val WORK_NAME = "daily-advice"
+        // How long to wait for WakeActivity's fix when we cannot read location
+        // ourselves. Long enough for the FSI to start an activity and get a fix,
+        // short enough that a device where the FSI never fires still produces the
+        // fallback notification while the alarm's Doze allowance is alive.
+        const val HANDOFF_GRACE_MS = 12_000L
     }
 }
 
@@ -145,6 +174,24 @@ object LocationHandoff {
         fix = null
         if (f == null || System.currentTimeMillis() - takenAt > MAX_AGE_MS) return null
         return f
+    }
+
+    /**
+     * Block until a fix arrives or the timeout expires. Used only when this process
+     * cannot read location itself and must rely on WakeActivity providing one.
+     * Polls rather than waits on a monitor: put() is called from the main thread and
+     * the sleep here is on a Worker thread, so a coarse poll is simpler and cannot
+     * deadlock.
+     */
+    fun await(timeoutMs: Long): Pair<Double, Double>? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            take()?.let { return it }
+            try { Thread.sleep(250) } catch (ie: InterruptedException) {
+                Thread.currentThread().interrupt(); return null
+            }
+        }
+        return take()
     }
 
     private const val MAX_AGE_MS = 10 * 60 * 1000L

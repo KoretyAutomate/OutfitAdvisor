@@ -135,43 +135,85 @@ check("and the valid retry is accepted", res is not None and res["picks"]["base"
 # The model's favourite way to dodge the duplicate rule is to demote the tee into
 # `inner` and let the engine fill `base` generically — which the user reads as the
 # SAME "tee under tee" complaint. Observed live 2026-08-04.
-print("\n[5] an item may only fill a slot its own category allows")
-check("a base tee is not an inner",
-      llm._slot_mismatches({"inner": "aaaaaaaa-1", "base": None}, by_cat) == ["inner"])
-check("an inner in the base slot is also wrong",
-      llm._slot_mismatches({"inner": None, "base": "aaaaaaaa-2"}, by_cat) == ["base"])
-check("correct placement is accepted",
-      llm._slot_mismatches({"inner": "aaaaaaaa-2", "base": "aaaaaaaa-1"}, by_cat) == [])
+print("\n[5] an item may only be worn in a role IT declares (2026-08-10)")
+# Roles replaced the fixed category table: the same shirt is the outer layer at
+# 30C and a base under a coat at 8C. The safety property is kept in
+# normalize_roles(), not here — inner is a closed role.
+ROLES = {
+    "aaaaaaaa-1": ["base", "mid", "outer"],   # oxford shirt: seasonal
+    "aaaaaaaa-2": ["inner"],                  # undershirt: closed
+    "aaaaaaaa-3": ["bottoms"],
+}
+check("a shirt declaring outer MAY be the outer layer (summer)",
+      llm._slot_mismatches({"outer": "aaaaaaaa-1"}, ROLES) == [])
+check("the same shirt MAY be the base (winter)",
+      llm._slot_mismatches({"base": "aaaaaaaa-1"}, ROLES) == [])
+check("but it may NOT be underwear",
+      llm._slot_mismatches({"inner": "aaaaaaaa-1"}, ROLES) == ["inner"])
+check("an undershirt may NOT be the visible top",
+      llm._slot_mismatches({"base": "aaaaaaaa-2"}, ROLES) == ["base"])
+check("bottoms stay bottoms",
+      llm._slot_mismatches({"outer": "aaaaaaaa-3"}, ROLES) == ["outer"])
 check("null slots are not mismatches",
-      llm._slot_mismatches({"inner": None, "base": None}, by_cat) == [])
+      llm._slot_mismatches({"inner": None, "base": None}, ROLES) == [])
 
-MID_OUTER = CLOSET + [
-    {"id": "aaaaaaaa-4", "label": "grey fleece", "category": "mid", "colors": ["grey"],
-     "warmth": 4, "formality": ["casual"], "waterproof": False, "availableCount": 1}]
-mo_cat = {i["id"]: i["category"] for i in MID_OUTER}
-check("mid may stand in for outer (a fleece as the outer layer is real)",
-      llm._slot_mismatches({"outer": "aaaaaaaa-4"}, mo_cat) == [])
+print("\n[5b] normalize_roles keeps underwear closed and old closets working")
+check("absent roles fall back to the item's category (pre-2026-08-10 behaviour)",
+      llm.normalize_roles([], "base") == ["base"])
+check("inner is exclusive even if the model asks for more",
+      llm.normalize_roles(["inner", "base", "outer"], "inner") == ["inner"])
+check("nothing else may claim inner alongside visible roles",
+      "inner" not in llm.normalize_roles(["base", "outer"], "base"))
+check("junk roles are dropped",
+      llm.normalize_roles(["base", "hat", ""], "base") == ["base"])
+check("order is stable (CATEGORIES order, not input order)",
+      llm.normalize_roles(["outer", "base", "mid"], "base") == ["base", "mid", "outer"])
 
 print("\n[6] a slot mismatch retries, then is cleared rather than left wrong")
 calls.clear()
 misplaced = {"inner": "aaaaaaaa-1", "base": None, "mid": None, "outer": None,
              "bottoms": "aaaaaaaa-3", "footwear": None, "accessories": None}
+# str() because the fixture dicts are heterogeneous, so i["id"] infers as object
+ROLED = [dict(i, roles=ROLES[str(i["id"])]) for i in CLOSET]
 llm._chat = stub([reply(misplaced), reply(good)])
-res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
+res = asyncio.run(llm.closet_outfit(W, "man", "casual", ROLED))
 check("retried on the mismatch", len(calls) == 2, f"{len(calls)}")
-check("the retry prompt explains the slot rule",
-      "category" in calls[1] and "inner" in calls[1], calls[1][-200:] if len(calls) > 1 else "")
+check("the retry prompt explains the role rule",
+      "role" in calls[1] and "inner" in calls[1], calls[1][-200:] if len(calls) > 1 else "")
 check("the corrected answer is used",
       res is not None and res["picks"]["inner"] == "aaaaaaaa-2",
       res["picks"] if res else "closet_outfit returned None")
 
 calls.clear()
 llm._chat = stub([reply(misplaced), reply(misplaced)])
-res = asyncio.run(llm.closet_outfit(W, "man", "casual", CLOSET))
+res = asyncio.run(llm.closet_outfit(W, "man", "casual", ROLED))
 check("a stubborn mismatch clears the slot (engine's generic advice fills it)",
       res is not None and res["picks"]["inner"] is None, res["picks"] if res else None)
 check("the legitimate pick in the same reply survives",
       res is not None and res["picks"]["bottoms"] == "aaaaaaaa-3")
+
+print("\n[7] warmth guard: a legal role is not automatically a sensible garment")
+# Live 2026-08-10: given a shirt legitimately allowed to be `outer`, the model put
+# that warmth-2 shirt outermost at 4C and left an available warmth-5 coat unused.
+# Every pick was legal; the advice was still wrong.
+check("deep cold demands a warmth-4 outer", llm._min_outer_warmth(2) == 4)
+check("cold demands warmth 3", llm._min_outer_warmth(8) == 3)
+check("cool demands warmth 2", llm._min_outer_warmth(15) == 2)
+check("mild accepts anything", llm._min_outer_warmth(25) == 1)
+ITEMS = {
+    "thin": {"id": "thin", "warmth": 2},
+    "coat": {"id": "coat", "warmth": 5},
+}
+check("a thin outer at 4C is flagged",
+      llm._warmth_violations({"outer": "thin"}, ITEMS, 4.0) == ["outer"])
+check("a proper coat at 4C is fine",
+      llm._warmth_violations({"outer": "coat"}, ITEMS, 4.0) == [])
+check("the same thin item is fine as outer in mild weather",
+      llm._warmth_violations({"outer": "thin"}, ITEMS, 25.0) == [])
+check("no outer pick is never a violation",
+      llm._warmth_violations({"outer": None}, ITEMS, -5.0) == [])
+check("only outer is guarded — a thin base under a coat is fine",
+      llm._warmth_violations({"base": "thin", "outer": "coat"}, ITEMS, 0.0) == [])
 
 print("=" * 68)
 print(f"RESULT: {passed} passed, {failed} failed")

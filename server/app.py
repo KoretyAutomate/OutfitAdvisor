@@ -47,7 +47,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 import engine
 import llm
@@ -87,12 +87,32 @@ def _clean(s: str, max_len: int) -> str:
 class ClosetItem(BaseModel):
     id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9\-]+$")
     label: str = Field(..., min_length=1, max_length=60)
+    # `category` is the item's PRIMARY layer — still the tie-breaker when the model
+    # duplicates a pick — but it no longer decides what the item may be worn as.
     category: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    # What the garment IS, for grouping the wardrobe into folders (2026-08-10).
+    # Optional: closets saved before this field exist, and are mapped from category.
+    group: Literal["underwear", "tops", "knitwear", "outerwear", "bottoms",
+                   "footwear", "accessories"] | None = None
+    # Every layer this ONE garment can play across the year — a shirt is the outer
+    # layer at 30C and a base under a coat at 8C. Empty/absent => [category], i.e.
+    # exactly the old fixed behaviour, so an old closet is unchanged.
+    roles: list[Literal["inner", "base", "mid", "outer", "bottoms",
+                        "footwear", "accessories"]] = Field(default_factory=list, max_length=7)
     colors: list[str] = Field(default_factory=list, max_length=3)
     warmth: int = Field(3, ge=1, le=5)
     formality: list[Literal["casual", "smart", "active"]] = Field(default_factory=list)
     waterproof: bool = False
     availableCount: int = Field(1, ge=1, le=99)
+
+    @model_validator(mode="after")
+    def _derive(self):
+        # Normalize here, once, so every consumer (advice, packing, prompts) reads
+        # the same already-safe values and none of them has to remember the rules.
+        object.__setattr__(self, "roles", llm.normalize_roles(self.roles, self.category))
+        if self.group is None:
+            object.__setattr__(self, "group", llm.GROUP_FROM_CATEGORY.get(self.category, "tops"))
+        return self
 
     @field_validator("label")
     @classmethod

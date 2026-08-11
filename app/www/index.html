@@ -115,6 +115,21 @@
   .fbRow button .c{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
   .fbRow button.on{background:var(--card2);border-color:var(--good)}
   .fbRow button.on .c{color:var(--good)}
+  /* closet folders (2026-08-10) */
+  /* the container keeps class="grid" for back-compat but now holds folders, each
+     with its OWN tile grid — so it must stack rather than tile. */
+  #closetGrid{display:block;margin-top:12px}
+  .folder{margin-bottom:10px}
+  .roleRow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .roleRow button{background:var(--bg);border:1px solid var(--line);border-radius:999px;
+    padding:6px 12px;color:var(--muted);font-size:.75rem}
+  .roleRow button.on{background:var(--card2);border-color:var(--good);color:var(--good)}
+  .roleRow button:disabled{opacity:.4}
+  .folderHead{width:100%;display:flex;align-items:center;gap:8px;background:var(--bg);
+    border:1px solid var(--line);border-radius:10px;padding:9px 11px;color:var(--txt);font-size:.85rem}
+  .folderHead .tw{color:var(--muted);width:12px}
+  .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
+  .folder .grid{margin-top:8px}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -311,6 +326,18 @@
         <input type="text" id="shColors" placeholder="navy, white" style="width:100%">
       </div>
     </div>
+    <label class="lbl">Clothing group <span class="note" style="text-transform:none;letter-spacing:0">— which folder it lives in</span></label>
+    <select id="shGroup" style="width:100%;margin-bottom:12px">
+      <option value="underwear">🎽 Underwear</option>
+      <option value="tops">👕 Tops</option>
+      <option value="knitwear">🧶 Knitwear</option>
+      <option value="outerwear">🧥 Outerwear</option>
+      <option value="bottoms">👖 Bottoms</option>
+      <option value="footwear">👟 Footwear</option>
+      <option value="accessories">🧣 Accessories</option>
+    </select>
+    <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
+    <div class="roleRow" id="shRoles"></div>
     <label class="lbl">Warmth (1 cool → 5 warm)</label>
     <div class="seg" id="shWarm">
       <button data-w="1">1</button><button data-w="2">2</button><button data-w="3">3</button>
@@ -554,8 +581,37 @@ async function getPosition(){
    WakeActivity.kt — keep both trivially simple. */
 const DAY_MS=86400000, COOLDOWN_DAYS=4;
 const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+/* Clothing GROUPS — what a garment IS, used to file the wardrobe into folders.
+   Deliberately NOT the layering slots: an oxford shirt is a Top whether it is the
+   outer layer in July or a base under a coat in November (user, 2026-08-10). */
+const GROUPS=["underwear","tops","knitwear","outerwear","bottoms","footwear","accessories"];
+const GROUP_LABEL={underwear:"Underwear",tops:"Tops",knitwear:"Knitwear",
+  outerwear:"Outerwear",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
+const GROUP_ICON={underwear:"🎽",tops:"👕",knitwear:"🧶",outerwear:"🧥",
+  bottoms:"👖",footwear:"👟",accessories:"🧣"};
+const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"knitwear",outer:"outerwear",
+  bottoms:"bottoms",footwear:"footwear",accessories:"accessories"};
+const ROLE_LABEL={inner:"Inner",base:"Base",mid:"Mid",outer:"Outer",
+  bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
+const CATS=["inner","base","mid","outer","bottoms","footwear","accessories"];
+/* Twin of normalize_roles() in server/llm.py — inner is a CLOSED role: underwear is
+   never a visible layer and a visible garment is never underwear. */
+function normRoles(roles,category){
+  let clean=(roles||[]).filter(r=>CATS.includes(r));
+  if(!clean.length) clean=CATS.includes(category)?[category]:[];
+  if(clean.includes("inner")) return ["inner"];
+  return CATS.filter(c=>clean.includes(c));
+}
+/* Older closets predate group/roles. Fill them in once, on load, so folders and
+   seasonal roles work for photos that were already added. */
+function migrateItem(it){
+  if(!it.group||!GROUPS.includes(it.group)) it.group=GROUP_FROM_CAT[it.category]||"tops";
+  it.roles=normRoles(it.roles,it.category);
+  return it;
+}
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
+let closetFolded=new Set();   // collapsed folder groups, remembered across launches
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
   : [8,8,8,8].map(n=>Math.random().toString(36).slice(2,2+n)).join("-"));
 const localDay=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;};
@@ -742,6 +798,8 @@ async function addItem(source){
   // classification. Saving up front makes the sheet a plain edit of an item that
   // is already safe in the closet; dismissing keeps it, Delete removes it.
   const item={ id:"itm-"+uuid(), label:meta?.label||"Untitled item", category:meta?.category||"base",
+    group:(GROUPS.includes(meta?.group)?meta.group:(GROUP_FROM_CAT[meta?.category]||"tops")),
+    roles:normRoles(meta?.roles,meta?.category||"base"),
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
     waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() };
@@ -758,12 +816,37 @@ function paintSheetSegs(){
   [...$("shWarm").children].forEach(b=>b.classList.toggle("on",+b.dataset.w===sheet.item.warmth));
   [...$("shForm").children].forEach(b=>b.classList.toggle("on",sheet.item.formality.includes(b.dataset.f)));
   $("shCount").textContent=sheet.item.count;
+  paintRoles();
+}
+/* Role chips. Inner is CLOSED: picking it clears everything else, and picking any
+   visible layer clears Inner. Underwear is never a visible layer and a visible
+   garment is never underwear — the "tee under your tee" complaint. The UI enforces
+   it as well as the server so the two can never disagree on screen. */
+function paintRoles(){
+  const roles=sheet.item.roles||[];
+  $("shRoles").innerHTML=CATS.map(c=>
+    `<button data-role="${c}" class="${roles.includes(c)?"on":""}">${ROLE_LABEL[c]}</button>`).join("");
+  $("shRoles").querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{
+      const r=b.dataset.role;
+      let next=new Set(sheet.item.roles||[]);
+      if(next.has(r)) next.delete(r); else next.add(r);
+      if(r==="inner" && next.has("inner")) next=new Set(["inner"]);
+      else if(r!=="inner") next.delete("inner");
+      sheet.item.roles=normRoles([...next],sheet.item.category);
+      if(!sheet.item.roles.length) sheet.item.roles=[sheet.item.category];
+      paintRoles();
+    };
+  });
 }
 async function openSheet(item,opts){
-  sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])]},
+  sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
+               roles:normRoles(item.roles,item.category),
+               group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
          isNew:!!opts.isNew, b64:opts.b64||null};
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
+  $("shGroup").value=sheet.item.group||GROUP_FROM_CAT[sheet.item.category]||"tops";
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   const img=$("shImg");
@@ -781,15 +864,46 @@ async function renderCloset(){
   if(!closet.length){ g.innerHTML=""; info.style.display="none"; return; }
   const nAvail=closet.reduce((s,i)=>s+avail(i),0), nTotal=closet.reduce((s,i)=>s+i.count,0);
   info.style.display="inline-block"; info.textContent=`${nAvail}/${nTotal} wearable`;
-  const tiles=await Promise.all(closet.map(async it=>{
+
+  const tile=async it=>{
     const a=avail(it), src=await photoLoad(it.id);
     return `<div class="item${a===0?" out":""}" data-id="${esc(it.id)}">
       ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||"👕"}</div>`}
       ${it.count>1||a<it.count?`<span class="cnt">${a}/${it.count}</span>`:""}
       ${a<it.count?`<span class="dirty" title="in the laundry">🧺</span>`:""}
       <div class="nm">${esc(it.label)}</div></div>`;
-  }));
-  g.innerHTML=tiles.join("");
+  };
+
+  // Folders by clothing GROUP (user, 2026-08-10). Grouping by layering role would
+  // fight the seasonal behaviour — the same shirt moves between roles, but it is
+  // always a Top.
+  const out=[];
+  for(const grp of GROUPS){
+    const items=closet.filter(i=>(i.group||GROUP_FROM_CAT[i.category])===grp);
+    if(!items.length) continue;                        // never show an empty folder
+    const open=!closetFolded.has(grp);
+    const wearable=items.reduce((s,i)=>s+avail(i),0);
+    // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
+    // file per item — doing that for a folder the user has collapsed is pure waste,
+    // and it grows with the wardrobe.
+    const tiles=open?(await Promise.all(items.map(tile))).join(""):"";
+    out.push(`<div class="folder">
+      <button class="folderHead" data-grp="${grp}">
+        <span class="tw">${open?"▾":"▸"}</span>
+        <span>${GROUP_ICON[grp]}</span>
+        <b>${GROUP_LABEL[grp]}</b>
+        <span class="fcount">${wearable}/${items.length}</span>
+      </button>
+      ${open?`<div class="grid">${tiles}</div>`:""}
+    </div>`);
+  }
+  g.innerHTML=out.join("");
+  g.querySelectorAll(".folderHead").forEach(b=>{
+    b.onclick=()=>{ const k=b.dataset.grp;
+      closetFolded.has(k)?closetFolded.delete(k):closetFolded.add(k);
+      prefSet("oa.closetFolded",JSON.stringify([...closetFolded]));
+      renderCloset(); };
+  });
 }
 
 /* ───────── trips (T2/T2.5): calendar → packing list ─────────
@@ -914,7 +1028,8 @@ async function cancelTrip(trip){
    trip window we send ONLY the packed items, capped at the packed quantity. */
 function closetPayload(){
   const trip=tripInProgress();
-  const meta=i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
+  const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    roles:normRoles(i.roles,i.category),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
   if(trip){
     const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
@@ -1332,7 +1447,7 @@ async function load(){
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
   // remembers the CHOICE (GPS vs a typed city), never the location itself
   state.useGps=(await prefGet("oa.useGps","0"))==="1";
-  try{ closet=JSON.parse(await prefGet("oa.closet","[]"))||[]; }catch(e){ closet=[]; }
+  try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
   try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
@@ -1341,6 +1456,7 @@ async function load(){
   const off=parseFloat(await prefGet("oa.tempOffset","0"));
   tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
+  try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -1376,6 +1492,14 @@ $("closetGrid").onclick=e=>{
   const it=closet.find(i=>i.id===t.dataset.id); if(it) openSheet(it,{isNew:false});
 };
 $("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;sheet.item.warmth=+b.dataset.w;paintSheetSegs();};
+$("shCat").onchange=()=>{ if(!sheet) return;
+  // Changing the primary layer re-suggests the folder and re-seeds the roles, so a
+  // mis-classified item can be corrected in one move instead of three.
+  sheet.item.category=$("shCat").value;
+  sheet.item.group=GROUP_FROM_CAT[sheet.item.category]||"tops";
+  sheet.item.roles=normRoles([sheet.item.category],sheet.item.category);
+  $("shGroup").value=sheet.item.group;
+  paintRoles(); };
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
   const i=sheet.item.formality.indexOf(f);
   if(i>=0){ if(sheet.item.formality.length>1) sheet.item.formality.splice(i,1); }
@@ -1391,6 +1515,10 @@ $("shSave").onclick=async()=>{
   it.label=$("shLabel").value.trim().slice(0,60);
   if(!it.label){ toast("Give it a name first"); return; }
   it.category=$("shCat").value;
+  it.group=$("shGroup").value;
+  // normRoles has the last word, so an inner item can never be saved with visible
+  // roles even if the UI were bypassed.
+  it.roles=normRoles(it.roles,it.category);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);

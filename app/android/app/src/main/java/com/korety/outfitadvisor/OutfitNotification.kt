@@ -22,6 +22,11 @@ object OutfitNotification {
 
     const val CHANNEL_OUTFIT = "outfit_daily"
     const val OUTFIT_NOTIF_ID = 4775
+    // Fresh constants — daily push owns 4771-4775, packing 4781/4782+,
+    // feedback 4791-4793.
+    const val CHANNEL_UPDATE = "outfit_update"
+    const val UPDATE_NOTIF_ID = 4796
+    const val UPDATE_REQUEST = 4797
 
     fun ensureChannel(context: Context) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -77,6 +82,43 @@ object OutfitNotification {
 
         nm.notify(OUTFIT_NOTIF_ID, b.build())
         nm.cancel(AlarmReceiver.WAKE_NOTIF_ID)   // clear the transient wake notification
+    }
+
+    /**
+     * "A new build is waiting." Its OWN channel and id so it can be muted without
+     * muting the morning outfit, and so it never replaces the outfit notification.
+     *
+     * Tapping opens the app, where the version card offers the install. It does not
+     * install directly: Android requires the per-app "install unknown apps" grant,
+     * and a notification is the wrong place to walk someone through that.
+     */
+    fun postUpdate(context: Context, title: String, text: String) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(CHANNEL_UPDATE) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_UPDATE, "App updates", NotificationManager.IMPORTANCE_LOW
+                ).apply { description = "A newer build of Outfit Advisor is available" }
+            )
+        }
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            ?: Intent(context, MainActivity::class.java)
+        val pi = PendingIntent.getActivity(
+            context, UPDATE_REQUEST, launch,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        nm.notify(
+            UPDATE_NOTIF_ID,
+            Notification.Builder(context, CHANNEL_UPDATE)
+                .setSmallIcon(context.applicationInfo.icon)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+        )
     }
 
     /**

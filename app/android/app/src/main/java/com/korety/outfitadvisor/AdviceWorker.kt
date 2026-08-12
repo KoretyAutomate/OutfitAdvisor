@@ -70,6 +70,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             "AI · $srcBadge",
             withFeedback = advice.text.isNotBlank()
         )
+        maybeNotifyUpdate(base)
         return Result.success()
     }
 
@@ -96,6 +97,54 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         // Either background location is missing, or the direct read failed.
         // WakeActivity is our remaining hope; give it a chance to hand one over.
         return LocationHandoff.await(HANDOFF_GRACE_MS)
+    }
+
+    /**
+     * Tell the user a new build is waiting, from the one thing that runs every day
+     * without them opening the app.
+     *
+     * The pull-only updater assumed the app gets opened while an update happens to
+     * be published. It does not: v1.4 and v1.5 sat unread for a week while the very
+     * fixes they contained were being debugged (2026-08-11). This is the closest
+     * thing to a push notification available without FCM, which the all-local
+     * design rules out.
+     *
+     * Notifies ONCE per published version — `oa.updNotified` — so it never becomes
+     * a daily nag the user learns to swipe away.
+     */
+    private fun maybeNotifyUpdate(base: String) {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL("$base/version").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8_000
+                readTimeout = 8_000
+            }
+            if (conn.responseCode != 200) return
+            val v = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            val latest = v.optInt("versionCode", 0)
+            val name = v.optString("versionName", "?")
+            val pm = applicationContext.packageManager
+            val info = pm.getPackageInfo(applicationContext.packageName, 0)
+            @Suppress("DEPRECATION")
+            val running = if (android.os.Build.VERSION.SDK_INT >= 28)
+                info.longVersionCode.toInt() else info.versionCode
+            if (latest <= running) return
+
+            val prefs = applicationContext
+                .getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+            if (prefs.getString(KEY_UPD_NOTIFIED, "")?.toIntOrNull() == latest) return
+            prefs.edit().putString(KEY_UPD_NOTIFIED, latest.toString()).apply()
+
+            OutfitNotification.postUpdate(
+                applicationContext,
+                "Outfit Advisor v$name is ready",
+                "You're on v${info.versionName}. Tap to install — your closet and settings are kept."
+            )
+        } catch (e: Exception) {
+            // An update check must never cost the user their outfit.
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     private fun postFallback(reason: String) {
@@ -161,6 +210,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     companion object {
         const val DEFAULT_BASE = "http://100.112.171.54:8787"
         const val WORK_NAME = "daily-advice"
+        const val KEY_UPD_NOTIFIED = "oa.updNotified"
         // How long to wait for WakeActivity's fix when we cannot read location
         // ourselves. Long enough for the FSI to start an activity and get a fix,
         // short enough that a device where the FSI never fires still produces the

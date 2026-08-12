@@ -213,6 +213,20 @@
       <label class="lbl" style="margin:0 0 6px">Will it work while the phone sleeps?</label>
       <ul id="readyList" style="list-style:none;padding:0;margin:0;font-size:.8rem"></ul>
     </div>
+    <!-- App version. Deliberately ALWAYS visible, not only when an update exists:
+         the dismissible banner alone let a phone sit three versions behind for a
+         week while two rounds of fixes went uninstalled (2026-08-11). -->
+    <div id="verBox" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div>
+          <label class="lbl" style="margin:0">App version</label>
+          <div class="note" id="verLine" style="margin-top:2px">checking…</div>
+        </div>
+        <button class="ghost" id="verCheck" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Check now</button>
+      </div>
+      <p class="note" id="verMsg" style="display:none"></p>
+      <button class="primary" id="verInstall" style="display:none;width:100%;margin-top:9px">Install update</button>
+    </div>
     <details class="det">
       <summary>Advanced — advisor server</summary>
       <div class="row" style="margin-top:10px">
@@ -665,24 +679,74 @@ async function checkUpdate(){
     if(!cur.canInstall) $("updWarn").textContent="Android will ask you to allow installs from this app first — that's a one-time toggle.";
   }catch(e){ /* DGX unreachable: updates are never urgent, stay silent */ }
 }
+/* Report update state on screen and KEEP it there. Every previous failure mode was
+   silent or transient: a toast that vanished, a banner dismissed with "Later", or
+   a needs-permission result the user could not act on later because the message
+   was gone. Anything that blocks an install is now written into the card and stays
+   until it is fixed. */
+async function renderVersion(){
+  const line=$("verLine"), msg=$("verMsg"), btn=$("verInstall");
+  if(!Plugins.AppUpdate){ line.textContent="Running in a browser — updates are Android-only."; return; }
+  let cur; try{ cur=await Plugins.AppUpdate.current(); }
+  catch(e){ line.textContent="Couldn't read the installed version."; return; }
+  APP_VERSION=cur.versionName||APP_VERSION;
+  let v=null;
+  try{
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),6000);
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/version",{signal:ctl.signal});
+    clearTimeout(to);
+    if(r.ok) v=await r.json();
+  }catch(e){}
+
+  if(!v){
+    line.textContent=`v${cur.versionName} · couldn't reach the server to check`;
+    msg.style.display="none"; btn.style.display="none"; return;
+  }
+  if(!(v.versionCode>cur.versionCode)){
+    line.textContent=`v${cur.versionName} · up to date`;
+    msg.style.display="none"; btn.style.display="none"; return;
+  }
+  updInfo={...v,current:cur};
+  line.innerHTML=`v${esc(cur.versionName)} → <b style="color:var(--good)">v${esc(v.versionName)} available</b> · ${(v.size/1e6).toFixed(1)} MB`;
+  btn.style.display="block";
+  btn.textContent=`Install v${v.versionName}`;
+  if(!cur.canInstall){
+    // The single most likely reason an in-app update silently never happens.
+    msg.style.display="block";
+    msg.innerHTML='⚠ Android is blocking installs from this app. Tap <b>Install</b> '
+      +'and grant "Allow from this source", then come back and tap Install again.';
+  }else if(v.notes){
+    msg.style.display="block"; msg.textContent=v.notes;
+  }else{ msg.style.display="none"; }
+}
+
 async function doUpdate(){
   if(!updInfo||updBusy) return;
   updBusy=true;
-  const btn=$("updBtn"), old=btn.textContent;
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
+  const btns=[$("updBtn"),$("verInstall")].filter(Boolean);
+  const olds=btns.map(b=>b.textContent);
+  btns.forEach(b=>{ b.disabled=true; b.innerHTML='<span class="spin"></span>'; });
+  const msg=$("verMsg");
+  const say=(html)=>{ if(msg){ msg.style.display="block"; msg.innerHTML=html; } };
   try{
     const res=await Plugins.AppUpdate.install({
       url:state.baseUrl.replace(/\/+$/,"")+"/apk",
       sha256:updInfo.sha256, size:updInfo.size});
     if(res&&res.status==="needs-permission"){
-      toast("Allow installs from Outfit Advisor, then tap again");
+      say('⚠ Grant "Allow from this source" on the screen that just opened, then tap Install again.');
+      toast("Allow installs, then tap Install again");
     }else{
+      say("✅ Downloaded — Android's installer should be asking you to confirm.");
       toast("Opening the installer…");
     }
   }catch(e){
-    toast("Update failed: "+(e&&e.message?e.message:"download error"));
+    // Written into the card, not a toast: the user needs to be able to read this
+    // and tell me what it said.
+    say("❌ Update failed: "+esc(e&&e.message?e.message:"download error"));
+    toast("Update failed");
   }finally{
-    updBusy=false; btn.disabled=false; btn.textContent=old;
+    updBusy=false;
+    btns.forEach((b,i)=>{ b.disabled=false; b.textContent=olds[i]; });
   }
 }
 
@@ -1435,7 +1499,7 @@ async function refreshReadiness(){
       setTimeout(refreshReadiness,600); };
   });
 }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); } });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); } });
 
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
@@ -1561,6 +1625,12 @@ $("dWear").onclick=async()=>{
 
 /* ── in-app update wiring ── */
 $("updBtn").onclick=doUpdate;
+$("verInstall").onclick=doUpdate;
+$("verCheck").onclick=async()=>{
+  $("verLine").textContent="checking…";
+  await renderVersion(); await checkUpdate();
+  toast("Checked");
+};
 $("updLater").onclick=async()=>{
   if(updInfo) await prefSet("oa.updSkip",String(updInfo.versionCode));
   $("updCard").style.display="none";
@@ -1684,7 +1754,7 @@ $("pkPacked").onclick=async()=>{
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
   renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback();
-  checkUpdate();   // fire-and-forget: never blocks the UI, silent when the DGX is down
+  checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>
 </body>

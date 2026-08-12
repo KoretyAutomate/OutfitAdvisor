@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -216,7 +216,7 @@ async def health():
 
 
 @app.post("/advice")
-async def advice(req: AdviceRequest):
+async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     t0 = time.monotonic()
     # NB: req.lat / req.lon are used here but intentionally NEVER logged.
     try:
@@ -268,8 +268,12 @@ async def advice(req: AdviceRequest):
     dt = round(time.monotonic() - t0, 2)
     # Coarse, coordinate-free log line (closet size only — never item content).
     # tempOffset is a personal comfort scalar, not identifying — safe to log.
+    # `src` says which client and which build called. Previously this had to be
+    # inferred from whether a closet was attached — which is how a phone running a
+    # three-versions-old build went unnoticed for two days (2026-08-11).
     log.info(
-        "advice ok day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
+        "advice ok src=%s day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
+        _clean(x_oa_client, 24) or "?",
         req.day,
         w.get("timezone"),
         w["lo"],

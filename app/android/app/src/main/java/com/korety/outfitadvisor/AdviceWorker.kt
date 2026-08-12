@@ -33,7 +33,14 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     override fun doWork(): Result {
         val fix = acquireLocation()
             ?: run {
-                postFallback()
+                // Say WHICH step failed. "Tap to check what to wear" told the user
+                // nothing, so three rounds of debugging went on server logs and
+                // inference instead of the phone just reporting it (2026-08-11).
+                postFallback(
+                    if (!LocationReader.hasPermission(applicationContext))
+                        "Location permission is off — tap to fix."
+                    else "Couldn't get your location this morning — tap to retry."
+                )
                 return Result.success()   // a missed morning is not worth a retry storm
             }
 
@@ -45,7 +52,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
 
         val advice = fetchAdvice(base, fix.first, fix.second, gender, style, offset)
         if (advice == null) {
-            postFallback()
+            // The overwhelmingly common cause is the phone being unable to reach the
+            // DGX while asleep — Doze deferring network, or Tailscale down. Name it.
+            postFallback("Couldn't reach the advisor — check Battery unrestricted in the app.")
             return Result.success()
         }
 
@@ -89,12 +98,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         return LocationHandoff.await(HANDOFF_GRACE_MS)
     }
 
-    private fun postFallback() {
+    private fun postFallback(reason: String) {
         // No advice to rate, so no feedback buttons — see OutfitNotification.post.
-        OutfitNotification.post(
-            applicationContext, "Today's outfit",
-            "Tap to check what to wear.", null, withFeedback = false
-        )
+        OutfitNotification.post(applicationContext, "Today's outfit", reason, null,
+                                withFeedback = false)
     }
 
     private data class Advice(
@@ -122,6 +129,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 readTimeout = 90_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                // Identify the caller and its build. Without this, "did the morning
+                // push reach the server?" had to be inferred from whether a closet
+                // was attached — which is how a phone running a three-versions-old
+                // build went unnoticed for two days (2026-08-11).
+                setRequestProperty("X-OA-Client", "push/" + appVersion())
             }
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (conn.responseCode != 200) return null
@@ -140,6 +152,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             conn?.disconnect()
         }
     }
+
+    private fun appVersion(): String = try {
+        applicationContext.packageManager
+            .getPackageInfo(applicationContext.packageName, 0).versionName ?: "?"
+    } catch (e: Exception) { "?" }
 
     companion object {
         const val DEFAULT_BASE = "http://100.112.171.54:8787"

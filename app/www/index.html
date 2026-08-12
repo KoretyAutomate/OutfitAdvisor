@@ -639,6 +639,12 @@ async function saveCloset(){
    `oa.updSkip` remembers a build the user said "Later" to, so the banner asks
    once per version rather than every launch. */
 let updInfo=null, updBusy=false;
+/* The running build, sent on every /advice so the server log says WHICH client and
+   WHICH version called. Debugging the morning push repeatedly stalled on not being
+   able to tell a native push from the app, or knowing what build the phone ran. */
+let APP_VERSION="web";
+(async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
+  APP_VERSION=c.versionName||"?"; } }catch(e){} })();
 async function checkUpdate(){
   if(!Plugins.AppUpdate) return;                 // browser / older build: no-op
   try{
@@ -1052,8 +1058,9 @@ async function getAdvice(lat,lon){
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(cl.length) body.closet=cl;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
-      method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
-      body:JSON.stringify(body)});
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION},
+      signal:ctl.signal,body:JSON.stringify(body)});
     clearTimeout(to);
     if(!r.ok) throw new Error("server "+r.status);
     const d=await r.json();

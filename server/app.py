@@ -70,7 +70,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://localhost", "capacitor://localhost"],
     allow_methods=["GET", "POST"],
-    allow_headers=["content-type"],
+    # x-oa-client MUST be listed. A custom request header makes the WebView send a
+    # CORS preflight, and a header missing from this list fails it with 400 — the
+    # browser then blocks the POST, fetch() throws, and the app silently renders
+    # "offline estimate". Adding the header for debugging (v1.6) therefore broke
+    # every in-app advice request until 2026-08-14, while the native push, which
+    # is not subject to CORS, kept working and hid it.
+    allow_headers=["content-type", "x-oa-client"],
 )
 
 

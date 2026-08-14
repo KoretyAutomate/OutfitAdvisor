@@ -66,8 +66,20 @@ adb install -r app-debug.apk
 Building locally instead needs JDK 17 + Android SDK 34 and an **x86-64 host**
 (Google ships no aarch64 `aapt2`; ARM hosts must use CI or qemu).
 
-Server setup: `server/README.md`. Point the app at your server via
-*Advanced — advisor server* in the app's Morning push card.
+Server setup: `server/README.md`. Point the app at your server via the gear
+(⚙) → *Morning push* → *Advanced — advisor server*.
+
+## Using it
+
+Three pages: **Today** (location, weather, the outfit, upcoming trips), **Closet**
+(photograph what you own; it files itself into folders by clothing group and type),
+and **Settings** behind the gear (who to dress, the morning push, the home area,
+which calendars to read, the app version, the server URL).
+
+The closet is optional — without it you get generic advice for the weather. With
+it, the advisor dresses you from clothes you actually own, skips what is in the
+laundry, and shows each item's photo in the recommendation. Add a second "worn"
+photo to an item and that is the picture the advice shows.
 
 ## Privacy posture
 

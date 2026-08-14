@@ -130,6 +130,18 @@
   .folderHead .tw{color:var(--muted);width:12px}
   .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
   .folder .grid{margin-top:8px}
+  /* ── pages: Today / Closet / Settings (user, 2026-08-14) ──
+     One document, three views. A real router would need a build step and would
+     buy nothing here: every view's state already lives in module scope, and the
+     jsdom suites reach the whole DOM regardless of which view is showing. */
+  .view{display:none}
+  .view.on{display:block}
+  .gear{margin-left:auto;background:transparent;border:1px solid var(--line);
+    font-size:1.15rem;padding:8px 11px;line-height:1}
+  .gear.on{border-color:var(--accent);color:var(--accent)}
+  .tabs{display:flex;gap:6px;margin:6px 0 0}
+  .tabs button{flex:1;background:var(--bg);border:1px solid var(--line);color:var(--muted);padding:9px}
+  .tabs button.on{background:var(--card2);border-color:var(--accent);color:var(--txt)}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -146,8 +158,17 @@
       <h1>Outfit Advisor</h1>
       <p class="sub">What to wear today — for the weather where you are.</p>
     </div>
+    <button class="gear" id="navSettings" title="Settings" aria-label="Settings">⚙</button>
   </header>
+  <nav class="tabs">
+    <button data-view="today" class="on">Today</button>
+    <button data-view="closet">👕 Closet</button>
+  </nav>
 
+<!-- A view is any block tagged data-v; Today deliberately has TWO of them, so the
+     closet and settings pages could be lifted out without moving the weather and
+     outfit cards away from the location row they belong under. -->
+<div class="view on" data-v="today">
   <!-- In-app update banner. Hidden unless the DGX is publishing a build newer
        than the one running. Same signing key + same package = Android updates in
        place and keeps settings, closet photos and the wear-log. -->
@@ -167,25 +188,37 @@
     <p class="note" id="updWarn" style="display:none"></p>
   </div>
 
-  <!-- Profile / location -->
+  <!-- Location. Gender and style moved to Settings (user, 2026-08-14) — they are
+       set once and then never touched, so they were costing a card of vertical
+       space above the thing the user actually opens the app for. -->
   <div class="card">
-    <h2>Location &amp; style</h2>
-    <div class="row" style="margin-bottom:10px">
+    <h2>Where are you</h2>
+    <div class="row">
       <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
       <button class="ghost" id="geoBtn" title="Use my location">📍</button>
       <button class="primary" id="goBtn">Get advice</button>
     </div>
+    <p class="note" id="profileLine"></p>
+    <div id="err" class="err"></div>
+  </div>
+</div><!-- /today (continues below) -->
+
+<div class="view" data-v="settings">
+  <!-- Profile -->
+  <div class="card">
+    <h2>Profile</h2>
+    <label class="lbl">Dress me as</label>
     <div class="seg" id="genderSeg">
       <button data-g="man">👔 Man</button>
       <button data-g="woman">👗 Woman</button>
       <button data-g="neutral">🧍 Neutral</button>
     </div>
-    <div class="seg" id="styleSeg" style="margin-top:8px">
+    <label class="lbl" style="margin-top:10px">Everyday style</label>
+    <div class="seg" id="styleSeg">
       <button data-s="casual">Casual</button>
       <button data-s="smart">Smart</button>
       <button data-s="active">Active</button>
     </div>
-    <div id="err" class="err"></div>
   </div>
 
   <!-- Daily push settings -->
@@ -238,6 +271,22 @@
     </details>
   </div>
 
+  <!-- Trips: the part of them that is a setting rather than a trip. -->
+  <div class="card">
+    <h2>Trips</h2>
+    <!-- Home area. Needed to judge "is this far enough to be a trip" without
+         asking the user about every candidate. Set once, changeable any time. -->
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="min-width:0">
+        <label class="lbl" style="margin:0">Home area</label>
+        <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+      </div>
+      <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+    </div>
+  </div>
+</div><!-- /settings -->
+
+<div class="view" data-v="closet">
   <!-- Closet -->
   <div class="card">
     <h2>My closet <span class="chip" id="closetInfo" style="display:none"></span></h2>
@@ -253,31 +302,9 @@
     <input type="file" id="fileIn" accept="image/*" style="display:none">
     <div id="clErr" class="err"></div>
   </div>
+</div><!-- /closet -->
 
-  <!-- Trips -->
-  <div class="card">
-    <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
-    <!-- Home area. Needed to judge "is this far enough to be a trip" without
-         asking the user about every candidate. Set once, changeable any time. -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="min-width:0">
-        <label class="lbl" style="margin:0">Home area</label>
-        <div class="note" id="homeLine" style="margin-top:2px">not set</div>
-      </div>
-      <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
-    </div>
-    <div class="row">
-      <button class="primary" id="calBtn">📅 Check my calendar</button>
-    </div>
-    <div id="tripList"></div>
-    <div id="candList"></div>
-    <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
-      you what to pack — from the clothes you actually own, for the weather where you're going.
-      Your events stay on this phone: only the dates and the city's coordinates are ever sent,
-      never the event's title, notes, or location text.</p>
-    <div id="tripErr" class="err"></div>
-  </div>
-
+<div class="view on" data-v="today">
   <!-- Weather -->
   <div class="card" id="wxCard" style="display:none">
     <h2 id="wxWhen">Today</h2>
@@ -319,6 +346,23 @@
       <button id="dNotify">🔔 Preview push</button>
     </div>
   </div>
+
+  <!-- Trips. The home area is a setting and lives behind the gear; what is left
+       here is the scan and its results, which are not settings. -->
+  <div class="card">
+    <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
+    <div class="row">
+      <button class="primary" id="calBtn">📅 Check my calendar</button>
+    </div>
+    <div id="tripList"></div>
+    <div id="candList"></div>
+    <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
+      you what to pack — from the clothes you actually own, for the weather where you're going.
+      Your events stay on this phone: only the dates and the city's coordinates are ever sent,
+      never the event's title, notes, or location text.</p>
+    <div id="tripErr" class="err"></div>
+  </div>
+</div><!-- /today -->
 
   <footer>Weather by Open-Meteo · outfit by your local LLM on the DGX · location never stored</footer>
 </div>
@@ -483,6 +527,27 @@ let lastWeather=null, lastOutfit=null, lastText="", lastSource="", lastRes=null;
 let lastPickIds=[], wornLogged=false;
 const $ = id => document.getElementById(id);
 
+/* ───────── pages (user, 2026-08-14) ─────────
+   "Create setting button (gear mark) and capture settings there" + "Closet to be a
+   different page". Three views — today / closet / settings — toggled by class.
+
+   Nothing is unmounted: every card stays in the DOM and every render function
+   keeps writing to it whether its page is showing or not. That is deliberate. The
+   alternative (render on view entry) would mean the closet grid, the readiness
+   list and the trip list each need a "am I stale?" rule, and the first one to get
+   it wrong shows the user last week's answer. */
+let view="today";
+function showView(v){
+  view=v;
+  document.querySelectorAll(".view").forEach(el=>el.classList.toggle("on",el.dataset.v===v));
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  $("navSettings").classList.toggle("on",v==="settings");
+  (document.scrollingElement||document.documentElement).scrollTop=0;
+  // Both of these can go stale while the user is on another page — a permission
+  // revoked in Android Settings, or a build published since launch.
+  if(v==="settings"){ refreshSchedStatus(); refreshReadiness(); renderVersion(); }
+}
+
 /* ───────── UI helpers ───────── */
 function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
@@ -492,6 +557,16 @@ function esc(s){ return String(s).replace(/[&<>"']/g,
 function err(msg){ $("err").textContent = msg||""; }
 function paintSeg(seg, kind){ [...seg.children].forEach(b=>
   b.classList.toggle("on", b.dataset[kind]===state[kind==="g"?"gender":"style"])); }
+/* Gender and style live in Settings now, so Today has to say what they are —
+   otherwise the advice is generated from two choices the user can no longer see. */
+const GENDER_LABEL={man:"Man",woman:"Woman",neutral:"Neutral"};
+function renderProfileLine(){
+  const el=$("profileLine"); if(!el) return;
+  el.innerHTML=`Dressing you as <b>${esc(GENDER_LABEL[state.gender]||state.gender)}</b>, `
+    +`<b>${esc(state.style)}</b> style · <a href="#" id="profileEdit" style="color:var(--accent)">change</a>`;
+  const a=$("profileEdit");
+  if(a) a.onclick=e=>{ e.preventDefault(); showView("settings"); };
+}
 
 /* ───────── WMO map + rule engine (offline fallback — mirrors server/engine.py) ───── */
 const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Partly cloudy"],3:["☁️","Overcast"],
@@ -1656,8 +1731,10 @@ async function load(){
 }
 
 /* ───────── wire up ───────── */
-$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");if(lastWeather){lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource,lastRes);}};
-$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");};
+document.querySelector(".tabs").onclick=e=>{const b=e.target.closest("button");if(b)showView(b.dataset.view);};
+$("navSettings").onclick=()=>showView(view==="settings"?"today":"settings");
+$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");renderProfileLine();if(lastWeather){lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource,lastRes);}};
+$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");renderProfileLine();};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");
@@ -1878,7 +1955,7 @@ $("pkPacked").onclick=async()=>{
 (async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
-  paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
+  paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s"); renderProfileLine();
   renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();

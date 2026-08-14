@@ -19,7 +19,7 @@ import logging
 
 import httpx
 
-from vocab import CATEGORIES, GROUPS, STYLES
+from vocab import CATEGORIES, GROUPS, STYLES, TYPES
 
 # Same handler app.py configures; never log prompt or closet CONTENT here — the
 # privacy invariant is that item labels never reach the logs. Ids only.
@@ -136,6 +136,12 @@ async def classify_image(image_b64: str) -> dict | None:
         f'"group": one of {list(GROUPS)} — what the garment IS, not how it is worn '
         "(underwear=undershirts/thermals, tops=tees/shirts/blouses/polos, "
         "knitwear=sweaters/cardigans/fleece, outerwear=jackets/coats), "
+        # The second level. Listing the types PER GROUP rather than as one flat set
+        # is what stops "polo" coming back with group "outerwear": the model reads
+        # its own group choice off the line it is answering from.
+        '"type": the specific kind of garment, taken from the list for the group '
+        "you just chose — " + "; ".join(f"{g}: {'|'.join(ts)}" for g, ts in TYPES.items())
+        + ". Use null if none of them fits, "
         f'"roles": the subset of {list(CATEGORIES)} this ONE garment can plausibly '
         "be worn as across the year. Real clothes change role with the season: an "
         "oxford shirt is the OUTER layer over a tee in summer and a base or mid "
@@ -158,7 +164,8 @@ async def classify_image(image_b64: str) -> dict | None:
                 ],
             }
         ],
-        max_tokens=150,
+        # 150 was sized before `type` joined the schema; the extra key costs ~10.
+        max_tokens=180,
         timeout=60,
     )
     return _parse_json(out)

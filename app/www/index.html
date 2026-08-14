@@ -142,6 +142,10 @@
   .tabs{display:flex;gap:6px;margin:6px 0 0}
   .tabs button{flex:1;background:var(--bg);border:1px solid var(--line);color:var(--muted);padding:9px}
   .tabs button.on{background:var(--card2);border-color:var(--accent);color:var(--txt)}
+  /* second taxonomy level inside a folder — "Tops > Polo shirt" */
+  .subHead{display:flex;align-items:baseline;gap:7px;margin:10px 0 0;padding-left:2px}
+  .subHead .st{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .subHead .sc{font-size:.66rem;color:#475569}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -403,6 +407,10 @@
       <option value="footwear">👟 Footwear</option>
       <option value="accessories">🧣 Accessories</option>
     </select>
+    <!-- Second level. Options are rebuilt from the group above, so the two can
+         never disagree — picking Outerwear cannot leave "Polo shirt" selected. -->
+    <label class="lbl">Type <span class="note" style="text-transform:none;letter-spacing:0">— e.g. Tops &rsaquo; Polo shirt</span></label>
+    <select id="shType" style="width:100%;margin-bottom:12px"></select>
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
     <label class="lbl">Warmth (1 cool → 5 warm)</label>
@@ -692,6 +700,42 @@ const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"knitwear",outer:"outerw
 const ROLE_LABEL={inner:"Inner",base:"Base",mid:"Mid",outer:"Outer",
   bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
 const CATS=["inner","base","mid","outer","bottoms","footwear","accessories"];
+/* Second taxonomy level — "Tops > Polo shirt" (user, 2026-08-14).
+   TWIN of TYPES / TYPE_LABEL / normalize_type() in server/vocab.py, where the
+   provenance is documented: the subdivision follows the World Customs
+   Organization's Harmonized System (chapters 61/62 apparel, 64 footwear, 65
+   headgear), not somebody's taste. Keep the two in lockstep — the server drops a
+   type it does not recognise, so a divergence here shows up as types silently
+   vanishing on the way to the advisor, not as an error. */
+const TYPES={
+  underwear:["undershirt","thermal","briefs","bra","socks","sleepwear"],
+  tops:["t_shirt","shirt","polo","blouse","tank"],
+  knitwear:["sweater","cardigan","hoodie","fleece","waistcoat"],
+  outerwear:["jacket","blazer","coat","puffer","rainwear"],
+  bottoms:["trousers","jeans","shorts","skirt","dress","leggings"],
+  footwear:["sneakers","dress_shoes","boots","sandals","loafers"],
+  accessories:["scarf","gloves","hat","belt","tie","umbrella"]};
+const TYPE_LABEL={
+  undershirt:"Undershirt / singlet",thermal:"Thermal / base layer",briefs:"Underpants / briefs",
+  bra:"Bra / lingerie",socks:"Socks / hosiery",sleepwear:"Pyjamas / nightwear",
+  t_shirt:"T-shirt",shirt:"Shirt",polo:"Polo shirt",blouse:"Blouse",tank:"Tank top / vest",
+  sweater:"Sweater / pullover",cardigan:"Cardigan",hoodie:"Hoodie / sweatshirt",
+  fleece:"Fleece",waistcoat:"Waistcoat",
+  jacket:"Jacket / windbreaker",blazer:"Blazer / suit jacket",coat:"Coat",
+  puffer:"Padded / down jacket",rainwear:"Raincoat / shell",
+  trousers:"Trousers / chinos",jeans:"Jeans",shorts:"Shorts",skirt:"Skirt",
+  dress:"Dress",leggings:"Leggings / tights",
+  sneakers:"Sneakers / trainers",dress_shoes:"Dress shoes",boots:"Boots",
+  sandals:"Sandals",loafers:"Loafers / flats",
+  scarf:"Scarf / shawl",gloves:"Gloves",hat:"Hat / cap",belt:"Belt",tie:"Tie",umbrella:"Umbrella"};
+/* A type is only meaningful inside its group, so one that belongs to a different
+   group is DROPPED rather than kept — the group is what files the item. Absent is
+   always legitimate: every closet saved before today has no types at all. */
+function normType(t,group){
+  if(!t) return null;
+  const k=String(t).trim().toLowerCase().replace(/[-\s]/g,"_");
+  return (TYPES[group]||[]).includes(k)?k:null;
+}
 /* Twin of normalize_roles() in server/llm.py — inner is a CLOSED role: underwear is
    never a visible layer and a visible garment is never underwear. */
 function normRoles(roles,category){
@@ -705,6 +749,10 @@ function normRoles(roles,category){
 function migrateItem(it){
   if(!it.group||!GROUPS.includes(it.group)) it.group=GROUP_FROM_CAT[it.category]||"tops";
   it.roles=normRoles(it.roles,it.category);
+  // `type` is NOT guessed for an old item: nothing in a pre-2026-08-14 record says
+  // whether a "top" is a tee or a polo, and a wrong type is worse than none — it
+  // would go into the prompt as fact. Untyped items file under "Other".
+  it.type=normType(it.type,it.group);
   return it;
 }
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
@@ -951,8 +999,9 @@ async function addItem(source){
   // memory-eviction of the camera-heavy WebView would silently discard the whole
   // classification. Saving up front makes the sheet a plain edit of an item that
   // is already safe in the closet; dismissing keeps it, Delete removes it.
+  const grp=(GROUPS.includes(meta?.group)?meta.group:(GROUP_FROM_CAT[meta?.category]||"tops"));
   const item={ id:"itm-"+uuid(), label:meta?.label||"Untitled item", category:meta?.category||"base",
-    group:(GROUPS.includes(meta?.group)?meta.group:(GROUP_FROM_CAT[meta?.category]||"tops")),
+    group:grp, type:normType(meta?.type,grp),
     roles:normRoles(meta?.roles,meta?.category||"base"),
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
@@ -993,14 +1042,27 @@ function paintRoles(){
     };
   });
 }
+/* Type options come from the CURRENTLY selected group, so the two levels cannot
+   contradict each other. "Not specified" stays available on purpose: an item whose
+   type nobody knows is a normal wardrobe entry, and a forced guess would reach the
+   advisor's prompt as a fact. */
+function paintTypes(){
+  const g=sheet.item.group, cur=normType(sheet.item.type,g);
+  sheet.item.type=cur;
+  $("shType").innerHTML='<option value="">— not specified —</option>'
+    +(TYPES[g]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("");
+  $("shType").value=cur||"";
+}
 async function openSheet(item,opts){
   sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
                roles:normRoles(item.roles,item.category),
                group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
          isNew:!!opts.isNew, b64:opts.b64||null};
+  sheet.item.type=normType(sheet.item.type,sheet.item.group);
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
   $("shGroup").value=sheet.item.group||GROUP_FROM_CAT[sheet.item.category]||"tops";
+  paintTypes();
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   const img=$("shImg");
@@ -1027,6 +1089,24 @@ async function renderCloset(){
       ${a<it.count?`<span class="dirty" title="in the laundry">🧺</span>`:""}
       <div class="nm">${esc(it.label)}</div></div>`;
   };
+  /* Second level inside a folder: "Tops ▸ Polo shirt". Items with no type gather
+     under "Other", LAST, so an untyped legacy closet renders as one unlabelled
+     block — i.e. exactly what it looked like yesterday — rather than every tile
+     wearing an "Other" header. */
+  const subSections=async(items,grp)=>{
+    const order=[...(TYPES[grp]||[]),null];
+    const parts=[];
+    for(const t of order){
+      const mine=items.filter(i=>(i.type||null)===t);
+      if(!mine.length) continue;
+      const tiles=(await Promise.all(mine.map(tile))).join("");
+      // Sole untyped section = no heading; there is nothing to distinguish it from.
+      if(t===null && parts.length===0) { parts.push(`<div class="grid">${tiles}</div>`); continue; }
+      parts.push(`<div class="subHead"><span class="st">${esc(t?TYPE_LABEL[t]:"Other")}</span>
+        <span class="sc">${mine.length}</span></div><div class="grid">${tiles}</div>`);
+    }
+    return parts.join("");
+  };
 
   // Folders by clothing GROUP (user, 2026-08-10). Grouping by layering role would
   // fight the seasonal behaviour — the same shirt moves between roles, but it is
@@ -1040,7 +1120,7 @@ async function renderCloset(){
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const tiles=open?(await Promise.all(items.map(tile))).join(""):"";
+    const body=open?await subSections(items,grp):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${grp}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -1048,7 +1128,7 @@ async function renderCloset(){
         <b>${GROUP_LABEL[grp]}</b>
         <span class="fcount">${wearable}/${items.length}</span>
       </button>
-      ${open?`<div class="grid">${tiles}</div>`:""}
+      ${body}
     </div>`);
   }
   g.innerHTML=out.join("");
@@ -1288,6 +1368,7 @@ async function cancelTrip(trip){
 function closetPayload(){
   const trip=tripInProgress();
   const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    type:normType(i.type,i.group),
     roles:normRoles(i.roles,i.category),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
   if(trip){
@@ -1767,7 +1848,12 @@ $("shCat").onchange=()=>{ if(!sheet) return;
   sheet.item.group=GROUP_FROM_CAT[sheet.item.category]||"tops";
   sheet.item.roles=normRoles([sheet.item.category],sheet.item.category);
   $("shGroup").value=sheet.item.group;
+  paintTypes();     // the old type belonged to the old group — normType drops it
   paintRoles(); };
+$("shGroup").onchange=()=>{ if(!sheet) return;
+  sheet.item.group=$("shGroup").value;
+  paintTypes(); };
+$("shType").onchange=()=>{ if(sheet) sheet.item.type=normType($("shType").value,sheet.item.group); };
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
   const i=sheet.item.formality.indexOf(f);
   if(i>=0){ if(sheet.item.formality.length>1) sheet.item.formality.splice(i,1); }
@@ -1784,8 +1870,10 @@ $("shSave").onclick=async()=>{
   if(!it.label){ toast("Give it a name first"); return; }
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
-  // normRoles has the last word, so an inner item can never be saved with visible
-  // roles even if the UI were bypassed.
+  // normType/normRoles have the last word, so an inner item can never be saved
+  // with visible roles, nor a top with an outerwear type, even if the UI were
+  // bypassed. Same discipline as the server's own validators.
+  it.type=normType($("shType").value,it.group);
   it.roles=normRoles(it.roles,it.category);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;

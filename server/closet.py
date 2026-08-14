@@ -20,15 +20,20 @@ import this, so there is no cycle.
 """
 
 from llm import _chat, _parse_json, _plan_temp, _weather_flags, log
-from vocab import CATEGORIES
+from vocab import CATEGORIES, TYPE_LABEL
 
 
 def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict], error_note: str = "") -> str:
     # Show the ROLES each item may play, not one fixed category: the same shirt is
     # the outer layer at 30C and a base under a coat at 8C (user, 2026-08-10).
+    # The garment's TYPE goes in beside the label. "navy top" and "navy polo" read
+    # the same to the model otherwise, and the type is what decides whether an item
+    # suits `smart` — a polo and a tee share every other attribute on this line.
     lines = [
         f"{i['id']} | can be worn as: {'/'.join(i.get('roles') or [i['category']])}"
-        f" | {i['label']} | colors: {','.join(i['colors'])}"
+        f" | {i['label']}"
+        + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
+        + f" | colors: {','.join(i['colors'])}"
         f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"

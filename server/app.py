@@ -105,6 +105,12 @@ class ClosetItem(BaseModel):
     # Optional: closets saved before this field exist, and are mapped from category.
     group: Literal["underwear", "tops", "knitwear", "outerwear", "bottoms",
                    "footwear", "accessories"] | None = None
+    # Second level of the taxonomy (2026-08-14): WHICH KIND of garment inside that
+    # group — "Tops > Polo". Deliberately a plain string validated against the
+    # group's own list rather than a Literal: a type that does not belong to the
+    # group is DROPPED (see vocab.normalize_type), never a 422, so a closet saved
+    # before this field and a /classify guess that misses both stay usable.
+    type: str | None = Field(None, max_length=24)
     # Every layer this ONE garment can play across the year — a shirt is the outer
     # layer at 30C and a base under a coat at 8C. Empty/absent => [category], i.e.
     # exactly the old fixed behaviour, so an old closet is unchanged.
@@ -123,6 +129,8 @@ class ClosetItem(BaseModel):
         object.__setattr__(self, "roles", vocab.normalize_roles(self.roles, self.category))
         if self.group is None:
             object.__setattr__(self, "group", vocab.GROUP_FROM_CATEGORY.get(self.category, "tops"))
+        # AFTER the group is settled — a type is only valid relative to its group.
+        object.__setattr__(self, "type", vocab.normalize_type(self.type, self.group))
         return self
 
     @field_validator("label")
@@ -509,11 +517,22 @@ async def classify(req: ClassifyRequest):
 
     # Re-validate the LLM's output through the same schema as incoming closet
     # items — one sanitization path for both directions.
+    #
+    # group/roles/type are forwarded, NOT dropped. The prompt has asked for `group`
+    # and `roles` since 2026-08-10, but this constructor never passed them on, so
+    # the validator re-derived both from `category` and every classified item came
+    # back with roles=[category] — the seasonal-role feature the model was already
+    # answering correctly was thrown away one line before it reached the phone.
+    # normalize_roles()/normalize_type() still have the last word on anything
+    # implausible, so forwarding adds no trust in the model's output.
     try:
         item = ClosetItem(
             id="pending-0000",  # phone assigns the real uuid on save
             label=str(raw.get("label") or ""),
             category=raw.get("category"),
+            group=raw.get("group") if raw.get("group") in vocab.GROUPS else None,
+            roles=[r for r in (raw.get("roles") or []) if r in vocab.CATEGORIES],
+            type=str(raw.get("type") or "") or None,
             colors=[str(c) for c in raw.get("colors") or [] if str(c).strip()][:3],
             warmth=int(raw.get("warmth") or 3),
             formality=[f for f in (raw.get("formality") or []) if f in ("casual", "smart", "active")],

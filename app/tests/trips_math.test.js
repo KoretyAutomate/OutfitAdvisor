@@ -167,3 +167,37 @@ function run() {
   check("notes/organizer are dropped — data we never read cannot leak",
     !("description" in c) && !("organizer" in c), Object.keys(c));
 }
+
+/* ── scanCalendar must call the plugin the way the plugin actually works ──
+   This boundary was never crossed by a test. The suite covered toCandidate (the
+   pure event->candidate mapping) and stopped there, so scanCalendar could pass
+   {from,to} to a plugin whose signature is {startDate,endDate} and nothing
+   noticed. The real plugin received undefined for both, so the calendar scan
+   could not have worked on a device at all (found 2026-08-13).
+
+   The fake below mirrors the REAL contract from @ebarooni/capacitor-calendar's
+   definitions.d.ts and throws on anything else, so this can only pass if the app
+   speaks the plugin's language. */
+(async () => {
+  ev(`Plugins.CapacitorCalendar = {
+    checkPermission: async () => ({ result: "granted" }),
+    requestPermission: async () => ({ result: "granted" }),
+    listEventsInRange: async (o) => {
+      if (typeof o.startDate !== "number" || typeof o.endDate !== "number") {
+        throw new Error("plugin needs {startDate,endDate}; got " + JSON.stringify(Object.keys(o)));
+      }
+      globalThis.__calArgs = o;
+      return { result: [] };
+    }
+  }; trips=[]; tripsDismissed=[];`);
+  let err = null;
+  try { await ev("scanCalendar()"); } catch (e) { err = e; }
+  check("scanCalendar calls the plugin with the signature it really has",
+    err === null, err && err.message);
+  const a = ev("globalThis.__calArgs") || {};
+  check("it sends startDate/endDate, never from/to",
+    typeof a.startDate === "number" && typeof a.endDate === "number" &&
+    a.from === undefined && a.to === undefined, a);
+  check("and scans a TRIP_SCAN_DAYS-wide window",
+    Math.round((a.endDate - a.startDate) / 86400000) === ev("TRIP_SCAN_DAYS"), a);
+})();

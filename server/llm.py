@@ -369,6 +369,17 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict], error_n
         for i in closet
     ]
     slots = ", ".join(f'"{c}"' for c in CATEGORIES)
+    # Which slots the wardrobe simply cannot fill. Stating this outright removes the
+    # single most common validation failure: with no underwear owned, the model puts
+    # a shirt in `inner`, which costs a corrective retry (20-30s) and sometimes both
+    # attempts — turning a 20s request into 35s and a closetUsed=false. Deterministic
+    # here, so the model is never left to infer it from the listing.
+    coverable = {r for i in closet for r in (i.get("roles") or [i["category"]])}
+    empty = [c for c in CATEGORIES if c not in coverable]
+    empty_line = (
+        "You own NOTHING for these slots: " + ", ".join(empty) +
+        ". They MUST be null — do not substitute an item from another slot.\n"
+    ) if empty else ""
     flags = _weather_flags(w)
     flag_line = (" ".join(flags) + "\n") if flags else ""
     return (
@@ -376,6 +387,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict], error_n
         f"{w['desc'].lower()}, rain {w['rain']}%, wind {w['wind']} m/s. "
         f"Morning {w['morning']}C, midday {w['midday']}C, evening {w['evening']}C.\n"
         f"{flag_line}"
+        f"{empty_line}"
         f"Dress a {gender}, {style} style, ONLY from their wardrobe below.\n"
         "Slots: inner=UNDERSHIRT (torso underwear worn on skin, NEVER visible — "
         "never the outfit's top), base=the visible shirt/tee worn over the inner "

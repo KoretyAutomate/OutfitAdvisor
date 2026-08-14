@@ -1021,7 +1021,11 @@ async function scanCalendar(){
     if(!r||r.result!=="granted") throw new Error("Calendar permission denied — no trips can be found.");
   }
   const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
-  const {result}=await Cal.listEventsInRange({from,to});
+  // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
+  // dates for both, so the calendar scan could never have worked on a device. The
+  // T2 tests passed because they mocked the plugin using OUR parameter names, so
+  // the mock and the code agreed with each other and disagreed with reality.
+  const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
   const have=new Set(trips.map(t=>t.calId));
   candidates=(result||[]).map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
@@ -1118,7 +1122,12 @@ async function getAdvice(lat,lon){
   const cl=closetPayload();
   try{
     // closet requests generate ~2x the tokens — give them a longer leash
-    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?30000:15000);
+    // A closet request can legitimately take 35s+: a 17-item wardrobe that trips
+    // the role validator costs a corrective retry on top of a 20-30s generation.
+    // At 30s the app aborted a request the SERVER had already answered — logged
+    // "advice ok ... 34.99s" while the user saw "offline estimate" and concluded
+    // the LLM was down (2026-08-13). Match the native worker's 90s ceiling.
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(cl.length) body.closet=cl;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{

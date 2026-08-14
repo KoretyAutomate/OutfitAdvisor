@@ -146,6 +146,12 @@
   .subHead{display:flex;align-items:baseline;gap:7px;margin:10px 0 0;padding-left:2px}
   .subHead .st{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   .subHead .sc{font-size:.66rem;color:#475569}
+  .item .worn{position:absolute;bottom:22px;right:4px;font-size:.66rem;background:#0b1322cc;
+    border:1px solid #14532d;color:var(--good);border-radius:999px;padding:0 5px}
+  /* the picked garment's own photo, shown beside the advice */
+  .outfit .pic{width:46px;height:46px;border-radius:9px;object-fit:cover;
+    border:1px solid var(--line);flex-shrink:0;background:var(--bg)}
+  .outfit .pic.flat{border-style:dashed}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -380,6 +386,24 @@
       <div style="flex:1">
         <label class="lbl">Name</label>
         <input type="text" id="shLabel" maxlength="60" placeholder="e.g. navy merino crew-neck" style="width:100%">
+      </div>
+    </div>
+    <!-- Worn photo (user, 2026-08-14): "the pictures must show the image when it's
+         wearing". Nothing can turn a flat photo of a garment into a photo of it
+         being worn, so the app asks for that second picture instead of inventing
+         one. It is optional — an item with only the flat shot still works exactly
+         as before, and the recommendation says which kind of picture it is showing. -->
+    <div class="frow">
+      <img class="prev" id="shWornImg" alt="" style="display:none">
+      <div style="flex:1">
+        <label class="lbl">Worn photo</label>
+        <p class="note" id="shWornNote" style="margin:0 0 8px">A picture of you actually wearing
+          it — this is what the daily recommendation shows.</p>
+        <div class="row">
+          <button class="ghost" id="shWornCam">📷 Take</button>
+          <button class="ghost" id="shWornGal">🖼️ Upload</button>
+          <button class="ghost" id="shWornDel" style="display:none;color:#fca5a5">Remove</button>
+        </div>
       </div>
     </div>
     <div class="frow">
@@ -1005,7 +1029,7 @@ async function addItem(source){
     roles:normRoles(meta?.roles,meta?.category||"base"),
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
-    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() };
+    waterproof:!!meta?.waterproof, count:1, photo:false, wornPhoto:false, addedAt:Date.now() };
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
   await saveCloset();
@@ -1053,11 +1077,20 @@ function paintTypes(){
     +(TYPES[g]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("");
   $("shType").value=cur||"";
 }
+async function paintWornPhoto(){
+  const img=$("shWornImg"), del=$("shWornDel"), note=$("shWornNote");
+  const src=sheet.wornB64?("data:image/jpeg;base64,"+sheet.wornB64)
+                         :(sheet.item.wornPhoto?await photoLoad(sheet.item.id+"-worn"):null);
+  img.src=src||""; img.style.display=src?"":"none";
+  del.style.display=src?"":"none";
+  note.textContent=src?"Shown in the daily recommendation instead of the flat photo."
+    :"A picture of you actually wearing it — this is what the daily recommendation shows.";
+}
 async function openSheet(item,opts){
   sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
                roles:normRoles(item.roles,item.category),
                group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
-         isNew:!!opts.isNew, b64:opts.b64||null};
+         isNew:!!opts.isNew, b64:opts.b64||null, wornB64:null};
   sheet.item.type=normType(sheet.item.type,sheet.item.group);
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
@@ -1068,6 +1101,7 @@ async function openSheet(item,opts){
   const img=$("shImg");
   img.src=sheet.b64?("data:image/jpeg;base64,"+sheet.b64):((await photoLoad(sheet.item.id))||"");
   img.style.display=img.src?"":"none";
+  await paintWornPhoto();
   paintSheetSegs();
   $("sheetWrap").classList.add("show");
 }
@@ -1087,6 +1121,7 @@ async function renderCloset(){
       ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||"👕"}</div>`}
       ${it.count>1||a<it.count?`<span class="cnt">${a}/${it.count}</span>`:""}
       ${a<it.count?`<span class="dirty" title="in the laundry">🧺</span>`:""}
+      ${it.wornPhoto?`<span class="worn" title="has a worn photo">🧍</span>`:""}
       <div class="nm">${esc(it.label)}</div></div>`;
   };
   /* Second level inside a folder: "Tops ▸ Polo shirt". Items with no type gather
@@ -1447,11 +1482,54 @@ function renderOutfit(o,text,source,res){
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
   wb.textContent="✅ Wearing it — update my rotation";
+  const picked=(res&&res.closetUsed&&res.picks)||{};
   $("outfitList").innerHTML=["inner","base","mid","outer","bottoms","footwear","accessories"].map(k=>
-    `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
+    `<li data-slot="${k}"><span class="ic">${ICONS[k]}</span>`
+    +`<div style="flex:1"><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
+  paintPickPhotos(picked);
   $("outfitTip").textContent="💡 "+(o.tip||"");
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
+}
+
+/* ───────── the recommendation shows the clothes themselves (2026-08-14) ─────────
+   "Recommendations must include pictures from the closet, and those pictures must
+   show the image when it's wearing."
+
+   Two halves. The picture comes from the CLOSET, keyed by the item ids /advice
+   already echoes back in `picks` — no new server data and no guessing by label,
+   which would attach the wrong coat the day two coats have similar names. And it
+   prefers the WORN photo the item sheet collects; when only the flat photo exists
+   it still shows it, dashed and captioned, because an honest "this is the garment,
+   not you in it" beats a blank square. A generic (non-closet) line has no picture
+   by definition — there is no item to photograph.
+
+   Async and fire-and-forget: photoLoad() hits the filesystem once per pick, and
+   renderOutfit must not wait on the disk to put the advice on screen. */
+async function itemPhoto(id){
+  const it=closet.find(i=>i.id===id);
+  const worn=it&&it.wornPhoto?await photoLoad(id+"-worn"):null;
+  return {src:worn||(await photoLoad(id)),worn:!!worn};
+}
+/* Put the item's picture at the head of a recommendation line, and drop the emoji
+   that was standing in for it. */
+async function paintLinePhoto(li,id){
+  if(!li||!id) return;
+  const {src,worn}=await itemPhoto(id);
+  if(!src) return;
+  const img=document.createElement("img");
+  img.className="pic"+(worn?"":" flat");
+  img.src=src;
+  img.alt=worn?"worn":"the garment";
+  img.title=worn?"you wearing it":"the garment — add a worn photo in the closet";
+  li.insertBefore(img,li.firstChild);
+  const ic=li.querySelector(".ic"); if(ic) ic.style.display="none";
+}
+async function paintPickPhotos(picks){
+  for(const [slot,id] of Object.entries(picks||{})){
+    if(!id) continue;
+    await paintLinePhoto(document.querySelector(`#outfitList li[data-slot="${slot}"]`),id);
+  }
 }
 
 /* ───────── trips: rendering + sheets ───────── */
@@ -1594,10 +1672,14 @@ function renderPacking(trip,d){
   }).join("");
 
   $("pkText").textContent=d.packing_text||"";
+  // A packing list is a recommendation from the closet too, so it gets the same
+  // pictures — you pack by recognising the garment, not by parsing its name.
   $("pkList").innerHTML=(d.pack||[]).map(p=>
-    `<li><span class="ic">${ICONS[p.category]||"👕"}</span><div>
+    `<li data-pid="${esc(p.id||"")}"><span class="ic">${ICONS[p.category]||"👕"}</span><div style="flex:1">
       <div class="lbl2">${esc(p.qty)}× ${esc(p.label)}</div>
       <div class="val">${esc(p.why||"")}</div></div></li>`).join("");
+  for(const p of (d.pack||[]))
+    paintLinePhoto(document.querySelector(`#pkList li[data-pid="${p.id}"]`),p.id);
 
   $("pkGaps").innerHTML=(d.gaps||[]).length?
     `<p class="note" style="margin-top:10px"><b>You don't own:</b></p>`+
@@ -1854,6 +1936,35 @@ $("shGroup").onchange=()=>{ if(!sheet) return;
   sheet.item.group=$("shGroup").value;
   paintTypes(); };
 $("shType").onchange=()=>{ if(sheet) sheet.item.type=normType($("shType").value,sheet.item.group); };
+/* Worn photo. Saved to the closet the moment Save is tapped, exactly like every
+   other field on this sheet — the flat photo is written up front (a camera-heavy
+   WebView can be evicted mid-edit), but this one is an edit of an item that is
+   already safe, so the sheet's own Save is the right commit point. */
+async function grabWorn(source){
+  if(!sheet) return;
+  $("clErr").textContent="";
+  try{
+    const dataUrl=await capture(source);
+    sheet.wornB64=await downscale(dataUrl);
+    await paintWornPhoto();
+  }catch(e){
+    if(/cancel/i.test(e?.message||"")) return;
+    toast(e?.message||"Couldn't get the photo");
+  }
+}
+$("shWornCam").onclick=()=>grabWorn("CAMERA");
+$("shWornGal").onclick=()=>grabWorn("PHOTOS");
+$("shWornDel").onclick=async()=>{
+  if(!sheet) return;
+  sheet.wornB64=null;
+  if(sheet.item.wornPhoto){
+    await photoDel(sheet.item.id+"-worn");
+    sheet.item.wornPhoto=false;
+    const idx=closet.findIndex(x=>x.id===sheet.item.id);
+    if(idx>=0){ closet[idx].wornPhoto=false; await saveCloset(); }
+  }
+  await paintWornPhoto();
+};
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
   const i=sheet.item.formality.indexOf(f);
   if(i>=0){ if(sheet.item.formality.length>1) sheet.item.formality.splice(i,1); }
@@ -1878,6 +1989,7 @@ $("shSave").onclick=async()=>{
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);
+  if(sheet.wornB64){ it.wornPhoto=await photoSave(it.id+"-worn",sheet.wornB64); }
   const idx=closet.findIndex(x=>x.id===it.id);
   if(idx>=0) closet[idx]=it; else closet.push(it);
   await saveCloset(); closeSheet(); toast("Saved to your closet");
@@ -1891,7 +2003,7 @@ $("shDel").onclick=async()=>{
   const id=sheet.item.id;
   closet=closet.filter(i=>i.id!==id);
   wearLog=wearLog.filter(w=>w.itemId!==id);   // cascade — no orphan wears
-  await photoDel(id);
+  await photoDel(id); await photoDel(id+"-worn");   // both pictures, or one leaks
   await saveCloset(); closeSheet(); toast("Deleted");
 };
 $("dWear").onclick=async()=>{

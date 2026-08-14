@@ -152,6 +152,12 @@
   .outfit .pic{width:46px;height:46px;border-radius:9px;object-fit:cover;
     border:1px solid var(--line);flex-shrink:0;background:var(--bg)}
   .outfit .pic.flat{border-style:dashed}
+  /* calendar picker (2026-08-14) */
+  .calList{margin-top:10px}
+  .calRow{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .calRow:last-child{border-bottom:none}
+  .calRow .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .calRow .ttl{flex:1;min-width:0;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -281,9 +287,9 @@
     </details>
   </div>
 
-  <!-- Trips: the part of them that is a setting rather than a trip. -->
+  <!-- Trips: the parts of them that are settings rather than trips. -->
   <div class="card">
-    <h2>Trips</h2>
+    <h2>Trips &amp; calendar</h2>
     <!-- Home area. Needed to judge "is this far enough to be a trip" without
          asking the user about every candidate. Set once, changeable any time. -->
     <div style="display:flex;align-items:center;gap:8px">
@@ -292,6 +298,24 @@
         <div class="note" id="homeLine" style="margin-top:2px">not set</div>
       </div>
       <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+    </div>
+
+    <!-- Which calendars to read (user, 2026-08-14). A phone carries calendars the
+         user has no interest in packing for — birthdays, holidays, a subscribed
+         sports fixture list — and every one of them was being scanned and sent to
+         /triage. Choosing is both less noise and strictly less data leaving the
+         phone. Empty selection = all, so the app behaves exactly as before until
+         the user actually picks. -->
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">Calendars to sync</label>
+          <div class="note" id="calSummary" style="margin-top:2px">not loaded</div>
+        </div>
+        <button class="ghost" id="calLoadBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
+      </div>
+      <div class="calList" id="calList"></div>
+      <div id="calErr" class="err"></div>
     </div>
   </div>
 </div><!-- /settings -->
@@ -357,8 +381,8 @@
     </div>
   </div>
 
-  <!-- Trips. The home area is a setting and lives behind the gear; what is left
-       here is the scan and its results, which are not settings. -->
+  <!-- Trips. The home area and the calendar selection are settings and live behind
+       the gear; what is left here is the scan and its results, which are not. -->
   <div class="card">
     <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
     <div class="row">
@@ -1290,23 +1314,95 @@ function toCandidate(ev){
           hint:(ev.location||"").trim()};
 }
 
-async function scanCalendar(){
-  const Cal=Plugins.CapacitorCalendar;
-  if(!Cal){ throw new Error("Calendar isn't available here — open the app on your phone."); }
+/* ───────── which calendars to read (user, 2026-08-14) ─────────
+   A phone carries calendars nobody packs for: birthdays, national holidays, a
+   subscribed fixture list, a shared family calendar. Every one of them was being
+   scanned, and each overnight entry in them was being sent to /triage. Choosing is
+   less noise AND strictly less data leaving the phone.
+
+   EMPTY SELECTION MEANS ALL. That keeps the pre-existing behaviour for anyone who
+   never opens the picker, and it is also the only safe reading of an empty set: a
+   user who has picked nothing has not asked to be told about no trips at all. The
+   summary line says which of the two is in force so it is never a silent guess. */
+let calendars=[];             // [{id,title,color}] — refreshed from the device
+let calSelected=new Set();    // ids the user chose; empty = every calendar
+
+async function ensureCalendarPermission(Cal){
   let res;
   try{ res=await Cal.checkPermission({alias:"readCalendar"}); }catch(e){ res=null; }
   if(!res||res.result!=="granted"){
     const r=await Cal.requestPermission({alias:"readCalendar"});
     if(!r||r.result!=="granted") throw new Error("Calendar permission denied — no trips can be found.");
   }
+}
+async function saveCalendars(){
+  await prefSet("oa.calendars",JSON.stringify([...calSelected]));
+  renderCalendars();
+}
+function renderCalendars(){
+  const list=$("calList"), sum=$("calSummary");
+  if(!list||!sum) return;
+  if(!calendars.length){
+    list.innerHTML="";
+    sum.textContent=calSelected.size
+      ? `${calSelected.size} chosen — tap Choose to review`
+      : "all calendars on this phone";
+    return;
+  }
+  const on=c=>calSelected.size===0||calSelected.has(c.id);
+  sum.textContent=calSelected.size
+    ? `${calendars.filter(on).length} of ${calendars.length} calendars`
+    : `all ${calendars.length} calendars on this phone`;
+  list.innerHTML=calendars.map(c=>`<div class="calRow">
+      <span class="dot" style="background:${esc(c.color||"#64748b")}"></span>
+      <span class="ttl">${esc(c.title||c.id)}</span>
+      <label class="toggle"><input type="checkbox" data-cal="${esc(c.id)}"${on(c)?" checked":""}>
+        <span class="sl"></span></label>
+    </div>`).join("");
+  list.querySelectorAll("input[data-cal]").forEach(cb=>{
+    cb.onchange=async()=>{
+      // First touch turns "all" (empty set) into an explicit set, so unticking one
+      // calendar does not read as "select only this one".
+      if(!calSelected.size) calendars.forEach(c=>calSelected.add(c.id));
+      cb.checked?calSelected.add(cb.dataset.cal):calSelected.delete(cb.dataset.cal);
+      await saveCalendars();
+    };
+  });
+}
+async function loadCalendars(){
+  const Cal=Plugins.CapacitorCalendar;
+  $("calErr").textContent="";
+  if(!(Cal&&Cal.listCalendars)){
+    $("calErr").textContent="Calendars are only listable in the app on your phone.";
+    return;
+  }
+  await ensureCalendarPermission(Cal);
+  const {result}=await Cal.listCalendars();
+  calendars=(result||[]).map(c=>({id:String(c.id),title:c.title||"",color:c.color||""}));
+  // Drop selections for calendars that no longer exist — an account removed from
+  // the phone must not keep a ghost entry that quietly narrows every future scan.
+  const live=new Set(calendars.map(c=>c.id));
+  const before=calSelected.size;
+  calSelected=new Set([...calSelected].filter(id=>live.has(id)));
+  if(calSelected.size!==before) await prefSet("oa.calendars",JSON.stringify([...calSelected]));
+  renderCalendars();
+}
+
+async function scanCalendar(){
+  const Cal=Plugins.CapacitorCalendar;
+  if(!Cal){ throw new Error("Calendar isn't available here — open the app on your phone."); }
+  await ensureCalendarPermission(Cal);
   const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
   // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
   // dates for both, so the calendar scan could never have worked on a device. The
   // T2 tests passed because they mocked the plugin using OUR parameter names, so
   // the mock and the code agreed with each other and disagreed with reality.
   const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
+  // listEventsInRange has no calendar filter — the plugin returns every calendar's
+  // events and each carries `calendarId`, so the selection is applied here.
+  const events=(result||[]).filter(e=>!calSelected.size||calSelected.has(String(e.calendarId)));
   const have=new Set(trips.map(t=>t.calId));
-  candidates=(result||[]).map(toCandidate).filter(Boolean)
+  candidates=events.map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
     .sort((a,b)=>a.start<b.start?-1:1);
 
@@ -1886,6 +1982,9 @@ async function load(){
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
+  // Which calendars to scan. The titles are NOT cached — only the ids the user
+  // chose — so a renamed or deleted calendar can never be shown from stale state.
+  try{ calSelected=new Set(JSON.parse(await prefGet("oa.calendars","[]"))||[]); }catch(e){ calSelected=new Set(); }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -2066,6 +2165,12 @@ $("fbNote").onclick=async()=>{
 
 /* ── trips wiring ── */
 $("homeBtn").onclick=setHomeFromHere;
+$("calLoadBtn").onclick=async()=>{
+  const b=$("calLoadBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
+  try{ await loadCalendars(); }
+  catch(e){ $("calErr").textContent=e.message||"Couldn't read your calendars."; }
+  finally{ b.innerHTML=old; b.disabled=false; }
+};
 $("calBtn").onclick=async()=>{
   const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
   $("tripErr").textContent="";
@@ -2157,6 +2262,7 @@ $("pkPacked").onclick=async()=>{
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s"); renderProfileLine();
   renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome();
+  renderCalendars();   // ids only; titles need the device, so the picker fetches them
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

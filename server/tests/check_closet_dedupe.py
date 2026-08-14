@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import llm  # noqa: E402
+import closet as llm  # module split 2026-08-14
+import vocab
 
 passed = failed = 0
 
@@ -159,15 +160,15 @@ check("null slots are not mismatches",
 
 print("\n[5b] normalize_roles keeps underwear closed and old closets working")
 check("absent roles fall back to the item's category (pre-2026-08-10 behaviour)",
-      llm.normalize_roles([], "base") == ["base"])
+      vocab.normalize_roles([], "base") == ["base"])
 check("inner is exclusive even if the model asks for more",
-      llm.normalize_roles(["inner", "base", "outer"], "inner") == ["inner"])
+      vocab.normalize_roles(["inner", "base", "outer"], "inner") == ["inner"])
 check("nothing else may claim inner alongside visible roles",
-      "inner" not in llm.normalize_roles(["base", "outer"], "base"))
+      "inner" not in vocab.normalize_roles(["base", "outer"], "base"))
 check("junk roles are dropped",
-      llm.normalize_roles(["base", "hat", ""], "base") == ["base"])
+      vocab.normalize_roles(["base", "hat", ""], "base") == ["base"])
 check("order is stable (CATEGORIES order, not input order)",
-      llm.normalize_roles(["outer", "base", "mid"], "base") == ["base", "mid", "outer"])
+      vocab.normalize_roles(["outer", "base", "mid"], "base") == ["base", "mid", "outer"])
 
 print("\n[6] a slot mismatch retries, then is cleared rather than left wrong")
 calls.clear()

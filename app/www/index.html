@@ -257,6 +257,15 @@
   <!-- Trips -->
   <div class="card">
     <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
+    <!-- Home area. Needed to judge "is this far enough to be a trip" without
+         asking the user about every candidate. Set once, changeable any time. -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="min-width:0">
+        <label class="lbl" style="margin:0">Home area</label>
+        <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+      </div>
+      <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+    </div>
     <div class="row">
       <button class="primary" id="calBtn">📅 Check my calendar</button>
     </div>
@@ -976,6 +985,86 @@ async function renderCloset(){
   });
 }
 
+
+/* ───────── home area + automatic trip detection (2026-08-14) ─────────
+   The user's objection was blunt and correct: making them confirm every calendar
+   candidate defeats the point of reading the calendar. To judge a trip we need a
+   home to measure from.
+
+   PRIVACY: home is stored COARSELY — the label the phone's own geocoder gave, plus
+   coordinates rounded to 1 decimal place (~11 km). That is far below the 100 km
+   trip threshold, so precision buys nothing and costs privacy. Live GPS is still
+   never persisted; this is one user-set, user-visible datum they can change or
+   clear, not a location history. */
+const TRIP_MIN_KM=100;                 // + at least one overnight
+let home=null;                          // {label, postal, lat, lon} or null
+
+function roundCoarse(n){ return Math.round(n*10)/10; }   // ~11 km
+function haversineKm(a,b,c,d){
+  const R=6371, r=Math.PI/180;
+  const dLat=(c-a)*r, dLon=(d-b)*r;
+  const h=Math.sin(dLat/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); }
+function renderHome(){
+  const el=$("homeLine"); if(!el) return;
+  el.textContent=home?home.label:"not set — trips can't be detected automatically";
+  const b=$("homeBtn"); if(b) b.textContent=home?"Change":"Set";
+}
+/* Take the CURRENT position and name it with the PHONE'S OWN geocoder, then ask
+   the user to confirm that area is home. No web geocoding service sees the user's
+   exact position — the same reasoning that keeps raw calendar strings off
+   Open-Meteo. */
+async function setHomeFromHere(){
+  const el=$("homeLine");
+  el.textContent="finding your location…";
+  try{
+    const p=await getPosition();
+    let named={label:"",postalCode:""};
+    try{
+      if(Plugins.OutfitAlarm && Plugins.OutfitAlarm.reverseGeocode)
+        named=await Plugins.OutfitAlarm.reverseGeocode({lat:p.lat,lon:p.lon});
+    }catch(e){}
+    const label=(named.label||"").trim()||`${roundCoarse(p.lat)}, ${roundCoarse(p.lon)}`;
+    if(!confirm(`Set your home area to:\n\n${label}\n\nTrips will be detected by distance from here.`)) {
+      renderHome(); return;
+    }
+    home={label,postal:named.postalCode||"",lat:roundCoarse(p.lat),lon:roundCoarse(p.lon)};
+    await saveHome();
+    toast("Home set — trips will be found automatically");
+  }catch(e){
+    el.textContent="couldn't get your location — tap Set to try again";
+    toast("Couldn't get your location");
+  }
+}
+
+/* Judge one candidate: ask the DGX what it is, geocode only the CITY it returns,
+   and measure. Returns {decision, ...} — never throws, because a triage failure
+   must degrade to asking the user, not to losing the candidate. */
+async function triageCandidate(c){
+  if(!home) return {decision:"ask", why:"no home area set"};
+  let t;
+  try{
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/triage",{
+      method:"POST",headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION},
+      body:JSON.stringify({title:c.title,location:c.hint,nights:c.nights,
+                           start:c.start,end:c.end})});
+    if(!r.ok) return {decision:"ask", why:"advisor unavailable"};
+    t=await r.json();
+  }catch(e){ return {decision:"ask", why:"advisor unreachable"}; }
+
+  if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
+  if(!t.city)   return {decision:"ask",  why:"no city could be determined"};
+  let g;
+  try{ g=await geocode(t.city); }catch(e){ return {decision:"ask", why:`couldn't place "${t.city}"`}; }
+  const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
+  if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};
+  if(c.nights<1)     return {decision:"skip", why:"no overnight"};
+  return {decision:"trip", city:t.city, type:t.type, lat:g.lat, lon:g.lon,
+          place:g.place, km:Math.round(km), why:t.reason||""};
+}
+
 /* ───────── trips (T2/T2.5): calendar → packing list ─────────
    PRIVACY: the calendar is read ON THIS PHONE and stays here. The event's title,
    notes and location TEXT are never geocoded and never sent to any host — not the
@@ -1030,8 +1119,29 @@ async function scanCalendar(){
   candidates=(result||[]).map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
     .sort((a,b)=>a.start<b.start?-1:1);
+
+  // Judge them instead of handing the user a list to sort out. Anything that is
+  // clearly travel and clearly far becomes a trip on its own; anything clearly
+  // local is dismissed silently; only the genuinely ambiguous ones are still
+  // shown, which is what the confirm step was actually for.
+  const decided={added:0, skipped:0, asked:0};
+  const still=[];
+  for(const c of candidates){
+    const v=await triageCandidate(c);
+    if(v.decision==="trip"){
+      trips.push({id:"trp-"+uuid(),calId:c.calId,title:c.title,start:c.start,end:c.end,
+        lat:v.lat,lon:v.lon,place:v.place||v.city,type:v.type,
+        styles:v.type==="business"?["smart","casual"]:["casual"],
+        notifyDays:2,laundryBefore:false,packed:[],auto:true,km:v.km});
+      decided.added++;
+    }else if(v.decision==="skip"){
+      tripsDismissed.push(c.calId); decided.skipped++;
+    }else{ still.push(c); decided.asked++; }
+  }
+  candidates=still;
+  if(decided.added||decided.skipped) await saveTrips();
   renderTrips();
-  return candidates.length;
+  return decided;
 }
 
 /* Geocode a city the USER typed. Returns several matches — "Springfield" is five
@@ -1537,6 +1647,7 @@ async function load(){
   tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
+  try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -1677,12 +1788,18 @@ $("fbNote").onclick=async()=>{
 };
 
 /* ── trips wiring ── */
+$("homeBtn").onclick=setHomeFromHere;
 $("calBtn").onclick=async()=>{
   const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
   $("tripErr").textContent="";
   try{
-    const n=await scanCalendar();
-    toast(n?`Found ${n} possible trip${n>1?"s":""}`:"No upcoming trips in your calendar");
+    const d=await scanCalendar();
+    const bits=[];
+    if(d.added)   bits.push(`${d.added} trip${d.added>1?"s":""} added`);
+    if(d.asked)   bits.push(`${d.asked} need${d.asked>1?"":"s"} a look`);
+    if(!bits.length) bits.push(d.skipped?"nothing away from home":"no upcoming trips");
+    toast(bits.join(" · "));
+    if(!home) $("tripErr").textContent="Set your home area above so trips can be detected automatically.";
   }catch(e){ $("tripErr").textContent=e.message||"Couldn't read the calendar."; }
   finally{ b.innerHTML=old; b.disabled=false; }
 };
@@ -1762,7 +1879,7 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback();
+  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

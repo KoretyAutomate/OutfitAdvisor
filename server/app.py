@@ -7,6 +7,9 @@ POST /packing  {lat, lon, start, end, type, styles[], closet?}
                                                         -> per-day trip forecast (or
                climate normals beyond the horizon) + a packing list from the closet
 POST /classify {imageB64}                               -> clothing item metadata
+POST /triage   {title, location, nights, start, end}    -> is this calendar entry a
+               trip, and which CITY (so the app stops asking the user to confirm
+               every candidate; 2026-08-14)
 GET  /health                                            -> {ok, vllm}
 GET  /version                                           -> the published APK's build
                metadata, so the app can offer an in-app update instead of the user
@@ -49,8 +52,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import closet as closet_llm
 import engine
 import llm
+import vocab
 import weather
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -115,9 +120,9 @@ class ClosetItem(BaseModel):
     def _derive(self):
         # Normalize here, once, so every consumer (advice, packing, prompts) reads
         # the same already-safe values and none of them has to remember the rules.
-        object.__setattr__(self, "roles", llm.normalize_roles(self.roles, self.category))
+        object.__setattr__(self, "roles", vocab.normalize_roles(self.roles, self.category))
         if self.group is None:
-            object.__setattr__(self, "group", llm.GROUP_FROM_CATEGORY.get(self.category, "tops"))
+            object.__setattr__(self, "group", vocab.GROUP_FROM_CATEGORY.get(self.category, "tops"))
         return self
 
     @field_validator("label")
@@ -150,6 +155,26 @@ class AdviceRequest(BaseModel):
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
+
+
+class TriageRequest(BaseModel):
+    """A calendar entry to judge. Free text, so it is sanitized exactly like closet
+    labels before it reaches the prompt (plan amendment 1)."""
+    title: str = Field("", max_length=120)
+    location: str = Field("", max_length=120)
+    nights: int = Field(1, ge=0, le=60)
+    start: str = Field("", max_length=10)
+    end: str = Field("", max_length=10)
+
+    @field_validator("title", "location")
+    @classmethod
+    def _san(cls, v: str) -> str:
+        return _clean(v, 120)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _san_date(cls, v: str) -> str:
+        return v if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v or "") else ""
 
 
 class ClassifyRequest(BaseModel):
@@ -244,7 +269,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     text = None
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await llm.closet_outfit(wc, req.gender, req.style, items)
+        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items)
         if result is not None:
             text = result["text"]
             closet_used = True
@@ -445,6 +470,26 @@ async def packing(req: PackingRequest):
         "packing_text": text,
         "closetUsed": closet_used,
     }
+
+
+@app.post("/triage")
+async def triage(req: TriageRequest):
+    """Is this calendar entry a trip, and to which city?
+
+    PRIVACY: the entry's text is used and discarded. Nothing about it is logged —
+    not the title, not the location, not the resolved city, not the dates. A title
+    plus a date range is far more identifying than anything else this server sees,
+    which is why the log line carries only the outcome shape.
+    """
+    t0 = time.monotonic()
+    out = await llm.triage_event(req.title, req.location, req.nights, req.start, req.end)
+    dt = round(time.monotonic() - t0, 2)
+    if out is None:
+        log.info("triage failed %.2fs", dt)
+        raise HTTPException(status_code=503, detail="could not judge this entry")
+    log.info("triage ok isTrip=%s hasCity=%s conf=%.2f %.2fs",
+             out["isTrip"], bool(out["city"]), out["confidence"], dt)
+    return out
 
 
 @app.post("/classify")

@@ -5,6 +5,7 @@ import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -17,6 +18,7 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
+import java.util.Locale
 
 /**
  * JS bridge for the once-daily morning alarm.
@@ -186,6 +188,66 @@ class OutfitAlarmPlugin : Plugin() {
             } catch (ignored: Exception) {}
         }
         call.resolve(JSObject().put("opened", true))
+    }
+
+    /**
+     * Name a coordinate — locality, state, postal code — using ANDROID'S OWN
+     * geocoder (2026-08-14).
+     *
+     * Deliberately not a web geocoding service: naming the user's home means
+     * sending their exact position somewhere, and every public geocoder is a third
+     * party they have no relationship with. The platform geocoder resolves through
+     * services the phone already talks to, so this introduces no new recipient of
+     * the user's location — the same reasoning that keeps raw calendar strings away
+     * from Open-Meteo.
+     *
+     * Used once, when the user sets their home area. Nothing here is stored by the
+     * plugin; the web layer decides what to keep.
+     */
+    @PluginMethod
+    fun reverseGeocode(call: PluginCall) {
+        val lat = call.getDouble("lat")
+        val lon = call.getDouble("lon")
+        if (lat == null || lon == null) { call.reject("lat/lon required"); return }
+        if (!Geocoder.isPresent()) { call.reject("no geocoder on this device"); return }
+
+        val geo = Geocoder(context, Locale.getDefault())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // The blocking overload is deprecated on 33+; the callback form is the
+            // supported path and keeps the network work off the caller's thread.
+            geo.getFromLocation(lat, lon, 1, object : Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                    call.resolve(addressToJs(addresses.firstOrNull()))
+                }
+                override fun onError(msg: String?) { call.reject(msg ?: "geocode failed") }
+            })
+        } else {
+            Thread {
+                try {
+                    @Suppress("DEPRECATION")
+                    val a = geo.getFromLocation(lat, lon, 1)?.firstOrNull()
+                    call.resolve(addressToJs(a))
+                } catch (e: Exception) {
+                    call.reject(e.message ?: "geocode failed")
+                }
+            }.start()
+        }
+    }
+
+    private fun addressToJs(a: android.location.Address?): JSObject {
+        // A readable label, coarsest-useful first. Postal code is included because
+        // the user asked to treat "that zip area" as home — it is the unit people
+        // actually think of as "where I live".
+        val locality = a?.locality ?: a?.subAdminArea
+        val label = listOfNotNull(
+            locality, a?.adminArea, a?.postalCode
+        ).distinct().joinToString(", ").ifBlank { a?.countryName ?: "" }
+        return JSObject()
+            .put("locality", locality ?: "")
+            .put("adminArea", a?.adminArea ?: "")
+            .put("postalCode", a?.postalCode ?: "")
+            .put("country", a?.countryName ?: "")
+            .put("label", label)
     }
 
     private fun canScheduleExact(ctx: Context): Boolean {

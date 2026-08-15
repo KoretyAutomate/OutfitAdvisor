@@ -22,6 +22,11 @@ checks.
 3. **Node key expiry** — warns at 21 days remaining. This is the root cause, and
    once the key actually expires only a human with a browser can recover it, so
    the warning has to arrive well ahead of the deadline.
+4. **The PHONE's tailnet presence** — warns once the Pixel has been offline for
+   6+ hours. Added 2026-08-14, after it dropped off the tailnet for 15 hours and
+   every check here stayed green: unit healthy, `/health` 200, Tailscale up. The
+   server being reachable *from itself* proves nothing about the device that has
+   to reach it, and the user meets that failure as "couldn't reach the server".
 
 ## What it does about it
 
@@ -31,6 +36,7 @@ checks.
 | `/health` unreachable | Restart `outfit-advisor`, re-probe, notify whether it recovered |
 | vLLM down | Notify as degraded — advice still works via the rule engine |
 | Key expiring ≤21d | Notify once, then at most daily |
+| Phone off the tailnet ≥6h | Notify — cannot self-heal, needs Tailscale reconnected on the phone |
 | All healthy | **Say nothing** |
 
 Notifications go to Telegram via `scripts/notify_telegram.sh` (the ClaudeBridge
@@ -38,8 +44,8 @@ bot), **on state change only**, plus one reminder a day while still broken. A
 watchdog that messages every five minutes gets muted, and a muted watchdog is
 worse than none. Silence when healthy is deliberate for the same reason.
 
-Reachability state and key-expiry state are tracked in **separate** files
-(`watchdog.state`, `keywarn.state`) under `~/.local/state/outfit-advisor/`.
+Reachability, key-expiry and phone-presence are tracked in **separate** files
+(`watchdog.state`, `keywarn.state`, `phone.state`) under `~/.local/state/outfit-advisor/`.
 Sharing one file made a key warning look like an outage, so the next healthy
 check announced a "recovery" from something that never broke.
 
@@ -77,7 +83,8 @@ Drop `OA_NOTIFY=/nonexistent` to exercise the real Telegram path.
 
 ## Overrides
 
-`OA_IP`, `OA_PORT`, `OA_UNIT`, `OA_NOTIFY`, `OA_KEY_WARN_DAYS`.
+`OA_IP`, `OA_PORT`, `OA_UNIT`, `OA_NOTIFY`, `OA_KEY_WARN_DAYS`,
+`OA_PHONE_HOST` (default `pixel`), `OA_PHONE_WARN_HOURS` (default `6`).
 
 ## What it does NOT cover
 

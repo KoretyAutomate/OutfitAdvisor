@@ -35,6 +35,11 @@ STATE="$STATE_DIR/watchdog.state"
 # state. Sharing one file made a key warning look like a failure, so the next
 # healthy check announced a "recovery" from an outage that never happened.
 KEYSTATE="$STATE_DIR/keywarn.state"
+# The phone's tailnet presence is a THIRD independent concern — sharing a state
+# file with reachability or key-expiry makes one look like the other.
+PHONESTATE="$STATE_DIR/phone.state"
+PHONE_HOST="${OA_PHONE_HOST:-pixel}"
+PHONE_WARN_HOURS="${OA_PHONE_WARN_HOURS:-6}"
 KEY_WARN_DAYS="${OA_KEY_WARN_DAYS:-21}"
 REMIND_SECS=$((24 * 3600))
 
@@ -97,6 +102,48 @@ fi
 if [[ "$key_days" =~ ^-?[0-9]+$ ]] && (( key_days <= KEY_WARN_DAYS )); then
   log "WARN tailscale key expires in $key_days days"
   notify "key-expiring" "🟠 OutfitAdvisor: the DGX's Tailscale node key expires in $key_days days. When it does, the server goes unreachable and the morning push silently falls back. Disable key expiry for spark-d28c in the Tailscale admin console (Machines → ⋯ → Disable key expiry)." "$KEYSTATE"
+fi
+
+# ---- 1b. the PHONE's end of the tailnet -------------------------------------
+# The watchdog watched the DGX and nothing else, so when the Pixel dropped off the
+# tailnet (2026-08-14, 15 hours before it was noticed) everything here looked
+# perfect: unit healthy, /health 200, Tailscale up. The server being reachable
+# from itself proves nothing about the device that has to reach it.
+#
+# Not a failure of the server, so it does not exit non-zero — but the morning push
+# cannot work while the phone is off the tailnet, and that is worth saying out loud
+# rather than leaving the user to discover it as "couldn't reach the server".
+phone=$(printf '%s' "$ts_json" | OA_PHONE_HOST="$PHONE_HOST" python3 -c '
+# PHONE_HOST arrives via the environment, not string-interpolated into the source:
+# the nested-quote form silently produced no output and the check never ran.
+import json, os, sys, datetime as dt
+want = os.environ.get("OA_PHONE_HOST", "pixel").lower()
+d = json.load(sys.stdin)
+for p in (d.get("Peer") or {}).values():
+    if want in (p.get("HostName") or "").lower():
+        if p.get("Online"):
+            print("online 0")
+        else:
+            ls = p.get("LastSeen")
+            hrs = 0
+            if ls:
+                t = dt.datetime.fromisoformat(ls.replace("Z", "+00:00"))
+                hrs = int((dt.datetime.now(dt.timezone.utc) - t).total_seconds() // 3600)
+            print("offline", hrs)
+        break
+else:
+    print("absent 0")
+')
+
+set -- $phone
+phone_state="${1:-absent}"; phone_hours="${2:-0}"
+if [ "$phone_state" = "offline" ] && [ "${phone_hours:-0}" -ge "$PHONE_WARN_HOURS" ]; then
+  log "WARN phone offline ${phone_hours}h"
+  notify "phone-offline" "🟠 OutfitAdvisor: your phone has been off the Tailscale network for ${phone_hours}h. The morning push cannot reach the DGX while it is, and the app will say \"couldn't reach the server\". Open Tailscale on the Pixel and reconnect." "$PHONESTATE"
+elif [ "$phone_state" = "online" ]; then
+  # Clear the state so the next drop-off notifies again rather than being
+  # suppressed as "unchanged".
+  printf 'online\n%s\n' "$(date +%s)" > "$PHONESTATE"
 fi
 
 # ---- 2. the endpoint the phone actually calls -------------------------------

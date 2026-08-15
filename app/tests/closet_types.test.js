@@ -114,6 +114,15 @@ const PARITY = [
   check("an untyped item sends null, not a guess",
     payload.find(p => p.id === "i4").type === null, payload.find(p => p.id === "i4"));
 
+  // Regression, 2026-08-14 (found by the pre-push reviewer): the type reached the
+  // daily advice but not the packing list, so "pack a shirt" for a business trip
+  // could not tell a polo from a tee — the one decision the type exists to make.
+  const pack = ev(`packPayload({start:"2030-01-10",end:"2030-01-14",laundryBefore:false})`);
+  const packed = pack.find(p => p.id === "i2");
+  check("the packing payload carries the type too", packed && packed.type === "polo", packed);
+  check("and the group and roles that qualify it",
+    packed && packed.group === "tops" && Array.isArray(packed.roles), packed);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

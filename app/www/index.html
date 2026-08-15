@@ -1328,7 +1328,14 @@ function toCandidate(ev){
    user who has picked nothing has not asked to be told about no trips at all. The
    summary line says which of the two is in force so it is never a silent guess. */
 let calendars=[];             // [{id,title,color}] — refreshed from the device
-let calSelected=new Set();    // ids the user chose; empty = every calendar
+let calSelected=new Set();    // ids the user chose
+/* Whether the user has ever chosen. This is SEPARATE from calSelected.size on
+   purpose: an empty set used to mean "all calendars", so pruning a one-calendar
+   selection whose calendar had been removed from the phone silently widened the
+   scan to every remaining calendar — the exact opposite of what was asked for.
+   With the flag, an explicit selection that prunes to empty reads NO calendars
+   and says so, which is the safe direction to fail in. */
+let calExplicit=false;
 
 async function ensureCalendarPermission(Cal){
   let res;
@@ -1340,22 +1347,27 @@ async function ensureCalendarPermission(Cal){
 }
 async function saveCalendars(){
   await prefSet("oa.calendars",JSON.stringify([...calSelected]));
+  await prefSet("oa.calendarsExplicit",calExplicit?"1":"");
   renderCalendars();
 }
+/* The one place the "which calendars do we read" question is answered. */
+function calendarChosen(id){ return !calExplicit||calSelected.has(String(id)); }
 function renderCalendars(){
   const list=$("calList"), sum=$("calSummary");
   if(!list||!sum) return;
   if(!calendars.length){
     list.innerHTML="";
-    sum.textContent=calSelected.size
+    sum.textContent=calExplicit
       ? `${calSelected.size} chosen — tap Choose to review`
       : "all calendars on this phone";
     return;
   }
-  const on=c=>calSelected.size===0||calSelected.has(c.id);
-  sum.textContent=calSelected.size
-    ? `${calendars.filter(on).length} of ${calendars.length} calendars`
-    : `all ${calendars.length} calendars on this phone`;
+  const on=c=>calendarChosen(c.id);
+  sum.textContent=!calExplicit
+    ? `all ${calendars.length} calendars on this phone`
+    : (calSelected.size
+        ? `${calendars.filter(on).length} of ${calendars.length} calendars`
+        : "none selected — no trips will be found. Tap Choose.");
   list.innerHTML=calendars.map(c=>`<div class="calRow">
       <span class="dot" style="background:${esc(c.color||"#64748b")}"></span>
       <span class="ttl">${esc(c.title||c.id)}</span>
@@ -1364,9 +1376,9 @@ function renderCalendars(){
     </div>`).join("");
   list.querySelectorAll("input[data-cal]").forEach(cb=>{
     cb.onchange=async()=>{
-      // First touch turns "all" (empty set) into an explicit set, so unticking one
-      // calendar does not read as "select only this one".
-      if(!calSelected.size) calendars.forEach(c=>calSelected.add(c.id));
+      // First touch turns "all" into an explicit set, so unticking one calendar
+      // does not read as "select only this one".
+      if(!calExplicit){ calendars.forEach(c=>calSelected.add(c.id)); calExplicit=true; }
       cb.checked?calSelected.add(cb.dataset.cal):calSelected.delete(cb.dataset.cal);
       await saveCalendars();
     };
@@ -1384,6 +1396,8 @@ async function loadCalendars(){
   calendars=(result||[]).map(c=>({id:String(c.id),title:c.title||"",color:c.color||""}));
   // Drop selections for calendars that no longer exist — an account removed from
   // the phone must not keep a ghost entry that quietly narrows every future scan.
+  // Pruning never clears calExplicit: if it empties the set, the scan reads
+  // NOTHING and the summary says so, rather than widening to every calendar.
   const live=new Set(calendars.map(c=>c.id));
   const before=calSelected.size;
   calSelected=new Set([...calSelected].filter(id=>live.has(id)));
@@ -1403,7 +1417,7 @@ async function scanCalendar(){
   const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
   // listEventsInRange has no calendar filter — the plugin returns every calendar's
   // events and each carries `calendarId`, so the selection is applied here.
-  const events=(result||[]).filter(e=>!calSelected.size||calSelected.has(String(e.calendarId)));
+  const events=(result||[]).filter(e=>calendarChosen(e.calendarId));
   const have=new Set(trips.map(t=>t.calId));
   candidates=events.map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
@@ -1453,8 +1467,13 @@ function packAvail(it,departureMs,laundryBefore){
 }
 function packPayload(trip){
   const dep=isoMs(trip.start);
-  return closet.map(i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
-    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
+  // group/roles/type travel with the item here for the same reason they do in
+  // closetPayload(): without the type a packing list cannot tell two otherwise
+  // identical tops apart, so "pack a shirt" for a business trip could return the
+  // tee. Normalized on the way out, exactly as the daily advice does.
+  return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),
+    colors:i.colors,warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
     availableCount:packAvail(i,dep,!!trip.laundryBefore)}))
     .filter(i=>i.availableCount>=1);
 }
@@ -1567,7 +1586,11 @@ function renderWeather(w){
   $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
     .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":esc(v)+"°"}</div></div>`).join("");
 }
+/* Bumped by every render, so photo loads still in flight from the previous one
+   can tell they are stale and drop themselves. */
+let outfitGen=0;
 function renderOutfit(o,text,source,res){
+  outfitGen++;
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
@@ -1612,10 +1635,15 @@ async function itemPhoto(id){
 }
 /* Put the item's picture at the head of a recommendation line, and drop the emoji
    that was standing in for it. */
-async function paintLinePhoto(li,id){
+async function paintLinePhoto(li,id,gen){
   if(!li||!id) return;
   const {src,worn}=await itemPhoto(id);
-  if(!src) return;
+  // The disk read above can outlive the outfit it belongs to: render a second
+  // outfit while the first one's photos are still loading and this would paste
+  // yesterday's coat onto today's list, or onto a line already detached from the
+  // document. The generation token is what makes a late arrival harmless.
+  if(gen!==undefined&&gen!==outfitGen) return;
+  if(!src||!li.isConnected) return;
   const img=document.createElement("img");
   img.className="pic"+(worn?"":" flat");
   img.src=src;
@@ -1625,9 +1653,11 @@ async function paintLinePhoto(li,id){
   const ic=li.querySelector(".ic"); if(ic) ic.style.display="none";
 }
 async function paintPickPhotos(picks){
+  const gen=outfitGen;
   for(const [slot,id] of Object.entries(picks||{})){
     if(!id) continue;
-    await paintLinePhoto(document.querySelector(`#outfitList li[data-slot="${slot}"]`),id);
+    if(gen!==outfitGen) return;   // a newer outfit is on screen; stop painting this one
+    await paintLinePhoto(document.querySelector(`#outfitList li[data-slot="${slot}"]`),id,gen);
   }
 }
 
@@ -1988,6 +2018,9 @@ async function load(){
   // Which calendars to scan. The titles are NOT cached — only the ids the user
   // chose — so a renamed or deleted calendar can never be shown from stale state.
   try{ calSelected=new Set(JSON.parse(await prefGet("oa.calendars","[]"))||[]); }catch(e){ calSelected=new Set(); }
+  // Installs that chose calendars before the explicit flag existed are migrated
+  // by their own non-empty set — the only state that could have meant "chosen".
+  calExplicit=(await prefGet("oa.calendarsExplicit",""))==="1"||calSelected.size>0;
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}

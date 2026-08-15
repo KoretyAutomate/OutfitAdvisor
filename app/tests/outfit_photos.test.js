@@ -119,6 +119,32 @@ const drain = () => new Promise(r => setTimeout(r, 0));
   check("and records that the item no longer has one",
     ev(`closet[0].wornPhoto`) === false);
 
+  console.log("\n--- 4. a slow photo load cannot land on a newer outfit ------------");
+  // Regression, 2026-08-14 (found by the pre-push reviewer): photoLoad() is a
+  // filesystem read that renderOutfit deliberately does not wait for. Render a
+  // second outfit while the first one's reads are in flight and the late arrival
+  // pasted an old pick's picture onto the new list.
+  ev(`closet=[{id:"r1",label:"old coat",category:"outer",group:"outerwear",type:"coat",
+       roles:["outer"],count:1,colors:[],warmth:5,formality:["smart"],waterproof:false,
+       photo:true,wornPhoto:false}];
+      localStorage.setItem("oa.photo.r1","STALEPIC");
+      document.getElementById("outfitList").innerHTML='<li data-slot="outer"><span class="ic">x</span></li>';`);
+  const li = () => w.document.querySelector('#outfitList li[data-slot="outer"]');
+
+  // Paint with the CURRENT generation, then bump it mid-flight, as a second
+  // render would. The picture must never be inserted.
+  ev(`(async()=>{ const g=outfitGen; const p=paintLinePhoto(
+        document.querySelector('#outfitList li[data-slot="outer"]'),"r1",g);
+      outfitGen++; await p; })()`);
+  for (let i = 0; i < 10; i++) await drain();
+  check("a photo from the previous outfit is dropped, not inserted",
+    !li().querySelector("img.pic"));
+
+  // Same call with a generation that is still current must still paint.
+  ev(`paintLinePhoto(document.querySelector('#outfitList li[data-slot="outer"]'),"r1",outfitGen)`);
+  for (let i = 0; i < 10; i++) await drain();
+  check("while a current one still paints", !!li().querySelector("img.pic"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

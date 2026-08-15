@@ -19,7 +19,7 @@ import logging
 
 import httpx
 
-from vocab import CATEGORIES, GROUPS, STYLES, TYPES
+from vocab import CATEGORIES, GROUPS, STYLES, TYPE_LABEL, TYPES
 
 # Same handler app.py configures; never log prompt or closet CONTENT here — the
 # privacy invariant is that item labels never reach the logs. Ids only.
@@ -184,8 +184,13 @@ def _pack_prompt(
     _closet_prompt (fixed 6 slots) this schema is open-ended and would otherwise
     truncate mid-JSON on a long trip from a big closet."""
     days, summary = forecast
+    # The type goes in beside the label, same as _closet_prompt: "navy top" and
+    # "navy polo" read identically to the model otherwise, and on a business trip
+    # the type is the only thing separating the shirt worth packing from the tee.
     lines = [
-        f"{i['id']} | {i['category']} | {i['label']} | colors: {','.join(i['colors'])}"
+        f"{i['id']} | {i['category']} | {i['label']}"
+        + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
+        + f" | colors: {','.join(i['colors'])}"
         f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"

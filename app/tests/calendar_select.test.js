@@ -89,19 +89,42 @@ const pageOf = (id) => {
     ev("candidates.map(c=>c.calId)"));
   check("and the two chosen ones do", d.asked === 2, d);
 
-  ev(`calSelected=new Set(); trips=[]; tripsDismissed=[];`);
+  // Never having chosen is what means "every calendar" — not an empty set. A user
+  // who unticks every calendar has asked for none, and gets none.
+  ev(`calSelected=new Set(); calExplicit=false; trips=[]; tripsDismissed=[];`);
   d = await ev("scanCalendar()");
-  check("clearing the selection goes back to reading everything",
+  check("having never chosen reads everything",
     ev(`candidates.length`) === 3, ev("candidates.length"));
 
+  ev(`calSelected=new Set(); calExplicit=true; trips=[]; tripsDismissed=[];`);
+  d = await ev("scanCalendar()");
+  check("but unticking every calendar reads none of them",
+    ev(`candidates.length`) === 0, ev("candidates.length"));
+
   console.log("\n--- 4. a calendar removed from the phone is forgotten -------------");
-  ev(`calSelected=new Set(["c1","c2","gone"]);`);
+  ev(`calSelected=new Set(["c1","c2","gone"]); calExplicit=true;`);
   await ev("loadCalendars()");
   for (let i = 0; i < 6; i++) await drain();
   check("a stale id is pruned, not left to narrow every future scan",
     JSON.stringify([...ev("calSelected")].sort()) === '["c1","c2"]', [...ev("calSelected")]);
   check("the picker lists what the device actually has",
     w.document.querySelectorAll("#calList .calRow").length === 3);
+
+  console.log("\n--- 5. pruning the LAST chosen calendar must not widen the scan ---");
+  // Regression, 2026-08-14 (found by the pre-push reviewer): an empty set meant
+  // "all calendars", so a user who had chosen exactly one calendar, and then
+  // removed that account from the phone, silently began having every remaining
+  // calendar read — the precise opposite of the choice they made.
+  ev(`calSelected=new Set(["gone"]); calExplicit=true; trips=[]; tripsDismissed=[];`);
+  await ev("loadCalendars()");
+  for (let i = 0; i < 6; i++) await drain();
+  check("the selection is still explicit after it prunes to empty",
+    ev(`calExplicit`) === true);
+  check("so the scan reads NOTHING rather than everything",
+    (await ev("scanCalendar()"), ev(`candidates.length`)) === 0, ev("candidates.length"));
+  check("and the summary says so instead of claiming all calendars",
+    /none selected/.test(w.document.getElementById("calSummary").textContent),
+    w.document.getElementById("calSummary").textContent);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

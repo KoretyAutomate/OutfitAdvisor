@@ -54,7 +54,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         if (advice == null) {
             // The overwhelmingly common cause is the phone being unable to reach the
             // DGX while asleep — Doze deferring network, or Tailscale down. Name it.
-            postFallback("Couldn't reach the advisor — check Battery unrestricted in the app.")
+            postFallback("Couldn't reach the advisor. Check Tailscale is connected, and Battery unrestricted in the app.")
             return Result.success()
         }
 

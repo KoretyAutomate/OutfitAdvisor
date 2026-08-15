@@ -879,7 +879,7 @@ async function renderVersion(){
   }catch(e){}
 
   if(!v){
-    line.textContent=`v${cur.versionName} · couldn't reach the server to check`;
+    line.textContent=`v${cur.versionName} · can't reach the DGX — is Tailscale connected on this phone?`;
     msg.style.display="none"; btn.style.display="none"; return;
   }
   if(!(v.versionCode>cur.versionCode)){
@@ -1269,7 +1269,7 @@ async function triageCandidate(c){
                            start:c.start,end:c.end})});
     if(!r.ok) return {decision:"ask", why:"advisor unavailable"};
     t=await r.json();
-  }catch(e){ return {decision:"ask", why:"advisor unreachable"}; }
+  }catch(e){ return {decision:"ask", why:"can't reach the DGX — check Tailscale"}; }
 
   if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
   if(!t.city)   return {decision:"ask",  why:"no city could be determined"};
@@ -1850,7 +1850,7 @@ async function run(){
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
-    if(res.source==="offline") toast("Advisor unreachable — on-device estimate");
+    if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(e.message||"Something went wrong."); }
   finally{ btn.innerHTML=old; btn.disabled=false; }

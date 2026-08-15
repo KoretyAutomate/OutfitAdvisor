@@ -1103,8 +1103,11 @@ function paintTypes(){
 }
 async function paintWornPhoto(){
   const img=$("shWornImg"), del=$("shWornDel"), note=$("shWornNote");
+  // A staged removal (sheet.wornDel) must look removed straight away, even
+  // though the file survives until Save.
   const src=sheet.wornB64?("data:image/jpeg;base64,"+sheet.wornB64)
-                         :(sheet.item.wornPhoto?await photoLoad(sheet.item.id+"-worn"):null);
+                         :((sheet.item.wornPhoto&&!sheet.wornDel)
+                            ?await photoLoad(sheet.item.id+"-worn"):null);
   img.src=src||""; img.style.display=src?"":"none";
   del.style.display=src?"":"none";
   note.textContent=src?"Shown in the daily recommendation instead of the flat photo."
@@ -1114,7 +1117,7 @@ async function openSheet(item,opts){
   sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
                roles:normRoles(item.roles,item.category),
                group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
-         isNew:!!opts.isNew, b64:opts.b64||null, wornB64:null};
+         isNew:!!opts.isNew, b64:opts.b64||null, wornB64:null, wornDel:false};
   sheet.item.type=normType(sheet.item.type,sheet.item.group);
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
@@ -2045,6 +2048,7 @@ async function grabWorn(source){
   try{
     const dataUrl=await capture(source);
     sheet.wornB64=await downscale(dataUrl);
+    sheet.wornDel=false;   // a replacement supersedes a staged removal
     await paintWornPhoto();
   }catch(e){
     if(/cancel/i.test(e?.message||"")) return;
@@ -2055,13 +2059,12 @@ $("shWornCam").onclick=()=>grabWorn("CAMERA");
 $("shWornGal").onclick=()=>grabWorn("PHOTOS");
 $("shWornDel").onclick=async()=>{
   if(!sheet) return;
+  /* STAGED, not applied. Every other field on this sheet commits at Save and is
+     discarded by Cancel; deleting the file here made removal the one dismissal
+     in the app that destroys data, and it did so silently. The file is deleted
+     from the Save handler instead. */
   sheet.wornB64=null;
-  if(sheet.item.wornPhoto){
-    await photoDel(sheet.item.id+"-worn");
-    sheet.item.wornPhoto=false;
-    const idx=closet.findIndex(x=>x.id===sheet.item.id);
-    if(idx>=0){ closet[idx].wornPhoto=false; await saveCloset(); }
-  }
+  sheet.wornDel=true;
   await paintWornPhoto();
 };
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
@@ -2088,6 +2091,10 @@ $("shSave").onclick=async()=>{
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);
+  // Staged removal applies HERE, so Cancel leaves the photo untouched.
+  if(sheet.wornDel && !sheet.wornB64 && it.wornPhoto){
+    await photoDel(it.id+"-worn"); it.wornPhoto=false;
+  }
   if(sheet.wornB64){ it.wornPhoto=await photoSave(it.id+"-worn",sheet.wornB64); }
   const idx=closet.findIndex(x=>x.id===it.id);
   if(idx>=0) closet[idx]=it; else closet.push(it);

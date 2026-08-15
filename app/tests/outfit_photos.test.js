@@ -82,6 +82,43 @@ const drain = () => new Promise(r => setTimeout(r, 0));
   check("the worn photo is gone too — otherwise it leaks forever",
     w.localStorage.getItem("oa.photo.p1-worn") === null);
 
+  console.log("\n--- 3. removing a worn photo waits for Save ----------------------");
+  // Regression, 2026-08-14 (found by the pre-push reviewer): the remove button
+  // deleted the file and persisted wornPhoto=false immediately, so dismissing
+  // the sheet — which discards every other edit — destroyed the photo anyway.
+  ev(`closet=[{id:"q1",label:"navy polo",category:"base",group:"tops",type:"polo",
+       roles:["base"],count:1,colors:[],warmth:2,formality:["smart"],waterproof:false,
+       photo:true,wornPhoto:true}];
+      localStorage.setItem("oa.photo.q1-worn","KEEPME");
+      openSheet(closet[0],{});`);
+  for (let i = 0; i < 10; i++) await drain();
+
+  ev(`$("shWornDel").click()`);
+  for (let i = 0; i < 10; i++) await drain();
+  check("the photo disappears from the sheet at once",
+    w.document.getElementById("shWornImg").style.display === "none");
+  check("but the file is still on disk — nothing is committed yet",
+    w.localStorage.getItem("oa.photo.q1-worn") === "KEEPME");
+  check("and the closet still says the item has one",
+    ev(`closet[0].wornPhoto`) === true);
+
+  ev(`$("shCancel").click()`);
+  for (let i = 0; i < 10; i++) await drain();
+  check("cancelling the sheet keeps the photo — the whole point",
+    w.localStorage.getItem("oa.photo.q1-worn") === "KEEPME");
+  check("and leaves the closet untouched", ev(`closet[0].wornPhoto`) === true);
+
+  ev(`openSheet(closet[0],{}); `);
+  for (let i = 0; i < 10; i++) await drain();
+  ev(`$("shWornDel").click()`);
+  for (let i = 0; i < 10; i++) await drain();
+  ev(`$("shSave").click()`);
+  for (let i = 0; i < 10; i++) await drain();
+  check("saving after a removal DOES delete the file",
+    w.localStorage.getItem("oa.photo.q1-worn") === null);
+  check("and records that the item no longer has one",
+    ev(`closet[0].wornPhoto`) === false);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

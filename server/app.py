@@ -110,7 +110,15 @@ class ClosetItem(BaseModel):
     # group's own list rather than a Literal: a type that does not belong to the
     # group is DROPPED (see vocab.normalize_type), never a 422, so a closet saved
     # before this field and a /classify guess that misses both stay usable.
-    type: str | None = Field(None, max_length=24)
+    #
+    # No `max_length` here, deliberately. A Field constraint runs BEFORE the
+    # model validator that normalizes this, so an over-long unknown type would
+    # 422 the whole request — exactly the rejection the paragraph above promises
+    # never happens. The bound is applied in `_cap_type` below instead, which is
+    # a `before` validator and so cannot invert the order. The longest real type
+    # is `dress_shoes` (11), so capping at 24 can never truncate a valid value
+    # into an invalid one.
+    type: str | None = None
     # Every layer this ONE garment can play across the year — a shirt is the outer
     # layer at 30C and a base under a coat at 8C. Empty/absent => [category], i.e.
     # exactly the old fixed behaviour, so an old closet is unchanged.
@@ -132,6 +140,18 @@ class ClosetItem(BaseModel):
         # AFTER the group is settled — a type is only valid relative to its group.
         object.__setattr__(self, "type", vocab.normalize_type(self.type, self.group))
         return self
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _cap_type(cls, v):
+        """Bound the field without ever rejecting it.
+
+        `before` is load-bearing: it runs ahead of the `after` model validator
+        that calls normalize_type(), so an over-long value is cut down rather
+        than raised on. Anything still unrecognised is dropped there, as the
+        field's own docstring promises.
+        """
+        return v[:24] if isinstance(v, str) else v
 
     @field_validator("label")
     @classmethod

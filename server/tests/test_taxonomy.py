@@ -26,8 +26,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import vocab  # noqa: E402
-from app import ClosetItem  # noqa: E402
+import vocab
+from app import ClosetItem
 
 # (input type, group, expected) — MIRRORED in app/tests/closet_types.test.js
 PARITY = [
@@ -93,6 +93,20 @@ def test_type_is_validated_against_the_DERIVED_group_not_the_sent_one():
 
 def test_no_type_is_the_normal_case_and_stays_none():
     assert _item().type is None
+
+
+def test_an_absurdly_long_type_is_dropped_not_rejected():
+    """Regression, 2026-08-14 (found by the pre-push reviewer).
+
+    `type` carried `Field(max_length=24)`. A Field constraint runs BEFORE the
+    model validator that normalizes the value, so a long unknown type raised a
+    422 for the whole item — the one outcome this field promises never happens,
+    and reachable from /classify's own output, not just a hostile caller."""
+    assert _item(type="x" * 500).type is None
+    # The bound still exists; it just truncates instead of raising. A real type
+    # is far shorter than the cap, so nothing valid is harmed by it.
+    assert _item(type="polo".ljust(24, "z")).type is None
+    assert _item(type="polo").type == "polo"
 
 
 def test_classify_forwards_the_models_group_roles_and_type():

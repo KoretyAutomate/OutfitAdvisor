@@ -11,9 +11,11 @@ Run:  python3 server/tests/check_packing_live.py   (server must be up on the tai
 """
 
 import datetime as dt
-import json
 import sys
-import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from live_http import request_json
 
 BASE = "http://100.112.171.54:8787"
 TODAY = dt.date.today()
@@ -131,14 +133,7 @@ def check(name, cond, detail=""):
 
 
 def post(path, body, expect=200):
-    req = urllib.request.Request(
-        BASE + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return r.status, json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode()[:200]
+    return request_json(BASE + path, body, timeout=120)
 
 
 def trip(start_in, days, **kw):
@@ -161,8 +156,7 @@ print(f"server: {BASE}   today: {TODAY}\n")
 
 # ---------------------------------------------------------------- health
 print("[health]")
-with urllib.request.urlopen(BASE + "/health", timeout=10) as r:
-    h = json.loads(r.read())
+_, h = request_json(BASE + "/health", timeout=10)
 check("health ok", h.get("ok") is True, h)
 check("vLLM reachable", h.get("vllm") is True, h)
 

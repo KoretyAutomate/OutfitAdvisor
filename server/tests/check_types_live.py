@@ -24,14 +24,18 @@ import base64
 import io
 import json
 import sys
-import urllib.request
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from live_http import request_json
 
 BASE = "http://100.112.171.54:8787"
 
 # Boston in August — warm enough that outer/mid are None, so the model's only real
 # decision is WHICH top. Both candidates are base-only, warmth 2, smart-capable,
 # same colour. The single difference the prompt can see is the type.
-CLOSET = [
+CLOSET: list[dict[str, Any]] = [
     {
         "id": "itm-inner-airism", "label": "grey undershirt", "category": "inner",
         "group": "underwear", "type": "undershirt", "roles": ["inner"],
@@ -60,12 +64,13 @@ CLOSET = [
 
 
 def post(path: str, body: dict, timeout: int = 120) -> dict:
-    req = urllib.request.Request(
-        BASE + path, data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-OA-Client": "check/types"},
+    """POST and insist on a 200 — a rejection here IS the failure being hunted."""
+    status, payload = request_json(
+        BASE + path, body, timeout=timeout, headers={"X-OA-Client": "check/types"}
     )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    if status != 200:
+        raise RuntimeError(f"{path} -> HTTP {status}: {payload}")
+    return payload
 
 
 def _one_pixel_jpeg_b64() -> str:
@@ -121,7 +126,7 @@ def main() -> int:
                 if key not in c:
                     print(f"  FAIL: /classify response has no {key!r}")
                     fails += 1
-        except Exception as e:  # noqa: BLE001 - report, do not mask
+        except (RuntimeError, OSError, ValueError) as e:
             print(f"  classify unavailable ({type(e).__name__}) — not a taxonomy failure")
 
     print(f"\nRESULT: {'ok' if fails == 0 else f'{fails} failure(s)'}")

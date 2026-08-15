@@ -64,7 +64,11 @@ max-nested-blocks = 4
 # the local Android SDK — a fixed build tool, not untrusted input. The argv is a
 # list (no shell), so there is nothing to inject through.
 "**/publish_apk.py" = ["S603"]
-# S310 in the live checks: they drive the real server over http:// on the tailnet.
-# urllib is the point of them; the URL is built in-check, not taken from input.
-"**/tests/check_packing_live.py" = ["S310"]
-"**/tests/check_types_live.py" = ["S310"]
+# S310 in the live-check transport: it drives the real server over http:// on the
+# tailnet. urllib is the point of it; the URL is built in-check, not taken from
+# input. Every live check now goes through this ONE module, so the exception is
+# granted once here instead of once per check script.
+"**/tests/live_http.py" = ["S310"]
+# E402 in test_taxonomy.py: the imports below it are deliberately after the
+# sys.path insert that makes them resolvable — moving them up breaks collection.
+"**/tests/test_taxonomy.py" = ["E402"]

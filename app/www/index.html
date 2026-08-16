@@ -105,6 +105,8 @@
   .stepper button{width:42px;padding:9px 0;font-size:1.1rem}
   .stepper b{min-width:24px;text-align:center;font-size:1.05rem}
   select{background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px 12px;font:inherit;flex:1}
+  .outfit .ic .thumb{width:34px;height:34px;border-radius:8px;object-fit:cover;
+    display:block;border:1px solid var(--line)}
   .wearBtn{width:100%;margin-top:12px;background:rgba(52,211,153,.12);border:1px solid #14532d;color:var(--good)}
   /* thermal feedback — 5-point scale (2026-07-27) */
   .fb{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
@@ -146,6 +148,11 @@
       <h1>Outfit Advisor</h1>
       <p class="sub">What to wear today — for the weather where you are.</p>
     </div>
+    <!-- Settings lived inline, scattered between the daily-use cards, so there was
+         nowhere to "go to settings" and no gear to look for (user, 2026-08-16).
+         The Morning push card moves in here; the daily stuff stays on the page. -->
+    <button class="ghost" id="gearBtn" title="Settings"
+            style="margin-left:auto;padding:8px 11px;font-size:1.1rem;line-height:1">⚙</button>
   </header>
 
   <!-- In-app update banner. Hidden unless the DGX is publishing a build newer
@@ -188,55 +195,6 @@
     <div id="err" class="err"></div>
   </div>
 
-  <!-- Daily push settings -->
-  <div class="card">
-    <h2>Morning push</h2>
-    <div class="switch" style="margin-bottom:12px">
-      <div>
-        <label class="lbl">Notify me every morning</label>
-        <span class="note" style="margin:0">A notification at the time below, for your live location.</span>
-      </div>
-      <label class="toggle"><input type="checkbox" id="pushEnabled"><span class="sl"></span></label>
-    </div>
-    <div class="row" style="align-items:center;gap:12px">
-      <div>
-        <label class="lbl">Time</label>
-        <input type="time" id="pushTime" value="06:45">
-      </div>
-      <button class="ghost" id="saveSchedule" style="align-self:flex-end">Save schedule</button>
-    </div>
-    <p class="note" id="schedStatus" style="display:none"></p>
-    <!-- Everything that must be true for the push to deliver with the phone
-         ASLEEP. Each of these fails silently and looks identical from outside,
-         which is why a broken push looked "armed" for weeks. -->
-    <div id="readyBox" style="display:none;margin-top:10px">
-      <label class="lbl" style="margin:0 0 6px">Will it work while the phone sleeps?</label>
-      <ul id="readyList" style="list-style:none;padding:0;margin:0;font-size:.8rem"></ul>
-    </div>
-    <!-- App version. Deliberately ALWAYS visible, not only when an update exists:
-         the dismissible banner alone let a phone sit three versions behind for a
-         week while two rounds of fixes went uninstalled (2026-08-11). -->
-    <div id="verBox" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div>
-          <label class="lbl" style="margin:0">App version</label>
-          <div class="note" id="verLine" style="margin-top:2px">checking…</div>
-        </div>
-        <button class="ghost" id="verCheck" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Check now</button>
-      </div>
-      <p class="note" id="verMsg" style="display:none"></p>
-      <button class="primary" id="verInstall" style="display:none;width:100%;margin-top:9px">Install update</button>
-    </div>
-    <details class="det">
-      <summary>Advanced — advisor server</summary>
-      <div class="row" style="margin-top:10px">
-        <input type="text" id="baseUrl" placeholder="http://100.112.171.54:8787">
-        <button class="ghost" id="saveUrl">Save</button>
-      </div>
-      <p class="note">The DGX server that writes the outfit text. Reachable over Tailscale.
-        If unreachable, the app falls back to an on-device estimate.</p>
-    </details>
-  </div>
 
   <!-- Closet -->
   <div class="card">
@@ -265,6 +223,13 @@
         <div class="note" id="homeLine" style="margin-top:2px">not set</div>
       </div>
       <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="min-width:0">
+        <label class="lbl" style="margin:0">Calendars</label>
+        <div class="note" id="calSelLine" style="margin-top:2px">all calendars</div>
+      </div>
+      <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
     </div>
     <div class="row">
       <button class="primary" id="calBtn">📅 Check my calendar</button>
@@ -446,6 +411,79 @@
 </div>
 
 <!-- Packing list -->
+<!-- Calendar picker. PLAN amendment T-8 asked for this and it was never built, so
+     the scan read EVERY calendar on the device — birthdays, holidays, subscribed
+     feeds — and the user got "unknown calendar items" (2026-08-16). READ_CALENDAR
+     grants all of them; choosing which to use is the only minimum-privilege
+     control we can offer on top. -->
+<div class="modal" id="setWrap">
+  <div class="sheet">
+    <h3 style="display:flex;align-items:center">Settings
+      <button class="ghost" id="setDone" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Done</button>
+    </h3>
+
+    <h3>Morning push</h3>
+    <div class="switch" style="margin-bottom:12px">
+      <div>
+        <label class="lbl">Notify me every morning</label>
+        <span class="note" style="margin:0">A notification at the time below, for your live location.</span>
+      </div>
+      <label class="toggle"><input type="checkbox" id="pushEnabled"><span class="sl"></span></label>
+    </div>
+    <div class="row" style="align-items:center;gap:12px">
+      <div>
+        <label class="lbl">Time</label>
+        <input type="time" id="pushTime" value="06:45">
+      </div>
+      <button class="ghost" id="saveSchedule" style="align-self:flex-end">Save schedule</button>
+    </div>
+    <p class="note" id="schedStatus" style="display:none"></p>
+    <!-- Everything that must be true for the push to deliver with the phone
+         ASLEEP. Each of these fails silently and looks identical from outside,
+         which is why a broken push looked "armed" for weeks. -->
+    <div id="readyBox" style="display:none;margin-top:10px">
+      <label class="lbl" style="margin:0 0 6px">Will it work while the phone sleeps?</label>
+      <ul id="readyList" style="list-style:none;padding:0;margin:0;font-size:.8rem"></ul>
+    </div>
+    <!-- App version. Deliberately ALWAYS visible, not only when an update exists:
+         the dismissible banner alone let a phone sit three versions behind for a
+         week while two rounds of fixes went uninstalled (2026-08-11). -->
+    <div id="verBox" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div>
+          <label class="lbl" style="margin:0">App version</label>
+          <div class="note" id="verLine" style="margin-top:2px">checking…</div>
+        </div>
+        <button class="ghost" id="verCheck" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Check now</button>
+      </div>
+      <p class="note" id="verMsg" style="display:none"></p>
+      <button class="primary" id="verInstall" style="display:none;width:100%;margin-top:9px">Install update</button>
+    </div>
+    <details class="det">
+      <summary>Advanced — advisor server</summary>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="baseUrl" placeholder="http://100.112.171.54:8787">
+        <button class="ghost" id="saveUrl">Save</button>
+      </div>
+      <p class="note">The DGX server that writes the outfit text. Reachable over Tailscale.
+        If unreachable, the app falls back to an on-device estimate.</p>
+    </details>
+  </div>
+</div>
+
+<div class="modal" id="calWrap">
+  <div class="sheet">
+    <h3>Which calendars should I read?</h3>
+    <p class="note" style="margin-top:0">Only the ones you tick are scanned for trips.
+      Birthdays, holidays and subscribed feeds are usually worth leaving off.</p>
+    <div id="calList" style="margin:12px 0"></div>
+    <div class="row">
+      <button class="ghost" id="calAll" style="flex:1">Select all</button>
+      <button class="primary" id="calDone" style="flex:2">Done</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="packWrap">
   <div class="sheet">
     <h3 id="pkTitle">Packing list</h3>
@@ -986,6 +1024,60 @@ async function renderCloset(){
 }
 
 
+
+/* ───────── calendar picker (PLAN T-8, finally built 2026-08-16) ─────────
+   READ_CALENDAR is all-or-nothing: granting it exposes every calendar on the
+   device — birthdays, national holidays, subscribed feeds, a partner's shared
+   calendar. The scan read all of them, which is why unrecognised entries showed
+   up as trip candidates. This is the only minimum-privilege control available on
+   top of the OS permission: read the list, let the user tick the ones that
+   actually describe where they will be.
+
+   `oa.calendars` empty/absent = all of them, so an existing install behaves as
+   before until the user chooses. */
+let calSel=[];        // selected calendar ids; [] means "all"
+let calAvail=[];      // {id,title,...} from the plugin
+
+async function loadCalendars(){
+  const Cal=Plugins.CapacitorCalendar;
+  if(!Cal||!Cal.listCalendars) return [];
+  try{ const {result}=await Cal.listCalendars(); return result||[]; }
+  catch(e){ return []; }
+}
+function calLabel(c){ return c.title||c.name||c.id; }
+function renderCalSel(){
+  const el=$("calSelLine"); if(!el) return;
+  if(!calSel.length){ el.textContent="all calendars"; return; }
+  const names=calSel.map(id=>{ const c=calAvail.find(x=>x.id===id); return c?calLabel(c):null; })
+    .filter(Boolean);
+  el.textContent=names.length?`${names.length} selected · ${names.slice(0,2).join(", ")}${names.length>2?"…":""}`
+    :`${calSel.length} selected`;
+}
+async function openCalPicker(){
+  calAvail=await loadCalendars();
+  const list=$("calList");
+  if(!calAvail.length){
+    list.innerHTML='<p class="note">Couldn\'t list your calendars. Grant calendar access, then try again.</p>';
+  }else{
+    list.innerHTML=calAvail.map(c=>{
+      const on=!calSel.length||calSel.includes(c.id);
+      return `<label style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">
+        <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
+        <span>${esc(calLabel(c))}</span></label>`;
+    }).join("");
+  }
+  $("calWrap").classList.add("show");
+}
+async function saveCalSel(){
+  const boxes=[...document.querySelectorAll("#calList input[data-cal]")];
+  const picked=boxes.filter(b=>b.checked).map(b=>b.dataset.cal);
+  // All ticked is the same as "no filter" — store [] so a newly added calendar
+  // is included rather than silently excluded by a stale list.
+  calSel=(picked.length===boxes.length)?[]:picked;
+  await prefSet("oa.calendars",JSON.stringify(calSel));
+  renderCalSel();
+}
+
 /* ───────── home area + automatic trip detection (2026-08-14) ─────────
    The user's objection was blunt and correct: making them confirm every calendar
    candidate defeats the point of reading the calendar. To judge a trip we need a
@@ -1116,7 +1208,11 @@ async function scanCalendar(){
   // the mock and the code agreed with each other and disagreed with reality.
   const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
   const have=new Set(trips.map(t=>t.calId));
-  candidates=(result||[]).map(toCandidate).filter(Boolean)
+  // Honour the calendar selection. The plugin returns every calendar's events;
+  // filtering here is what stops birthdays and holiday feeds becoming "trips".
+  const allow=calSel.length?new Set(calSel):null;
+  const events=(result||[]).filter(e=>!allow||allow.has(String(e.calendarId)));
+  candidates=events.map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
     .sort((a,b)=>a.start<b.start?-1:1);
 
@@ -1291,8 +1387,23 @@ function renderOutfit(o,text,source,res){
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
   wb.textContent="✅ Wearing it — update my rotation";
+  // Show the actual garment where we picked one of the user's own items. A name
+  // ("navy merino crew-neck") is not how anyone recognises their own clothes —
+  // the photo is (user, 2026-08-16). Slots filled by a generic suggestion keep
+  // the category icon, which also makes "mine" vs "suggested" visible at a glance.
+  const pickOf = res && res.picks ? res.picks : {};
   $("outfitList").innerHTML=["inner","base","mid","outer","bottoms","footwear","accessories"].map(k=>
-    `<li><span class="ic">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
+    `<li data-slot="${k}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
+  // Photos load from app-private storage, so they are async — swap them in after
+  // the list is on screen rather than blocking the render on disk reads.
+  for(const k of Object.keys(pickOf)){
+    const id=pickOf[k]; if(!id) continue;
+    photoLoad(id).then(src=>{
+      if(!src) return;
+      const ic=document.querySelector(`#outfitList li[data-slot="${k}"] .ic`);
+      if(ic) ic.innerHTML=`<img class="thumb" src="${src}" alt="">`;
+    }).catch(()=>{});
+  }
   $("outfitTip").textContent="💡 "+(o.tip||"");
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
@@ -1648,6 +1759,7 @@ async function load(){
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
+  try{ calSel=JSON.parse(await prefGet("oa.calendars","[]"))||[]; }catch(e){ calSel=[]; }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -1789,6 +1901,15 @@ $("fbNote").onclick=async()=>{
 
 /* ── trips wiring ── */
 $("homeBtn").onclick=setHomeFromHere;
+$("calPickBtn").onclick=openCalPicker;
+$("gearBtn").onclick=()=>{ $("setWrap").classList.add("show");
+  // Both read live device state, so refresh them as the sheet opens rather than
+  // showing whatever was true when the app launched.
+  refreshSchedStatus(); refreshReadiness(); renderVersion(); };
+$("setDone").onclick=()=>$("setWrap").classList.remove("show");
+$("calDone").onclick=async()=>{ await saveCalSel(); $("calWrap").classList.remove("show");
+  toast(calSel.length?"Calendar selection saved":"Reading all calendars"); };
+$("calAll").onclick=()=>{ document.querySelectorAll("#calList input[data-cal]").forEach(b=>b.checked=true); };
 $("calBtn").onclick=async()=>{
   const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
   $("tripErr").textContent="";
@@ -1879,7 +2000,7 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
-  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome();
+  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

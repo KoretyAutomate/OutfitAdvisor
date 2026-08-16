@@ -108,6 +108,29 @@ const seed = () => ev(`closet=[
   const under = payload.find(p => p.id === "i1");
   check("underwear goes out with inner only", JSON.stringify(under.roles) === '["inner"]', under);
 
+
+  console.log("\n--- 6. the outfit shows YOUR garment, not just its name ----------");
+  // A name ("navy merino crew-neck") is not how anyone recognises their own
+  // clothes; the photo is (user, 2026-08-16). Slots filled by a generic
+  // suggestion must keep the category icon, so "mine" vs "suggested" stays
+  // visible at a glance.
+  ev(`photoLoad = async (id) => (id === "i2" ? "data:image/jpeg;base64,AAAA" : null);`);
+  ev(`renderOutfit({inner:"Light cotton undershirt",base:"oxford shirt",mid:"None needed",
+        outer:"None needed",bottoms:"dark chinos",footwear:"Sneakers",accessories:"None",
+        tip:"t"}, "text", "llm",
+        {closetUsed:true, picks:{base:"i2", bottoms:"i3"}, closetSent:true});`);
+  await drain(); await drain(); await drain();
+  const baseIc = w.document.querySelector('#outfitList li[data-slot="base"] .ic');
+  const innerIc = w.document.querySelector('#outfitList li[data-slot="inner"] .ic');
+  check("a slot filled from the closet shows its photo",
+    !!baseIc && !!baseIc.querySelector("img.thumb"), baseIc && baseIc.innerHTML);
+  check("a generic slot keeps the category icon",
+    !!innerIc && !innerIc.querySelector("img") && innerIc.textContent.trim().length > 0,
+    innerIc && innerIc.innerHTML);
+  check("a picked item with no photo on disk falls back to the icon",
+    (() => { const e = w.document.querySelector('#outfitList li[data-slot="bottoms"] .ic');
+             return !!e && !e.querySelector("img"); })());
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

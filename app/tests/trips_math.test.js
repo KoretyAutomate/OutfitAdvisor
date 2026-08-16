@@ -201,3 +201,57 @@ function run() {
   check("and scans a TRIP_SCAN_DAYS-wide window",
     Math.round((a.endDate - a.startDate) / 86400000) === ev("TRIP_SCAN_DAYS"), a);
 })();
+
+/* ── the calendar picker actually narrows what gets scanned ──
+   PLAN amendment T-8 asked for this and it was never built, so the scan read
+   EVERY calendar the OS exposes — birthdays, holidays, subscribed feeds — and the
+   user got trip candidates they did not recognise (2026-08-16). READ_CALENDAR is
+   all-or-nothing, so filtering by calendarId is the only minimum-privilege
+   control available on top of it. */
+(async () => {
+  const EVENTS = [
+    { id: "work-1", calendarId: "work", title: "Client visit", isAllDay: true,
+      location: "Marriott Downtown Chicago",
+      startDate: Date.parse("2026-09-02T00:00"), endDate: Date.parse("2026-09-05T00:00") },
+    { id: "hol-1", calendarId: "holidays", title: "Labor Day", isAllDay: true,
+      startDate: Date.parse("2026-09-07T00:00"), endDate: Date.parse("2026-09-09T00:00") },
+    { id: "bday-1", calendarId: "birthdays", title: "Sam's birthday", isAllDay: true,
+      startDate: Date.parse("2026-09-10T00:00"), endDate: Date.parse("2026-09-12T00:00") },
+  ];
+  ev(`Plugins.CapacitorCalendar = {
+    checkPermission: async () => ({ result: "granted" }),
+    requestPermission: async () => ({ result: "granted" }),
+    listCalendars: async () => ({ result: [
+      {id:"work",title:"Work"},{id:"holidays",title:"US Holidays"},{id:"birthdays",title:"Birthdays"}] }),
+    listEventsInRange: async () => ({ result: ${JSON.stringify(EVENTS)} })
+  };
+  // no home + unreachable advisor => every survivor lands in "ask", so what the
+  // filter let through is exactly what we can count.
+  home = null; trips = []; tripsDismissed = []; candidates = [];`);
+
+  ev(`calSel = [];`);
+  await ev("scanCalendar()");
+  check("with no selection, every calendar is scanned (unchanged default)",
+    ev("candidates.length") === 3, ev("candidates.map(c=>c.calId)"));
+
+  ev(`trips=[]; tripsDismissed=[]; candidates=[]; calSel=["work"];`);
+  await ev("scanCalendar()");
+  check("selecting one calendar excludes the others",
+    ev("candidates.length") === 1 && ev("candidates[0].calId") === "work-1",
+    ev("candidates.map(c=>c.calId)"));
+
+  ev(`trips=[]; tripsDismissed=[]; candidates=[]; calSel=["work","birthdays"];`);
+  await ev("scanCalendar()");
+  check("selecting several includes exactly those",
+    JSON.stringify(ev("candidates.map(c=>c.calId)").sort()) === '["bday-1","work-1"]',
+    ev("candidates.map(c=>c.calId)"));
+
+  // Ticking everything must store [] rather than a frozen list, or a calendar
+  // added later would be silently excluded forever.
+  ev(`calAvail=[{id:"work",title:"Work"},{id:"holidays",title:"US Holidays"}];
+      document.getElementById("calList").innerHTML =
+        '<input type="checkbox" data-cal="work" checked><input type="checkbox" data-cal="holidays" checked';`);
+  await ev("saveCalSel()");
+  check("ticking ALL stores [] so future calendars are still included",
+    ev("calSel.length") === 0, ev("calSel"));
+})();

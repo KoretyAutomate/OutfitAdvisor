@@ -177,9 +177,16 @@ function run() {
 
    The fake below mirrors the REAL contract from @ebarooni/capacitor-calendar's
    definitions.d.ts and throws on anything else, so this can only pass if the app
-   speaks the plugin's language. */
-(async () => {
-  ev(`Plugins.CapacitorCalendar = {
+   speaks the plugin's language.
+
+   These blocks share page globals, so they run in sequence rather than as loose
+   IIFEs — since 2026-08-19 scanCalendar awaits the native calendar list too, and
+   interleaved blocks would reset each other's stubs mid-scan. */
+async function pluginSignatureChecks() {
+  ev(`Plugins.OutfitAlarm = Object.assign(Plugins.OutfitAlarm || {}, {
+    listCalendars: async () => ({ calendars: [{ id: "work", title: "Work", shared: false }] })
+  });
+  Plugins.CapacitorCalendar = {
     checkPermission: async () => ({ result: "granted" }),
     requestPermission: async () => ({ result: "granted" }),
     listEventsInRange: async (o) => {
@@ -189,7 +196,7 @@ function run() {
       globalThis.__calArgs = o;
       return { result: [] };
     }
-  }; trips=[]; tripsDismissed=[];`);
+  }; trips=[]; tripsDismissed=[]; calMode="all"; calSel=[];`);
   let err = null;
   try { await ev("scanCalendar()"); } catch (e) { err = e; }
   check("scanCalendar calls the plugin with the signature it really has",
@@ -200,58 +207,138 @@ function run() {
     a.from === undefined && a.to === undefined, a);
   check("and scans a TRIP_SCAN_DAYS-wide window",
     Math.round((a.endDate - a.startDate) / 86400000) === ev("TRIP_SCAN_DAYS"), a);
-})();
+}
 
 /* ── the calendar picker actually narrows what gets scanned ──
    PLAN amendment T-8 asked for this and it was never built, so the scan read
    EVERY calendar the OS exposes — birthdays, holidays, subscribed feeds — and the
    user got trip candidates they did not recognise (2026-08-16). READ_CALENDAR is
    all-or-nothing, so filtering by calendarId is the only minimum-privilege
-   control available on top of it. */
-(async () => {
-  const EVENTS = [
-    { id: "work-1", calendarId: "work", title: "Client visit", isAllDay: true,
-      location: "Marriott Downtown Chicago",
-      startDate: Date.parse("2026-09-02T00:00"), endDate: Date.parse("2026-09-05T00:00") },
-    { id: "hol-1", calendarId: "holidays", title: "Labor Day", isAllDay: true,
-      startDate: Date.parse("2026-09-07T00:00"), endDate: Date.parse("2026-09-09T00:00") },
-    { id: "bday-1", calendarId: "birthdays", title: "Sam's birthday", isAllDay: true,
-      startDate: Date.parse("2026-09-10T00:00"), endDate: Date.parse("2026-09-12T00:00") },
-  ];
-  ev(`Plugins.CapacitorCalendar = {
+   control available on top of it.
+
+   Two rules are pinned here, and the SHARED one is not a preference: a calendar
+   somebody else shared with this account is never read, whatever the saved
+   selection says (user rule, 2026-08-19). */
+const PICKER_EVENTS = [
+  { id: "work-1", calendarId: "work", title: "Client visit", isAllDay: true,
+    location: "Marriott Downtown Chicago",
+    startDate: Date.parse("2026-09-02T00:00"), endDate: Date.parse("2026-09-05T00:00") },
+  { id: "hol-1", calendarId: "holidays", title: "Labor Day", isAllDay: true,
+    startDate: Date.parse("2026-09-07T00:00"), endDate: Date.parse("2026-09-09T00:00") },
+  { id: "bday-1", calendarId: "birthdays", title: "Sam's birthday", isAllDay: true,
+    startDate: Date.parse("2026-09-10T00:00"), endDate: Date.parse("2026-09-12T00:00") },
+  // Shared into this account by a partner. Nothing on it may ever be read.
+  { id: "shared-1", calendarId: "partner", title: "Barcelona", isAllDay: true,
+    startDate: Date.parse("2026-09-14T00:00"), endDate: Date.parse("2026-09-18T00:00") },
+];
+
+async function pickerChecks() {
+  ev(`Plugins.OutfitAlarm = Object.assign(Plugins.OutfitAlarm || {}, {
+    listCalendars: async () => ({ calendars: [
+      {id:"work",title:"Work",shared:false},
+      {id:"holidays",title:"US Holidays",shared:false},
+      {id:"birthdays",title:"Birthdays",shared:false},
+      {id:"partner",title:"Alex's calendar",shared:true,sharedBy:"alex@example.com"}] })
+  });
+  Plugins.CapacitorCalendar = {
     checkPermission: async () => ({ result: "granted" }),
     requestPermission: async () => ({ result: "granted" }),
-    listCalendars: async () => ({ result: [
-      {id:"work",title:"Work"},{id:"holidays",title:"US Holidays"},{id:"birthdays",title:"Birthdays"}] }),
-    listEventsInRange: async () => ({ result: ${JSON.stringify(EVENTS)} })
+    listEventsInRange: async () => ({ result: ${JSON.stringify(PICKER_EVENTS)} })
   };
   // no home + unreachable advisor => every survivor lands in "ask", so what the
   // filter let through is exactly what we can count.
   home = null; trips = []; tripsDismissed = []; candidates = [];`);
 
-  ev(`calSel = [];`);
-  await ev("scanCalendar()");
-  check("with no selection, every calendar is scanned (unchanged default)",
-    ev("candidates.length") === 3, ev("candidates.map(c=>c.calId)"));
+  const rescan = async (setup) => {
+    ev(`trips=[]; tripsDismissed=[]; candidates=[]; ${setup}`);
+    let err = null;
+    try { await ev("scanCalendar()"); } catch (e) { err = e; }
+    return err;
+  };
 
-  ev(`trips=[]; tripsDismissed=[]; candidates=[]; calSel=["work"];`);
-  await ev("scanCalendar()");
+  await rescan(`calMode="all"; calSel=[];`);
+  check("with no selection, every calendar the user OWNS is scanned",
+    JSON.stringify(ev("candidates.map(c=>c.calId)").sort()) === '["bday-1","hol-1","work-1"]',
+    ev("candidates.map(c=>c.calId)"));
+
+  await rescan(`calMode="some"; calSel=["work"];`);
   check("selecting one calendar excludes the others",
     ev("candidates.length") === 1 && ev("candidates[0].calId") === "work-1",
     ev("candidates.map(c=>c.calId)"));
 
-  ev(`trips=[]; tripsDismissed=[]; candidates=[]; calSel=["work","birthdays"];`);
-  await ev("scanCalendar()");
+  await rescan(`calMode="some"; calSel=["work","birthdays"];`);
   check("selecting several includes exactly those",
     JSON.stringify(ev("candidates.map(c=>c.calId)").sort()) === '["bday-1","work-1"]',
     ev("candidates.map(c=>c.calId)"));
 
-  // Ticking everything must store [] rather than a frozen list, or a calendar
-  // added later would be silently excluded forever.
-  ev(`calAvail=[{id:"work",title:"Work"},{id:"holidays",title:"US Holidays"}];
+  /* ── a shared calendar is never read (2026-08-19) ──
+     Not a default the user can override: the allow-list is rebuilt from the
+     device each scan, so even an id saved while the calendar was still the
+     user's own cannot get it read. */
+  await rescan(`calMode="all"; calSel=[];`);
+  check("a shared calendar is not scanned even with no filter set",
+    !ev("candidates.map(c=>c.calId)").includes("shared-1"),
+    ev("candidates.map(c=>c.calId)"));
+
+  let err = await rescan(`calMode="some"; calSel=["partner"];`);
+  check("a stale selection naming a shared calendar reads NOTHING, not everything",
+    ev("candidates.length") === 0 && !!err, [err && err.message, ev("candidates.map(c=>c.calId)")]);
+
+  /* ── Unselect all means read nothing (2026-08-19) ──
+     The old encoding made an empty list mean "all", so unticking every box would
+     have scanned every calendar — the exact opposite of the request. */
+  err = await rescan(`calMode="none"; calSel=[];`);
+  check("mode none scans no calendar at all",
+    ev("candidates.length") === 0 && !!err, [err && err.message, ev("candidates.map(c=>c.calId)")]);
+  check("and it says so instead of failing silently",
+    !!err && /no calendars are selected/i.test(err.message), err && err.message);
+
+  /* ── failing closed ──
+     Without the native lister we cannot tell a shared calendar from the user's
+     own, so the scan must stop rather than fall back to reading everything. */
+  ev(`globalThis.__savedLister = Plugins.OutfitAlarm.listCalendars;
+      delete Plugins.OutfitAlarm.listCalendars;`);
+  err = await rescan(`calMode="all"; calSel=[];`);
+  check("with no way to tell shared from own, nothing is scanned",
+    ev("candidates.length") === 0 && !!err, [err && err.message, ev("candidates.map(c=>c.calId)")]);
+  ev(`Plugins.OutfitAlarm.listCalendars = globalThis.__savedLister;`);
+
+  /* ── what the picker's two buttons store ── */
+  const boxes = (checked) => ev(`calAvail=[{id:"work",title:"Work",shared:false},
+        {id:"holidays",title:"US Holidays",shared:false}];
       document.getElementById("calList").innerHTML =
-        '<input type="checkbox" data-cal="work" checked><input type="checkbox" data-cal="holidays" checked';`);
+        '<input type="checkbox" data-cal="work" ${checked ? "checked" : ""}>' +
+        '<input type="checkbox" data-cal="holidays" ${checked ? "checked" : ""}>';`);
+
+  // Ticking everything must not freeze a list, or a calendar added later would be
+  // silently excluded forever.
+  boxes(true);
   await ev("saveCalSel()");
-  check("ticking ALL stores [] so future calendars are still included",
-    ev("calSel.length") === 0, ev("calSel"));
-})();
+  check("Select all stores mode=all (no frozen list), so future calendars count too",
+    ev("calMode") === "all" && ev("calSel.length") === 0, [ev("calMode"), ev("calSel")]);
+
+  boxes(false);
+  await ev("saveCalSel()");
+  check("Unselect all stores mode=none — an empty tick list is not 'read them all'",
+    ev("calMode") === "none" && ev("calSel.length") === 0, [ev("calMode"), ev("calSel")]);
+
+  // A picker that could not list anything shows no boxes; saving then must not
+  // overwrite a real selection with an empty one the user never made.
+  ev(`calMode="some"; calSel=["work"]; document.getElementById("calList").innerHTML="";`);
+  await ev("saveCalSel()");
+  check("saving an empty picker leaves the existing selection alone",
+    ev("calMode") === "some" && ev("calSel[0]") === "work", [ev("calMode"), ev("calSel")]);
+
+  /* ── the shared ones are shown, greyed, so an exclusion is visible ── */
+  await ev("openCalPicker()");
+  const html = ev(`document.getElementById("calList").innerHTML`);
+  check("the picker offers a checkbox for each calendar the user owns",
+    (html.match(/data-cal=/g) || []).length === 3, (html.match(/data-cal="[^"]+"/g) || []));
+  check("and lists the shared one as un-tickable, saying why",
+    html.includes("Alex's calendar") && !html.includes('data-cal="partner"') &&
+    /never read/.test(html), html.slice(0, 400));
+}
+
+pluginSignatureChecks()
+  .then(pickerChecks)
+  .catch((e) => { console.log("FATAL", e && e.stack || e); failed++; });

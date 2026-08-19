@@ -77,6 +77,10 @@ Server setup: `server/README.md`. Point the app at your server via
 - A saved city name re-geocodes on demand rather than caching its coordinates.
 - Weather-fetch errors return coordinate-free messages (upstream error strings
   embed the request URL — they are never propagated).
+- Calendars (used only to spot upcoming trips) are read **on the phone** and never
+  sent anywhere. A calendar somebody else **shared with you is never read at all** —
+  the app asks Android who owns each calendar and scans only the user's own, and if
+  it cannot tell the two apart it scans nothing rather than everything.
 
 ## Status
 

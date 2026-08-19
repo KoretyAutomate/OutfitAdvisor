@@ -227,7 +227,7 @@
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <div style="min-width:0">
         <label class="lbl" style="margin:0">Calendars</label>
-        <div class="note" id="calSelLine" style="margin-top:2px">all calendars</div>
+        <div class="note" id="calSelLine" style="margin-top:2px">all your own calendars</div>
       </div>
       <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
     </div>
@@ -239,7 +239,8 @@
     <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
       you what to pack — from the clothes you actually own, for the weather where you're going.
       Your events stay on this phone: only the dates and the city's coordinates are ever sent,
-      never the event's title, notes, or location text.</p>
+      never the event's title, notes, or location text. Calendars shared with you by someone
+      else are never read at all.</p>
     <div id="tripErr" class="err"></div>
   </div>
 
@@ -475,11 +476,16 @@
   <div class="sheet">
     <h3>Which calendars should I read?</h3>
     <p class="note" style="margin-top:0">Only the ones you tick are scanned for trips.
-      Birthdays, holidays and subscribed feeds are usually worth leaving off.</p>
+      Birthdays, holidays and subscribed feeds are usually worth leaving off.
+      Calendars shared with you by someone else are never read — they are listed
+      below greyed out, and cannot be ticked.</p>
     <div id="calList" style="margin:12px 0"></div>
     <div class="row">
       <button class="ghost" id="calAll" style="flex:1">Select all</button>
-      <button class="primary" id="calDone" style="flex:2">Done</button>
+      <button class="ghost" id="calNone" style="flex:1">Unselect all</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="calDone" style="flex:1">Done</button>
     </div>
   </div>
 </div>
@@ -1032,56 +1038,94 @@ async function renderCloset(){
 
 
 
-/* ───────── calendar picker (PLAN T-8, finally built 2026-08-16) ─────────
+/* ───────── calendar picker (PLAN T-8, built 2026-08-16) ─────────
    READ_CALENDAR is all-or-nothing: granting it exposes every calendar on the
    device — birthdays, national holidays, subscribed feeds, a partner's shared
-   calendar. The scan read all of them, which is why unrecognised entries showed
-   up as trip candidates. This is the only minimum-privilege control available on
-   top of the OS permission: read the list, let the user tick the ones that
-   actually describe where they will be.
+   calendar. Two rules narrow that down, in this order:
 
-   `oa.calendars` empty/absent = all of them, so an existing install behaves as
-   before until the user chooses. */
-let calSel=[];        // selected calendar ids; [] means "all"
-let calAvail=[];      // {id,title,...} from the plugin
+   1. A calendar SHARED WITH THE USER IS NEVER READ (user rule, 2026-08-19). It is
+      not offered as a choice, and a saved selection cannot resurrect one: the scan
+      builds its allow-list from the calendars the DEVICE currently says the user
+      owns, so a calendar that becomes shared later stops being read without the
+      user revisiting anything. Telling own from shared needs the OWNER_ACCOUNT and
+      access-level columns, which @ebarooni/capacitor-calendar does not expose —
+      hence our own OutfitAlarm.listCalendars. Where that is unavailable we cannot
+      tell the two apart, so NOTHING is scanned rather than everything.
+   2. Of what remains, the user ticks the calendars that describe where they will be.
+
+   The selection is stored as {mode,ids}: "all" (everything we may read, including a
+   calendar added later), "some" (exactly these ids), "none" (scan nothing). "none"
+   has to be a state of its own — before Unselect all existed an empty list meant
+   "all", so unticking every box would have read every calendar. A bare array is the
+   pre-2026-08-19 shape and is still read the way it was written: [] meant all. */
+let calMode="all";    // "all" | "some" | "none"
+let calSel=[];        // selected calendar ids; only meaningful when calMode==="some"
+let calAvail=[];      // [{id,title,shared,sharedBy}] from the native lister
+
+const CAL_NO_LISTER="This build can't tell which of your calendars are shared, so none of them can be read. Update the app.";
 
 async function loadCalendars(){
-  const Cal=Plugins.CapacitorCalendar;
-  if(!Cal||!Cal.listCalendars) return [];
-  try{ const {result}=await Cal.listCalendars(); return result||[]; }
-  catch(e){ return []; }
+  const P=Plugins.OutfitAlarm;
+  if(!P||!P.listCalendars) throw new Error(CAL_NO_LISTER);
+  const r=await P.listCalendars();
+  return ((r&&r.calendars)||[]).map(c=>({id:String(c.id),title:c.title||String(c.id),
+    shared:!!c.shared,sharedBy:c.sharedBy||""}));
 }
 function calLabel(c){ return c.title||c.name||c.id; }
+/** The calendars we may read at all — rule 1, applied before anything else. */
+function calReadable(){ return calAvail.filter(c=>!c.shared); }
+/** The ids a scan may look at: rule 1, then the user's own choice. */
+function calAllowed(){
+  if(calMode==="none") return [];
+  const own=calReadable().map(c=>c.id);
+  return calMode==="some"?own.filter(id=>calSel.includes(id)):own;
+}
 function renderCalSel(){
   const el=$("calSelLine"); if(!el) return;
-  if(!calSel.length){ el.textContent="all calendars"; return; }
+  if(calMode==="none"){ el.textContent="none — no trips will be found"; return; }
+  if(calMode!=="some"||!calSel.length){ el.textContent="all your own calendars"; return; }
   const names=calSel.map(id=>{ const c=calAvail.find(x=>x.id===id); return c?calLabel(c):null; })
     .filter(Boolean);
   el.textContent=names.length?`${names.length} selected · ${names.slice(0,2).join(", ")}${names.length>2?"…":""}`
     :`${calSel.length} selected`;
 }
 async function openCalPicker(){
-  calAvail=await loadCalendars();
   const list=$("calList");
+  let err="";
+  try{ calAvail=await loadCalendars(); }
+  catch(e){ calAvail=[]; err=e.message||""; }
   if(!calAvail.length){
-    list.innerHTML='<p class="note">Couldn\'t list your calendars. Grant calendar access, then try again.</p>';
+    list.innerHTML=`<p class="note">${esc(err||"Couldn't list your calendars. Grant calendar access, then try again.")}</p>`;
   }else{
-    list.innerHTML=calAvail.map(c=>{
-      const on=!calSel.length||calSel.includes(c.id);
-      return `<label style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">
+    const rowCss="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)";
+    // Shared calendars are SHOWN but not offered: an excluded calendar that simply
+    // vanished would read as a bug, and the user could not tell why a trip on it
+    // never appeared.
+    list.innerHTML=calReadable().map(c=>{
+      const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
+      return `<label style="${rowCss}">
         <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
         <span>${esc(calLabel(c))}</span></label>`;
-    }).join("");
+    }).join("")
+    + calAvail.filter(c=>c.shared).map(c=>
+      `<div style="${rowCss};opacity:.55">
+        <input type="checkbox" disabled>
+        <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
+      </div>`).join("");
   }
   $("calWrap").classList.add("show");
 }
 async function saveCalSel(){
   const boxes=[...document.querySelectorAll("#calList input[data-cal]")];
+  // Nothing listable (no permission, no lister) means the user was never shown a
+  // choice, so there is no choice to save — overwriting theirs with an empty one
+  // would silently turn the scan off.
+  if(!boxes.length) return;
   const picked=boxes.filter(b=>b.checked).map(b=>b.dataset.cal);
-  // All ticked is the same as "no filter" — store [] so a newly added calendar
-  // is included rather than silently excluded by a stale list.
-  calSel=(picked.length===boxes.length)?[]:picked;
-  await prefSet("oa.calendars",JSON.stringify(calSel));
+  if(picked.length===boxes.length){ calMode="all"; calSel=[]; }  // all ticked = no filter, so a calendar added later is included
+  else if(!picked.length){ calMode="none"; calSel=[]; }          // Unselect all reads NOTHING, not everything
+  else { calMode="some"; calSel=picked; }
+  await prefSet("oa.calendars",JSON.stringify({mode:calMode,ids:calSel}));
   renderCalSel();
 }
 
@@ -1209,16 +1253,29 @@ async function scanCalendar(){
     if(!r||r.result!=="granted") throw new Error("Calendar permission denied — no trips can be found.");
   }
   const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
+  // The allow-list is rebuilt from the device on every scan rather than trusted
+  // from the saved selection: that is what makes "a shared calendar is never read"
+  // hold even for a calendar that was ticked before it was shared, and it fails
+  // CLOSED — if we cannot list calendars we cannot tell shared from own, and
+  // loadCalendars throws rather than letting the scan read everything.
+  calAvail=await loadCalendars();
+  renderCalSel();
+  if(calMode==="none")
+    throw new Error("No calendars are selected — tick at least one under Calendars.");
+  const allow=new Set(calAllowed());
+  if(!allow.size)
+    throw new Error(calReadable().length
+      ? "None of your own calendars are ticked — choose at least one under Calendars."
+      : "No calendars on this phone can be read: every one of them is shared with you.");
   // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
   // dates for both, so the calendar scan could never have worked on a device. The
   // T2 tests passed because they mocked the plugin using OUR parameter names, so
   // the mock and the code agreed with each other and disagreed with reality.
   const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
   const have=new Set(trips.map(t=>t.calId));
-  // Honour the calendar selection. The plugin returns every calendar's events;
-  // filtering here is what stops birthdays and holiday feeds becoming "trips".
-  const allow=calSel.length?new Set(calSel):null;
-  const events=(result||[]).filter(e=>!allow||allow.has(String(e.calendarId)));
+  // The plugin returns every calendar's events, so this positive allow-list is
+  // what keeps a shared calendar — and birthdays, and holiday feeds — out.
+  const events=(result||[]).filter(e=>allow.has(String(e.calendarId)));
   candidates=events.map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
     .sort((a,b)=>a.start<b.start?-1:1);
@@ -1766,7 +1823,17 @@ async function load(){
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
-  try{ calSel=JSON.parse(await prefGet("oa.calendars","[]"))||[]; }catch(e){ calSel=[]; }
+  // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
+  // "all calendars" — read it back with exactly that meaning.
+  try{
+    const v=JSON.parse(await prefGet("oa.calendars",'{"mode":"all","ids":[]}'));
+    if(Array.isArray(v)){ calSel=v; calMode=v.length?"some":"all"; }
+    else{
+      calSel=Array.isArray(v&&v.ids)?v.ids.map(String):[];
+      calMode=["all","some","none"].includes(v&&v.mode)?v.mode:"all";
+      if(calMode==="some"&&!calSel.length) calMode="all";
+    }
+  }catch(e){ calSel=[]; calMode="all"; }
   // one-time cleanup of coords persisted by pre-audit builds
   for(const k of ["oa.lat","oa.lon","oa.place"]){
     try{ if(Plugins.Preferences) await Plugins.Preferences.remove({key:k}); }catch(e){}
@@ -1915,8 +1982,10 @@ $("gearBtn").onclick=()=>{ $("setWrap").classList.add("show");
   refreshSchedStatus(); refreshReadiness(); renderVersion(); };
 $("setDone").onclick=()=>$("setWrap").classList.remove("show");
 $("calDone").onclick=async()=>{ await saveCalSel(); $("calWrap").classList.remove("show");
-  toast(calSel.length?"Calendar selection saved":"Reading all calendars"); };
+  toast(calMode==="none"?"No calendars will be read"
+    :calMode==="some"?"Calendar selection saved":"Reading all your own calendars"); };
 $("calAll").onclick=()=>{ document.querySelectorAll("#calList input[data-cal]").forEach(b=>b.checked=true); };
+$("calNone").onclick=()=>{ document.querySelectorAll("#calList input[data-cal]").forEach(b=>b.checked=false); };
 $("calBtn").onclick=async()=>{
   const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
   $("tripErr").textContent="";

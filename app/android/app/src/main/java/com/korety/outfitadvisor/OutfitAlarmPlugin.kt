@@ -5,11 +5,15 @@ import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.CalendarContract
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -248,6 +252,86 @@ class OutfitAlarmPlugin : Plugin() {
             .put("postalCode", a?.postalCode ?: "")
             .put("country", a?.countryName ?: "")
             .put("label", label)
+    }
+
+    /**
+     * List the device's calendars, saying which ones are SHARED (2026-08-19).
+     *
+     * The user's rule is blunt: a shared calendar shall not be read. It cannot be
+     * honoured from the web layer, because @ebarooni/capacitor-calendar's Android
+     * `listCalendars` selects only _ID, CALENDAR_DISPLAY_NAME and CALENDAR_COLOR —
+     * nothing about who owns the calendar. Reading the ownership columns ourselves
+     * is the only way to tell a partner's calendar, a holiday feed or a birthday
+     * calendar apart from the user's own.
+     *
+     * A calendar counts as shared when EITHER holds:
+     *   - OWNER_ACCOUNT differs from ACCOUNT_NAME — it belongs to somebody else and
+     *     was shared into this account (a partner's calendar, a team calendar, a
+     *     subscribed holiday feed, the contacts birthday calendar);
+     *   - CALENDAR_ACCESS_LEVEL is below CAL_ACCESS_OWNER — the user is a guest on
+     *     it, whoever nominally owns it.
+     * Either test alone leaves a hole, and the cost of being wrong is asymmetric:
+     * a false "shared" loses a trip suggestion, a false "own" reads somebody else's
+     * calendar. So the OR, deliberately.
+     *
+     * READ_CALENDAR is checked here rather than requested — the web layer already
+     * owns the permission prompt (the plugin's `readCalendar` alias) and asks
+     * first. Nothing is stored, and no event text is touched: ids and titles only.
+     */
+    @PluginMethod
+    fun listCalendars(call: PluginCall) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            call.reject("Calendar access hasn't been granted yet.")
+            return
+        }
+        val projection = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.OWNER_ACCOUNT,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        )
+        val out = JSArray()
+        try {
+            context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI, projection, null, null, null
+            )?.use { cur ->
+                val iId = cur.getColumnIndex(CalendarContract.Calendars._ID)
+                val iName = cur.getColumnIndex(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
+                val iAcct = cur.getColumnIndex(CalendarContract.Calendars.ACCOUNT_NAME)
+                val iOwner = cur.getColumnIndex(CalendarContract.Calendars.OWNER_ACCOUNT)
+                val iAccess = cur.getColumnIndex(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
+                while (cur.moveToNext()) {
+                    val id = cur.getLong(iId).toString()
+                    val title = cur.getString(iName) ?: id
+                    val account = cur.getString(iAcct).orEmpty().trim()
+                    val owner = cur.getString(iOwner).orEmpty().trim()
+                    // A missing access column must not read as "wide open", so an
+                    // absent value is treated as owner-level and the ownership test
+                    // is left to decide.
+                    val access = if (iAccess >= 0 && !cur.isNull(iAccess)) cur.getInt(iAccess)
+                        else CalendarContract.Calendars.CAL_ACCESS_OWNER
+                    val otherOwner = owner.isNotEmpty() && account.isNotEmpty() &&
+                        !owner.equals(account, ignoreCase = true)
+                    val guest = access < CalendarContract.Calendars.CAL_ACCESS_OWNER
+                    out.put(
+                        JSObject()
+                            .put("id", id)
+                            .put("title", title)
+                            .put("shared", otherOwner || guest)
+                            // Shown to the user so an excluded calendar says why it
+                            // is excluded instead of just vanishing from the list.
+                            .put("sharedBy", if (otherOwner) owner else "")
+                    )
+                }
+            } ?: run { call.reject("The calendar provider returned nothing."); return }
+        } catch (e: Exception) {
+            call.reject(e.message ?: "Couldn't read the calendar list.")
+            return
+        }
+        call.resolve(JSObject().put("calendars", out))
     }
 
     private fun canScheduleExact(ctx: Context): Boolean {

@@ -183,10 +183,15 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) ->
         out = _parse_json(
             await _chat(
                 [{"role": "user", "content": _closet_prompt(w, gender, style, closet, error_note)}],
-                max_tokens=768,
+                max_tokens=1100,
             )
         )
         if out is None or not isinstance(out.get("picks"), dict) or not isinstance(out.get("bullets"), list):
+            # Logged because closet_outfit returning None is the difference between
+            # the user seeing their own clothes and seeing generic advice, and it
+            # was previously silent — a closet=0/17 line with no explanation
+            # anywhere (2026-08-19).
+            log.warning("closet attempt %s: reply was not the required JSON", attempt + 1)
             error_note = "Your last reply was not the required JSON. "
             continue
         picks = {c: out["picks"].get(c) for c in CATEGORIES}
@@ -250,6 +255,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) ->
                 picks[c] = None
         bullets = [str(b).strip() for b in out["bullets"] if str(b).strip()]
         if not bullets:
+            log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
         text = "\n".join(f"• {b.lstrip('•- ')}" for b in bullets)
@@ -257,5 +263,6 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict]) ->
         if tip:
             text += f"\n\n💡 {tip}"
         return {"picks": picks, "text": text}
+    log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

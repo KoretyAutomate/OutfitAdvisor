@@ -42,7 +42,16 @@ async def _chat(messages: list, max_tokens: int, timeout: int = 45) -> str | Non
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(VLLM_URL, json=payload)
             r.raise_for_status()
-            content = r.json()["choices"][0]["message"].get("content")
+            body = r.json()
+            choice = body["choices"][0]
+            content = choice["message"].get("content")
+            # finish_reason distinguishes "the model was cut off at max_tokens" from
+            # "the model produced something unparseable". Both surfaced identically
+            # as a None return, so a truncation budget bug looked like model
+            # flakiness (2026-08-19).
+            if choice.get("finish_reason") == "length":
+                log.warning("vLLM hit max_tokens=%s (%s completion tokens) — output truncated",
+                            max_tokens, (body.get("usage") or {}).get("completion_tokens"))
         return content.strip() if content and content.strip() else None
     except Exception:
         return None

@@ -133,6 +133,24 @@ def apk_version(apk: Path) -> tuple[int, str]:
     sys.exit("could not locate <manifest> in the APK's AndroidManifest.xml")
 
 
+def apk_web_build(apk: Path) -> str | None:
+    """The WEB_BUILD stamp inside the APK's bundled index.html.
+
+    Capacitor copies app/www into the APK at build time, but nothing checked that
+    it happened, or that the copy was current. A stale bundled page is invisible
+    from every other signal: the native version is new, the update check says "up
+    to date", and none of the new UI is there (2026-08-19).
+    """
+    import re as _re
+    with zipfile.ZipFile(apk) as z:
+        try:
+            html = z.read("assets/public/index.html").decode("utf-8", "replace")
+        except KeyError:
+            return None
+    m = _re.search(r'const WEB_BUILD\s*=\s*"([^"]+)"', html)
+    return m.group(1) if m else None
+
+
 def apk_cert(apk: Path) -> str | None:
     """SHA-256 of the APK's signing certificate, or None if apksigner is absent."""
     candidates = sorted((ROOT.home() / "android-sdk" / "build-tools").glob("*/apksigner"))
@@ -182,6 +200,19 @@ def main() -> None:
 
     code, name = apk_version(args.apk)
     print(f"apk reports versionCode={code} versionName={name}")
+
+    # The UI is what the user actually sees; shipping a new native version around
+    # a stale page is worse than not shipping, because every signal says current.
+    web = apk_web_build(args.apk)
+    if web is None:
+        sys.exit("REFUSING: the APK has no assets/public/index.html carrying a "
+                 "WEB_BUILD stamp. Did `npx cap sync` run?")
+    if web != name:
+        sys.exit(f"REFUSING: the bundled UI is WEB_BUILD {web} but this build is "
+                 f"versionName {name}. Bump WEB_BUILD in app/www/index.html to "
+                 f"match, or the release ships a stale page that still reports "
+                 f"itself as current.")
+    print(f"bundled UI stamp matches ({web})")
 
     # Refuse to go backwards: the updater compares versionCode, so republishing an
     # older APK would offer every phone a "update" that downgrades them, and Android

@@ -608,10 +608,41 @@ function outfitToBullets(o){
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
+/* Open-Meteo's search is FUZZY: it ranks SOMETHING first for almost any string,
+   including one that shares only a few letters with a real place, and it returns
+   no score to tell a direct hit from a desperate one. Taking results[0] on trust
+   is how "Petropavl, North Kazakhstan, KZ" arrived in the trip list as an
+   automatically-added trip nobody had planned (user, 2026-08-20).
+
+   So the name that comes BACK is compared with the name we asked for. Here that
+   only re-ranks — a human is looking at the answer. On the automatic path
+   (triageCandidate) a mismatch is fatal, because nobody is. */
+const geoTokens=s=>String(s||"").split(",")[0].normalize("NFD").replace(/\p{M}/gu,"")
+  .toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+/* Compared as WORDS, not as a squashed string. "New York City" is Open-Meteo's
+   "New York" and "Frankfurt" is its "Frankfurt am Main", so one name is allowed to
+   extend the other — but only at a word boundary. That is exactly what separates a
+   real alias from a fuzzy expansion: "Petro" → "Petropavl" grows INSIDE a word and
+   is refused, while "Frankfurt" → "Frankfurt am Main" adds words and is kept.
+   Accents and punctuation fold ("Kraków" = "Krakow"). */
+function geoNameMatches(asked,got){
+  const q=geoTokens(asked), n=geoTokens(got);
+  if(!q.length||!n.length) return false;
+  const [short,long]=q.length<=n.length?[q,n]:[n,q];
+  // A single short word is an initial, not a name — "San" must never become
+  // "San Francisco". Those have to match outright.
+  if(short.length===1&&short[0].length<4) return long.length===1&&short[0]===long[0];
+  return short.every((t,i)=>t===long[i]);
+}
 async function geocode(city){
-  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`);
+  // count=5 rather than 1: with a single result a fuzzy hit is the only option,
+  // and there is nothing to step over. The first NAME MATCH wins; failing that the
+  // API's own top answer is returned unchanged, so the typed-city path never gets
+  // WORSE than it was — it is the caller that decides whether to trust it.
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=5&language=en`);
   const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
-  const g=d.results[0]; return {lat:g.latitude,lon:g.longitude,place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", ")};
+  const g=d.results.find(x=>geoNameMatches(city,x.name))||d.results[0];
+  return {lat:g.latitude,lon:g.longitude,place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", ")};
 }
 async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
@@ -1140,6 +1171,11 @@ async function saveCalSel(){
    never persisted; this is one user-set, user-visible datum they can change or
    clear, not a location history. */
 const TRIP_MIN_KM=100;                 // + at least one overnight
+/* How sure the advisor has to be before a trip adds ITSELF. Everything below is
+   still offered, just as a candidate to confirm — the cost of the two mistakes is
+   nothing like symmetric: an extra confirm costs one tap, an invented trip packs a
+   suitcase for a city the user has never heard of (2026-08-20). */
+const TRIAGE_MIN_CONF=0.6;
 let home=null;                          // {label, postal, lat, lon} or null
 
 function roundCoarse(n){ return Math.round(n*10)/10; }   // ~11 km
@@ -1199,8 +1235,27 @@ async function triageCandidate(c){
 
   if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
   if(!t.city)   return {decision:"ask",  why:"no city could be determined"};
+  // A trip the app adds on its own initiative is one the user never agreed to, so
+  // the model has to be SURE. Under the floor the candidate is not lost — it drops
+  // back to being CONFIRMED by hand, which is what the confirm step is for. The
+  // server defaults a missing or unparseable confidence to 0.5, so an answer that
+  // does not state one lands here too, deliberately.
+  if(!(t.confidence>=TRIAGE_MIN_CONF))
+    return {decision:"ask", why:`not sure this is travel (${Math.round((t.confidence||0)*100)}%)`};
+  // The LLM writes this string and a PUBLIC geocoder is about to be asked it, so
+  // it has to look like a place name before either happens. Any script counts —
+  // the test is "two letters", not "two Latin letters".
+  if((String(t.city).match(/\p{L}/gu)||[]).length<2)
+    return {decision:"ask", why:`"${t.city}" isn't a place name`};
   let g;
   try{ g=await geocode(t.city); }catch(e){ return {decision:"ask", why:`couldn't place "${t.city}"`}; }
+  // The Kazakhstan gate. A fuzzy geocode answers a name nobody asked about, and
+  // the distance test then PASSES precisely because the answer is far away — the
+  // wronger the hit, the more certainly it becomes a trip. If the place we got
+  // back is not the city we asked about, we have not placed it, and an unplaced
+  // candidate is asked about rather than invented.
+  if(!geoNameMatches(t.city,g.place))
+    return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
   if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};
   if(c.nights<1)     return {decision:"skip", why:"no overnight"};
@@ -1491,14 +1546,24 @@ function renderTrips(){
     const days=Math.round((isoMs(x.start)-isoMs(t))/DAY_MS);
     const when=away?"on this trip now":days===0?"leaves today":days===1?"leaves tomorrow":`in ${days} days`;
     const packed=x.packed&&x.packed.length;
+    // esc() returns a STRING, so `esc(n)+1` concatenated the digit instead of
+    // adding it — a 3-night trip read "31 days" (2026-08-20).
+    const nDays=(x.nights||nightsBetween(x.start,x.end))+1;
     return `<div class="item2" data-trip="${esc(x.id)}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
         <b>${x.type==="business"?"💼":"🏖️"} ${esc(x.place||x.title)}</b>
         <span class="note" style="margin:0">${esc(when)}</span>
       </div>
-      <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(x.nights||nightsBetween(x.start,x.end))+1} days · ${esc((x.styles||[]).join(" + "))}</div>
-      ${packed?`<span class="chip src" style="margin-top:6px">🧳 packed — ${x.packed.length} items with you</span>`:
-                `<span class="chip" style="margin-top:6px">tap for your packing list</span>`}
+      <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(nDays)} days · ${esc((x.styles||[]).join(" + "))}</div>
+      ${/* A trip the app added by itself has to say so, and say what it came from.
+            Without this an auto-detected trip is indistinguishable from one the
+            user confirmed, which is what "unknown trips" means. */""}
+      ${x.auto?`<div class="note" style="margin:4px 0 0">🤖 found in your calendar: "${esc(x.title)}"${x.km?` · ${esc(x.km)} km from home`:""}</div>`:""}
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        ${packed?`<span class="chip src">🧳 packed — ${x.packed.length} items with you</span>`:
+                  `<span class="chip">tap for your packing list</span>`}
+        <button class="ghost" data-edit="${esc(x.id)}" style="margin-left:auto;padding:5px 10px;font-size:.72rem">Edit</button>
+      </div>
     </div>`;
   }).join("");
 
@@ -2013,6 +2078,15 @@ $("candList").onclick=async e=>{
   }
 };
 $("tripList").onclick=e=>{
+  // Edit first: it is inside the tappable card, and it is the ONLY route to the
+  // trip sheet's Delete. Before this an auto-detected trip could not be removed at
+  // all — the card opened a packing list and nothing else (2026-08-20).
+  const ed=e.target.closest("[data-edit]");
+  if(ed){
+    const trip=trips.find(x=>x.id===ed.dataset.edit);
+    if(trip) openTripSheet(trip,false,"");
+    return;
+  }
   const t=e.target.closest("[data-trip]"); if(!t) return;
   const trip=trips.find(x=>x.id===t.dataset.trip); if(trip) openPacking(trip);
 };

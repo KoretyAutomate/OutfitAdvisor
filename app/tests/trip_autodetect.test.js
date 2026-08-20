@@ -62,6 +62,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
 (async () => {
   for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain();
   await new Promise(r => setTimeout(r, 30));
+  // stub() replaces geocode wholesale, so keep the real one to test on its own.
+  ev("globalThis.__realGeocode = geocode;");
 
   console.log("\n--- 1. the decision table ---------------------------------------");
   ev(`home = ${HOME};`);
@@ -121,6 +123,93 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("coordinates round to ~11 km, far below the 100 km threshold",
     ev("roundCoarse(40.3573)") === 40.4 && ev("roundCoarse(-74.6672)") === -74.7);
   check("the threshold is the agreed 100 km", ev("TRIP_MIN_KM") === 100);
+
+  console.log("\n--- 4. the Kazakhstan gates (2026-08-20) -------------------------");
+  /* The user saw automatically-added trips to cities that appear nowhere in their
+     calendar — "Petropavl, North Kazakhstan, KZ". Three things had to line up:
+     the advisor was allowed to be unsure, the city string was never checked, and
+     a fuzzy geocode's answer was never compared with what was asked. Each one is
+     now a gate, and each gate degrades to ASK, never to skip. */
+  ev(`home = ${HOME};`);
+
+  check("geoNameMatches: the same city matches", ev(`geoNameMatches("Chicago","Chicago")`));
+  check("geoNameMatches: case and accents are folded",
+    ev(`geoNameMatches("krakow","Kraków")`) && ev(`geoNameMatches("SÃO PAULO","Sao Paulo")`));
+  check("geoNameMatches: a longer form of the same name matches, both ways round",
+    ev(`geoNameMatches("New York City","New York")`) &&
+    ev(`geoNameMatches("Frankfurt","Frankfurt am Main")`));
+  check("geoNameMatches: a comma-tail is ignored on both sides",
+    ev(`geoNameMatches("Chicago","Chicago, Illinois, US")`));
+  check("geoNameMatches: a different place does NOT match",
+    !ev(`geoNameMatches("Petro","Petropavl")`) &&
+    !ev(`geoNameMatches("Newark","Petropavl, North Kazakhstan, KZ")`));
+  check("geoNameMatches: a fuzzy expansion INSIDE a word is not a match",
+    !ev(`geoNameMatches("Petro","Petropavl")`) &&
+    !ev(`geoNameMatches("Petropavl","Petro")`));
+  check("geoNameMatches: a single short word is an initial, not a name",
+    !ev(`geoNameMatches("San","San Francisco")`));
+  check("geoNameMatches: nothing matches an empty name",
+    !ev(`geoNameMatches("","Chicago")`) && !ev(`geoNameMatches("Chicago","")`));
+
+  stub({ triage: { isTrip: true, city: "Chicago", type: "business", confidence: .4, reason: "maybe" },
+         cities: { Chicago: CHICAGO } });
+  v = await ev(`triageCandidate(${CAND()})`);
+  check("an unsure advisor -> ask, never an auto-added trip", v.decision === "ask", v);
+  check("and it says how unsure", /%/.test(v.why), v.why);
+  check("nothing is geocoded once the confidence gate has closed",
+    JSON.stringify(ev("globalThis.__geocoded")) === "[]", ev("globalThis.__geocoded"));
+
+  stub({ triage: { isTrip: true, city: "Chicago", type: "business", confidence: .6, reason: "hotel" },
+         cities: { Chicago: CHICAGO } });
+  v = await ev(`triageCandidate(${CAND()})`);
+  check("exactly at the floor still counts as sure", v.decision === "trip", v);
+
+  stub({ triage: { isTrip: true, city: "2026", type: "vacation", confidence: .9, reason: "x" },
+         cities: {} });
+  v = await ev(`triageCandidate(${CAND()})`);
+  check("a city name with no letters -> ask", v.decision === "ask", v);
+  check("and it never reaches the public geocoder",
+    JSON.stringify(ev("globalThis.__geocoded")) === "[]", ev("globalThis.__geocoded"));
+
+  // The bug itself: the geocoder answers a place nobody asked about, and because
+  // that place is far away the distance test PASSES. Wronger => more certain.
+  stub({ triage: { isTrip: true, city: "Petro", type: "vacation", confidence: .9, reason: "x" },
+         cities: { Petro: { lat: 54.87, lon: 69.15, place: "Petropavl, North Kazakhstan, KZ" } } });
+  v = await ev(`triageCandidate(${CAND()})`);
+  check("a geocode that answers a DIFFERENT city -> ask, not a trip to Kazakhstan",
+    v.decision === "ask", v);
+  check("and it shows both names so the mismatch is visible",
+    /Petro/.test(v.why) && /Petropavl/.test(v.why), v.why);
+
+  console.log("\n--- 5. geocode() steps over a fuzzy top hit -----------------------");
+  /* Open-Meteo ranks something first for almost any string and gives no score, so
+     count=1 left no way to tell a direct hit from a desperate one. */
+  const omStub = (results) => ev(`
+    geocode = globalThis.__realGeocode;
+    globalThis.__url = "";
+    fetch = async (url) => { globalThis.__url = String(url);
+      return { ok: true, json: async () => ({ results: ${JSON.stringify(results)} }) }; };
+  `);
+
+  omStub([
+    { name: "Petropavl", admin1: "North Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 },
+    { name: "Chicago", admin1: "Illinois", country_code: "US", latitude: 41.88, longitude: -87.63 },
+  ]);
+  let g = await ev(`geocode("Chicago")`);
+  check("the first result that IS the city asked for wins",
+    g.place === "Chicago, Illinois, US", g);
+  check("and more than one candidate is requested", /count=5/.test(ev("globalThis.__url")),
+    ev("globalThis.__url"));
+
+  omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
+  g = await ev(`geocode("Petro")`);
+  check("with no match at all the API's own answer is still returned — the CALLER decides",
+    g.place === "Petropavl, North Kazakhstan, KZ", g);
+
+  omStub([]);
+  let threw = false;
+  try { await ev(`geocode("Narnia")`); } catch (e) { threw = true; }
+  check("no results at all still throws", threw);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

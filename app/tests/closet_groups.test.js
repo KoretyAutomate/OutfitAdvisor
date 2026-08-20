@@ -12,7 +12,7 @@
  *     existed. Without it every pre-existing photo lands in the wrong folder, or
  *     none at all.
  *
- * Run: NODE_PATH=<...>/node_modules node tests/closet_groups.test.js
+ * Run: npm test   (or: node tests/closet_groups.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");
@@ -50,7 +50,10 @@ check("a visible garment can never claim inner",
   !ev(`normRoles(["base","outer"],"base")`).includes("inner"));
 
 console.log("\n--- 2. migrateItem backfills closets saved before these fields ----");
-const MIG = [["inner", "underwear"], ["base", "tops"], ["mid", "knitwear"],
+// `mid` files under TOPS, not knitwear: knitwear stopped being a group on
+// 2026-08-20 and its garments became types of Tops. A mid-layer item is a sweater,
+// and a sweater is a Top.
+const MIG = [["inner", "underwear"], ["base", "tops"], ["mid", "tops"],
              ["outer", "outerwear"], ["bottoms", "bottoms"], ["footwear", "footwear"],
              ["accessories", "accessories"]];
 for (const [cat, grp] of MIG) {

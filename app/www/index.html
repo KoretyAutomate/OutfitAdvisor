@@ -132,6 +132,10 @@
   .folderHead .tw{color:var(--muted);width:12px}
   .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
   .folder .grid{margin-top:8px}
+  /* Second level inside a folder — "Tops ▸ Polo shirt" (2026-08-20). */
+  .subHead{display:flex;align-items:baseline;gap:7px;margin:10px 0 0;padding-left:2px}
+  .subHead .st{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .subHead .sc{font-size:.66rem;color:#475569}
   /* ── sheet tabs (2026-08-20) ──
      Three pages switched the way Excel switches sheets: a strip pinned along the
      bottom, the ACTIVE tab lifted and joined to the page above it, the inactive
@@ -358,12 +362,14 @@
     <select id="shGroup" style="width:100%;margin-bottom:12px">
       <option value="underwear">🎽 Underwear</option>
       <option value="tops">👕 Tops</option>
-      <option value="knitwear">🧶 Knitwear</option>
       <option value="outerwear">🧥 Outerwear</option>
       <option value="bottoms">👖 Bottoms</option>
+      <option value="onepiece">👗 One-piece</option>
       <option value="footwear">👟 Footwear</option>
       <option value="accessories">🧣 Accessories</option>
     </select>
+    <label class="lbl">Kind <span class="note" style="text-transform:none;letter-spacing:0">— a tee and a polo are both Tops, and they are not the same</span></label>
+    <select id="shType" style="width:100%;margin-bottom:12px"></select>
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
     <label class="lbl">Warmth (1 cool → 5 warm)</label>
@@ -801,18 +807,93 @@ const DAY_MS=86400000, COOLDOWN_DAYS=4;
 const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
 /* Clothing GROUPS — what a garment IS, used to file the wardrobe into folders.
    Deliberately NOT the layering slots: an oxford shirt is a Top whether it is the
-   outer layer in July or a base under a coat in November (user, 2026-08-10). */
-const GROUPS=["underwear","tops","knitwear","outerwear","bottoms","footwear","accessories"];
-const GROUP_LABEL={underwear:"Underwear",tops:"Tops",knitwear:"Knitwear",
-  outerwear:"Outerwear",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
-const GROUP_ICON={underwear:"🎽",tops:"👕",knitwear:"🧶",outerwear:"🧥",
-  bottoms:"👖",footwear:"👟",accessories:"🧣"};
-const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"knitwear",outer:"outerwear",
+   outer layer in July or a base under a coat in November (user, 2026-08-10).
+   TWIN of server/vocab.py — keep the two in lockstep; the server silently drops a
+   type it does not recognise, so a divergence shows up as types vanishing on the
+   way to the advisor rather than as an error. */
+const GROUPS=["underwear","tops","outerwear","bottoms","onepiece","footwear","accessories"];
+const GROUP_LABEL={underwear:"Underwear",tops:"Tops",outerwear:"Outerwear",
+  bottoms:"Bottoms",onepiece:"One-piece",footwear:"Footwear",accessories:"Accessories"};
+const GROUP_ICON={underwear:"🎽",tops:"👕",outerwear:"🧥",
+  bottoms:"👖",onepiece:"👗",footwear:"👟",accessories:"🧣"};
+/* Groups that no longer exist, and what they became (2026-08-20: knitwear dissolved
+   into tops, where sweater/cardigan/hoodie/fleece live on as TYPES). Translated on
+   load, never rejected — the folder moved down a level, the items did not move. */
+const GROUP_ALIAS={knitwear:"tops"};
+const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"tops",outer:"outerwear",
   bottoms:"bottoms",footwear:"footwear",accessories:"accessories"};
 const ROLE_LABEL={inner:"Inner",base:"Base",mid:"Mid",outer:"Outer",
   bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
 const CATS=["inner","base","mid","outer","bottoms","footwear","accessories"];
-/* Twin of normalize_roles() in server/llm.py — inner is a CLOSED role: underwear is
+/* Second taxonomy level — "Tops > Polo shirt" (user, 2026-08-14; re-asked 2026-08-20).
+   The subdivision follows the World Customs Organization's Harmonized System
+   (chapters 61/62 apparel, 64 footwear, 65 headgear), not somebody's taste; the HS
+   heading behind each type is recorded in server/vocab.py. */
+const TYPES={
+  underwear:["undershirt","thermal","briefs","bra","sleepwear"],
+  tops:["t_shirt","shirt","polo","blouse","tank","sweater","cardigan","hoodie","fleece","waistcoat"],
+  outerwear:["jacket","blazer","coat","puffer","rainwear"],
+  bottoms:["trousers","jeans","shorts","skirt","leggings"],
+  onepiece:["dress","jumpsuit","overalls"],
+  footwear:["sneakers","dress_shoes","boots","sandals","loafers","socks"],
+  accessories:["scarf","gloves","hat","belt","tie","umbrella"]};
+const TYPE_LABEL={
+  undershirt:"Undershirt / singlet",thermal:"Thermal / base layer",briefs:"Underpants / briefs",
+  bra:"Bra / lingerie",sleepwear:"Pyjamas / nightwear",
+  t_shirt:"T-shirt",shirt:"Shirt",polo:"Polo shirt",blouse:"Blouse",tank:"Tank top / vest",
+  sweater:"Sweater / pullover",cardigan:"Cardigan",hoodie:"Hoodie / sweatshirt",
+  fleece:"Fleece",waistcoat:"Waistcoat",
+  jacket:"Jacket / windbreaker",blazer:"Blazer / suit jacket",coat:"Coat",
+  puffer:"Padded / down jacket",rainwear:"Raincoat / shell",
+  trousers:"Trousers / chinos",jeans:"Jeans",shorts:"Shorts",skirt:"Skirt",
+  leggings:"Leggings / tights",
+  dress:"Dress",jumpsuit:"Jumpsuit",overalls:"Dungarees / overalls",
+  sneakers:"Sneakers / trainers",dress_shoes:"Dress shoes",boots:"Boots",
+  sandals:"Sandals",loafers:"Loafers / flats",socks:"Socks / hosiery",
+  scarf:"Scarf / shawl",gloves:"Gloves",hat:"Hat / cap",belt:"Belt",tie:"Tie",umbrella:"Umbrella"};
+const GROUP_FROM_TYPE={};
+for(const g in TYPES) for(const t of TYPES[g]) GROUP_FROM_TYPE[t]=g;
+/* A type whose group MOVED carries the correction with it: an item saved as
+   bottoms/dress is a dress that predates the onepiece group, not mislabelled
+   trousers. Here the group is what was wrong, so "the group wins" is suspended —
+   without which the type is dropped and the item keeps the group it should have
+   left. Twin of LEGACY_TYPE_GROUP in server/vocab.py. */
+const LEGACY_TYPE_GROUP={"bottoms|dress":"onepiece","underwear|socks":"footwear"};
+/* Which layering slots each GROUP may occupy. Twin of GROUP_CATEGORIES in
+   server/vocab.py — see the long note there for why the group is the anchor.
+   Short version (user, 2026-08-18): "Tops have inner and base mixed up. That
+   cannot be the foundation." Nothing tied the folder to the layer, so a t-shirt
+   could be filed as a Top and simultaneously offered for the undershirt slot. */
+const GROUP_CATS={underwear:["inner"],tops:["base","mid","outer"],
+  outerwear:["mid","outer"],bottoms:["bottoms"],onepiece:["base"],
+  footwear:["footwear"],accessories:["accessories"]};
+const GROUP_DEF_CAT={underwear:"inner",tops:"base",outerwear:"outer",
+  bottoms:"bottoms",onepiece:"base",footwear:"footwear",accessories:"accessories"};
+/* What a KNOWN type implies about the layers it can play — it NARROWS the group's
+   set, because the type is the narrowest true statement about the garment. Twin of
+   the `roles` key of TYPE_DEFAULTS in server/vocab.py; warmth and formality live
+   only on the server, which is the only side that classifies. */
+const TYPE_ROLES={
+  undershirt:["inner"],thermal:["inner"],briefs:["inner"],bra:["inner"],sleepwear:["inner"],
+  t_shirt:["base"],shirt:["base","mid","outer"],polo:["base","mid","outer"],
+  blouse:["base","mid","outer"],tank:["base"],sweater:["base","mid","outer"],
+  cardigan:["mid","outer"],hoodie:["mid","outer"],fleece:["mid","outer"],waistcoat:["mid"],
+  jacket:["outer"],blazer:["mid","outer"],coat:["outer"],puffer:["outer"],rainwear:["outer"],
+  trousers:["bottoms"],jeans:["bottoms"],shorts:["bottoms"],skirt:["bottoms"],leggings:["bottoms"],
+  dress:["base"],jumpsuit:["base"],overalls:["base"],
+  sneakers:["footwear"],dress_shoes:["footwear"],boots:["footwear"],sandals:["footwear"],
+  loafers:["footwear"],socks:["footwear"],
+  scarf:["accessories"],gloves:["accessories"],hat:["accessories"],belt:["accessories"],
+  tie:["accessories"],umbrella:["accessories"]};
+/* A type is only meaningful inside its group, so one that belongs to a different
+   group is DROPPED rather than kept — the group is what files the item. Absent is
+   always legitimate: every closet saved before 2026-08-14 has no types at all. */
+function normType(t,group){
+  if(!t) return null;
+  const k=String(t).trim().toLowerCase().replace(/[-\s]/g,"_");
+  return (TYPES[group]||[]).includes(k)?k:null;
+}
+/* Twin of normalize_roles() in server/vocab.py — inner is a CLOSED role: underwear is
    never a visible layer and a visible garment is never underwear. */
 function normRoles(roles,category){
   let clean=(roles||[]).filter(r=>CATS.includes(r));
@@ -820,13 +901,39 @@ function normRoles(roles,category){
   if(clean.includes("inner")) return ["inner"];
   return CATS.filter(c=>clean.includes(c));
 }
-/* Older closets predate group/roles. Fill them in once, on load, so folders and
-   seasonal roles work for photos that were already added. */
-function migrateItem(it){
-  if(!it.group||!GROUPS.includes(it.group)) it.group=GROUP_FROM_CAT[it.category]||"tops";
-  it.roles=normRoles(it.roles,it.category);
+/* Twin of reconcile() in server/vocab.py. Mutates and returns the item so it can
+   be used as a map callback. Total: any input becomes a legal item. */
+function reconcileItem(it){
+  let g=GROUP_ALIAS[it.group]||it.group;
+  const raw=it.type?String(it.type).trim().toLowerCase().replace(/[-\s]/g,"_"):null;
+  if(g && LEGACY_TYPE_GROUP[g+"|"+raw]) g=LEGACY_TYPE_GROUP[g+"|"+raw];
+  if(!GROUPS.includes(g)) g=GROUP_FROM_TYPE[raw]||GROUP_FROM_CAT[it.category]||"tops";
+  it.group=g;
+  it.type=normType(raw,g);
+  // The group's slots, narrowed by the type. Falling back to the group alone keeps
+  // this total — an unpickable item is worse than a slightly loose one.
+  let allowed=GROUP_CATS[g];
+  if(it.type){
+    const narrowed=allowed.filter(c=>TYPE_ROLES[it.type].includes(c));
+    if(narrowed.length) allowed=narrowed;
+  }
+  if(!allowed.includes(it.category))
+    it.category=allowed.includes(GROUP_DEF_CAT[g])?GROUP_DEF_CAT[g]:allowed[0];
+  let stated=(it.roles||[]).filter(r=>CATS.includes(r));
+  if(!allowed.includes("inner")) stated=stated.map(r=>r==="inner"?it.category:r);
+  const roles=normRoles(stated,it.category).filter(r=>allowed.includes(r));
+  it.roles=roles.length?roles:[it.category];
   return it;
 }
+/* Older closets predate group/roles/type — and closets saved between 2026-08-10 and
+   2026-08-18 can hold a Top whose role says "inner". Reconciling on load repairs all
+   of it in one pass, so the wardrobe the advisor reads is never self-contradictory
+   even for photos added before the rules existed.
+
+   A type is never GUESSED for an untyped item: nothing in a pre-2026-08-14 record
+   says whether a "top" is a tee or a polo, and a wrong type would enter the prompt
+   as fact. Untyped items file under "Other". */
+function migrateItem(it){ return reconcileItem(it); }
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
@@ -1078,12 +1185,12 @@ async function addItem(source){
   // memory-eviction of the camera-heavy WebView would silently discard the whole
   // classification. Saving up front makes the sheet a plain edit of an item that
   // is already safe in the closet; dismissing keeps it, Delete removes it.
-  const item={ id:"itm-"+uuid(), label:meta?.label||"Untitled item", category:meta?.category||"base",
-    group:(GROUPS.includes(meta?.group)?meta.group:(GROUP_FROM_CAT[meta?.category]||"tops")),
-    roles:normRoles(meta?.roles,meta?.category||"base"),
+  const item=reconcileItem({ id:"itm-"+uuid(), label:meta?.label||"Untitled item",
+    category:meta?.category||"base", group:meta?.group, type:meta?.type,
+    roles:meta?.roles,
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
-    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() };
+    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
   await saveCloset();
@@ -1097,7 +1204,19 @@ function paintSheetSegs(){
   [...$("shWarm").children].forEach(b=>b.classList.toggle("on",+b.dataset.w===sheet.item.warmth));
   [...$("shForm").children].forEach(b=>b.classList.toggle("on",sheet.item.formality.includes(b.dataset.f)));
   $("shCount").textContent=sheet.item.count;
+  paintTypes();
   paintRoles();
+}
+/* The Kind picker is rebuilt from the item's GROUP every time, because the two are
+   not independent: moving a shirt into Outerwear must not leave "Polo shirt"
+   selected underneath it. "not specified" stays offered — an untyped item is a
+   perfectly good wardrobe entry, and every closet saved before 2026-08-14 is one. */
+function paintTypes(){
+  const g=sheet.item.group, cur=normType(sheet.item.type,g);
+  sheet.item.type=cur;
+  $("shType").innerHTML='<option value="">— not specified —</option>'
+    +(TYPES[g]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("");
+  $("shType").value=cur||"";
 }
 /* Role chips. Inner is CLOSED: picking it clears everything else, and picking any
    visible layer clears Inner. Underwear is never a visible layer and a visible
@@ -1105,7 +1224,16 @@ function paintSheetSegs(){
    it as well as the server so the two can never disagree on screen. */
 function paintRoles(){
   const roles=sheet.item.roles||[];
-  $("shRoles").innerHTML=CATS.map(c=>
+  // Offer only the roles the item's GROUP and TYPE allow. Showing "Inner" next to a
+  // Top invites the user to recreate by hand the exact contradiction the taxonomy
+  // now forbids — and the save path would silently strip it again, which reads as
+  // the app ignoring them.
+  let allowed=GROUP_CATS[sheet.item.group]||CATS;
+  if(sheet.item.type&&TYPE_ROLES[sheet.item.type]){
+    const narrowed=allowed.filter(c=>TYPE_ROLES[sheet.item.type].includes(c));
+    if(narrowed.length) allowed=narrowed;
+  }
+  $("shRoles").innerHTML=allowed.map(c=>
     `<button data-role="${c}" class="${roles.includes(c)?"on":""}">${ROLE_LABEL[c]}</button>`).join("");
   $("shRoles").querySelectorAll("button").forEach(b=>{
     b.onclick=()=>{
@@ -1114,20 +1242,20 @@ function paintRoles(){
       if(next.has(r)) next.delete(r); else next.add(r);
       if(r==="inner" && next.has("inner")) next=new Set(["inner"]);
       else if(r!=="inner") next.delete("inner");
-      sheet.item.roles=normRoles([...next],sheet.item.category);
-      if(!sheet.item.roles.length) sheet.item.roles=[sheet.item.category];
+      sheet.item.roles=[...next];
+      reconcileItem(sheet.item);
       paintRoles();
     };
   });
 }
 async function openSheet(item,opts){
-  sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
-               roles:normRoles(item.roles,item.category),
-               group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
+  sheet={item:reconcileItem({...item,colors:[...(item.colors||[])],
+                             formality:[...(item.formality||[])],
+                             roles:[...(item.roles||[])]}),
          isNew:!!opts.isNew, b64:opts.b64||null};
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
-  $("shGroup").value=sheet.item.group||GROUP_FROM_CAT[sheet.item.category]||"tops";
+  $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   const img=$("shImg");
@@ -1155,19 +1283,38 @@ async function renderCloset(){
       <div class="nm">${esc(it.label)}</div></div>`;
   };
 
+  /* Second level inside a folder: "Tops ▸ Polo shirt" (user, 2026-08-20). Items with
+     no type gather under "Other", LAST, so an untyped legacy closet renders as one
+     unlabelled block — i.e. exactly what it looked like yesterday — rather than
+     every tile wearing an "Other" header. */
+  const subSections=async(items,grp)=>{
+    const order=[...(TYPES[grp]||[]),null];
+    const parts=[];
+    for(const t of order){
+      const mine=items.filter(i=>(i.type||null)===t);
+      if(!mine.length) continue;
+      const tiles=(await Promise.all(mine.map(tile))).join("");
+      // Sole untyped section = no heading; there is nothing to distinguish it from.
+      if(t===null && parts.length===0){ parts.push(`<div class="grid">${tiles}</div>`); continue; }
+      parts.push(`<div class="subHead"><span class="st">${esc(t?TYPE_LABEL[t]:"Other")}</span>
+        <span class="sc">${mine.length}</span></div><div class="grid">${tiles}</div>`);
+    }
+    return parts.join("");
+  };
+
   // Folders by clothing GROUP (user, 2026-08-10). Grouping by layering role would
   // fight the seasonal behaviour — the same shirt moves between roles, but it is
   // always a Top.
   const out=[];
   for(const grp of GROUPS){
-    const items=closet.filter(i=>(i.group||GROUP_FROM_CAT[i.category])===grp);
+    const items=closet.filter(i=>(GROUP_ALIAS[i.group]||i.group||GROUP_FROM_CAT[i.category])===grp);
     if(!items.length) continue;                        // never show an empty folder
     const open=!closetFolded.has(grp);
     const wearable=items.reduce((s,i)=>s+avail(i),0);
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const tiles=open?(await Promise.all(items.map(tile))).join(""):"";
+    const body=open?await subSections(items,grp):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${grp}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -1175,7 +1322,7 @@ async function renderCloset(){
         <b>${GROUP_LABEL[grp]}</b>
         <span class="fcount">${wearable}/${items.length}</span>
       </button>
-      ${open?`<div class="grid">${tiles}</div>`:""}
+      ${body}
     </div>`);
   }
   g.innerHTML=out.join("");
@@ -1537,7 +1684,10 @@ function packAvail(it,departureMs,laundryBefore){
 }
 function packPayload(trip){
   const dep=isoMs(trip.start);
-  return closet.map(i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
+  // group/type travel with the item: the packing prompt prints the type, and a trip
+  // list that cannot tell a shirt from a tee packs the wrong one for a business day.
+  return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    type:normType(i.type,i.group),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
     availableCount:packAvail(i,dep,!!trip.laundryBefore)}))
     .filter(i=>i.availableCount>=1);
@@ -1586,7 +1736,7 @@ async function cancelTrip(trip){
 function closetPayload(){
   const trip=tripInProgress();
   const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
-    roles:normRoles(i.roles,i.category),colors:i.colors,
+    type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
   if(trip){
     const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
@@ -2137,11 +2287,34 @@ $("closetGrid").onclick=e=>{
 $("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;sheet.item.warmth=+b.dataset.w;paintSheetSegs();};
 $("shCat").onchange=()=>{ if(!sheet) return;
   // Changing the primary layer re-suggests the folder and re-seeds the roles, so a
-  // mis-classified item can be corrected in one move instead of three.
+  // mis-classified item can be corrected in one move instead of three. The category
+  // is the field the user just touched, so here it leads and the folder follows —
+  // the reverse of reconcileItem's group-wins rule, which is why the group is set
+  // explicitly before reconciling. A type from the old folder cannot survive the
+  // move, so it is dropped rather than silently re-interpreted.
   sheet.item.category=$("shCat").value;
   sheet.item.group=GROUP_FROM_CAT[sheet.item.category]||"tops";
-  sheet.item.roles=normRoles([sheet.item.category],sheet.item.category);
-  $("shGroup").value=sheet.item.group;
+  sheet.item.type=null;
+  sheet.item.roles=[sheet.item.category];
+  reconcileItem(sheet.item);
+  $("shGroup").value=sheet.item.group; $("shCat").value=sheet.item.category;
+  paintTypes(); paintRoles(); };
+$("shGroup").onchange=()=>{ if(!sheet) return;
+  // Moving an item to another folder is the strongest statement the user can make
+  // about what it IS, so the layer follows it. Without this, filing a mistaken
+  // undershirt under Tops left category="inner" behind and the advisor kept
+  // offering it as an undershirt (user, 2026-08-18).
+  sheet.item.group=$("shGroup").value;
+  reconcileItem(sheet.item);
+  $("shCat").value=sheet.item.category;
+  paintTypes(); paintRoles(); };
+$("shType").onchange=()=>{ if(!sheet) return;
+  // The type narrows the roles (a Coat is outer only, where Outerwear allows mid
+  // too), so the chips are repainted from the reconciled item rather than left
+  // showing a role the save path would strip.
+  sheet.item.type=normType($("shType").value,sheet.item.group);
+  reconcileItem(sheet.item);
+  $("shCat").value=sheet.item.category;
   paintRoles(); };
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
   const i=sheet.item.formality.indexOf(f);
@@ -2159,9 +2332,10 @@ $("shSave").onclick=async()=>{
   if(!it.label){ toast("Give it a name first"); return; }
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
-  // normRoles has the last word, so an inner item can never be saved with visible
-  // roles even if the UI were bypassed.
-  it.roles=normRoles(it.roles,it.category);
+  it.type=$("shType").value||null;
+  // reconcileItem has the last word, so an inner item can never be saved with
+  // visible roles — nor a Top with the inner role — even if the UI were bypassed.
+  reconcileItem(it);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);

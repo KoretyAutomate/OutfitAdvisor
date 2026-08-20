@@ -103,8 +103,29 @@ class ClosetItem(BaseModel):
     category: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
     # What the garment IS, for grouping the wardrobe into folders (2026-08-10).
     # Optional: closets saved before this field exist, and are mapped from category.
+    #
+    # `knitwear` is STILL ACCEPTED here although it stopped being a group on
+    # 2026-08-20. A phone running an older build sends it, and a Literal rejection
+    # is a 422 on the whole /advice request — every other item in the closet lost
+    # because one of them used last week's spelling. vocab.canonical_group() maps
+    # it to `tops` inside _derive.
     group: Literal["underwear", "tops", "knitwear", "outerwear", "bottoms",
-                   "footwear", "accessories"] | None = None
+                   "onepiece", "footwear", "accessories"] | None = None
+    # Second level of the taxonomy (2026-08-14, extended 2026-08-20): WHICH KIND of
+    # garment inside that group — "Tops > Polo". Deliberately a plain string
+    # validated against the group's own list rather than a Literal: a type that does
+    # not belong to the group is DROPPED (see vocab.normalize_type), never a 422, so
+    # a closet saved before this field and a /classify guess that misses both stay
+    # usable.
+    #
+    # No `max_length` here, deliberately. A Field constraint runs BEFORE the model
+    # validator that normalizes this, so an over-long unknown type would 422 the
+    # whole request — exactly the rejection the paragraph above promises never
+    # happens. The bound is applied in `_cap_type` below instead, which is a
+    # `before` validator and so cannot invert the order. The longest real type is
+    # `dress_shoes` (11), so capping at 24 can never truncate a valid value into an
+    # invalid one.
+    type: str | None = None
     # Every layer this ONE garment can play across the year — a shirt is the outer
     # layer at 30C and a base under a coat at 8C. Empty/absent => [category], i.e.
     # exactly the old fixed behaviour, so an old closet is unchanged.
@@ -120,10 +141,31 @@ class ClosetItem(BaseModel):
     def _derive(self):
         # Normalize here, once, so every consumer (advice, packing, prompts) reads
         # the same already-safe values and none of them has to remember the rules.
-        object.__setattr__(self, "roles", vocab.normalize_roles(self.roles, self.category))
-        if self.group is None:
-            object.__setattr__(self, "group", vocab.GROUP_FROM_CATEGORY.get(self.category, "tops"))
+        #
+        # reconcile() replaced a normalize_roles() + group-default pair that treated
+        # the fields as independent, which is how a `tops` item could arrive carrying
+        # the `inner` role and reach closet.py as a legal undershirt (user,
+        # 2026-08-18). A contradictory item cannot be constructed now.
+        cat, grp, kind, roles = vocab.reconcile(
+            self.category, self.group, self.roles, self.type
+        )
+        object.__setattr__(self, "category", cat)
+        object.__setattr__(self, "group", grp)
+        object.__setattr__(self, "type", kind)
+        object.__setattr__(self, "roles", roles)
         return self
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _cap_type(cls, v):
+        """Bound the field without ever rejecting it.
+
+        `before` is load-bearing: it runs ahead of the `after` model validator that
+        calls reconcile(), so an over-long value is cut down rather than raised on.
+        Anything still unrecognised is dropped there, as the field's own docstring
+        promises.
+        """
+        return v[:24] if isinstance(v, str) else v
 
     @field_validator("label")
     @classmethod
@@ -509,14 +551,36 @@ async def classify(req: ClassifyRequest):
 
     # Re-validate the LLM's output through the same schema as incoming closet
     # items — one sanitization path for both directions.
+    #
+    # group/roles/type are FORWARDED, not dropped. The prompt has asked for `group`
+    # and `roles` since 2026-08-10, but this constructor never passed them on, so
+    # the validator re-derived both from `category` and every classified item came
+    # back with roles=[category] — the seasonal-role feature the model was already
+    # answering correctly was thrown away one line before it reached the phone, and
+    # the folder was re-derived from the single riskiest guess in the answer.
+    # reconcile() in _derive still has the last word, so forwarding adds no trust in
+    # the model's output.
+    raw_type = str(raw.get("type") or "") or None
+    # The type is the narrowest thing the model said about this garment, so where it
+    # answered nothing usable for warmth/formality, the type's defaults are a better
+    # source than the bare 3/["casual"] fallbacks. FILL only — a stated value is
+    # about THIS garment, and the table only knows the average one.
+    warmth, formality = vocab.apply_type_defaults(
+        vocab.normalize_type(raw_type, vocab.canonical_group(raw.get("group"))),
+        int(raw.get("warmth") or 0) or None,
+        [f for f in (raw.get("formality") or []) if f in vocab.STYLES],
+    )
     try:
         item = ClosetItem(
             id="pending-0000",  # phone assigns the real uuid on save
             label=str(raw.get("label") or ""),
             category=raw.get("category"),
+            group=vocab.canonical_group(raw.get("group")),
+            type=raw_type,
+            roles=[r for r in (raw.get("roles") or []) if r in vocab.CATEGORIES],
             colors=[str(c) for c in raw.get("colors") or [] if str(c).strip()][:3],
-            warmth=int(raw.get("warmth") or 3),
-            formality=[f for f in (raw.get("formality") or []) if f in ("casual", "smart", "active")],
+            warmth=warmth,
+            formality=formality,
             waterproof=bool(raw.get("waterproof")),
         )
     except Exception:

@@ -14,7 +14,7 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     background:linear-gradient(180deg,#0f172a,#13203a);color:var(--txt);
-    min-height:100vh;padding:env(safe-area-inset-top) 0 40px;}
+    min-height:100vh;padding:env(safe-area-inset-top) 0 calc(86px + env(safe-area-inset-bottom));}
   .wrap{max-width:560px;margin:0 auto;padding:0 16px}
   header{padding:22px 0 8px;display:flex;align-items:center;gap:10px}
   header h1{font-size:1.35rem;margin:0;font-weight:700;letter-spacing:-.02em}
@@ -132,6 +132,24 @@
   .folderHead .tw{color:var(--muted);width:12px}
   .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
   .folder .grid{margin-top:8px}
+  /* ── sheet tabs (2026-08-20) ──
+     Three pages switched the way Excel switches sheets: a strip pinned along the
+     bottom, the ACTIVE tab lifted and joined to the page above it, the inactive
+     ones sunk and dimmed. The strip is fixed rather than scrolling with the page —
+     a tab you have to scroll to find is not a tab. */
+  .pane{display:none}
+  .pane.on{display:block}
+  .sheetTabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:3px;
+    align-items:flex-end;padding:8px 8px calc(4px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg,rgba(11,19,34,0),#0b1322 60%);
+    border-top:1px solid var(--line);backdrop-filter:blur(6px)}
+  .sheetTabs button{flex:1;min-width:0;border:1px solid var(--line);border-bottom:none;
+    border-radius:10px 10px 0 0;padding:9px 4px 13px;background:var(--bg2);
+    color:var(--muted);font-size:.74rem;font-weight:600;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .sheetTabs button.on{background:var(--card2);color:var(--txt);
+    padding-top:12px;box-shadow:inset 0 2px 0 var(--accent)}
+  .sheetTabs button:active{transform:none}
   /* calendar picker — grouped by the account each calendar belongs to (2026-08-20) */
   .calAcct{margin-bottom:14px}
   .calAcctHead{display:flex;align-items:baseline;gap:7px;font-size:.82rem;font-weight:600;
@@ -183,117 +201,129 @@
     <p class="note" id="updWarn" style="display:none"></p>
   </div>
 
-  <!-- Profile / location -->
-  <div class="card">
-    <h2>Location &amp; style</h2>
-    <div class="row" style="margin-bottom:10px">
-      <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
-      <button class="ghost" id="geoBtn" title="Use my location">📍</button>
-      <button class="primary" id="goBtn">Get advice</button>
-    </div>
-    <div class="seg" id="genderSeg">
-      <button data-g="man">👔 Man</button>
-      <button data-g="woman">👗 Woman</button>
-      <button data-g="neutral">🧍 Neutral</button>
-    </div>
-    <div class="seg" id="styleSeg" style="margin-top:8px">
-      <button data-s="casual">Casual</button>
-      <button data-s="smart">Smart</button>
-      <button data-s="active">Active</button>
-    </div>
-    <div id="err" class="err"></div>
-  </div>
-
-
-  <!-- Closet -->
-  <div class="card">
-    <h2>My closet <span class="chip" id="closetInfo" style="display:none"></span></h2>
-    <div class="row">
-      <button class="primary" id="addCamBtn">📷 Snap item</button>
-      <button id="addGalBtn">🖼️ Upload</button>
-      <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">🧺 Laundry done</button>
-    </div>
-    <div class="grid" id="closetGrid"></div>
-    <p class="note">Photograph your clothes once — the advisor then dresses you from what you
-      actually own and skips items still in the laundry. Photos stay on this phone; the DGX
-      classifies them in memory and stores nothing.</p>
-    <input type="file" id="fileIn" accept="image/*" style="display:none">
-    <div id="clErr" class="err"></div>
-  </div>
-
-  <!-- Trips -->
-  <div class="card">
-    <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
-    <!-- Home area. Needed to judge "is this far enough to be a trip" without
-         asking the user about every candidate. Set once, changeable any time. -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="min-width:0">
-        <label class="lbl" style="margin:0">Home area</label>
-        <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+  <!-- ── The three sheets (2026-08-20) ──
+       One scrolling page put location, closet and trips in a fixed order nobody
+       chose, and the daily "what do I wear" question was three cards' worth of
+       scrolling away from the weather that answers it. They are now three pages,
+       switched by the tab strip at the bottom of the screen the way Excel switches
+       sheets (user, 2026-08-20). The update banner stays OUTSIDE them: a phone
+       running a stale build must be told so on whichever page it is on. -->
+  <section class="pane" id="pane-advice">
+    <!-- Profile / location -->
+    <div class="card">
+      <h2>Location &amp; style</h2>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
+        <button class="ghost" id="geoBtn" title="Use my location">📍</button>
+        <button class="primary" id="goBtn">Get advice</button>
       </div>
-      <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="min-width:0">
-        <label class="lbl" style="margin:0">Calendars</label>
-        <div class="note" id="calSelLine" style="margin-top:2px">all your own calendars</div>
+      <div class="seg" id="genderSeg">
+        <button data-g="man">👔 Man</button>
+        <button data-g="woman">👗 Woman</button>
+        <button data-g="neutral">🧍 Neutral</button>
       </div>
-      <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
+      <div class="seg" id="styleSeg" style="margin-top:8px">
+        <button data-s="casual">Casual</button>
+        <button data-s="smart">Smart</button>
+        <button data-s="active">Active</button>
+      </div>
+      <div id="err" class="err"></div>
     </div>
-    <div class="row">
-      <button class="primary" id="calBtn">📅 Check my calendar</button>
-    </div>
-    <div id="tripList"></div>
-    <div id="candList"></div>
-    <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
-      you what to pack — from the clothes you actually own, for the weather where you're going.
-      Your events stay on this phone: only the dates and the city's coordinates are ever sent,
-      never the event's title, notes, or location text. Calendars shared with you by someone
-      else are never read at all.</p>
-    <div id="tripErr" class="err"></div>
-  </div>
 
-  <!-- Weather -->
-  <div class="card" id="wxCard" style="display:none">
-    <h2 id="wxWhen">Today</h2>
-    <div class="wx">
-      <div class="emoji" id="wxEmoji">⛅</div>
-      <div>
-        <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
-        <div class="meta" id="wxDesc">—</div>
+    <!-- Weather -->
+    <div class="card" id="wxCard" style="display:none">
+      <h2 id="wxWhen">Today</h2>
+      <div class="wx">
+        <div class="emoji" id="wxEmoji">⛅</div>
+        <div>
+          <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
+          <div class="meta" id="wxDesc">—</div>
+        </div>
+      </div>
+      <div class="chips" id="wxChips"></div>
+      <div class="timeline" id="wxTimeline"></div>
+    </div>
+
+    <!-- Outfit -->
+    <div class="card" id="outfitCard" style="display:none">
+      <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
+      <p class="aitext" id="aiText"></p>
+      <details class="det"><summary>Item-by-item</summary>
+        <ul class="outfit" id="outfitList"></ul>
+        <p class="note" id="outfitTip"></p>
+      </details>
+      <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+      <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
+           the LLM plan against. Never shifts the weather shown above. -->
+      <div class="fb">
+        <label class="lbl" style="margin:0">How did that feel?</label>
+        <div class="fbRow" id="fbRow">
+          <button data-r="-2"><span class="e">🥶</span><span class="c">Too cold</span></button>
+          <button data-r="-1"><span class="e">🟦</span><span class="c">A bit cool</span></button>
+          <button data-r="0"><span class="e">👌</span><span class="c">Just right</span></button>
+          <button data-r="1"><span class="e">🟧</span><span class="c">A bit warm</span></button>
+          <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
+        </div>
+        <p class="note" id="fbNote"></p>
+      </div>
+      <div class="deliver" style="margin-top:12px">
+        <button id="dShare">💬 Share</button>
+        <button id="dNotify">🔔 Preview push</button>
       </div>
     </div>
-    <div class="chips" id="wxChips"></div>
-    <div class="timeline" id="wxTimeline"></div>
-  </div>
+  </section>
 
-  <!-- Outfit -->
-  <div class="card" id="outfitCard" style="display:none">
-    <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
-    <p class="aitext" id="aiText"></p>
-    <details class="det"><summary>Item-by-item</summary>
-      <ul class="outfit" id="outfitList"></ul>
-      <p class="note" id="outfitTip"></p>
-    </details>
-    <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
-    <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
-         the LLM plan against. Never shifts the weather shown above. -->
-    <div class="fb">
-      <label class="lbl" style="margin:0">How did that feel?</label>
-      <div class="fbRow" id="fbRow">
-        <button data-r="-2"><span class="e">🥶</span><span class="c">Too cold</span></button>
-        <button data-r="-1"><span class="e">🟦</span><span class="c">A bit cool</span></button>
-        <button data-r="0"><span class="e">👌</span><span class="c">Just right</span></button>
-        <button data-r="1"><span class="e">🟧</span><span class="c">A bit warm</span></button>
-        <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
+  <section class="pane" id="pane-closet">
+    <!-- Closet -->
+    <div class="card">
+      <h2>My closet <span class="chip" id="closetInfo" style="display:none"></span></h2>
+      <div class="row">
+        <button class="primary" id="addCamBtn">📷 Snap item</button>
+        <button id="addGalBtn">🖼️ Upload</button>
+        <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">🧺 Laundry done</button>
       </div>
-      <p class="note" id="fbNote"></p>
+      <div class="grid" id="closetGrid"></div>
+      <p class="note">Photograph your clothes once — the advisor then dresses you from what you
+        actually own and skips items still in the laundry. Photos stay on this phone; the DGX
+        classifies them in memory and stores nothing.</p>
+      <input type="file" id="fileIn" accept="image/*" style="display:none">
+      <div id="clErr" class="err"></div>
     </div>
-    <div class="deliver" style="margin-top:12px">
-      <button id="dShare">💬 Share</button>
-      <button id="dNotify">🔔 Preview push</button>
+  </section>
+
+  <section class="pane" id="pane-calendar">
+    <!-- Trips -->
+    <div class="card">
+      <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
+      <!-- Home area. Needed to judge "is this far enough to be a trip" without
+           asking the user about every candidate. Set once, changeable any time. -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">Home area</label>
+          <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+        </div>
+        <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">Calendars</label>
+          <div class="note" id="calSelLine" style="margin-top:2px">all your own calendars</div>
+        </div>
+        <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="calBtn">📅 Check my calendar</button>
+      </div>
+      <div id="tripList"></div>
+      <div id="candList"></div>
+      <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
+        you what to pack — from the clothes you actually own, for the weather where you're going.
+        Your events stay on this phone: only the dates and the city's coordinates are ever sent,
+        never the event's title, notes, or location text. Calendars shared with you by someone
+        else are never read at all.</p>
+      <div id="tripErr" class="err"></div>
     </div>
-  </div>
+  </section>
 
   <footer>Weather by Open-Meteo · outfit by your local LLM on the DGX · location never stored</footer>
 </div>
@@ -517,6 +547,14 @@
     <div id="pkErr" class="err"></div>
   </div>
 </div>
+
+<!-- Sheet tabs. Bottom of the screen, like Excel's — that is where the request
+     put them, and it is also the half of a phone screen a thumb can reach. -->
+<nav class="sheetTabs" id="tabBar">
+  <button data-tab="advice">📍 Location &amp; advice</button>
+  <button data-tab="closet">🧥 Closet</button>
+  <button data-tab="calendar">📅 Calendar</button>
+</nav>
 
 <div class="toast" id="toast"></div>
 
@@ -1898,6 +1936,22 @@ async function refreshReadiness(){
 }
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); } });
 
+/* ───────── the three sheets (2026-08-20) ─────────
+   Everything used to live on one scrolling page in an order nobody chose. These
+   are pages now, switched by the bottom tab strip. Which one you were on is
+   REMEMBERED: the app is opened to answer one of three questions, and reopening
+   it should not put you back at the top of somebody else's answer. */
+const TABS=["advice","closet","calendar"];
+let tab="advice";
+function showTab(name,remember){
+  tab=TABS.includes(name)?name:"advice";
+  for(const t of TABS){ const p=$("pane-"+t); if(p) p.classList.toggle("on",t===tab); }
+  [...$("tabBar").children].forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
+  // Each sheet starts at its own top; jsdom has no layout, hence the guard.
+  if(window.scrollY) window.scrollTo(0,0);
+  if(remember!==false) prefSet("oa.tab",tab);
+}
+
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
    Only the typed city NAME is saved; coords are re-derived by geocoding on demand.
@@ -1915,6 +1969,7 @@ async function load(){
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
   // remembers the CHOICE (GPS vs a typed city), never the location itself
   state.useGps=(await prefGet("oa.useGps","0"))==="1";
+  tab=await prefGet("oa.tab","advice");
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
@@ -1955,6 +2010,8 @@ $("geoBtn").onclick=async()=>{ toast("Locating…");
 $("saveSchedule").onclick=async()=>{ await saveSchedule(); refreshReadiness(); };
 $("saveUrl").onclick=async()=>{ const v=$("baseUrl").value.trim(); if(v){ state.baseUrl=v; await persist(); toast("Server saved"); } };
 $("dShare").onclick=shareIt; $("dNotify").onclick=previewPush;
+
+$("tabBar").onclick=e=>{ const b=e.target.closest("button"); if(b) showTab(b.dataset.tab); };
 
 /* ── closet wiring ── */
 $("addCamBtn").onclick=()=>addItem("CAMERA");
@@ -2188,6 +2245,7 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
+  showTab(tab,false);   // false: restoring where you were is not a new choice
   renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();

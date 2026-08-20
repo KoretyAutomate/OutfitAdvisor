@@ -85,13 +85,35 @@ def test_the_web_layer_reads_exactly_the_keys_the_plugin_emits():
     """The seam the jsdom mock cannot police: key names must match on both sides."""
     kotlin = _kotlin_list_calendars()
     emitted = set(re.findall(r'\.put\(\s*"(\w+)"', kotlin))
-    assert {"id", "title", "shared", "sharedBy"} <= emitted, emitted
+    assert {"id", "title", "account", "shared", "sharedBy"} <= emitted, emitted
     assert '.put("calendars"' in kotlin, "the payload key the web layer destructures"
 
     js = _js_load_calendars()
     assert "Plugins.OutfitAlarm" in js
-    for key in ("calendars", "shared", "sharedBy", "title", "id"):
+    for key in ("calendars", "shared", "sharedBy", "title", "id", "account"):
         assert key in js, key
+
+
+def test_the_account_the_picker_groups_by_crosses_the_seam():
+    """The picker is hierarchical — e-mail address, then its calendars underneath
+    (user, 2026-08-20). ACCOUNT_NAME only exists on the native side, and the
+    plugin already reads it to decide `shared`; returning it is what lets the web
+    layer group by it instead of showing one flat list whose entries give no clue
+    which sign-in they came from.
+    """
+    kotlin = _kotlin_list_calendars()
+    assert re.search(r'\.put\(\s*"account"', kotlin), "the account is compared but never emitted"
+
+    src = INDEX.read_text()
+    groups = src[src.index("function calGroups()"):]
+    groups = groups[:groups.index("\n}") + 2]
+    assert "c.account" in groups, "the grouping must key on the account, not the title"
+
+    picker = src[src.index("async function openCalPicker()"):]
+    picker = picker[:picker.index("\nasync function saveCalSel()")]
+    assert "calGroups()" in picker, "the picker must render the groups, not calAvail directly"
+    # A shared calendar that vanished from its account's group would read as a bug.
+    assert "never read" in picker, "an excluded calendar must still say why"
 
 
 def test_the_web_layer_has_no_second_calendar_lister():

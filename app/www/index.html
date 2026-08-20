@@ -132,6 +132,15 @@
   .folderHead .tw{color:var(--muted);width:12px}
   .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
   .folder .grid{margin-top:8px}
+  /* calendar picker — grouped by the account each calendar belongs to (2026-08-20) */
+  .calAcct{margin-bottom:14px}
+  .calAcctHead{display:flex;align-items:baseline;gap:7px;font-size:.82rem;font-weight:600;
+    padding:7px 0;border-bottom:1px solid var(--line);word-break:break-all}
+  .calAcctHead .n{margin-left:auto;flex-shrink:0;color:var(--muted);font-size:.7rem;font-weight:400}
+  .calRow{display:flex;align-items:center;gap:10px;padding:9px 0 9px 20px;
+    border-bottom:1px solid var(--line)}
+  .calAcct .calRow:last-child{border-bottom:none}
+  .calRow.off{opacity:.55}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -475,10 +484,11 @@
 <div class="modal" id="calWrap">
   <div class="sheet">
     <h3>Which calendars should I read?</h3>
-    <p class="note" style="margin-top:0">Only the ones you tick are scanned for trips.
-      Birthdays, holidays and subscribed feeds are usually worth leaving off.
-      Calendars shared with you by someone else are never read — they are listed
-      below greyed out, and cannot be ticked.</p>
+    <p class="note" style="margin-top:0">Grouped by the account each one belongs to —
+      your e-mail address first, then its calendars underneath. Only the ones you tick
+      are scanned for trips; birthdays, holidays and subscribed feeds are usually worth
+      leaving off. Calendars shared with you by someone else are never read — they stay
+      listed under their account, greyed out, and cannot be ticked.</p>
     <div id="calList" style="margin:12px 0"></div>
     <div class="row">
       <button class="ghost" id="calAll" style="flex:1">Select all</button>
@@ -1100,9 +1110,31 @@ async function loadCalendars(){
   if(!P||!P.listCalendars) throw new Error(CAL_NO_LISTER);
   const r=await P.listCalendars();
   return ((r&&r.calendars)||[]).map(c=>({id:String(c.id),title:c.title||String(c.id),
-    shared:!!c.shared,sharedBy:c.sharedBy||""}));
+    account:c.account||"",shared:!!c.shared,sharedBy:c.sharedBy||""}));
 }
 function calLabel(c){ return c.title||c.name||c.id; }
+/* Group the picker by the ACCOUNT each calendar is filed under — for a Google
+   account, the user's e-mail address (user, 2026-08-20). A flat list of "Work",
+   "Birthdays", "Family" says nothing about which sign-in each came from, and a
+   phone with two Google accounts shows both sets interleaved with no way to tell
+   them apart. Accounts that have something to tick come first; within an account
+   the user's own calendars come before the shared ones they cannot choose. */
+const CAL_NO_ACCOUNT="On this phone";
+function calGroups(){
+  const by=new Map();
+  for(const c of calAvail){
+    const k=c.account||"";
+    if(!by.has(k)) by.set(k,[]);
+    by.get(k).push(c);
+  }
+  return [...by.entries()]
+    .map(([account,cals])=>({account,own:cals.filter(c=>!c.shared).length,
+      cals:cals.slice().sort((a,b)=>(a.shared?1:0)-(b.shared?1:0)||
+        String(calLabel(a)).localeCompare(String(calLabel(b))))}))
+    // Most readable calendars first — that is the account the user actually lives
+    // in, and it should not sort below a holiday feed's address by accident.
+    .sort((a,b)=>b.own-a.own||a.account.localeCompare(b.account));
+}
 /** The calendars we may read at all — rule 1, applied before anything else. */
 function calReadable(){ return calAvail.filter(c=>!c.shared); }
 /** The ids a scan may look at: rule 1, then the user's own choice. */
@@ -1128,21 +1160,27 @@ async function openCalPicker(){
   if(!calAvail.length){
     list.innerHTML=`<p class="note">${esc(err||"Couldn't list your calendars. Grant calendar access, then try again.")}</p>`;
   }else{
-    const rowCss="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)";
     // Shared calendars are SHOWN but not offered: an excluded calendar that simply
     // vanished would read as a bug, and the user could not tell why a trip on it
-    // never appeared.
-    list.innerHTML=calReadable().map(c=>{
-      const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
-      return `<label style="${rowCss}">
-        <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
-        <span>${esc(calLabel(c))}</span></label>`;
-    }).join("")
-    + calAvail.filter(c=>c.shared).map(c=>
-      `<div style="${rowCss};opacity:.55">
-        <input type="checkbox" disabled>
-        <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
-      </div>`).join("");
+    // never appeared. They stay under the account they belong to, so the account
+    // header is the whole truth about that sign-in rather than a filtered view.
+    list.innerHTML=calGroups().map(gr=>{
+      const own=gr.cals.filter(c=>!c.shared).length;
+      const rows=gr.cals.map(c=>{
+        if(c.shared) return `<div class="calRow off">
+          <input type="checkbox" disabled>
+          <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
+        </div>`;
+        const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
+        return `<label class="calRow">
+          <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
+          <span>${esc(calLabel(c))}</span></label>`;
+      }).join("");
+      return `<div class="calAcct">
+        <div class="calAcctHead"><span>📧 ${esc(gr.account||CAL_NO_ACCOUNT)}</span>
+          <span class="n">${own?`${own} you can read`:"none you can read"}</span></div>
+        ${rows}</div>`;
+    }).join("");
   }
   $("calWrap").classList.add("show");
 }

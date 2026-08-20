@@ -235,10 +235,11 @@ const PICKER_EVENTS = [
 async function pickerChecks() {
   ev(`Plugins.OutfitAlarm = Object.assign(Plugins.OutfitAlarm || {}, {
     listCalendars: async () => ({ calendars: [
-      {id:"work",title:"Work",shared:false},
-      {id:"holidays",title:"US Holidays",shared:false},
-      {id:"birthdays",title:"Birthdays",shared:false},
-      {id:"partner",title:"Alex's calendar",shared:true,sharedBy:"alex@example.com"}] })
+      {id:"work",title:"Personal",account:"korehito@gmail.com",shared:false},
+      {id:"holidays",title:"US Holidays",account:"feeds@partner.example",shared:false},
+      {id:"birthdays",title:"Birthdays",account:"korehito@gmail.com",shared:false},
+      {id:"partner",title:"Alex's calendar",account:"korehito@gmail.com",
+       shared:true,sharedBy:"alex@example.com"}] })
   });
   Plugins.CapacitorCalendar = {
     checkPermission: async () => ({ result: "granted" }),
@@ -337,6 +338,35 @@ async function pickerChecks() {
   check("and lists the shared one as un-tickable, saying why",
     html.includes("Alex's calendar") && !html.includes('data-cal="partner"') &&
     /never read/.test(html), html.slice(0, 400));
+
+  /* ── the list is HIERARCHICAL: account first, its calendars underneath
+        (user, 2026-08-20). A flat list of "Personal", "Birthdays", "US Holidays"
+        never says which sign-in each one came from. ── */
+  const heads = [...html.matchAll(/📧 ([^<]+)</g)].map(m => m[1].trim());
+  check("every account the calendars belong to gets its own heading",
+    JSON.stringify(heads) === '["korehito@gmail.com","feeds@partner.example"]', heads);
+  check("the account with the most readable calendars leads",
+    heads[0] === "korehito@gmail.com", heads);
+  const at = (needle) => html.indexOf(needle);
+  check("a calendar sits under ITS OWN account, not in one flat list",
+    at("korehito@gmail.com") < at("Personal") &&
+    at("Personal") < at("feeds@partner.example") &&
+    at("feeds@partner.example") < at("US Holidays"),
+    [at("korehito@gmail.com"), at("Personal"), at("feeds@partner.example"), at("US Holidays")]);
+  check("a shared calendar stays under the account it was shared INTO",
+    at("Alex's calendar") > at("korehito@gmail.com") &&
+    at("Alex's calendar") < at("feeds@partner.example"),
+    [at("korehito@gmail.com"), at("Alex's calendar"), at("feeds@partner.example")]);
+  check("and each heading says how many of its calendars can be read",
+    /2 you can read/.test(html) && /1 you can read/.test(html), heads);
+
+  // A device calendar with no account at all must still land somewhere named.
+  ev(`calAvail=[{id:"local",title:"My calendar",account:"",shared:false}];`);
+  const solo = ev(`calGroups()`);
+  check("a calendar with no account is grouped under a heading of its own",
+    solo.length === 1 && solo[0].account === "" && solo[0].own === 1, solo);
+  check("and the picker names that heading rather than showing a blank line",
+    ev(`CAL_NO_ACCOUNT`).length > 0, ev(`CAL_NO_ACCOUNT`));
 }
 
 pluginSignatureChecks()

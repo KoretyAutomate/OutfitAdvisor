@@ -264,6 +264,9 @@ class OutfitAlarmPlugin : Plugin() {
      * is the only way to tell a partner's calendar, a holiday feed or a birthday
      * calendar apart from the user's own.
      *
+     * ACCOUNT_NAME is also RETURNED, not just compared: it is the address the
+     * calendar is filed under, and the picker groups the list by it.
+     *
      * A calendar counts as shared when EITHER holds:
      *   - OWNER_ACCOUNT differs from ACCOUNT_NAME — it belongs to somebody else and
      *     was shared into this account (a partner's calendar, a team calendar, a
@@ -320,6 +323,13 @@ class OutfitAlarmPlugin : Plugin() {
                         JSObject()
                             .put("id", id)
                             .put("title", title)
+                            // The account the calendar is filed under — for a Google
+                            // account this is the user's e-mail address. The picker
+                            // groups by it (user, 2026-08-20): "Work" and "Birthdays"
+                            // mean nothing on their own, and a phone with two Google
+                            // accounts shows two lists of calendars whose names give
+                            // no clue which sign-in they belong to.
+                            .put("account", account)
                             .put("shared", otherOwner || guest)
                             // Shown to the user so an excluded calendar says why it
                             // is excluded instead of just vanishing from the list.

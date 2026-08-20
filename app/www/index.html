@@ -1716,10 +1716,13 @@ function paintTripSegs(){
   $("tsLaundry").checked=!!tsheet.trip.laundryBefore;
 }
 function openTripSheet(trip,isNew,hint){
-  tsheet={trip:{...trip,styles:[...(trip.styles||["casual"])]},isNew,matches:[]};
+  tsheet={trip:{...trip,styles:[...(trip.styles||["casual"])]},isNew,matches:[],geo:null};
   $("tsTitle").textContent=isNew?"Confirm trip":"Edit trip";
   $("tsWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
   $("tsCity").value=trip.place?trip.place.split(",")[0]:"";
+  // what the city box currently NAMES — see syncCityToGeo
+  tsheet.geo=(trip.place&&trip.lat!=null&&trip.lon!=null)
+    ? {lat:trip.lat,lon:trip.lon,place:trip.place,city:$("tsCity").value.trim()} : null;
   $("tsMatches").innerHTML=""; $("tsErr").textContent="";
   const h=$("tsHint");
   if(hint){ h.style.display="block"; h.textContent=`Your calendar says: "${hint}" — name the city so we can get its weather.`; }
@@ -1751,8 +1754,29 @@ async function findCity(){
 function pickCity(i){
   const g=tsheet.matches[i]; if(!g) return;
   tsheet.trip.lat=g.lat; tsheet.trip.lon=g.lon; tsheet.trip.place=g.place;
+  tsheet.geo={lat:g.lat,lon:g.lon,place:g.place,city:$("tsCity").value.trim()};
   $("tsMatches").innerHTML="";
   const p=$("tsPlace"); p.style.display="block"; p.textContent="✓ "+g.place;
+}
+
+/* The city text and the coordinates must never disagree. Editing an existing trip
+   opens the sheet on its old lat/lon/place, so retyping the city and tapping Save
+   without a fresh Find would have stored the OLD destination under the NEW name —
+   the edit silently dropped, and the weather still fetched for the old city
+   (2026-08-20). Text that no longer names the place the coordinates came from drops
+   the geocode, which is what makes tsSave's "Find the destination city first."
+   fire. Typing the original name back restores it, so opening the sheet to change
+   only the dates, the styles or the notice period costs nothing. */
+function syncCityToGeo(){
+  if(!tsheet) return;
+  const typed=$("tsCity").value.trim(), g=tsheet.geo, p=$("tsPlace");
+  if(g&&typed.toLowerCase()===g.city.toLowerCase()){
+    tsheet.trip.lat=g.lat; tsheet.trip.lon=g.lon; tsheet.trip.place=g.place;
+    p.style.display="block"; p.textContent="✓ "+g.place;
+  }else{
+    tsheet.trip.lat=null; tsheet.trip.lon=null; tsheet.trip.place="";
+    tsheet.matches=[]; $("tsMatches").innerHTML=""; p.style.display="none";
+  }
 }
 
 /* ── packing list ── */
@@ -2254,6 +2278,7 @@ $("tsMinus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays>0){tsheet.trip.notif
 $("tsPlus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays<14){tsheet.trip.notifyDays++;paintTripSegs();}};
 $("tsFind").onclick=findCity;
 $("tsCity").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();findCity();}});
+$("tsCity").addEventListener("input",syncCityToGeo);
 $("tsMatches").onclick=e=>{const b=e.target.closest("[data-pick]");if(b)pickCity(+b.dataset.pick);};
 $("tsCancel").onclick=closeTripSheet;
 $("tripWrap").onclick=e=>{if(e.target===$("tripWrap"))closeTripSheet();};
@@ -2278,6 +2303,12 @@ $("tsDel").onclick=async()=>{
   const t=tsheet.trip;
   await cancelTrip(t);
   trips=trips.filter(x=>x.id!==t.id);
+  // The calendar event outlives the trip we made from it. Deleting the trip alone
+  // leaves the event in neither `trips` nor `tripsDismissed`, so the very next scan
+  // judges it afresh and auto-adds the same trip back — Delete would hold only
+  // until the next scan. Record the dismissal so the decision sticks (2026-08-20).
+  if(t.calId&&!tripsDismissed.includes(t.calId)) tripsDismissed.push(t.calId);
+  candidates=candidates.filter(c=>c.calId!==t.calId);
   await saveTrips(); closeTripSheet(); toast("Trip removed");
 };
 $("pkClose").onclick=()=>$("packWrap").classList.remove("show");

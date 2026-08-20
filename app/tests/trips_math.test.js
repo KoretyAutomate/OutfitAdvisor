@@ -14,7 +14,7 @@
  *   T-1  closetPayload sends ONLY what is in the suitcase while you are away —
  *        without it the morning push recommends the coat you left at home.
  *
- * Run: node tests/trips_math.test.js
+ * Run: npm test   (or: node tests/trips_math.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");

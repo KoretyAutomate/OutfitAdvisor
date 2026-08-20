@@ -10,7 +10,7 @@
  * inventing one. A wrong "skip" is invisible: the user simply never hears about a
  * trip they have, which is worse than being asked.
  *
- * Run: NODE_PATH=<...>/node_modules node tests/trip_autodetect.test.js
+ * Run: npm test   (or: node tests/trip_autodetect.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");

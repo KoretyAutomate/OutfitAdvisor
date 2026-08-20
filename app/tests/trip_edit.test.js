@@ -16,7 +16,7 @@
  * Both are driven through the real handlers, and 1. is proved by running a second
  * calendar scan over the same event rather than by inspecting a variable.
  *
- * Run: NODE_PATH=<...>/node_modules node tests/trip_edit.test.js
+ * Run: npm test   (or: node tests/trip_edit.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");

@@ -10,7 +10,7 @@
  *
  * So this checks WHERE each control lives and what is visible, not how it looks.
  *
- * Run: NODE_PATH=<...>/node_modules node tests/tabs.test.js
+ * Run: npm test   (or: node tests/tabs.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");

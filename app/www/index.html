@@ -662,17 +662,25 @@ function outfitToBullets(o){
    is how "Petropavl, North Kazakhstan, KZ" arrived in the trip list as an
    automatically-added trip nobody had planned (user, 2026-08-20).
 
-   So the name that comes BACK is compared with the name we asked for. Here that
-   only re-ranks — a human is looking at the answer. On the automatic path
-   (triageCandidate) a mismatch is fatal, because nobody is. */
-const geoTokens=s=>String(s||"").split(",")[0].normalize("NFD").replace(/\p{M}/gu,"")
+   So the place that comes BACK is compared with the name we asked for — the city
+   AND any region qualifier that came with it. Here that only re-ranks — a human is
+   looking at the answer. On the automatic path (triageCandidate) a mismatch is
+   fatal, because nobody is. */
+const geoWords=s=>String(s||"").normalize("NFD").replace(/\p{M}/gu,"")
   .toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-/* Compared as WORDS, not as a squashed string. "New York City" is Open-Meteo's
-   "New York" and "Frankfurt" is its "Frankfurt am Main", so one name is allowed to
-   extend the other — but only at a word boundary. That is exactly what separates a
-   real alias from a fuzzy expansion: "Petro" → "Petropavl" grows INSIDE a word and
-   is refused, while "Frankfurt" → "Frankfurt am Main" adds words and is kept.
-   Accents and punctuation fold ("Kraków" = "Krakow"). */
+/* "Springfield, IL" is a city AND a qualifier. Split them at the commas: the head
+   names the place, the tail says WHICH one of it — and the tail is the only thing
+   that tells five Springfields apart, so it is kept, never dropped. */
+const geoParts=s=>String(s||"").split(",").map(x=>x.trim()).filter(Boolean);
+const geoTokens=s=>geoWords(geoParts(s)[0]||"");
+/* The CITY HEAD, compared as WORDS rather than as a squashed string. "New York
+   City" is Open-Meteo's "New York" and "Frankfurt" is its "Frankfurt am Main", so
+   one name is allowed to extend the other — but only at a word boundary. That is
+   exactly what separates a real alias from a fuzzy expansion: "Petro" →
+   "Petropavl" grows INSIDE a word and is refused, while "Frankfurt" → "Frankfurt
+   am Main" adds words and is kept. Accents and punctuation fold ("Kraków" =
+   "Krakow"). This tests the head ONLY — geoPlaceMatches is what the automatic
+   path must use. */
 function geoNameMatches(asked,got){
   const q=geoTokens(asked), n=geoTokens(got);
   if(!q.length||!n.length) return false;
@@ -682,15 +690,54 @@ function geoNameMatches(asked,got){
   if(short.length===1&&short[0].length<4) return long.length===1&&short[0]===long[0];
   return short.every((t,i)=>t===long[i]);
 }
+/* Country spellings the geocoder's own fields do not line up on: Open-Meteo says
+   "United Kingdom" and "GB", a model writes "UK". Equivalence GROUPS — every
+   spelling in a group is the same country. Deliberately NOT extended to
+   subdivisions: "IL" is Illinois to an American and Israel to the ISO table, and
+   the string alone cannot say which was meant. A qualifier this table does not
+   cover simply fails to match, and a failed match costs one confirmation tap. */
+const GEO_SAME=[["us","usa","united states","united states of america"],
+                ["uk","gb","united kingdom","great britain"],
+                ["uae","ae","united arab emirates"],
+                ["nl","holland","netherlands","the netherlands"]];
+const geoSame=(a,b)=>a===b||GEO_SAME.some(g=>g.includes(a)&&g.includes(b));
+/* Does one qualifier describe the place that came back? Every region field the
+   geocoder itself reports is compared — admin1..admin4, country and country_code
+   — so "Tokyo, Japan" and "Tokyo, JP" both land without a table of country names. */
+function geoRegionMatches(q,regions){
+  const want=geoWords(q).join(" ");
+  if(!want) return true;
+  return (regions||[]).some(r=>geoSame(want,geoWords(r).join(" ")));
+}
+/* The whole comparison: the city head AND every qualifier that came with it. A
+   qualifier matching nothing the geocoder reports is a REFUSAL, not a shrug —
+   "Cambridge, UK" answered with Cambridge, Massachusetts is the same
+   wrong-destination failure as Petropavl, just harder to spot, and the distance
+   test passes for it too. Accepts either a geocode() result (whose `regions` carry
+   the geocoder's own fields) or a bare place string. */
+function geoPlaceMatches(asked,got){
+  const place=typeof got==="string"?got:(got&&got.place)||"";
+  const regions=(got&&got.regions)||geoParts(place).slice(1);
+  if(!geoNameMatches(asked,place)) return false;
+  return geoParts(asked).slice(1).every(q=>geoRegionMatches(q,regions));
+}
 async function geocode(city){
+  // Open-Meteo's search matches a NAME: "Springfield, IL" as a query matches
+  // nothing at all. So the qualifier is stripped from the QUERY and then used to
+  // CHOOSE among the answers — which is the only thing that tells five
+  // Springfields apart.
   // count=5 rather than 1: with a single result a fuzzy hit is the only option,
-  // and there is nothing to step over. The first NAME MATCH wins; failing that the
+  // and there is nothing to step over. The first FULL MATCH wins; failing that the
   // API's own top answer is returned unchanged, so the typed-city path never gets
   // WORSE than it was — it is the caller that decides whether to trust it.
-  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=5&language=en`);
+  const q=geoParts(city)[0]||String(city||"");
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en`);
   const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
-  const g=d.results.find(x=>geoNameMatches(city,x.name))||d.results[0];
-  return {lat:g.latitude,lon:g.longitude,place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", ")};
+  const named=g=>({lat:g.latitude,lon:g.longitude,
+    place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", "),
+    regions:[g.admin1,g.admin2,g.admin3,g.admin4,g.country,g.country_code].filter(Boolean)});
+  const all=d.results.map(named);
+  return all.find(x=>geoPlaceMatches(city,x))||all[0];
 }
 async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
@@ -1328,9 +1375,13 @@ async function triageCandidate(c){
   // The Kazakhstan gate. A fuzzy geocode answers a name nobody asked about, and
   // the distance test then PASSES precisely because the answer is far away — the
   // wronger the hit, the more certainly it becomes a trip. If the place we got
-  // back is not the city we asked about, we have not placed it, and an unplaced
+  // back is not the place we asked about, we have not placed it, and an unplaced
   // candidate is asked about rather than invented.
-  if(!geoNameMatches(t.city,g.place))
+  // The WHOLE name is compared, qualifier included: the model is asked for a bare
+  // city and does not always give one, and "Cambridge, UK" answered with Cambridge,
+  // Massachusetts is a wrong destination 5,000 km out that a city-only test waves
+  // through. geoPlaceMatches, not geoNameMatches — the latter tests the head alone.
+  if(!geoPlaceMatches(t.city,g))
     return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
   if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};

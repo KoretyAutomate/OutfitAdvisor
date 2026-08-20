@@ -53,14 +53,37 @@ def test_the_llm_city_is_examined_before_a_public_geocoder_sees_it():
         "a city string with no letters must not reach Open-Meteo"
 
 
-def test_a_geocode_that_answers_a_different_city_is_refused():
-    """The Kazakhstan gate itself."""
+def test_a_geocode_that_answers_a_different_place_is_refused():
+    """The Kazakhstan gate itself.
+
+    It must be geoPlaceMatches, not geoNameMatches: the latter tests the city HEAD
+    alone, so "Cambridge, UK" answered with Cambridge, Massachusetts passes it —
+    the same wrong-destination trip, 5,000 km out, with the distance test approving
+    it precisely because the answer is far away.
+    """
     body = _triage_candidate()
-    assert "geoNameMatches(t.city,g.place)" in body, \
-        "the geocoded place is never compared with the city we asked about"
-    ask = body.index("geoNameMatches(t.city,g.place)")
+    assert "geoPlaceMatches(t.city,g)" in body, \
+        "the geocoded place is never compared, qualifier and all, with what we asked"
+    ask = body.index("geoPlaceMatches(t.city,g)")
     assert 'decision:"ask"' in body[ask:ask + 200], \
         "a mismatch must degrade to asking, never to skipping or trusting"
+
+
+def test_a_region_qualifier_is_compared_and_never_dropped():
+    """The whole destination string is judged, not the token before the comma."""
+    src = INDEX.read_text()
+    place = src[src.index("function geoPlaceMatches(asked,got)"):]
+    place = place[:place.index("\n}")]
+    assert "geoRegionMatches" in place, "the qualifier is parsed but never compared"
+    assert re.search(r"geoParts\(asked\)\.slice\(1\)\.every\(", place), \
+        "EVERY qualifier must be satisfied — one unmatched qualifier is a refusal"
+    region = src[src.index("function geoRegionMatches(q,regions)"):]
+    region = region[:region.index("\n}")]
+    assert "some(" in region, "a qualifier must be checked against the geocoder's own fields"
+    geo = src[src.index("async function geocode(city)"):]
+    geo = geo[:geo.index("\n}")]
+    assert "regions:[" in geo, \
+        "geocode must hand back the region fields the qualifier test needs"
 
 
 def test_the_geocoder_is_asked_for_more_than_one_candidate():
@@ -70,4 +93,4 @@ def test_the_geocoder_is_asked_for_more_than_one_candidate():
     geo = geo[:geo.index("\n}")]
     assert "count=1" not in geo, "one result leaves nothing to choose between"
     assert re.search(r"count=([2-9]|\d\d)", geo), "the search must request several results"
-    assert "geoNameMatches" in geo, "the returned name is never compared with the query"
+    assert "geoPlaceMatches" in geo, "the returned place is never compared with the query"

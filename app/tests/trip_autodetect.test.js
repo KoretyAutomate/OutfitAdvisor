@@ -181,6 +181,48 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and it shows both names so the mismatch is visible",
     /Petro/.test(v.why) && /Petropavl/.test(v.why), v.why);
 
+  console.log("\n--- 4b. the qualifier is part of the name (2026-08-20) -----------");
+  /* The model is asked for a bare city and does not always give one: it writes
+     "Cambridge, UK" or "Springfield, IL". Comparing only the token before the
+     comma re-opens the wrong-destination hole the section above closes — the
+     distance test passes for the wrong Cambridge exactly as it did for Petropavl,
+     and nobody is looking. */
+  const OM = (place, regions) => JSON.stringify({ place, regions });
+
+  check("geoPlaceMatches: an unqualified name still matches, as before",
+    ev(`geoPlaceMatches("Chicago","Chicago, Illinois, US")`) &&
+    ev(`geoPlaceMatches("Frankfurt",${OM("Frankfurt am Main, Hesse, DE", ["Hesse", "Germany", "DE"])})`));
+  check("geoPlaceMatches: the qualifier must describe the place that came back",
+    !ev(`geoPlaceMatches("Cambridge, UK",${OM("Cambridge, Massachusetts, US", ["Massachusetts", "United States", "US"])})`),
+    "Cambridge, UK accepted Cambridge, Massachusetts");
+  check("geoPlaceMatches: and the RIGHT region is still accepted",
+    ev(`geoPlaceMatches("Cambridge, UK",${OM("Cambridge, England, GB", ["England", "United Kingdom", "GB"])})`));
+  check("geoPlaceMatches: a country in full or as a code both land",
+    ev(`geoPlaceMatches("Tokyo, Japan",${OM("Tokyo, Tokyo, JP", ["Tokyo", "Japan", "JP"])})`) &&
+    ev(`geoPlaceMatches("Tokyo, JP",${OM("Tokyo, Tokyo, JP", ["Tokyo", "Japan", "JP"])})`));
+  check("geoPlaceMatches: two same-named cities are told apart by their state",
+    ev(`geoPlaceMatches("Springfield, Illinois",${OM("Springfield, Illinois, US", ["Illinois", "United States", "US"])})`) &&
+    !ev(`geoPlaceMatches("Springfield, Illinois",${OM("Springfield, Missouri, US", ["Missouri", "United States", "US"])})`));
+  check("geoPlaceMatches: a qualifier nothing can confirm fails CLOSED — an ambiguous "
+    + "subdivision code is never guessed at",
+    !ev(`geoPlaceMatches("Springfield, IL",${OM("Springfield, Illinois, US", ["Illinois", "United States", "US"])})`));
+  check("geoPlaceMatches: a place with no regions at all cannot satisfy a qualifier",
+    !ev(`geoPlaceMatches("Cambridge, UK","Cambridge")`));
+
+  // End to end: the same failure as Petropavl, dressed as a plausible answer.
+  stub({ triage: { isTrip: true, city: "Cambridge, UK", type: "business", confidence: .95, reason: "conference" },
+         cities: { "Cambridge, UK": { lat: 42.37, lon: -71.11, place: "Cambridge, Massachusetts, US",
+                                      regions: ["Massachusetts", "United States", "US"] } } });
+  v = await ev(`triageCandidate(${CAND({ hint: "Trinity College Cambridge" })})`);
+  check("a qualified city answered with the wrong country -> ask, not a trip to Massachusetts",
+    v.decision === "ask", v);
+
+  stub({ triage: { isTrip: true, city: "Cambridge, UK", type: "business", confidence: .95, reason: "conference" },
+         cities: { "Cambridge, UK": { lat: 52.2, lon: 0.12, place: "Cambridge, England, GB",
+                                      regions: ["England", "United Kingdom", "GB"] } } });
+  v = await ev(`triageCandidate(${CAND({ hint: "Trinity College Cambridge" })})`);
+  check("and the right Cambridge is still added on its own", v.decision === "trip", v);
+
   console.log("\n--- 5. geocode() steps over a fuzzy top hit -----------------------");
   /* Open-Meteo ranks something first for almost any string and gives no score, so
      count=1 left no way to tell a direct hit from a desperate one. */
@@ -205,6 +247,18 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   g = await ev(`geocode("Petro")`);
   check("with no match at all the API's own answer is still returned — the CALLER decides",
     g.place === "Petropavl, North Kazakhstan, KZ", g);
+
+  omStub([
+    { name: "Springfield", admin1: "Missouri", country: "United States", country_code: "US", latitude: 37.21, longitude: -93.29 },
+    { name: "Springfield", admin1: "Illinois", country: "United States", country_code: "US", latitude: 39.80, longitude: -89.64 },
+  ]);
+  g = await ev(`geocode("Springfield, Illinois")`);
+  check("a qualified query picks the Springfield that was asked for, not the biggest",
+    g.place === "Springfield, Illinois, US", g);
+  check("and the comma-tail is stripped from the QUERY — Open-Meteo matches a name, not a name+state",
+    /name=Springfield&/.test(ev("globalThis.__url")), ev("globalThis.__url"));
+  check("the geocoder's own region fields come back for the caller to test",
+    JSON.stringify(g.regions) === '["Illinois","United States","US"]', g.regions);
 
   omStub([]);
   let threw = false;

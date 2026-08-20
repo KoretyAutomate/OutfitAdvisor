@@ -679,8 +679,9 @@ const geoTokens=s=>geoWords(geoParts(s)[0]||"");
    exactly what separates a real alias from a fuzzy expansion: "Petro" →
    "Petropavl" grows INSIDE a word and is refused, while "Frankfurt" → "Frankfurt
    am Main" adds words and is kept. Accents and punctuation fold ("Kraków" =
-   "Krakow"). This tests the head ONLY — geoPlaceMatches is what the automatic
-   path must use. */
+   "Krakow"). This is the LOOSE test: it tests the head ONLY, and it is for the
+   typed-city path, where a human reads the answer. The automatic path uses
+   geoPlaceExact. */
 function geoNameMatches(asked,got){
   const q=geoTokens(asked), n=geoTokens(got);
   if(!q.length||!n.length) return false;
@@ -709,27 +710,51 @@ function geoRegionMatches(q,regions){
   if(!want) return true;
   return (regions||[]).some(r=>geoSame(want,geoWords(r).join(" ")));
 }
+/* The STRICT head test, for the automatic path. Extending a name at a word
+   boundary is not only how an alias is spelled — it is also how two DIFFERENT
+   cities are told apart. "Frankfurt am Main" and "Frankfurt (Oder)" are 500 km
+   apart, "York New Salem" is not York, "Newark" is not "Newark on Trent". Asked
+   for "Frankfurt", nothing in the string says which was meant, and Open-Meteo's
+   own ranking is not an answer: it ranks SOMETHING first for any string. So a
+   trip nobody will be asked about requires the SAME name, and an alias only where
+   two spellings genuinely name one place. A name that merely extends is not
+   refused, it is ASKED about — one confirmation tap, the price this app pays
+   rather than pack a suitcase for the wrong Frankfurt. */
+const GEO_ALIAS=[["new york","new york city","nyc"]];
+function geoNameExact(asked,got){
+  const q=geoTokens(asked).join(" "), n=geoTokens(got).join(" ");
+  if(!q||!n) return false;
+  return q===n||GEO_ALIAS.some(g=>g.includes(q)&&g.includes(n));
+}
 /* The whole comparison: the city head AND every qualifier that came with it. A
    qualifier matching nothing the geocoder reports is a REFUSAL, not a shrug —
    "Cambridge, UK" answered with Cambridge, Massachusetts is the same
    wrong-destination failure as Petropavl, just harder to spot, and the distance
-   test passes for it too. Accepts either a geocode() result (whose `regions` carry
-   the geocoder's own fields) or a bare place string. */
-function geoPlaceMatches(asked,got){
+   test passes for it too. The qualifier rule is the same either way; only the head
+   test differs, so it is passed in. Accepts either a geocode() result (whose
+   `regions` carry the geocoder's own fields) or a bare place string. */
+function geoPlaceBy(nameTest,asked,got){
   const place=typeof got==="string"?got:(got&&got.place)||"";
   const regions=(got&&got.regions)||geoParts(place).slice(1);
-  if(!geoNameMatches(asked,place)) return false;
+  if(!nameTest(asked,place)) return false;
   return geoParts(asked).slice(1).every(q=>geoRegionMatches(q,regions));
 }
+/* loose — re-ranks answers a human is about to read */
+const geoPlaceMatches=(asked,got)=>geoPlaceBy(geoNameMatches,asked,got);
+/* strict — the only test allowed to add a trip on the app's own initiative */
+const geoPlaceExact=(asked,got)=>geoPlaceBy(geoNameExact,asked,got);
 async function geocode(city){
   // Open-Meteo's search matches a NAME: "Springfield, IL" as a query matches
   // nothing at all. So the qualifier is stripped from the QUERY and then used to
   // CHOOSE among the answers — which is the only thing that tells five
   // Springfields apart.
   // count=5 rather than 1: with a single result a fuzzy hit is the only option,
-  // and there is nothing to step over. The first FULL MATCH wins; failing that the
-  // API's own top answer is returned unchanged, so the typed-city path never gets
-  // WORSE than it was — it is the caller that decides whether to trust it.
+  // and there is nothing to step over. A result whose name IS the one asked for
+  // wins over one that merely extends it — asked "Frankfurt", a plain "Frankfurt"
+  // beats "Frankfurt am Main" however the API ranked them, and the automatic path
+  // only accepts that first kind. Failing both the API's own top answer is
+  // returned unchanged, so the typed-city path never gets WORSE than it was — it
+  // is the caller that decides whether to trust it.
   const q=geoParts(city)[0]||String(city||"");
   const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en`);
   const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
@@ -737,7 +762,7 @@ async function geocode(city){
     place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", "),
     regions:[g.admin1,g.admin2,g.admin3,g.admin4,g.country,g.country_code].filter(Boolean)});
   const all=d.results.map(named);
-  return all.find(x=>geoPlaceMatches(city,x))||all[0];
+  return all.find(x=>geoPlaceExact(city,x))||all.find(x=>geoPlaceMatches(city,x))||all[0];
 }
 async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
@@ -1380,8 +1405,14 @@ async function triageCandidate(c){
   // The WHOLE name is compared, qualifier included: the model is asked for a bare
   // city and does not always give one, and "Cambridge, UK" answered with Cambridge,
   // Massachusetts is a wrong destination 5,000 km out that a city-only test waves
-  // through. geoPlaceMatches, not geoNameMatches — the latter tests the head alone.
-  if(!geoPlaceMatches(t.city,g))
+  // through.
+  // geoPlaceEXACT, not geoPlaceMatches: nobody is looking at this answer, so the
+  // name that comes back has to be the name that was asked for. The loose test
+  // lets a name grow by whole words, which is right when a human is reading the
+  // result and wrong here — "Frankfurt" would accept "Frankfurt (Oder)" and
+  // "York" would accept "York New Salem", each of them the Petropavl failure with
+  // a plausible-looking name on it.
+  if(!geoPlaceExact(t.city,g))
     return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
   if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};

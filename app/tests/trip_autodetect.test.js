@@ -223,6 +223,58 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   v = await ev(`triageCandidate(${CAND({ hint: "Trinity College Cambridge" })})`);
   check("and the right Cambridge is still added on its own", v.decision === "trip", v);
 
+  console.log("\n--- 4c. the automatic path demands the SAME name (2026-08-20) ----");
+  /* The loose test lets a name grow by whole words, so that "Frankfurt" can be
+     answered with "Frankfurt am Main". That is right for a typed city — a human
+     reads the answer — and wrong for a trip the app adds by itself, because
+     growing by whole words is ALSO how two different cities are spelled:
+     Frankfurt (Oder) is 500 km from Frankfurt am Main, and York New Salem is not
+     York. Asked for a bare "Frankfurt", nothing in the string says which, so the
+     automatic path asks instead of guessing. */
+
+  check("geoNameExact: the same name matches, accents and case folded",
+    ev(`geoNameExact("Chicago","Chicago")`) && ev(`geoNameExact("krakow","Kraków")`));
+  check("geoNameExact: a comma-tail is still not part of the head",
+    ev(`geoNameExact("Chicago","Chicago, Illinois, US")`));
+  check("geoNameExact: a name that merely EXTENDS is not the same name",
+    !ev(`geoNameExact("Frankfurt","Frankfurt am Main")`) &&
+    !ev(`geoNameExact("Frankfurt","Frankfurt (Oder)")`) &&
+    !ev(`geoNameExact("York","York New Salem")`) &&
+    !ev(`geoNameExact("Newark","Newark on Trent")`));
+  check("geoNameExact: but a listed alias is two spellings of ONE place",
+    ev(`geoNameExact("New York City","New York")`) &&
+    ev(`geoNameExact("NYC","New York")`));
+  check("geoNameExact: nothing matches an empty name",
+    !ev(`geoNameExact("","Chicago")`) && !ev(`geoNameExact("Chicago","")`));
+  check("the loose test is UNCHANGED — the typed-city path still re-ranks by prefix",
+    ev(`geoNameMatches("Frankfurt","Frankfurt am Main")`) &&
+    ev(`geoNameMatches("York","York New Salem")`));
+
+  check("geoPlaceExact: the qualifier rule still applies on top of the strict head",
+    ev(`geoPlaceExact("Cambridge, UK",${OM("Cambridge, England, GB", ["England", "United Kingdom", "GB"])})`) &&
+    !ev(`geoPlaceExact("Cambridge, UK",${OM("Cambridge, Massachusetts, US", ["Massachusetts", "United States", "US"])})`));
+  check("geoPlaceExact: a prefix hit the loose test accepts is refused here",
+    ev(`geoPlaceMatches("Frankfurt",${OM("Frankfurt (Oder), Brandenburg, DE", ["Brandenburg", "Germany", "DE"])})`) &&
+    !ev(`geoPlaceExact("Frankfurt",${OM("Frankfurt (Oder), Brandenburg, DE", ["Brandenburg", "Germany", "DE"])})`));
+
+  // End to end: the wrong Frankfurt, 500 km from the right one, with a name that
+  // reads like a match. Nobody is looking, so it must not become a trip.
+  stub({ triage: { isTrip: true, city: "Frankfurt", type: "business", confidence: .95, reason: "conference" },
+         cities: { Frankfurt: { lat: 52.35, lon: 14.55, place: "Frankfurt (Oder), Brandenburg, DE",
+                                regions: ["Brandenburg", "Germany", "DE"] } } });
+  v = await ev(`triageCandidate(${CAND({ hint: "Messe Frankfurt" })})`);
+  check("a city answered with a LONGER name -> ask, not a trip to the wrong Frankfurt",
+    v.decision === "ask", v);
+  check("and it shows both names so the mismatch is visible",
+    /Frankfurt \(Oder\)/.test(v.why), v.why);
+
+  stub({ triage: { isTrip: true, city: "Frankfurt", type: "business", confidence: .95, reason: "conference" },
+         cities: { Frankfurt: { lat: 50.11, lon: 8.68, place: "Frankfurt, Hesse, DE",
+                                regions: ["Hesse", "Germany", "DE"] } } });
+  v = await ev(`triageCandidate(${CAND({ hint: "Messe Frankfurt" })})`);
+  check("and the Frankfurt that IS named Frankfurt is still added on its own",
+    v.decision === "trip", v);
+
   console.log("\n--- 5. geocode() steps over a fuzzy top hit -----------------------");
   /* Open-Meteo ranks something first for almost any string and gives no score, so
      count=1 left no way to tell a direct hit from a desperate one. */
@@ -259,6 +311,22 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     /name=Springfield&/.test(ev("globalThis.__url")), ev("globalThis.__url"));
   check("the geocoder's own region fields come back for the caller to test",
     JSON.stringify(g.regions) === '["Illinois","United States","US"]', g.regions);
+
+  omStub([
+    { name: "Frankfurt (Oder)", admin1: "Brandenburg", country: "Germany", country_code: "DE", latitude: 52.35, longitude: 14.55 },
+    { name: "Frankfurt", admin1: "Hesse", country: "Germany", country_code: "DE", latitude: 50.11, longitude: 8.68 },
+  ]);
+  g = await ev(`geocode("Frankfurt")`);
+  check("a result NAMED the city beats one that only extends it, whatever the API's order",
+    g.place === "Frankfurt, Hesse, DE", g);
+
+  omStub([
+    { name: "Petropavl", admin1: "North Kazakhstan", country: "Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 },
+    { name: "Frankfurt am Main", admin1: "Hesse", country: "Germany", country_code: "DE", latitude: 50.11, longitude: 8.68 },
+  ]);
+  g = await ev(`geocode("Frankfurt")`);
+  check("with no exact name at all the loose match is still preferred to the API's top answer",
+    g.place === "Frankfurt am Main, Hesse, DE", g);
 
   omStub([]);
   let threw = false;

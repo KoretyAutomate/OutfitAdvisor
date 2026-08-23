@@ -242,6 +242,106 @@ check("migrateItem is reconcileItem — one repair pass on load",
     pack.find(p => p.id === "p1").type === "polo", pack);
   check("the packing payload carries the group", pack.find(p => p.id === "p1").group === "tops", pack);
 
+  console.log("\n--- 9. reading the type out of the label (2026-08-23) ----------");
+  // Every closet saved before 2026-08-14 has no type, so all of it filed under the
+  // unlabelled "Other" block — one flat lump inside Tops and Bottoms, which is what
+  // the user reported as "the classification got narrower".
+  const NOUNS = [
+    ["Grey v-neck t-shirt", "tops", "t_shirt"],   // must beat the "shirt" substring
+    ["White oxford shirt",  "tops", "shirt"],
+    ["Navy polo",           "tops", "polo"],
+    ["Grey hoodie",         "tops", "hoodie"],
+    ["Blue jeans",       "bottoms", "jeans"],
+    ["Black chinos",     "bottoms", "trousers"],
+    ["Black tights",     "bottoms", "leggings"],
+    ["Down jacket",    "outerwear", "puffer"],    // must beat the "jacket" substring
+    ["Navy blazer",    "outerwear", "blazer"],
+    ["Sports bra",     "underwear", "bra"],
+    ["Running shoes",   "footwear", "sneakers"],
+    ["Wool socks",      "footwear", "socks"],
+    ["Brown leather belt", "accessories", "belt"],
+  ];
+  for (const [label, grp, want] of NOUNS)
+    check(`"${label}" in ${grp} reads as ${want}`,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`) === want,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`));
+
+  // The group restricts the vocabulary: "denim" alone means jeans, but a denim
+  // JACKET is outerwear, and jeans are not a legal type there.
+  check("a denim jacket is a jacket, not jeans",
+    ev(`typeFromLabel("Denim jacket","outerwear")`) === "jacket",
+    ev(`typeFromLabel("Denim jacket","outerwear")`));
+
+  // Precision over recall: silence is a correct answer, and the item keeps filing
+  // under Other exactly as it does today.
+  check("a label naming no garment stays untyped",
+    ev(`typeFromLabel("Something vague","tops")`) === null);
+  check("an empty label stays untyped", ev(`typeFromLabel("","tops")`) === null);
+  check("a label of only punctuation stays untyped", ev(`typeFromLabel("---","tops")`) === null);
+
+  console.log("\n--- 10. inference only ever FILLS a gap, and only on load ------");
+  // migrateItem is the load path; that is the ONLY place a label is read.
+  const filled = ev(`migrateItem({id:"x1",label:"Navy polo",category:"base",group:"tops",count:1})`);
+  check("an untyped item gets the type its label names", filled.type === "polo", filled);
+  check("and is marked as filed by name, not by the classifier",
+    filled.typeFrom === "label", filled);
+  const stated = ev(`migrateItem({id:"x2",label:"Navy polo",category:"base",group:"tops",type:"shirt",count:1})`);
+  check("a type the classifier gave is NEVER overwritten by the label",
+    stated.type === "shirt", stated);
+  check("and carries no by-name marker", !stated.typeFrom, stated);
+
+  /* The Kind selector offers "— not specified —", and an untyped item is a
+     perfectly good wardrobe entry. Inferring on every reconcile made that option
+     inert: the user picked it, the label still said "Navy polo", and polo came
+     straight back. Raised by the pre-push reviewer, 2026-08-23. */
+  const cleared = ev(`reconcileItem({id:"x3",label:"Navy polo",category:"base",group:"tops",type:null,count:1})`);
+  check("clearing the Kind on an edit actually clears it", cleared.type === null, cleared);
+  check("and the choice is remembered", cleared.typeCleared === true, cleared);
+  const afterLoad = ev(`migrateItem(${JSON.stringify(cleared)})`);
+  check("and survives the next load — the backfill does not undo it",
+    afterLoad.type === null, afterLoad);
+
+  // Choosing a real type afterwards clears the marker, so the item is normal again.
+  const retyped = ev(`reconcileItem({id:"x4",label:"Navy polo",category:"base",group:"tops",type:"polo",typeCleared:true,count:1})`);
+  check("picking a Kind again drops the cleared marker",
+    retyped.type === "polo" && !retyped.typeCleared, retyped);
+
+  console.log("\n--- 11. specific beats generic, by table not by accident -------");
+  /* Character length is not specificity. Scoring by it filed "Navy polo shirt" as
+     a plain shirt, because "shirt" has one more character than "polo" — and that
+     is one of the commonest labels in the closet. Raised by the pre-push reviewer,
+     2026-08-23. */
+  const PREFER = [
+    ["Navy polo shirt",      "tops", "polo"],
+    ["Polo shirt",           "tops", "polo"],
+    ["Grey v-neck t-shirt",  "tops", "t_shirt"],
+    ["White dress shirt",    "tops", "shirt"],     // a dress shirt IS a shirt
+    ["Knit cardigan",        "tops", "cardigan"],  // beats sweater's "knit"
+    ["Hooded sweatshirt",    "tops", "hoodie"],
+    ["Down puffer jacket",   "outerwear", "puffer"],
+    ["Rain jacket",          "outerwear", "rainwear"],
+    ["Navy suit jacket",     "outerwear", "blazer"],
+    ["Blue denim jacket",    "outerwear", "jacket"],
+    ["Black skinny jeans",   "bottoms", "jeans"],
+  ];
+  for (const [label, grp, want] of PREFER)
+    check(`"${label}" files as ${want}`,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`) === want,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`));
+
+  // The self-guard: a type added to TYPES with no place in the precedence table
+  // would rank `undefined` and lose every tie silently. Fail here instead.
+  const everyType = ev(`Object.values(TYPES).flat()`);
+  const ranked = ev(`TYPE_PRECEDENCE`);
+  check("every type has a precedence entry",
+    everyType.every(t => ranked.includes(t)),
+    everyType.filter(t => !ranked.includes(t)));
+  check("and the table invents none that do not exist",
+    ranked.every(t => everyType.includes(t)),
+    ranked.filter(t => !everyType.includes(t)));
+  check("each exactly once", ranked.length === new Set(ranked).size && ranked.length === everyType.length,
+    { table: ranked.length, types: everyType.length });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

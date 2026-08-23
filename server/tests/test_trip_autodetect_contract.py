@@ -114,12 +114,67 @@ def test_a_region_qualifier_is_compared_and_never_dropped():
 
 
 def test_the_geocoder_is_asked_for_more_than_one_candidate():
-    """With count=1 there is no way to step over a fuzzy top hit."""
+    """With count=1 there is no way to step over a fuzzy top hit.
+
+    The width is also load-bearing beyond that. Measured against the live API on
+    2026-08-23 from the user's own home area: "Princeton" ranks New Jersey 6th and
+    "Lawrenceville" ranks New Jersey 8th, behind bigger namesakes in other states.
+    At count=5 the user's own town was not in the list AT ALL, so no amount of
+    choosing among the answers could have found it.
+    """
     src = INDEX.read_text()
     geo = src[src.index("async function geocode(city)"):]
     geo = geo[:geo.index("\n}")]
     assert "count=1" not in geo, "one result leaves nothing to choose between"
-    assert re.search(r"count=([2-9]|\d\d)", geo), "the search must request several results"
+    # The count is a named constant now, so resolve it rather than matching digits.
+    m = re.search(r"count=\$\{(\w+)\}", geo)
+    assert m, "the search must request several results"
+    decl = re.search(rf"const {m.group(1)}\s*=\s*(\d+)", src)
+    assert decl, f"{m.group(1)} is used but never declared"
+    assert int(decl.group(1)) >= 10, (
+        "a short list cannot reach the user's own town: New Jersey ranks 6th for "
+        f"'Princeton' and 8th for 'Lawrenceville', but count={decl.group(1)}"
+    )
     assert "geoPlaceMatches" in geo, "the returned place is never compared with the query"
     assert geo.index("geoPlaceExact") < geo.index("geoPlaceMatches"), \
         "a result NAMED the city must be preferred to one that merely extends it"
+
+
+def test_a_building_code_never_reaches_the_geocoder():
+    """PPK is an office on Princeton Pike, NJ. Open-Meteo says Kazakhstan.
+
+    Verified against the live API on 2026-08-23: the geocoder resolves IATA codes,
+    so `PPK` returns Petropavl, Kazakhstan and `LVL` returns Lawrenceville,
+    VIRGINIA — the user's Lawrenceville is in New Jersey, 9 km from home. Both
+    answer with total confidence and no score, and the distance test then CONFIRMS
+    the trip precisely because the answer is far away.
+
+    A work calendar puts exactly these strings in the location field, so this is
+    the common case, not an exotic one.
+    """
+    src = INDEX.read_text()
+    # The gate is the strict NAME test: PPK comes back named Petropavl, and a place
+    # that is not the place we asked about has not been placed.
+    body = _triage_candidate()
+    assert "geoPlaceExact(t.city,g)" in body, \
+        "nothing checks that the geocoder answered the name it was asked"
+
+    # No SHAPE rule, in either direction. `[A-Z0-9]{2,4}` refuses a pasted "ROME";
+    # making it case-insensitive additionally refuses Rome, Oslo, Nice, Lyon, Bath,
+    # York, Kobe, Pisa, Graz, Cork, Riga, Bonn, Linz and Gent. Every one is a real
+    # city of four letters or fewer, so a shape rule is wrong more often than right.
+    # Both were tried and both were reverted; this keeps them out.
+    assert "geoLooksLikeCode" not in src, \
+        "a code must be recognised by the ANSWER, never by the shape of the query"
+
+    # The user-facing picker refuses a short query that nothing came back named
+    # after, which is what catches lowercase codes without touching short cities.
+    assert re.search(r"const geoUnplaceableShort=", src), \
+        "nothing catches a code the user types into the picker"
+    short = src[src.index("const geoUnplaceableShort="):]
+    short = short[:short.index(";\n")]
+    assert "geoPlaceMatches" in short, "the test must compare the answer with the query"
+    assert "GEO_SHORT" in short, "the test must be bounded to short queries"
+    bound = re.search(r"const GEO_SHORT=(\d+)", src)
+    assert bound and int(bound.group(1)) <= 5, \
+        "a long unmatched string is a typo, not a code — saying 'code' there misleads"

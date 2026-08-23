@@ -109,6 +109,34 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
   doc.querySelector('#tabBar button[data-tab="closet"]').click();
   check("tapping a tab switches to it", JSON.stringify(visible()) === '["closet"]', visible());
 
+  console.log("\n--- 7. the strip is at the TOP (user, 2026-08-23) ---------------");
+  /* Position is a REQUEST, not a detail: the bar was built along the bottom and
+     the user asked for it at the top. DOM order is what is asserted, because that
+     is what survives a CSS refactor — a rule that stops applying leaves the bar
+     wherever the markup put it. */
+  const bar = doc.getElementById("tabBar");
+  const firstPane = doc.querySelector("section.pane");
+  check("the tab bar comes BEFORE the panes in document order",
+    !!(bar.compareDocumentPosition(firstPane) & 4), "bar is after the panes");
+  check("it sits under the header, not above it",
+    !!(doc.querySelector("header").compareDocumentPosition(bar) & 4),
+    "bar is above the header");
+  check("it is inside the page wrapper, so it lines up with the cards",
+    bar.closest(".wrap") !== null);
+  check("and it is still the only tab bar", doc.querySelectorAll("#tabBar").length === 1);
+
+  /* A sticky bar pinned at viewport 0 slides under the status bar or the camera
+     cutout on an edge-to-edge phone once the header scrolls away, and stops being
+     tappable. Raised by the pre-push reviewer, 2026-08-23. jsdom does not compute
+     env(), so the RULE is asserted rather than the layout. */
+  const css = fs.readFileSync(HTML, "utf8");
+  const rule = css.slice(css.indexOf(".sheetTabs{"));
+  const decl = rule.slice(0, rule.indexOf("}"));
+  check("the sticky bar is offset by the safe-area inset, not pinned at 0",
+    /top:\s*env\(safe-area-inset-top/.test(decl), decl.slice(0, 120));
+  check("and it is sticky, so it survives the header scrolling away",
+    /position:\s*sticky/.test(decl), decl.slice(0, 120));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

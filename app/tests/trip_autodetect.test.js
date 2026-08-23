@@ -292,8 +292,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   let g = await ev(`geocode("Chicago")`);
   check("the first result that IS the city asked for wins",
     g.place === "Chicago, Illinois, US", g);
-  check("and more than one candidate is requested", /count=5/.test(ev("globalThis.__url")),
-    ev("globalThis.__url"));
+  check("and a WIDE candidate list is requested — the right answer is often 6th or 8th",
+    /count=20/.test(ev("globalThis.__url")), ev("globalThis.__url"));
 
   omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
   g = await ev(`geocode("Petro")`);
@@ -332,6 +332,298 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   let threw = false;
   try { await ev(`geocode("Narnia")`); } catch (e) { threw = true; }
   check("no results at all still throws", threw);
+
+  console.log("\n--- 6. codes are not cities (PPK / LVL, user 2026-08-23) ---------");
+  /* Open-Meteo resolves IATA codes. Verified against the live API on 2026-08-23:
+       PPK -> Petropavl, KAZAKHSTAN        (the user's office on Princeton Pike, NJ)
+       LVL -> Lawrenceville, VIRGINIA      (the user's Lawrenceville is in NJ, 9 km)
+     Both answer with total confidence, and the distance test then CONFIRMS the
+     trip precisely BECAUSE the answer is far away — the wronger the hit, the more
+     certainly it becomes a trip to Kazakhstan. */
+  /* The gate is the strict NAME test that was already here: PPK comes back named
+     Petropavl, and a place that is not the place we asked about has not been
+     placed. No shape rule — see the note on geoUnplaceableShort for why every
+     shape rule tried here was wrong more often than right. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"PPK", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Petropavl", admin1:"North Kazakhstan", country:"Kazakhstan", country_code:"KZ",
+          latitude:54.87, longitude:69.15 }] }) };
+    };`);
+  let vc = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                     start:"2026-09-02",end:"2026-09-03"})`);
+  check("PPK is ASKED about, never turned into a trip to Kazakhstan",
+    vc.decision === "ask", vc);
+  check("and the reason names what came back instead",
+    /didn't match/.test(vc.why || "") && /Petropavl/.test(vc.why || ""), vc);
+
+  // LVL is the nastier one: the name that comes back IS the name asked about, so
+  // only the region tells Virginia from New Jersey.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Lawrenceville", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Lawrenceville", admin1:"Virginia",   country:"United States", country_code:"US", latitude:36.758, longitude:-77.847 },
+        { name:"Lawrenceville", admin1:"New Jersey", country:"United States", country_code:"US", latitude:40.297, longitude:-74.729 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Team sync",hint:"LVL",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("two far-apart Lawrencevilles are asked about, not guessed",
+    vc.decision === "ask", vc);
+
+  console.log("\n--- 7. of two same-named towns, the near one is meant -----------");
+  /* Open-Meteo ranks by population, so the user's OWN town loses to bigger
+     namesakes. Live on 2026-08-23, "Princeton" put New Jersey 6th and
+     "Lawrenceville" put New Jersey 8th — at count=5 neither was reachable. */
+  const LAWRENCEVILLES = [
+    { name: "Lawrenceville", admin1: "Georgia",    country: "United States", country_code: "US", latitude: 33.956, longitude: -83.988 },
+    { name: "Lawrenceville", admin1: "Illinois",   country: "United States", country_code: "US", latitude: 38.729, longitude: -87.682 },
+    { name: "Lawrenceville", admin1: "Virginia",   country: "United States", country_code: "US", latitude: 36.758, longitude: -77.847 },
+    { name: "Lawrenceville", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.297, longitude: -74.729 },
+  ];
+  omStub(LAWRENCEVILLES);
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  let gl = await ev(`geocode("Lawrenceville")`);
+  check("the Lawrenceville 9 km away wins over the one 486 km away",
+    gl.place === "Lawrenceville, New Jersey, US", gl);
+
+  // The tie-break must not override the NAME test, only settle it.
+  omStub([
+    { name: "Pierceton", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.30, longitude: -74.70 },
+    { name: "Princeton", admin1: "Indiana",    country: "United States", country_code: "US", latitude: 38.355, longitude: -87.568 },
+  ]);
+  gl = await ev(`geocode("Princeton")`);
+  check("a nearer town with the WRONG name still loses to the right name far away",
+    gl.place === "Princeton, Indiana, US", gl);
+
+  // An explicit qualifier still decides, whatever is nearest.
+  omStub(LAWRENCEVILLES);
+  gl = await ev(`geocode("Lawrenceville, Georgia")`);
+  check("naming the state overrides the nearest-home tie-break",
+    gl.place === "Lawrenceville, Georgia, US", gl);
+
+  // With no home there is nothing to measure from; the API's order must survive.
+  ev(`home = null;`);
+  omStub(LAWRENCEVILLES);
+  gl = await ev(`geocode("Lawrenceville")`);
+  check("with no home set the geocoder's own order is left alone",
+    gl.place === "Lawrenceville, Georgia, US", gl);
+
+  console.log("\n--- 8. a bare city near home is not a trip ----------------------");
+  /* The whole point of the tie-break: the model answering a Princeton-NJ meeting
+     with a bare "Princeton" used to geocode to Indiana, 1,130 km away, and the
+     distance test turned that into a trip nobody was taking. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Princeton", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Princeton", admin1:"Indiana",    country:"United States", country_code:"US", latitude:38.355, longitude:-87.568 },
+        { name:"Princeton", admin1:"New Jersey", country:"United States", country_code:"US", latitude:40.348, longitude:-74.659 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Offsite",hint:"",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  /* Not "trip" — that was the invented-Indiana bug. But not "skip" either: a
+     bare name shared by two far-apart places says nothing about which is meant,
+     and quietly choosing the near one CANCELS a genuine trip to the far one.
+     Raised by the pre-push reviewer, 2026-08-23; it was right. */
+  check("an ambiguous bare city name is ASKED about, not decided either way",
+    vc.decision === "ask", vc);
+  check("and the reason names the ambiguity", /names 2 different places/.test(vc.why || ""), vc);
+
+  // Unambiguous stays automatic — the tie-break only fires where there IS a tie.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Reykjavik", type:"vacation", confidence:0.9, reason:"holiday"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Reykjavik", admin1:"Capital", country:"Iceland", country_code:"IS", latitude:64.146, longitude:-21.94 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Holiday",hint:"",nights:5,
+                 start:"2026-09-02",end:"2026-09-07"})`);
+  check("a city with only ONE claimant is still added automatically",
+    vc.decision === "trip", vc);
+
+  // Two namesakes CLOSE together are not an ambiguity worth a tap: whichever is
+  // meant, the trip/skip answer is the same.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Springfield", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Springfield", admin1:"Illinois", country:"United States", country_code:"US", latitude:39.80, longitude:-89.64 },
+        { name:"Springfield", admin1:"Illinois", country:"United States", country_code:"US", latitude:39.85, longitude:-89.70 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Offsite",hint:"",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("namesakes in the same place do not trigger a needless question",
+    vc.decision === "trip", vc);
+
+  console.log("\n--- 9. lowercase codes, without refusing Rome ------------------");
+  /* The reviewer flagged that the shape test only matches uppercase, and it was
+     right that "ppk" got through. Its suggested fix — lowercase the input, or make
+     the regex case-insensitive — would refuse Rome, Oslo, Nice, Lyon, Bath, York,
+     Kobe, Pisa, Graz, Cork, Riga, Bonn, Linz and Gent, all real cities of four
+     letters or fewer. So the ANSWER is tested instead of the query: a short real
+     name comes back bearing that name, a code comes back bearing another. */
+  const asRome = [{ lat: 41.89, lon: 12.48, place: "Rome, Lazio, Italy" }];
+  const asPetro = [{ lat: 54.87, lon: 69.15, place: "Petropavl, North Kazakhstan, Kazakhstan" }];
+  check("'ppk' answered with Petropavl is unplaceable",
+    ev(`geoUnplaceableShort("ppk",${JSON.stringify(asPetro)})`));
+  check("'PPK' likewise, whatever the case",
+    ev(`geoUnplaceableShort("PPK",${JSON.stringify(asPetro)})`));
+  check("'rome' answered with Rome is a real short city, not a code",
+    !ev(`geoUnplaceableShort("rome",${JSON.stringify(asRome)})`));
+  for (const city of ["oslo", "nice", "lyon", "bath", "york", "kobe", "pisa", "graz", "cork", "riga"]) {
+    const answer = [{ lat: 0, lon: 0, place: `${city[0].toUpperCase()}${city.slice(1)}, Somewhere, XX` }];
+    check(`'${city}' is not refused as a code`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(city)},${JSON.stringify(answer)})`));
+  }
+  check("a LONG query that matches nothing is not called a code — it is a typo",
+    !ev(`geoUnplaceableShort("Pettropavvl",${JSON.stringify(asPetro)})`));
+
+  /* The case the reviewer caught: a shape rule refuses a PASTED name too. Calendar
+     text and copied addresses arrive upper-cased all the time, and "ROME" is a
+     city however it is typed. Every short city is checked in BOTH cases. */
+  for (const city of ["rome", "oslo", "nice", "lyon", "bath", "york", "kobe",
+                      "pisa", "graz", "cork", "riga", "bonn", "linz", "gent"]) {
+    const proper = city[0].toUpperCase() + city.slice(1);
+    const answer = [{ lat: 0, lon: 0, place: `${proper}, Somewhere, XX` }];
+    check(`'${city.toUpperCase()}' pasted in caps still geocodes`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(city.toUpperCase())},${JSON.stringify(answer)})`));
+    check(`'${proper}' typed normally still geocodes`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(proper)},${JSON.stringify(answer)})`));
+  }
+  check("'LVL' answered with Lawrenceville, Virginia is refused — nothing is named LVL",
+    ev(`geoUnplaceableShort("LVL",[{lat:0,lon:0,place:"Lawrenceville, Virginia, United States"}])`));
+
+  console.log("\n--- 10. the picker honours what the user typed -------------------");
+  /* geocodeMany strips the qualifier from the QUERY, because Open-Meteo matches a
+     name and "Lawrenceville, Georgia" as a query matches nothing. So the qualifier
+     has to be applied to the ANSWERS instead — otherwise stripping it silently
+     throws away the one thing the user said. Raised by the pre-push reviewer. */
+  const LV = [
+    { name: "Lawrenceville", admin1: "Georgia",    country: "United States", country_code: "US", latitude: 33.956, longitude: -83.988 },
+    { name: "Lawrenceville", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.297, longitude: -74.729 },
+    { name: "Lawrenceville", admin1: "Virginia",   country: "United States", country_code: "US", latitude: 36.758, longitude: -77.847 },
+  ];
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  omStub(LV);
+  let mm = await ev(`geocodeMany("Lawrenceville, Georgia")`);
+  check("naming Georgia puts Georgia first, though New Jersey is 1000 km nearer",
+    /Georgia/.test(mm[0].place), mm.map(x => x.place));
+  check("the others are still offered, never dropped", mm.length === 3, mm.length);
+
+  omStub(LV);
+  mm = await ev(`geocodeMany("Lawrenceville")`);
+  check("with NO qualifier the nearest wins", /New Jersey/.test(mm[0].place),
+    mm.map(x => x.place));
+  check("and each answer carries its distance from home", mm[0].km === 9, mm[0].km);
+
+  omStub(LV);
+  mm = await ev(`geocodeMany("Lawrenceville, Atlantis")`);
+  check("a qualifier nothing matches still leaves every answer to choose from",
+    mm.length === 3, mm.length);
+
+  console.log("\n--- 10a. an ISO code qualifier matches in the picker too --------");
+  /* The picker's own objects must carry the geocoder's region FIELDS, not just the
+     display string: that string ends in the full country name, so "Osaka, JP" and
+     "Paris, FR" would match nothing and rank a correctly qualified destination
+     below the misses. Raised by the pre-push reviewer, 2026-08-23. */
+  omStub([
+    { name: "Paris", admin1: "Texas",       country: "United States", country_code: "US", latitude: 33.66, longitude: -95.55 },
+    { name: "Paris", admin1: "Ile-de-France", country: "France",      country_code: "FR", latitude: 48.85, longitude: 2.35 },
+  ]);
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  mm = await ev(`geocodeMany("Paris, FR")`);
+  check("a two-letter country code puts France first, though Texas is far nearer",
+    /France/.test(mm[0].place), mm.map(x => x.place));
+  check("the picker's answers carry the geocoder's own region fields",
+    Array.isArray(mm[0].regions) && mm[0].regions.includes("FR"), mm[0].regions);
+
+  omStub([
+    { name: "Paris", admin1: "Texas",       country: "United States", country_code: "US", latitude: 33.66, longitude: -95.55 },
+    { name: "Paris", admin1: "Ile-de-France", country: "France",      country_code: "FR", latitude: 48.85, longitude: 2.35 },
+  ]);
+  mm = await ev(`geocodeMany("Paris, France")`);
+  check("and the long country name still works", /France/.test(mm[0].place),
+    mm.map(x => x.place));
+
+  console.log("\n--- 10b. same name, different town, is not a duplicate ----------");
+  /* Open-Meteo really does return three separate Lawrencevilles in Pennsylvania:
+     143, 275 and 448 km from this user (live, 2026-08-23). A label-only dedupe key
+     collapsed them to whichever came first, hiding the nearest — and could leave a
+     single result that findCity() then auto-selects. Raised by the pre-push
+     reviewer. */
+  const PA = [
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 41.998, longitude: -77.126 },
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 40.463, longitude: -79.965 },
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 40.983, longitude: -75.181 },
+  ];
+  omStub(PA);
+  mm = await ev(`geocodeMany("Lawrenceville")`);
+  check("three distinct Pennsylvania towns all survive", mm.length === 3,
+    mm.map(x => `${x.place} ${x.km}km`));
+  check("and the nearest of them is offered first",
+    mm[0].km <= mm[1].km && mm[1].km <= mm[2].km, mm.map(x => x.km));
+
+  // The genuine duplicate — the same record twice at a slightly different centre —
+  // is still collapsed, which is what the dedupe is for.
+  omStub([
+    { name: "Springfield", admin1: "Illinois", country: "United States", country_code: "US", latitude: 39.800, longitude: -89.640 },
+    { name: "Springfield", admin1: "Illinois", country: "United States", country_code: "US", latitude: 39.802, longitude: -89.641 },
+  ]);
+  mm = await ev(`geocodeMany("Springfield")`);
+  check("but one town listed twice at almost the same spot collapses to one",
+    mm.length === 1, mm.map(x => x.place));
+
+  console.log("\n--- 11. a lone answer is not auto-committed over a qualifier ----");
+  /* "Osaka, Texas" returns exactly one result — Osaka, JAPAN. Picking it silently
+     overrules the user's own qualifier with a shrug. */
+  const openSheet = () => ev(`
+    tsheet = {trip:{id:"t1",start:"2026-09-01",end:"2026-09-03",styles:["casual"]},
+              isNew:true, matches:[], geo:null};
+    document.getElementById("tsPlace").style.display = "none";
+    document.getElementById("tsErr").textContent = "";`);
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "Osaka, Texas";`);
+  omStub([{ name: "Osaka", admin1: "Osaka", country: "Japan", country_code: "JP", latitude: 34.69, longitude: 135.50 }]);
+  await ev(`findCity()`);
+  check("a sole answer failing the qualifier is NOT auto-picked",
+    ev(`tsheet.trip.lat`) == null, ev(`tsheet.trip.place`));
+  check("it is offered for the user to confirm instead",
+    /data-pick="0"/.test(ev(`document.getElementById("tsMatches").innerHTML`)));
+  check("and the mismatch is stated plainly",
+    /Nothing matched "Texas"/.test(ev(`document.getElementById("tsErr").textContent`)),
+    ev(`document.getElementById("tsErr").textContent`));
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "Osaka, Japan";`);
+  omStub([{ name: "Osaka", admin1: "Osaka", country: "Japan", country_code: "JP", latitude: 34.69, longitude: 135.50 }]);
+  await ev(`findCity()`);
+  check("a sole answer that DOES match is still auto-picked — no needless tap",
+    ev(`tsheet.trip.place`) === "Osaka, Osaka, Japan", ev(`tsheet.trip.place`));
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "ppk";`);
+  omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country: "Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
+  await ev(`findCity()`);
+  check("a lowercase code is refused in the picker, not auto-picked",
+    ev(`tsheet.trip.lat`) == null, ev(`tsheet.trip.place`));
+  check("and the user is told to name the town",
+    /building or airport code/.test(ev(`document.getElementById("tsErr").textContent`)),
+    ev(`document.getElementById("tsErr").textContent`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

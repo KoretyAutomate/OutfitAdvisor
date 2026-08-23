@@ -1842,7 +1842,16 @@ async function geocodeMany(city){
   const seen=new Set();
   const uniq=all.filter(g=>{const k=g.place.toLowerCase();
     if(seen.has(k)) return false; seen.add(k); return true;});
-  const ranked=geoNearestFirst(uniq);
+  // The qualifier is stripped from the QUERY (Open-Meteo matches a name, so
+  // "Lawrenceville, Georgia" as a query matches nothing at all) and must therefore
+  // be applied to the ANSWERS. Without this the strip silently discards what the
+  // user said: asked for Lawrenceville, GEORGIA, nearest-first would hand back New
+  // Jersey, and a sole result would be auto-picked. Anything that fails the
+  // qualifier is kept, but ranked below everything that passes — never dropped, so
+  // a qualifier the region table cannot match still leaves something to choose.
+  const hit=uniq.filter(x=>geoPlaceMatches(city,x));
+  const miss=uniq.filter(x=>!geoPlaceMatches(city,x));
+  const ranked=geoNearestFirst(hit).concat(geoNearestFirst(miss));
   return (home&&home.lat!=null)
     ? ranked.map(g=>({...g,km:Math.round(haversineKm(home.lat,home.lon,g.lat,g.lon))}))
     : ranked;
@@ -2112,7 +2121,16 @@ async function findCity(){
       `"${m[0].place}". If "${c}" is a building or airport code, type the town it is in.`;
     return;
   }
-  if(m.length===1){ pickCity(0); $("tsMatches").innerHTML=""; return; }
+  // A lone answer is only committed to unattended if it IS what was asked for.
+  // "Osaka, Texas" returns exactly one result — Osaka, Japan — and picking it
+  // silently would overrule the user's own qualifier with a shrug.
+  if(m.length===1&&geoPlaceMatches(c,m[0])){ pickCity(0); $("tsMatches").innerHTML=""; return; }
+  if(m.length===1&&geoParts(c).length>1){
+    $("tsMatches").innerHTML=`<button class="ghost" data-pick="0" style="width:100%;text-align:left;margin:4px 0">${esc(m[0].place)}</button>`;
+    $("tsErr").textContent=`Nothing matched "${geoParts(c).slice(1).join(", ")}". `+
+      `Tap the answer above if it is the right place.`;
+    return;
+  }
   // The distance is part of the label, not a tooltip: it is the only thing that
   // distinguishes two identically-named towns at a glance.
   $("tsMatches").innerHTML=m.map((g,i)=>

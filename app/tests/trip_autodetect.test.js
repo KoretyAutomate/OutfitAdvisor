@@ -507,6 +507,72 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("'LVL' answered with Lawrenceville, Virginia is refused — nothing is named LVL",
     ev(`geoUnplaceableShort("LVL",[{lat:0,lon:0,place:"Lawrenceville, Virginia, United States"}])`));
 
+  console.log("\n--- 10. the picker honours what the user typed -------------------");
+  /* geocodeMany strips the qualifier from the QUERY, because Open-Meteo matches a
+     name and "Lawrenceville, Georgia" as a query matches nothing. So the qualifier
+     has to be applied to the ANSWERS instead — otherwise stripping it silently
+     throws away the one thing the user said. Raised by the pre-push reviewer. */
+  const LV = [
+    { name: "Lawrenceville", admin1: "Georgia",    country: "United States", country_code: "US", latitude: 33.956, longitude: -83.988 },
+    { name: "Lawrenceville", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.297, longitude: -74.729 },
+    { name: "Lawrenceville", admin1: "Virginia",   country: "United States", country_code: "US", latitude: 36.758, longitude: -77.847 },
+  ];
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  omStub(LV);
+  let mm = await ev(`geocodeMany("Lawrenceville, Georgia")`);
+  check("naming Georgia puts Georgia first, though New Jersey is 1000 km nearer",
+    /Georgia/.test(mm[0].place), mm.map(x => x.place));
+  check("the others are still offered, never dropped", mm.length === 3, mm.length);
+
+  omStub(LV);
+  mm = await ev(`geocodeMany("Lawrenceville")`);
+  check("with NO qualifier the nearest wins", /New Jersey/.test(mm[0].place),
+    mm.map(x => x.place));
+  check("and each answer carries its distance from home", mm[0].km === 9, mm[0].km);
+
+  omStub(LV);
+  mm = await ev(`geocodeMany("Lawrenceville, Atlantis")`);
+  check("a qualifier nothing matches still leaves every answer to choose from",
+    mm.length === 3, mm.length);
+
+  console.log("\n--- 11. a lone answer is not auto-committed over a qualifier ----");
+  /* "Osaka, Texas" returns exactly one result — Osaka, JAPAN. Picking it silently
+     overrules the user's own qualifier with a shrug. */
+  const openSheet = () => ev(`
+    tsheet = {trip:{id:"t1",start:"2026-09-01",end:"2026-09-03",styles:["casual"]},
+              isNew:true, matches:[], geo:null};
+    document.getElementById("tsPlace").style.display = "none";
+    document.getElementById("tsErr").textContent = "";`);
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "Osaka, Texas";`);
+  omStub([{ name: "Osaka", admin1: "Osaka", country: "Japan", country_code: "JP", latitude: 34.69, longitude: 135.50 }]);
+  await ev(`findCity()`);
+  check("a sole answer failing the qualifier is NOT auto-picked",
+    ev(`tsheet.trip.lat`) == null, ev(`tsheet.trip.place`));
+  check("it is offered for the user to confirm instead",
+    /data-pick="0"/.test(ev(`document.getElementById("tsMatches").innerHTML`)));
+  check("and the mismatch is stated plainly",
+    /Nothing matched "Texas"/.test(ev(`document.getElementById("tsErr").textContent`)),
+    ev(`document.getElementById("tsErr").textContent`));
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "Osaka, Japan";`);
+  omStub([{ name: "Osaka", admin1: "Osaka", country: "Japan", country_code: "JP", latitude: 34.69, longitude: 135.50 }]);
+  await ev(`findCity()`);
+  check("a sole answer that DOES match is still auto-picked — no needless tap",
+    ev(`tsheet.trip.place`) === "Osaka, Osaka, Japan", ev(`tsheet.trip.place`));
+
+  openSheet();
+  ev(`document.getElementById("tsCity").value = "ppk";`);
+  omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country: "Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
+  await ev(`findCity()`);
+  check("a lowercase code is refused in the picker, not auto-picked",
+    ev(`tsheet.trip.lat`) == null, ev(`tsheet.trip.place`));
+  check("and the user is told to name the town",
+    /building or airport code/.test(ev(`document.getElementById("tsErr").textContent`)),
+    ev(`document.getElementById("tsErr").textContent`));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

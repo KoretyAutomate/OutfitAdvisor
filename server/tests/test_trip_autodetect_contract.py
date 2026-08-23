@@ -114,12 +114,53 @@ def test_a_region_qualifier_is_compared_and_never_dropped():
 
 
 def test_the_geocoder_is_asked_for_more_than_one_candidate():
-    """With count=1 there is no way to step over a fuzzy top hit."""
+    """With count=1 there is no way to step over a fuzzy top hit.
+
+    The width is also load-bearing beyond that. Measured against the live API on
+    2026-08-23 from the user's own home area: "Princeton" ranks New Jersey 6th and
+    "Lawrenceville" ranks New Jersey 8th, behind bigger namesakes in other states.
+    At count=5 the user's own town was not in the list AT ALL, so no amount of
+    choosing among the answers could have found it.
+    """
     src = INDEX.read_text()
     geo = src[src.index("async function geocode(city)"):]
     geo = geo[:geo.index("\n}")]
     assert "count=1" not in geo, "one result leaves nothing to choose between"
-    assert re.search(r"count=([2-9]|\d\d)", geo), "the search must request several results"
+    # The count is a named constant now, so resolve it rather than matching digits.
+    m = re.search(r"count=\$\{(\w+)\}", geo)
+    assert m, "the search must request several results"
+    decl = re.search(rf"const {m.group(1)}\s*=\s*(\d+)", src)
+    assert decl, f"{m.group(1)} is used but never declared"
+    assert int(decl.group(1)) >= 10, (
+        "a short list cannot reach the user's own town: New Jersey ranks 6th for "
+        f"'Princeton' and 8th for 'Lawrenceville', but count={decl.group(1)}"
+    )
     assert "geoPlaceMatches" in geo, "the returned place is never compared with the query"
     assert geo.index("geoPlaceExact") < geo.index("geoPlaceMatches"), \
         "a result NAMED the city must be preferred to one that merely extends it"
+
+
+def test_a_building_code_never_reaches_the_geocoder():
+    """PPK is an office on Princeton Pike, NJ. Open-Meteo says Kazakhstan.
+
+    Verified against the live API on 2026-08-23: the geocoder resolves IATA codes,
+    so `PPK` returns Petropavl, Kazakhstan and `LVL` returns Lawrenceville,
+    VIRGINIA — the user's Lawrenceville is in New Jersey, 9 km from home. Both
+    answer with total confidence and no score, and the distance test then CONFIRMS
+    the trip precisely because the answer is far away.
+
+    A work calendar puts exactly these strings in the location field, so this is
+    the common case, not an exotic one.
+    """
+    src = INDEX.read_text()
+    assert re.search(r"const geoLooksLikeCode=", src), "nothing recognises a code"
+    body = _triage_candidate()
+    assert "geoLooksLikeCode(t.city)" in body, \
+        "the automatic path must refuse a code before geocoding it"
+    guard = body.index("geoLooksLikeCode(t.city)")
+    assert 'decision:"ask"' in body[guard:guard + 200], \
+        "a code must degrade to asking, never to inventing a destination"
+    # The refusal has to come BEFORE the network call, or the wrong answer is
+    # already in hand and only discipline stops it being used.
+    assert guard < body.index("await geocode("), \
+        "the code test must run before the geocoder is called"

@@ -242,6 +242,53 @@ check("migrateItem is reconcileItem — one repair pass on load",
     pack.find(p => p.id === "p1").type === "polo", pack);
   check("the packing payload carries the group", pack.find(p => p.id === "p1").group === "tops", pack);
 
+  console.log("\n--- 9. reading the type out of the label (2026-08-23) ----------");
+  // Every closet saved before 2026-08-14 has no type, so all of it filed under the
+  // unlabelled "Other" block — one flat lump inside Tops and Bottoms, which is what
+  // the user reported as "the classification got narrower".
+  const NOUNS = [
+    ["Grey v-neck t-shirt", "tops", "t_shirt"],   // must beat the "shirt" substring
+    ["White oxford shirt",  "tops", "shirt"],
+    ["Navy polo",           "tops", "polo"],
+    ["Grey hoodie",         "tops", "hoodie"],
+    ["Blue jeans",       "bottoms", "jeans"],
+    ["Black chinos",     "bottoms", "trousers"],
+    ["Black tights",     "bottoms", "leggings"],
+    ["Down jacket",    "outerwear", "puffer"],    // must beat the "jacket" substring
+    ["Navy blazer",    "outerwear", "blazer"],
+    ["Sports bra",     "underwear", "bra"],
+    ["Running shoes",   "footwear", "sneakers"],
+    ["Wool socks",      "footwear", "socks"],
+    ["Brown leather belt", "accessories", "belt"],
+  ];
+  for (const [label, grp, want] of NOUNS)
+    check(`"${label}" in ${grp} reads as ${want}`,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`) === want,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`));
+
+  // The group restricts the vocabulary: "denim" alone means jeans, but a denim
+  // JACKET is outerwear, and jeans are not a legal type there.
+  check("a denim jacket is a jacket, not jeans",
+    ev(`typeFromLabel("Denim jacket","outerwear")`) === "jacket",
+    ev(`typeFromLabel("Denim jacket","outerwear")`));
+
+  // Precision over recall: silence is a correct answer, and the item keeps filing
+  // under Other exactly as it does today.
+  check("a label naming no garment stays untyped",
+    ev(`typeFromLabel("Something vague","tops")`) === null);
+  check("an empty label stays untyped", ev(`typeFromLabel("","tops")`) === null);
+  check("a label of only punctuation stays untyped", ev(`typeFromLabel("---","tops")`) === null);
+
+  console.log("\n--- 10. inference only ever FILLS a gap ------------------------");
+  const filled = ev(`reconcileItem({id:"x1",label:"Navy polo",category:"base",group:"tops",count:1})`);
+  check("an untyped item gets the type its label names", filled.type === "polo", filled);
+  check("and is marked as filed by name, not by the classifier",
+    filled.typeFrom === "label", filled);
+  const stated = ev(`reconcileItem({id:"x2",label:"Navy polo",category:"base",group:"tops",type:"shirt",count:1})`);
+  check("a type the classifier gave is NEVER overwritten by the label",
+    stated.type === "shirt", stated);
+  check("and carries no by-name marker", !stated.typeFrom, stated);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

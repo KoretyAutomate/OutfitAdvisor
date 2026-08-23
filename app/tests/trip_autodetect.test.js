@@ -292,8 +292,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   let g = await ev(`geocode("Chicago")`);
   check("the first result that IS the city asked for wins",
     g.place === "Chicago, Illinois, US", g);
-  check("and more than one candidate is requested", /count=5/.test(ev("globalThis.__url")),
-    ev("globalThis.__url"));
+  check("and a WIDE candidate list is requested — the right answer is often 6th or 8th",
+    /count=20/.test(ev("globalThis.__url")), ev("globalThis.__url"));
 
   omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
   g = await ev(`geocode("Petro")`);
@@ -332,6 +332,96 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   let threw = false;
   try { await ev(`geocode("Narnia")`); } catch (e) { threw = true; }
   check("no results at all still throws", threw);
+
+  console.log("\n--- 6. codes are not cities (PPK / LVL, user 2026-08-23) ---------");
+  /* Open-Meteo resolves IATA codes. Verified against the live API on 2026-08-23:
+       PPK -> Petropavl, KAZAKHSTAN        (the user's office on Princeton Pike, NJ)
+       LVL -> Lawrenceville, VIRGINIA      (the user's Lawrenceville is in NJ, 9 km)
+     Both answer with total confidence, and the distance test then CONFIRMS the
+     trip precisely BECAUSE the answer is far away — the wronger the hit, the more
+     certainly it becomes a trip to Kazakhstan. */
+  check("a 3-letter all-caps code is recognised as a code", ev(`geoLooksLikeCode("PPK")`));
+  check("so is LVL", ev(`geoLooksLikeCode("LVL")`));
+  check("and a 4-character one", ev(`geoLooksLikeCode("KPMG")`));
+  check("a real city is NOT a code", !ev(`geoLooksLikeCode("Boston")`));
+  check("nor is an all-caps city — length is what separates them",
+    !ev(`geoLooksLikeCode("BOSTON")`));
+  check("nor a qualified name", !ev(`geoLooksLikeCode("Princeton, NJ")`));
+
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  // The model answers with the code itself as the "city"; the geocoder must never
+  // be asked about it, so calling it here is a test failure by construction.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"PPK", type:"business", confidence:0.9, reason:"offsite"}) };
+      throw new Error("the geocoder must not be called for a code");
+    };`);
+  let vc = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                     start:"2026-09-02",end:"2026-09-03"})`);
+  check("a code city is ASKED about, never geocoded into a trip",
+    vc.decision === "ask", vc);
+  check("and the reason says why", /code, not a city/.test(vc.why || ""), vc);
+
+  console.log("\n--- 7. of two same-named towns, the near one is meant -----------");
+  /* Open-Meteo ranks by population, so the user's OWN town loses to bigger
+     namesakes. Live on 2026-08-23, "Princeton" put New Jersey 6th and
+     "Lawrenceville" put New Jersey 8th — at count=5 neither was reachable. */
+  const LAWRENCEVILLES = [
+    { name: "Lawrenceville", admin1: "Georgia",    country: "United States", country_code: "US", latitude: 33.956, longitude: -83.988 },
+    { name: "Lawrenceville", admin1: "Illinois",   country: "United States", country_code: "US", latitude: 38.729, longitude: -87.682 },
+    { name: "Lawrenceville", admin1: "Virginia",   country: "United States", country_code: "US", latitude: 36.758, longitude: -77.847 },
+    { name: "Lawrenceville", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.297, longitude: -74.729 },
+  ];
+  omStub(LAWRENCEVILLES);
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  let gl = await ev(`geocode("Lawrenceville")`);
+  check("the Lawrenceville 9 km away wins over the one 486 km away",
+    gl.place === "Lawrenceville, New Jersey, US", gl);
+
+  // The tie-break must not override the NAME test, only settle it.
+  omStub([
+    { name: "Pierceton", admin1: "New Jersey", country: "United States", country_code: "US", latitude: 40.30, longitude: -74.70 },
+    { name: "Princeton", admin1: "Indiana",    country: "United States", country_code: "US", latitude: 38.355, longitude: -87.568 },
+  ]);
+  gl = await ev(`geocode("Princeton")`);
+  check("a nearer town with the WRONG name still loses to the right name far away",
+    gl.place === "Princeton, Indiana, US", gl);
+
+  // An explicit qualifier still decides, whatever is nearest.
+  omStub(LAWRENCEVILLES);
+  gl = await ev(`geocode("Lawrenceville, Georgia")`);
+  check("naming the state overrides the nearest-home tie-break",
+    gl.place === "Lawrenceville, Georgia, US", gl);
+
+  // With no home there is nothing to measure from; the API's order must survive.
+  ev(`home = null;`);
+  omStub(LAWRENCEVILLES);
+  gl = await ev(`geocode("Lawrenceville")`);
+  check("with no home set the geocoder's own order is left alone",
+    gl.place === "Lawrenceville, Georgia, US", gl);
+
+  console.log("\n--- 8. a bare city near home is not a trip ----------------------");
+  /* The whole point of the tie-break: the model answering a Princeton-NJ meeting
+     with a bare "Princeton" used to geocode to Indiana, 1,130 km away, and the
+     distance test turned that into a trip nobody was taking. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Princeton", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Princeton", admin1:"Indiana",    country:"United States", country_code:"US", latitude:38.355, longitude:-87.568 },
+        { name:"Princeton", admin1:"New Jersey", country:"United States", country_code:"US", latitude:40.348, longitude:-74.659 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Offsite",hint:"",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("a bare city name resolves to the one at home, so no trip is invented",
+    vc.decision === "skip", vc);
+  check("and it is skipped for being CLOSE, not for failing to place",
+    /km from home/.test(vc.why || ""), vc);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

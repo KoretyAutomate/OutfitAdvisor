@@ -109,6 +109,22 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
   doc.querySelector('#tabBar button[data-tab="closet"]').click();
   check("tapping a tab switches to it", JSON.stringify(visible()) === '["closet"]', visible());
 
+  console.log("\n--- 7. the strip is at the TOP (user, 2026-08-23) ---------------");
+  /* Position is a REQUEST, not a detail: the bar was built along the bottom and
+     the user asked for it at the top. DOM order is what is asserted, because that
+     is what survives a CSS refactor — a rule that stops applying leaves the bar
+     wherever the markup put it. */
+  const bar = doc.getElementById("tabBar");
+  const firstPane = doc.querySelector("section.pane");
+  check("the tab bar comes BEFORE the panes in document order",
+    !!(bar.compareDocumentPosition(firstPane) & 4), "bar is after the panes");
+  check("it sits under the header, not above it",
+    !!(doc.querySelector("header").compareDocumentPosition(bar) & 4),
+    "bar is above the header");
+  check("it is inside the page wrapper, so it lines up with the cards",
+    bar.closest(".wrap") !== null);
+  check("and it is still the only tab bar", doc.querySelectorAll("#tabBar").length === 1);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

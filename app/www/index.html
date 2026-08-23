@@ -1067,22 +1067,27 @@ function normRoles(roles,category){
 }
 /* Twin of reconcile() in server/vocab.py. Mutates and returns the item so it can
    be used as a map callback. Total: any input becomes a legal item. */
-function reconcileItem(it){
+function reconcileItem(it,inferFromLabel=false){
   let g=GROUP_ALIAS[it.group]||it.group;
   const raw=it.type?String(it.type).trim().toLowerCase().replace(/[-\s]/g,"_"):null;
   if(g && LEGACY_TYPE_GROUP[g+"|"+raw]) g=LEGACY_TYPE_GROUP[g+"|"+raw];
   if(!GROUPS.includes(g)) g=GROUP_FROM_TYPE[raw]||GROUP_FROM_CAT[it.category]||"tops";
   it.group=g;
   it.type=normType(raw,g);
-  // Nothing stated a type, or what was stated does not belong to this group:
-  // fall back to the garment noun in the label. Only ever FILLS a gap — a type
-  // the classifier gave is never overwritten by a word in the label.
-  if(!it.type){
+  // Nothing stated a type: fall back to the garment noun in the label, but ONLY
+  // when the caller asked for it — that is migrateItem, on load, once.
+  //
+  // Not on every reconcile, because reconcile also runs when the user edits the
+  // item, and the Kind selector offers "— not specified —". Inferring there would
+  // put the type straight back and make that option do nothing: the user picks it,
+  // the label still says "Navy polo", and polo returns. An explicit clear is also
+  // REMEMBERED, so the next load does not undo it either.
+  if(inferFromLabel&&!it.type&&!it.typeCleared){
     const guess=typeFromLabel(it.label,g);
     if(guess){ it.type=guess; it.typeFrom="label"; }
-  }else if(it.typeFrom==="label"&&raw===it.type){
-    // keep the marker across reloads so a name-filed item stays identifiable
-  }else if(it.typeFrom&&raw!==it.type){ delete it.typeFrom; }
+  }
+  if(it.type) delete it.typeCleared; else if(!inferFromLabel) it.typeCleared=true;
+  if(it.typeFrom&&it.type!==raw&&raw!=null) delete it.typeFrom;
   // The group's slots, narrowed by the type. Falling back to the group alone keeps
   // this total — an unpickable item is worse than a slightly loose one.
   let allowed=GROUP_CATS[g];
@@ -1103,10 +1108,11 @@ function reconcileItem(it){
    of it in one pass, so the wardrobe the advisor reads is never self-contradictory
    even for photos added before the rules existed.
 
-   A type is never GUESSED for an untyped item: nothing in a pre-2026-08-14 record
-   says whether a "top" is a tee or a polo, and a wrong type would enter the prompt
-   as fact. Untyped items file under "Other". */
-function migrateItem(it){ return reconcileItem(it); }
+   The type is BACKFILLED here from the label, and only here — see typeFromLabel
+   for why a label counts as evidence and a bare category does not. Once, on load,
+   never on the edit path: the Kind selector offers "— not specified —", and
+   re-inferring on every reconcile would make that option inert. */
+function migrateItem(it){ return reconcileItem(it,true); }
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches

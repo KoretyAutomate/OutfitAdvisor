@@ -279,15 +279,32 @@ check("migrateItem is reconcileItem — one repair pass on load",
   check("an empty label stays untyped", ev(`typeFromLabel("","tops")`) === null);
   check("a label of only punctuation stays untyped", ev(`typeFromLabel("---","tops")`) === null);
 
-  console.log("\n--- 10. inference only ever FILLS a gap ------------------------");
-  const filled = ev(`reconcileItem({id:"x1",label:"Navy polo",category:"base",group:"tops",count:1})`);
+  console.log("\n--- 10. inference only ever FILLS a gap, and only on load ------");
+  // migrateItem is the load path; that is the ONLY place a label is read.
+  const filled = ev(`migrateItem({id:"x1",label:"Navy polo",category:"base",group:"tops",count:1})`);
   check("an untyped item gets the type its label names", filled.type === "polo", filled);
   check("and is marked as filed by name, not by the classifier",
     filled.typeFrom === "label", filled);
-  const stated = ev(`reconcileItem({id:"x2",label:"Navy polo",category:"base",group:"tops",type:"shirt",count:1})`);
+  const stated = ev(`migrateItem({id:"x2",label:"Navy polo",category:"base",group:"tops",type:"shirt",count:1})`);
   check("a type the classifier gave is NEVER overwritten by the label",
     stated.type === "shirt", stated);
   check("and carries no by-name marker", !stated.typeFrom, stated);
+
+  /* The Kind selector offers "— not specified —", and an untyped item is a
+     perfectly good wardrobe entry. Inferring on every reconcile made that option
+     inert: the user picked it, the label still said "Navy polo", and polo came
+     straight back. Raised by the pre-push reviewer, 2026-08-23. */
+  const cleared = ev(`reconcileItem({id:"x3",label:"Navy polo",category:"base",group:"tops",type:null,count:1})`);
+  check("clearing the Kind on an edit actually clears it", cleared.type === null, cleared);
+  check("and the choice is remembered", cleared.typeCleared === true, cleared);
+  const afterLoad = ev(`migrateItem(${JSON.stringify(cleared)})`);
+  check("and survives the next load — the backfill does not undo it",
+    afterLoad.type === null, afterLoad);
+
+  // Choosing a real type afterwards clears the marker, so the item is normal again.
+  const retyped = ev(`reconcileItem({id:"x4",label:"Navy polo",category:"base",group:"tops",type:"polo",typeCleared:true,count:1})`);
+  check("picking a Kind again drops the cleared marker",
+    retyped.type === "polo" && !retyped.typeCleared, retyped);
 
   console.log("\n--- 11. specific beats generic, by table not by accident -------");
   /* Character length is not specificity. Scoring by it filed "Navy polo shirt" as

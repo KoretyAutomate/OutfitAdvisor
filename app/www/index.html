@@ -781,6 +781,18 @@ function geoNearestFirst(list){
    (2026-08-23). A code is never geocoded silently — the user is told what it is
    and asked for the actual city. */
 const geoLooksLikeCode=s=>/^[A-Z0-9]{2,4}$/.test(String(s||"").trim());
+/* Lowercase codes ("ppk", "lvl", "ewr") need a different test, because SHAPE
+   alone cannot tell them from a real short city: a case-insensitive rule refuses
+   Rome, Oslo, Nice, Lyon, Bath, York, Kobe, Pisa, Graz, Cork, Riga, Bonn, Linz
+   and Gent, which is a far worse bug than the one it fixes.
+   What separates them is the ANSWER, not the query. A short real name comes back
+   bearing that name — "rome" answers Rome. A code comes back bearing a different
+   one — "ppk" answers Petropavl — because the geocoder matched an airport table,
+   not the string. So: a short query that nothing name-matches is a code. */
+const GEO_SHORT=4;
+const geoUnplaceableShort=(q,list)=>
+  String(q||"").trim().length<=GEO_SHORT &&
+  !(list||[]).some(x=>geoPlaceMatches(q,x));
 async function geocode(city){
   // Open-Meteo's search matches a NAME: "Springfield, IL" as a query matches
   // nothing at all. So the qualifier is stripped from the QUERY and then used to
@@ -801,9 +813,16 @@ async function geocode(city){
   const all=d.results.map(named);
   // Nearest-first WITHIN each tier, so an exact name still beats a near miss:
   // the tie-break decides which Princeton, never whether Princeton beats Pierceton.
-  return geoNearestFirst(all.filter(x=>geoPlaceExact(city,x)))[0]
-      || geoNearestFirst(all.filter(x=>geoPlaceMatches(city,x)))[0]
-      || all[0];
+  const exact=geoNearestFirst(all.filter(x=>geoPlaceExact(city,x)));
+  const loose=geoNearestFirst(all.filter(x=>geoPlaceMatches(city,x)));
+  const tier=exact.length?exact:loose;
+  // `alts` carries the OTHER places with an equally good claim to this name. The
+  // unattended path needs it: picking the nearest is the right default for a human
+  // typing a name, but it is a GUESS when nobody is looking, and a guess that lands
+  // near home silently cancels a real trip to a distant namesake. The caller can
+  // now see that the question was ambiguous instead of being handed one answer.
+  const pick=tier[0]||all[0];
+  return {...pick, alts:tier.length?tier:[pick], all};
 }
 async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
@@ -1690,6 +1709,16 @@ async function triageCandidate(c){
   // a plausible-looking name on it.
   if(!geoPlaceExact(t.city,g))
     return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
+  // AMBIGUITY IS NOT A DECISION. Several real places carry this exact name and
+  // they are far apart — Princeton NJ and Princeton IN are 1,130 km apart, and
+  // nothing in a bare "Princeton" says which the event means. Choosing the nearest
+  // would silently cancel a genuine trip to the distant one; choosing the biggest
+  // is how the Kazakhstan trips got invented. Both answers are wrong a fair share
+  // of the time, so neither is taken unattended: one confirmation tap, the same
+  // price this app pays everywhere else it cannot be sure.
+  const alts=g.alts||[];
+  if(alts.length>1&&alts.some(a=>haversineKm(alts[0].lat,alts[0].lon,a.lat,a.lon)>=TRIP_MIN_KM))
+    return {decision:"ask", why:`"${t.city}" names ${alts.length} different places`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
   if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};
   if(c.nights<1)     return {decision:"skip", why:"no overnight"};
@@ -2084,6 +2113,15 @@ async function findCity(){
   if(!m.length){
     $("tsMatches").innerHTML="";
     $("tsErr").textContent=`Couldn't find "${c}". Try just the city name — e.g. "Osaka", or "Osaka, Japan".`;
+    return;
+  }
+  // A short query that nothing came back NAMED is a code the geocoder resolved
+  // out of an airport table — "ppk" answering Petropavl. Caught here rather than
+  // by shape, so lowercase codes are refused without refusing Rome or Oslo.
+  if(geoUnplaceableShort(c,m)){
+    $("tsMatches").innerHTML="";
+    $("tsErr").textContent=`Nothing is called "${c}" — the closest match is `+
+      `"${m[0].place}". If "${c}" is a building or airport code, type the town it is in.`;
     return;
   }
   if(m.length===1){ pickCity(0); $("tsMatches").innerHTML=""; return; }

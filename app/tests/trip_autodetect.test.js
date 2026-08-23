@@ -418,10 +418,66 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     };`);
   vc = await ev(`triageCandidate({title:"Offsite",hint:"",nights:1,
                  start:"2026-09-02",end:"2026-09-03"})`);
-  check("a bare city name resolves to the one at home, so no trip is invented",
-    vc.decision === "skip", vc);
-  check("and it is skipped for being CLOSE, not for failing to place",
-    /km from home/.test(vc.why || ""), vc);
+  /* Not "trip" — that was the invented-Indiana bug. But not "skip" either: a
+     bare name shared by two far-apart places says nothing about which is meant,
+     and quietly choosing the near one CANCELS a genuine trip to the far one.
+     Raised by the pre-push reviewer, 2026-08-23; it was right. */
+  check("an ambiguous bare city name is ASKED about, not decided either way",
+    vc.decision === "ask", vc);
+  check("and the reason names the ambiguity", /names 2 different places/.test(vc.why || ""), vc);
+
+  // Unambiguous stays automatic — the tie-break only fires where there IS a tie.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Reykjavik", type:"vacation", confidence:0.9, reason:"holiday"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Reykjavik", admin1:"Capital", country:"Iceland", country_code:"IS", latitude:64.146, longitude:-21.94 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Holiday",hint:"",nights:5,
+                 start:"2026-09-02",end:"2026-09-07"})`);
+  check("a city with only ONE claimant is still added automatically",
+    vc.decision === "trip", vc);
+
+  // Two namesakes CLOSE together are not an ambiguity worth a tap: whichever is
+  // meant, the trip/skip answer is the same.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Springfield", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Springfield", admin1:"Illinois", country:"United States", country_code:"US", latitude:39.80, longitude:-89.64 },
+        { name:"Springfield", admin1:"Illinois", country:"United States", country_code:"US", latitude:39.85, longitude:-89.70 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Offsite",hint:"",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("namesakes in the same place do not trigger a needless question",
+    vc.decision === "trip", vc);
+
+  console.log("\n--- 9. lowercase codes, without refusing Rome ------------------");
+  /* The reviewer flagged that the shape test only matches uppercase, and it was
+     right that "ppk" got through. Its suggested fix — lowercase the input, or make
+     the regex case-insensitive — would refuse Rome, Oslo, Nice, Lyon, Bath, York,
+     Kobe, Pisa, Graz, Cork, Riga, Bonn, Linz and Gent, all real cities of four
+     letters or fewer. So the ANSWER is tested instead of the query: a short real
+     name comes back bearing that name, a code comes back bearing another. */
+  const asRome = [{ lat: 41.89, lon: 12.48, place: "Rome, Lazio, Italy" }];
+  const asPetro = [{ lat: 54.87, lon: 69.15, place: "Petropavl, North Kazakhstan, Kazakhstan" }];
+  check("'ppk' answered with Petropavl is unplaceable",
+    ev(`geoUnplaceableShort("ppk",${JSON.stringify(asPetro)})`));
+  check("'PPK' likewise, whatever the case",
+    ev(`geoUnplaceableShort("PPK",${JSON.stringify(asPetro)})`));
+  check("'rome' answered with Rome is a real short city, not a code",
+    !ev(`geoUnplaceableShort("rome",${JSON.stringify(asRome)})`));
+  for (const city of ["oslo", "nice", "lyon", "bath", "york", "kobe", "pisa", "graz", "cork", "riga"]) {
+    const answer = [{ lat: 0, lon: 0, place: `${city[0].toUpperCase()}${city.slice(1)}, Somewhere, XX` }];
+    check(`'${city}' is not refused as a code`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(city)},${JSON.stringify(answer)})`));
+  }
+  check("a LONG query that matches nothing is not called a code — it is a typo",
+    !ev(`geoUnplaceableShort("Pettropavvl",${JSON.stringify(asPetro)})`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

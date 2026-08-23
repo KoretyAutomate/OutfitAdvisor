@@ -14,7 +14,7 @@
  *   - re-tapping replaces the rating instead of stacking a second correction.
  *   - parity with the Python twin's thresholds (server/engine.py).
  *
- * Run: NODE_PATH=<...>/node_modules node tests/feedback_math.test.js
+ * Run: npm test   (or: node tests/feedback_math.test.js — jsdom is a devDependency since 2026-08-20)
  */
 const fs = require("fs");
 const path = require("path");

@@ -36,6 +36,15 @@ Two halves, split so the phone stays dumb and the intelligence stays home:
   invisible to the LAN and the public internet. The app whitelists cleartext
   HTTP to that single IP only.
 
+## The three sheets
+
+The app is one screen with three pages, switched by a strip of tabs along the
+bottom the way a spreadsheet switches sheets:
+
+| 📍 Location & advice | 🧥 Closet | 📅 Calendar |
+|---|---|---|
+| where you are, who you dress as, today's weather and outfit | your clothes, and what is in the wash | home area, which calendars may be read, upcoming trips and packing |
+
 ## Repo layout
 
 ```
@@ -80,7 +89,14 @@ Server setup: `server/README.md`. Point the app at your server via
 - Calendars (used only to spot upcoming trips) are read **on the phone** and never
   sent anywhere. A calendar somebody else **shared with you is never read at all** —
   the app asks Android who owns each calendar and scans only the user's own, and if
-  it cannot tell the two apart it scans nothing rather than everything.
+  it cannot tell the two apart it scans nothing rather than everything. The picker
+  lists them grouped under the account each belongs to, so you can see which
+  sign-in a calendar came from before ticking it.
+- A trip is only added **by itself** when the advisor is sure, the destination
+  looks like a place name, and the geocoder answers with *that* place. Open-Meteo's
+  search is fuzzy and scoreless — trusting its first hit is what once produced
+  automatic trips to cities nobody had named. Anything short of all three is
+  offered as a candidate to confirm, never invented.
 
 ## Status
 

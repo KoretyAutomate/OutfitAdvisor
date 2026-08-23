@@ -14,7 +14,7 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     background:linear-gradient(180deg,#0f172a,#13203a);color:var(--txt);
-    min-height:100vh;padding:env(safe-area-inset-top) 0 40px;}
+    min-height:100vh;padding:env(safe-area-inset-top) 0 calc(86px + env(safe-area-inset-bottom));}
   .wrap{max-width:560px;margin:0 auto;padding:0 16px}
   header{padding:22px 0 8px;display:flex;align-items:center;gap:10px}
   header h1{font-size:1.35rem;margin:0;font-weight:700;letter-spacing:-.02em}
@@ -132,6 +132,37 @@
   .folderHead .tw{color:var(--muted);width:12px}
   .folderHead .fcount{margin-left:auto;color:var(--muted);font-size:.72rem}
   .folder .grid{margin-top:8px}
+  /* Second level inside a folder — "Tops ▸ Polo shirt" (2026-08-20). */
+  .subHead{display:flex;align-items:baseline;gap:7px;margin:10px 0 0;padding-left:2px}
+  .subHead .st{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .subHead .sc{font-size:.66rem;color:#475569}
+  /* ── sheet tabs (2026-08-20) ──
+     Three pages switched the way Excel switches sheets: a strip pinned along the
+     bottom, the ACTIVE tab lifted and joined to the page above it, the inactive
+     ones sunk and dimmed. The strip is fixed rather than scrolling with the page —
+     a tab you have to scroll to find is not a tab. */
+  .pane{display:none}
+  .pane.on{display:block}
+  .sheetTabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:3px;
+    align-items:flex-end;padding:8px 8px calc(4px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg,rgba(11,19,34,0),#0b1322 60%);
+    border-top:1px solid var(--line);backdrop-filter:blur(6px)}
+  .sheetTabs button{flex:1;min-width:0;border:1px solid var(--line);border-bottom:none;
+    border-radius:10px 10px 0 0;padding:9px 4px 13px;background:var(--bg2);
+    color:var(--muted);font-size:.74rem;font-weight:600;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .sheetTabs button.on{background:var(--card2);color:var(--txt);
+    padding-top:12px;box-shadow:inset 0 2px 0 var(--accent)}
+  .sheetTabs button:active{transform:none}
+  /* calendar picker — grouped by the account each calendar belongs to (2026-08-20) */
+  .calAcct{margin-bottom:14px}
+  .calAcctHead{display:flex;align-items:baseline;gap:7px;font-size:.82rem;font-weight:600;
+    padding:7px 0;border-bottom:1px solid var(--line);word-break:break-all}
+  .calAcctHead .n{margin-left:auto;flex-shrink:0;color:var(--muted);font-size:.7rem;font-weight:400}
+  .calRow{display:flex;align-items:center;gap:10px;padding:9px 0 9px 20px;
+    border-bottom:1px solid var(--line)}
+  .calAcct .calRow:last-child{border-bottom:none}
+  .calRow.off{opacity:.55}
   /* in-app update banner (2026-07-28) */
   .upd{border-color:#14532d;background:linear-gradient(180deg,rgba(52,211,153,.08),transparent)}
   .updTop{display:flex;gap:11px;align-items:flex-start}
@@ -174,117 +205,129 @@
     <p class="note" id="updWarn" style="display:none"></p>
   </div>
 
-  <!-- Profile / location -->
-  <div class="card">
-    <h2>Location &amp; style</h2>
-    <div class="row" style="margin-bottom:10px">
-      <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
-      <button class="ghost" id="geoBtn" title="Use my location">📍</button>
-      <button class="primary" id="goBtn">Get advice</button>
-    </div>
-    <div class="seg" id="genderSeg">
-      <button data-g="man">👔 Man</button>
-      <button data-g="woman">👗 Woman</button>
-      <button data-g="neutral">🧍 Neutral</button>
-    </div>
-    <div class="seg" id="styleSeg" style="margin-top:8px">
-      <button data-s="casual">Casual</button>
-      <button data-s="smart">Smart</button>
-      <button data-s="active">Active</button>
-    </div>
-    <div id="err" class="err"></div>
-  </div>
-
-
-  <!-- Closet -->
-  <div class="card">
-    <h2>My closet <span class="chip" id="closetInfo" style="display:none"></span></h2>
-    <div class="row">
-      <button class="primary" id="addCamBtn">📷 Snap item</button>
-      <button id="addGalBtn">🖼️ Upload</button>
-      <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">🧺 Laundry done</button>
-    </div>
-    <div class="grid" id="closetGrid"></div>
-    <p class="note">Photograph your clothes once — the advisor then dresses you from what you
-      actually own and skips items still in the laundry. Photos stay on this phone; the DGX
-      classifies them in memory and stores nothing.</p>
-    <input type="file" id="fileIn" accept="image/*" style="display:none">
-    <div id="clErr" class="err"></div>
-  </div>
-
-  <!-- Trips -->
-  <div class="card">
-    <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
-    <!-- Home area. Needed to judge "is this far enough to be a trip" without
-         asking the user about every candidate. Set once, changeable any time. -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="min-width:0">
-        <label class="lbl" style="margin:0">Home area</label>
-        <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+  <!-- ── The three sheets (2026-08-20) ──
+       One scrolling page put location, closet and trips in a fixed order nobody
+       chose, and the daily "what do I wear" question was three cards' worth of
+       scrolling away from the weather that answers it. They are now three pages,
+       switched by the tab strip at the bottom of the screen the way Excel switches
+       sheets (user, 2026-08-20). The update banner stays OUTSIDE them: a phone
+       running a stale build must be told so on whichever page it is on. -->
+  <section class="pane" id="pane-advice">
+    <!-- Profile / location -->
+    <div class="card">
+      <h2>Location &amp; style</h2>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="city" placeholder="City (or tap 📍 for GPS)">
+        <button class="ghost" id="geoBtn" title="Use my location">📍</button>
+        <button class="primary" id="goBtn">Get advice</button>
       </div>
-      <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <div style="min-width:0">
-        <label class="lbl" style="margin:0">Calendars</label>
-        <div class="note" id="calSelLine" style="margin-top:2px">all your own calendars</div>
+      <div class="seg" id="genderSeg">
+        <button data-g="man">👔 Man</button>
+        <button data-g="woman">👗 Woman</button>
+        <button data-g="neutral">🧍 Neutral</button>
       </div>
-      <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
+      <div class="seg" id="styleSeg" style="margin-top:8px">
+        <button data-s="casual">Casual</button>
+        <button data-s="smart">Smart</button>
+        <button data-s="active">Active</button>
+      </div>
+      <div id="err" class="err"></div>
     </div>
-    <div class="row">
-      <button class="primary" id="calBtn">📅 Check my calendar</button>
-    </div>
-    <div id="tripList"></div>
-    <div id="candList"></div>
-    <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
-      you what to pack — from the clothes you actually own, for the weather where you're going.
-      Your events stay on this phone: only the dates and the city's coordinates are ever sent,
-      never the event's title, notes, or location text. Calendars shared with you by someone
-      else are never read at all.</p>
-    <div id="tripErr" class="err"></div>
-  </div>
 
-  <!-- Weather -->
-  <div class="card" id="wxCard" style="display:none">
-    <h2 id="wxWhen">Today</h2>
-    <div class="wx">
-      <div class="emoji" id="wxEmoji">⛅</div>
-      <div>
-        <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
-        <div class="meta" id="wxDesc">—</div>
+    <!-- Weather -->
+    <div class="card" id="wxCard" style="display:none">
+      <h2 id="wxWhen">Today</h2>
+      <div class="wx">
+        <div class="emoji" id="wxEmoji">⛅</div>
+        <div>
+          <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
+          <div class="meta" id="wxDesc">—</div>
+        </div>
+      </div>
+      <div class="chips" id="wxChips"></div>
+      <div class="timeline" id="wxTimeline"></div>
+    </div>
+
+    <!-- Outfit -->
+    <div class="card" id="outfitCard" style="display:none">
+      <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
+      <p class="aitext" id="aiText"></p>
+      <details class="det"><summary>Item-by-item</summary>
+        <ul class="outfit" id="outfitList"></ul>
+        <p class="note" id="outfitTip"></p>
+      </details>
+      <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+      <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
+           the LLM plan against. Never shifts the weather shown above. -->
+      <div class="fb">
+        <label class="lbl" style="margin:0">How did that feel?</label>
+        <div class="fbRow" id="fbRow">
+          <button data-r="-2"><span class="e">🥶</span><span class="c">Too cold</span></button>
+          <button data-r="-1"><span class="e">🟦</span><span class="c">A bit cool</span></button>
+          <button data-r="0"><span class="e">👌</span><span class="c">Just right</span></button>
+          <button data-r="1"><span class="e">🟧</span><span class="c">A bit warm</span></button>
+          <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
+        </div>
+        <p class="note" id="fbNote"></p>
+      </div>
+      <div class="deliver" style="margin-top:12px">
+        <button id="dShare">💬 Share</button>
+        <button id="dNotify">🔔 Preview push</button>
       </div>
     </div>
-    <div class="chips" id="wxChips"></div>
-    <div class="timeline" id="wxTimeline"></div>
-  </div>
+  </section>
 
-  <!-- Outfit -->
-  <div class="card" id="outfitCard" style="display:none">
-    <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
-    <p class="aitext" id="aiText"></p>
-    <details class="det"><summary>Item-by-item</summary>
-      <ul class="outfit" id="outfitList"></ul>
-      <p class="note" id="outfitTip"></p>
-    </details>
-    <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
-    <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
-         the LLM plan against. Never shifts the weather shown above. -->
-    <div class="fb">
-      <label class="lbl" style="margin:0">How did that feel?</label>
-      <div class="fbRow" id="fbRow">
-        <button data-r="-2"><span class="e">🥶</span><span class="c">Too cold</span></button>
-        <button data-r="-1"><span class="e">🟦</span><span class="c">A bit cool</span></button>
-        <button data-r="0"><span class="e">👌</span><span class="c">Just right</span></button>
-        <button data-r="1"><span class="e">🟧</span><span class="c">A bit warm</span></button>
-        <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
+  <section class="pane" id="pane-closet">
+    <!-- Closet -->
+    <div class="card">
+      <h2>My closet <span class="chip" id="closetInfo" style="display:none"></span></h2>
+      <div class="row">
+        <button class="primary" id="addCamBtn">📷 Snap item</button>
+        <button id="addGalBtn">🖼️ Upload</button>
+        <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">🧺 Laundry done</button>
       </div>
-      <p class="note" id="fbNote"></p>
+      <div class="grid" id="closetGrid"></div>
+      <p class="note">Photograph your clothes once — the advisor then dresses you from what you
+        actually own and skips items still in the laundry. Photos stay on this phone; the DGX
+        classifies them in memory and stores nothing.</p>
+      <input type="file" id="fileIn" accept="image/*" style="display:none">
+      <div id="clErr" class="err"></div>
     </div>
-    <div class="deliver" style="margin-top:12px">
-      <button id="dShare">💬 Share</button>
-      <button id="dNotify">🔔 Preview push</button>
+  </section>
+
+  <section class="pane" id="pane-calendar">
+    <!-- Trips -->
+    <div class="card">
+      <h2>Trips <span class="chip" id="tripInfo" style="display:none"></span></h2>
+      <!-- Home area. Needed to judge "is this far enough to be a trip" without
+           asking the user about every candidate. Set once, changeable any time. -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">Home area</label>
+          <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+        </div>
+        <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">Calendars</label>
+          <div class="note" id="calSelLine" style="margin-top:2px">all your own calendars</div>
+        </div>
+        <button class="ghost" id="calPickBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Choose</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="calBtn">📅 Check my calendar</button>
+      </div>
+      <div id="tripList"></div>
+      <div id="candList"></div>
+      <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
+        you what to pack — from the clothes you actually own, for the weather where you're going.
+        Your events stay on this phone: only the dates and the city's coordinates are ever sent,
+        never the event's title, notes, or location text. Calendars shared with you by someone
+        else are never read at all.</p>
+      <div id="tripErr" class="err"></div>
     </div>
-  </div>
+  </section>
 
   <footer>Weather by Open-Meteo · outfit by your local LLM on the DGX · location never stored</footer>
 </div>
@@ -319,12 +362,14 @@
     <select id="shGroup" style="width:100%;margin-bottom:12px">
       <option value="underwear">🎽 Underwear</option>
       <option value="tops">👕 Tops</option>
-      <option value="knitwear">🧶 Knitwear</option>
       <option value="outerwear">🧥 Outerwear</option>
       <option value="bottoms">👖 Bottoms</option>
+      <option value="onepiece">👗 One-piece</option>
       <option value="footwear">👟 Footwear</option>
       <option value="accessories">🧣 Accessories</option>
     </select>
+    <label class="lbl">Kind <span class="note" style="text-transform:none;letter-spacing:0">— a tee and a polo are both Tops, and they are not the same</span></label>
+    <select id="shType" style="width:100%;margin-bottom:12px"></select>
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
     <label class="lbl">Warmth (1 cool → 5 warm)</label>
@@ -475,10 +520,11 @@
 <div class="modal" id="calWrap">
   <div class="sheet">
     <h3>Which calendars should I read?</h3>
-    <p class="note" style="margin-top:0">Only the ones you tick are scanned for trips.
-      Birthdays, holidays and subscribed feeds are usually worth leaving off.
-      Calendars shared with you by someone else are never read — they are listed
-      below greyed out, and cannot be ticked.</p>
+    <p class="note" style="margin-top:0">Grouped by the account each one belongs to —
+      your e-mail address first, then its calendars underneath. Only the ones you tick
+      are scanned for trips; birthdays, holidays and subscribed feeds are usually worth
+      leaving off. Calendars shared with you by someone else are never read — they stay
+      listed under their account, greyed out, and cannot be ticked.</p>
     <div id="calList" style="margin:12px 0"></div>
     <div class="row">
       <button class="ghost" id="calAll" style="flex:1">Select all</button>
@@ -507,6 +553,14 @@
     <div id="pkErr" class="err"></div>
   </div>
 </div>
+
+<!-- Sheet tabs. Bottom of the screen, like Excel's — that is where the request
+     put them, and it is also the half of a phone screen a thumb can reach. -->
+<nav class="sheetTabs" id="tabBar">
+  <button data-tab="advice">📍 Location &amp; advice</button>
+  <button data-tab="closet">🧥 Closet</button>
+  <button data-tab="calendar">🧳 Trips</button>
+</nav>
 
 <div class="toast" id="toast"></div>
 
@@ -608,10 +662,113 @@ function outfitToBullets(o){
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
+/* Open-Meteo's search is FUZZY: it ranks SOMETHING first for almost any string,
+   including one that shares only a few letters with a real place, and it returns
+   no score to tell a direct hit from a desperate one. Taking results[0] on trust
+   is how "Petropavl, North Kazakhstan, KZ" arrived in the trip list as an
+   automatically-added trip nobody had planned (user, 2026-08-20).
+
+   So the place that comes BACK is compared with the name we asked for — the city
+   AND any region qualifier that came with it. Here that only re-ranks — a human is
+   looking at the answer. On the automatic path (triageCandidate) a mismatch is
+   fatal, because nobody is. */
+const geoWords=s=>String(s||"").normalize("NFD").replace(/\p{M}/gu,"")
+  .toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+/* "Springfield, IL" is a city AND a qualifier. Split them at the commas: the head
+   names the place, the tail says WHICH one of it — and the tail is the only thing
+   that tells five Springfields apart, so it is kept, never dropped. */
+const geoParts=s=>String(s||"").split(",").map(x=>x.trim()).filter(Boolean);
+const geoTokens=s=>geoWords(geoParts(s)[0]||"");
+/* The CITY HEAD, compared as WORDS rather than as a squashed string. "New York
+   City" is Open-Meteo's "New York" and "Frankfurt" is its "Frankfurt am Main", so
+   one name is allowed to extend the other — but only at a word boundary. That is
+   exactly what separates a real alias from a fuzzy expansion: "Petro" →
+   "Petropavl" grows INSIDE a word and is refused, while "Frankfurt" → "Frankfurt
+   am Main" adds words and is kept. Accents and punctuation fold ("Kraków" =
+   "Krakow"). This is the LOOSE test: it tests the head ONLY, and it is for the
+   typed-city path, where a human reads the answer. The automatic path uses
+   geoPlaceExact. */
+function geoNameMatches(asked,got){
+  const q=geoTokens(asked), n=geoTokens(got);
+  if(!q.length||!n.length) return false;
+  const [short,long]=q.length<=n.length?[q,n]:[n,q];
+  // A single short word is an initial, not a name — "San" must never become
+  // "San Francisco". Those have to match outright.
+  if(short.length===1&&short[0].length<4) return long.length===1&&short[0]===long[0];
+  return short.every((t,i)=>t===long[i]);
+}
+/* Country spellings the geocoder's own fields do not line up on: Open-Meteo says
+   "United Kingdom" and "GB", a model writes "UK". Equivalence GROUPS — every
+   spelling in a group is the same country. Deliberately NOT extended to
+   subdivisions: "IL" is Illinois to an American and Israel to the ISO table, and
+   the string alone cannot say which was meant. A qualifier this table does not
+   cover simply fails to match, and a failed match costs one confirmation tap. */
+const GEO_SAME=[["us","usa","united states","united states of america"],
+                ["uk","gb","united kingdom","great britain"],
+                ["uae","ae","united arab emirates"],
+                ["nl","holland","netherlands","the netherlands"]];
+const geoSame=(a,b)=>a===b||GEO_SAME.some(g=>g.includes(a)&&g.includes(b));
+/* Does one qualifier describe the place that came back? Every region field the
+   geocoder itself reports is compared — admin1..admin4, country and country_code
+   — so "Tokyo, Japan" and "Tokyo, JP" both land without a table of country names. */
+function geoRegionMatches(q,regions){
+  const want=geoWords(q).join(" ");
+  if(!want) return true;
+  return (regions||[]).some(r=>geoSame(want,geoWords(r).join(" ")));
+}
+/* The STRICT head test, for the automatic path. Extending a name at a word
+   boundary is not only how an alias is spelled — it is also how two DIFFERENT
+   cities are told apart. "Frankfurt am Main" and "Frankfurt (Oder)" are 500 km
+   apart, "York New Salem" is not York, "Newark" is not "Newark on Trent". Asked
+   for "Frankfurt", nothing in the string says which was meant, and Open-Meteo's
+   own ranking is not an answer: it ranks SOMETHING first for any string. So a
+   trip nobody will be asked about requires the SAME name, and an alias only where
+   two spellings genuinely name one place. A name that merely extends is not
+   refused, it is ASKED about — one confirmation tap, the price this app pays
+   rather than pack a suitcase for the wrong Frankfurt. */
+const GEO_ALIAS=[["new york","new york city","nyc"]];
+function geoNameExact(asked,got){
+  const q=geoTokens(asked).join(" "), n=geoTokens(got).join(" ");
+  if(!q||!n) return false;
+  return q===n||GEO_ALIAS.some(g=>g.includes(q)&&g.includes(n));
+}
+/* The whole comparison: the city head AND every qualifier that came with it. A
+   qualifier matching nothing the geocoder reports is a REFUSAL, not a shrug —
+   "Cambridge, UK" answered with Cambridge, Massachusetts is the same
+   wrong-destination failure as Petropavl, just harder to spot, and the distance
+   test passes for it too. The qualifier rule is the same either way; only the head
+   test differs, so it is passed in. Accepts either a geocode() result (whose
+   `regions` carry the geocoder's own fields) or a bare place string. */
+function geoPlaceBy(nameTest,asked,got){
+  const place=typeof got==="string"?got:(got&&got.place)||"";
+  const regions=(got&&got.regions)||geoParts(place).slice(1);
+  if(!nameTest(asked,place)) return false;
+  return geoParts(asked).slice(1).every(q=>geoRegionMatches(q,regions));
+}
+/* loose — re-ranks answers a human is about to read */
+const geoPlaceMatches=(asked,got)=>geoPlaceBy(geoNameMatches,asked,got);
+/* strict — the only test allowed to add a trip on the app's own initiative */
+const geoPlaceExact=(asked,got)=>geoPlaceBy(geoNameExact,asked,got);
 async function geocode(city){
-  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`);
+  // Open-Meteo's search matches a NAME: "Springfield, IL" as a query matches
+  // nothing at all. So the qualifier is stripped from the QUERY and then used to
+  // CHOOSE among the answers — which is the only thing that tells five
+  // Springfields apart.
+  // count=5 rather than 1: with a single result a fuzzy hit is the only option,
+  // and there is nothing to step over. A result whose name IS the one asked for
+  // wins over one that merely extends it — asked "Frankfurt", a plain "Frankfurt"
+  // beats "Frankfurt am Main" however the API ranked them, and the automatic path
+  // only accepts that first kind. Failing both the API's own top answer is
+  // returned unchanged, so the typed-city path never gets WORSE than it was — it
+  // is the caller that decides whether to trust it.
+  const q=geoParts(city)[0]||String(city||"");
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en`);
   const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
-  const g=d.results[0]; return {lat:g.latitude,lon:g.longitude,place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", ")};
+  const named=g=>({lat:g.latitude,lon:g.longitude,
+    place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", "),
+    regions:[g.admin1,g.admin2,g.admin3,g.admin4,g.country,g.country_code].filter(Boolean)});
+  const all=d.results.map(named);
+  return all.find(x=>geoPlaceExact(city,x))||all.find(x=>geoPlaceMatches(city,x))||all[0];
 }
 async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
@@ -650,18 +807,93 @@ const DAY_MS=86400000, COOLDOWN_DAYS=4;
 const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
 /* Clothing GROUPS — what a garment IS, used to file the wardrobe into folders.
    Deliberately NOT the layering slots: an oxford shirt is a Top whether it is the
-   outer layer in July or a base under a coat in November (user, 2026-08-10). */
-const GROUPS=["underwear","tops","knitwear","outerwear","bottoms","footwear","accessories"];
-const GROUP_LABEL={underwear:"Underwear",tops:"Tops",knitwear:"Knitwear",
-  outerwear:"Outerwear",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
-const GROUP_ICON={underwear:"🎽",tops:"👕",knitwear:"🧶",outerwear:"🧥",
-  bottoms:"👖",footwear:"👟",accessories:"🧣"};
-const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"knitwear",outer:"outerwear",
+   outer layer in July or a base under a coat in November (user, 2026-08-10).
+   TWIN of server/vocab.py — keep the two in lockstep; the server silently drops a
+   type it does not recognise, so a divergence shows up as types vanishing on the
+   way to the advisor rather than as an error. */
+const GROUPS=["underwear","tops","outerwear","bottoms","onepiece","footwear","accessories"];
+const GROUP_LABEL={underwear:"Underwear",tops:"Tops",outerwear:"Outerwear",
+  bottoms:"Bottoms",onepiece:"One-piece",footwear:"Footwear",accessories:"Accessories"};
+const GROUP_ICON={underwear:"🎽",tops:"👕",outerwear:"🧥",
+  bottoms:"👖",onepiece:"👗",footwear:"👟",accessories:"🧣"};
+/* Groups that no longer exist, and what they became (2026-08-20: knitwear dissolved
+   into tops, where sweater/cardigan/hoodie/fleece live on as TYPES). Translated on
+   load, never rejected — the folder moved down a level, the items did not move. */
+const GROUP_ALIAS={knitwear:"tops"};
+const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"tops",outer:"outerwear",
   bottoms:"bottoms",footwear:"footwear",accessories:"accessories"};
 const ROLE_LABEL={inner:"Inner",base:"Base",mid:"Mid",outer:"Outer",
   bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
 const CATS=["inner","base","mid","outer","bottoms","footwear","accessories"];
-/* Twin of normalize_roles() in server/llm.py — inner is a CLOSED role: underwear is
+/* Second taxonomy level — "Tops > Polo shirt" (user, 2026-08-14; re-asked 2026-08-20).
+   The subdivision follows the World Customs Organization's Harmonized System
+   (chapters 61/62 apparel, 64 footwear, 65 headgear), not somebody's taste; the HS
+   heading behind each type is recorded in server/vocab.py. */
+const TYPES={
+  underwear:["undershirt","thermal","briefs","bra","sleepwear"],
+  tops:["t_shirt","shirt","polo","blouse","tank","sweater","cardigan","hoodie","fleece","waistcoat"],
+  outerwear:["jacket","blazer","coat","puffer","rainwear"],
+  bottoms:["trousers","jeans","shorts","skirt","leggings"],
+  onepiece:["dress","jumpsuit","overalls"],
+  footwear:["sneakers","dress_shoes","boots","sandals","loafers","socks"],
+  accessories:["scarf","gloves","hat","belt","tie","umbrella"]};
+const TYPE_LABEL={
+  undershirt:"Undershirt / singlet",thermal:"Thermal / base layer",briefs:"Underpants / briefs",
+  bra:"Bra / lingerie",sleepwear:"Pyjamas / nightwear",
+  t_shirt:"T-shirt",shirt:"Shirt",polo:"Polo shirt",blouse:"Blouse",tank:"Tank top / vest",
+  sweater:"Sweater / pullover",cardigan:"Cardigan",hoodie:"Hoodie / sweatshirt",
+  fleece:"Fleece",waistcoat:"Waistcoat",
+  jacket:"Jacket / windbreaker",blazer:"Blazer / suit jacket",coat:"Coat",
+  puffer:"Padded / down jacket",rainwear:"Raincoat / shell",
+  trousers:"Trousers / chinos",jeans:"Jeans",shorts:"Shorts",skirt:"Skirt",
+  leggings:"Leggings / tights",
+  dress:"Dress",jumpsuit:"Jumpsuit",overalls:"Dungarees / overalls",
+  sneakers:"Sneakers / trainers",dress_shoes:"Dress shoes",boots:"Boots",
+  sandals:"Sandals",loafers:"Loafers / flats",socks:"Socks / hosiery",
+  scarf:"Scarf / shawl",gloves:"Gloves",hat:"Hat / cap",belt:"Belt",tie:"Tie",umbrella:"Umbrella"};
+const GROUP_FROM_TYPE={};
+for(const g in TYPES) for(const t of TYPES[g]) GROUP_FROM_TYPE[t]=g;
+/* A type whose group MOVED carries the correction with it: an item saved as
+   bottoms/dress is a dress that predates the onepiece group, not mislabelled
+   trousers. Here the group is what was wrong, so "the group wins" is suspended —
+   without which the type is dropped and the item keeps the group it should have
+   left. Twin of LEGACY_TYPE_GROUP in server/vocab.py. */
+const LEGACY_TYPE_GROUP={"bottoms|dress":"onepiece","underwear|socks":"footwear"};
+/* Which layering slots each GROUP may occupy. Twin of GROUP_CATEGORIES in
+   server/vocab.py — see the long note there for why the group is the anchor.
+   Short version (user, 2026-08-18): "Tops have inner and base mixed up. That
+   cannot be the foundation." Nothing tied the folder to the layer, so a t-shirt
+   could be filed as a Top and simultaneously offered for the undershirt slot. */
+const GROUP_CATS={underwear:["inner"],tops:["base","mid","outer"],
+  outerwear:["mid","outer"],bottoms:["bottoms"],onepiece:["base"],
+  footwear:["footwear"],accessories:["accessories"]};
+const GROUP_DEF_CAT={underwear:"inner",tops:"base",outerwear:"outer",
+  bottoms:"bottoms",onepiece:"base",footwear:"footwear",accessories:"accessories"};
+/* What a KNOWN type implies about the layers it can play — it NARROWS the group's
+   set, because the type is the narrowest true statement about the garment. Twin of
+   the `roles` key of TYPE_DEFAULTS in server/vocab.py; warmth and formality live
+   only on the server, which is the only side that classifies. */
+const TYPE_ROLES={
+  undershirt:["inner"],thermal:["inner"],briefs:["inner"],bra:["inner"],sleepwear:["inner"],
+  t_shirt:["base"],shirt:["base","mid","outer"],polo:["base","mid","outer"],
+  blouse:["base","mid","outer"],tank:["base"],sweater:["base","mid","outer"],
+  cardigan:["mid","outer"],hoodie:["mid","outer"],fleece:["mid","outer"],waistcoat:["mid"],
+  jacket:["outer"],blazer:["mid","outer"],coat:["outer"],puffer:["outer"],rainwear:["outer"],
+  trousers:["bottoms"],jeans:["bottoms"],shorts:["bottoms"],skirt:["bottoms"],leggings:["bottoms"],
+  dress:["base"],jumpsuit:["base"],overalls:["base"],
+  sneakers:["footwear"],dress_shoes:["footwear"],boots:["footwear"],sandals:["footwear"],
+  loafers:["footwear"],socks:["footwear"],
+  scarf:["accessories"],gloves:["accessories"],hat:["accessories"],belt:["accessories"],
+  tie:["accessories"],umbrella:["accessories"]};
+/* A type is only meaningful inside its group, so one that belongs to a different
+   group is DROPPED rather than kept — the group is what files the item. Absent is
+   always legitimate: every closet saved before 2026-08-14 has no types at all. */
+function normType(t,group){
+  if(!t) return null;
+  const k=String(t).trim().toLowerCase().replace(/[-\s]/g,"_");
+  return (TYPES[group]||[]).includes(k)?k:null;
+}
+/* Twin of normalize_roles() in server/vocab.py — inner is a CLOSED role: underwear is
    never a visible layer and a visible garment is never underwear. */
 function normRoles(roles,category){
   let clean=(roles||[]).filter(r=>CATS.includes(r));
@@ -669,13 +901,39 @@ function normRoles(roles,category){
   if(clean.includes("inner")) return ["inner"];
   return CATS.filter(c=>clean.includes(c));
 }
-/* Older closets predate group/roles. Fill them in once, on load, so folders and
-   seasonal roles work for photos that were already added. */
-function migrateItem(it){
-  if(!it.group||!GROUPS.includes(it.group)) it.group=GROUP_FROM_CAT[it.category]||"tops";
-  it.roles=normRoles(it.roles,it.category);
+/* Twin of reconcile() in server/vocab.py. Mutates and returns the item so it can
+   be used as a map callback. Total: any input becomes a legal item. */
+function reconcileItem(it){
+  let g=GROUP_ALIAS[it.group]||it.group;
+  const raw=it.type?String(it.type).trim().toLowerCase().replace(/[-\s]/g,"_"):null;
+  if(g && LEGACY_TYPE_GROUP[g+"|"+raw]) g=LEGACY_TYPE_GROUP[g+"|"+raw];
+  if(!GROUPS.includes(g)) g=GROUP_FROM_TYPE[raw]||GROUP_FROM_CAT[it.category]||"tops";
+  it.group=g;
+  it.type=normType(raw,g);
+  // The group's slots, narrowed by the type. Falling back to the group alone keeps
+  // this total — an unpickable item is worse than a slightly loose one.
+  let allowed=GROUP_CATS[g];
+  if(it.type){
+    const narrowed=allowed.filter(c=>TYPE_ROLES[it.type].includes(c));
+    if(narrowed.length) allowed=narrowed;
+  }
+  if(!allowed.includes(it.category))
+    it.category=allowed.includes(GROUP_DEF_CAT[g])?GROUP_DEF_CAT[g]:allowed[0];
+  let stated=(it.roles||[]).filter(r=>CATS.includes(r));
+  if(!allowed.includes("inner")) stated=stated.map(r=>r==="inner"?it.category:r);
+  const roles=normRoles(stated,it.category).filter(r=>allowed.includes(r));
+  it.roles=roles.length?roles:[it.category];
   return it;
 }
+/* Older closets predate group/roles/type — and closets saved between 2026-08-10 and
+   2026-08-18 can hold a Top whose role says "inner". Reconciling on load repairs all
+   of it in one pass, so the wardrobe the advisor reads is never self-contradictory
+   even for photos added before the rules existed.
+
+   A type is never GUESSED for an untyped item: nothing in a pre-2026-08-14 record
+   says whether a "top" is a tee or a polo, and a wrong type would enter the prompt
+   as fact. Untyped items file under "Other". */
+function migrateItem(it){ return reconcileItem(it); }
 let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
@@ -715,7 +973,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.13";
+const WEB_BUILD="1.14";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -927,12 +1185,12 @@ async function addItem(source){
   // memory-eviction of the camera-heavy WebView would silently discard the whole
   // classification. Saving up front makes the sheet a plain edit of an item that
   // is already safe in the closet; dismissing keeps it, Delete removes it.
-  const item={ id:"itm-"+uuid(), label:meta?.label||"Untitled item", category:meta?.category||"base",
-    group:(GROUPS.includes(meta?.group)?meta.group:(GROUP_FROM_CAT[meta?.category]||"tops")),
-    roles:normRoles(meta?.roles,meta?.category||"base"),
+  const item=reconcileItem({ id:"itm-"+uuid(), label:meta?.label||"Untitled item",
+    category:meta?.category||"base", group:meta?.group, type:meta?.type,
+    roles:meta?.roles,
     colors:meta?.colors||[], warmth:meta?.warmth||3,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
-    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() };
+    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
   await saveCloset();
@@ -946,7 +1204,19 @@ function paintSheetSegs(){
   [...$("shWarm").children].forEach(b=>b.classList.toggle("on",+b.dataset.w===sheet.item.warmth));
   [...$("shForm").children].forEach(b=>b.classList.toggle("on",sheet.item.formality.includes(b.dataset.f)));
   $("shCount").textContent=sheet.item.count;
+  paintTypes();
   paintRoles();
+}
+/* The Kind picker is rebuilt from the item's GROUP every time, because the two are
+   not independent: moving a shirt into Outerwear must not leave "Polo shirt"
+   selected underneath it. "not specified" stays offered — an untyped item is a
+   perfectly good wardrobe entry, and every closet saved before 2026-08-14 is one. */
+function paintTypes(){
+  const g=sheet.item.group, cur=normType(sheet.item.type,g);
+  sheet.item.type=cur;
+  $("shType").innerHTML='<option value="">— not specified —</option>'
+    +(TYPES[g]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("");
+  $("shType").value=cur||"";
 }
 /* Role chips. Inner is CLOSED: picking it clears everything else, and picking any
    visible layer clears Inner. Underwear is never a visible layer and a visible
@@ -954,7 +1224,16 @@ function paintSheetSegs(){
    it as well as the server so the two can never disagree on screen. */
 function paintRoles(){
   const roles=sheet.item.roles||[];
-  $("shRoles").innerHTML=CATS.map(c=>
+  // Offer only the roles the item's GROUP and TYPE allow. Showing "Inner" next to a
+  // Top invites the user to recreate by hand the exact contradiction the taxonomy
+  // now forbids — and the save path would silently strip it again, which reads as
+  // the app ignoring them.
+  let allowed=GROUP_CATS[sheet.item.group]||CATS;
+  if(sheet.item.type&&TYPE_ROLES[sheet.item.type]){
+    const narrowed=allowed.filter(c=>TYPE_ROLES[sheet.item.type].includes(c));
+    if(narrowed.length) allowed=narrowed;
+  }
+  $("shRoles").innerHTML=allowed.map(c=>
     `<button data-role="${c}" class="${roles.includes(c)?"on":""}">${ROLE_LABEL[c]}</button>`).join("");
   $("shRoles").querySelectorAll("button").forEach(b=>{
     b.onclick=()=>{
@@ -963,20 +1242,20 @@ function paintRoles(){
       if(next.has(r)) next.delete(r); else next.add(r);
       if(r==="inner" && next.has("inner")) next=new Set(["inner"]);
       else if(r!=="inner") next.delete("inner");
-      sheet.item.roles=normRoles([...next],sheet.item.category);
-      if(!sheet.item.roles.length) sheet.item.roles=[sheet.item.category];
+      sheet.item.roles=[...next];
+      reconcileItem(sheet.item);
       paintRoles();
     };
   });
 }
 async function openSheet(item,opts){
-  sheet={item:{...item,colors:[...(item.colors||[])],formality:[...(item.formality||[])],
-               roles:normRoles(item.roles,item.category),
-               group:item.group||GROUP_FROM_CAT[item.category]||"tops"},
+  sheet={item:reconcileItem({...item,colors:[...(item.colors||[])],
+                             formality:[...(item.formality||[])],
+                             roles:[...(item.roles||[])]}),
          isNew:!!opts.isNew, b64:opts.b64||null};
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
-  $("shGroup").value=sheet.item.group||GROUP_FROM_CAT[sheet.item.category]||"tops";
+  $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   const img=$("shImg");
@@ -1004,19 +1283,38 @@ async function renderCloset(){
       <div class="nm">${esc(it.label)}</div></div>`;
   };
 
+  /* Second level inside a folder: "Tops ▸ Polo shirt" (user, 2026-08-20). Items with
+     no type gather under "Other", LAST, so an untyped legacy closet renders as one
+     unlabelled block — i.e. exactly what it looked like yesterday — rather than
+     every tile wearing an "Other" header. */
+  const subSections=async(items,grp)=>{
+    const order=[...(TYPES[grp]||[]),null];
+    const parts=[];
+    for(const t of order){
+      const mine=items.filter(i=>(i.type||null)===t);
+      if(!mine.length) continue;
+      const tiles=(await Promise.all(mine.map(tile))).join("");
+      // Sole untyped section = no heading; there is nothing to distinguish it from.
+      if(t===null && parts.length===0){ parts.push(`<div class="grid">${tiles}</div>`); continue; }
+      parts.push(`<div class="subHead"><span class="st">${esc(t?TYPE_LABEL[t]:"Other")}</span>
+        <span class="sc">${mine.length}</span></div><div class="grid">${tiles}</div>`);
+    }
+    return parts.join("");
+  };
+
   // Folders by clothing GROUP (user, 2026-08-10). Grouping by layering role would
   // fight the seasonal behaviour — the same shirt moves between roles, but it is
   // always a Top.
   const out=[];
   for(const grp of GROUPS){
-    const items=closet.filter(i=>(i.group||GROUP_FROM_CAT[i.category])===grp);
+    const items=closet.filter(i=>(GROUP_ALIAS[i.group]||i.group||GROUP_FROM_CAT[i.category])===grp);
     if(!items.length) continue;                        // never show an empty folder
     const open=!closetFolded.has(grp);
     const wearable=items.reduce((s,i)=>s+avail(i),0);
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const tiles=open?(await Promise.all(items.map(tile))).join(""):"";
+    const body=open?await subSections(items,grp):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${grp}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -1024,7 +1322,7 @@ async function renderCloset(){
         <b>${GROUP_LABEL[grp]}</b>
         <span class="fcount">${wearable}/${items.length}</span>
       </button>
-      ${open?`<div class="grid">${tiles}</div>`:""}
+      ${body}
     </div>`);
   }
   g.innerHTML=out.join("");
@@ -1069,9 +1367,31 @@ async function loadCalendars(){
   if(!P||!P.listCalendars) throw new Error(CAL_NO_LISTER);
   const r=await P.listCalendars();
   return ((r&&r.calendars)||[]).map(c=>({id:String(c.id),title:c.title||String(c.id),
-    shared:!!c.shared,sharedBy:c.sharedBy||""}));
+    account:c.account||"",shared:!!c.shared,sharedBy:c.sharedBy||""}));
 }
 function calLabel(c){ return c.title||c.name||c.id; }
+/* Group the picker by the ACCOUNT each calendar is filed under — for a Google
+   account, the user's e-mail address (user, 2026-08-20). A flat list of "Work",
+   "Birthdays", "Family" says nothing about which sign-in each came from, and a
+   phone with two Google accounts shows both sets interleaved with no way to tell
+   them apart. Accounts that have something to tick come first; within an account
+   the user's own calendars come before the shared ones they cannot choose. */
+const CAL_NO_ACCOUNT="On this phone";
+function calGroups(){
+  const by=new Map();
+  for(const c of calAvail){
+    const k=c.account||"";
+    if(!by.has(k)) by.set(k,[]);
+    by.get(k).push(c);
+  }
+  return [...by.entries()]
+    .map(([account,cals])=>({account,own:cals.filter(c=>!c.shared).length,
+      cals:cals.slice().sort((a,b)=>(a.shared?1:0)-(b.shared?1:0)||
+        String(calLabel(a)).localeCompare(String(calLabel(b))))}))
+    // Most readable calendars first — that is the account the user actually lives
+    // in, and it should not sort below a holiday feed's address by accident.
+    .sort((a,b)=>b.own-a.own||a.account.localeCompare(b.account));
+}
 /** The calendars we may read at all — rule 1, applied before anything else. */
 function calReadable(){ return calAvail.filter(c=>!c.shared); }
 /** The ids a scan may look at: rule 1, then the user's own choice. */
@@ -1097,21 +1417,27 @@ async function openCalPicker(){
   if(!calAvail.length){
     list.innerHTML=`<p class="note">${esc(err||"Couldn't list your calendars. Grant calendar access, then try again.")}</p>`;
   }else{
-    const rowCss="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)";
     // Shared calendars are SHOWN but not offered: an excluded calendar that simply
     // vanished would read as a bug, and the user could not tell why a trip on it
-    // never appeared.
-    list.innerHTML=calReadable().map(c=>{
-      const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
-      return `<label style="${rowCss}">
-        <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
-        <span>${esc(calLabel(c))}</span></label>`;
-    }).join("")
-    + calAvail.filter(c=>c.shared).map(c=>
-      `<div style="${rowCss};opacity:.55">
-        <input type="checkbox" disabled>
-        <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
-      </div>`).join("");
+    // never appeared. They stay under the account they belong to, so the account
+    // header is the whole truth about that sign-in rather than a filtered view.
+    list.innerHTML=calGroups().map(gr=>{
+      const own=gr.cals.filter(c=>!c.shared).length;
+      const rows=gr.cals.map(c=>{
+        if(c.shared) return `<div class="calRow off">
+          <input type="checkbox" disabled>
+          <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
+        </div>`;
+        const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
+        return `<label class="calRow">
+          <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
+          <span>${esc(calLabel(c))}</span></label>`;
+      }).join("");
+      return `<div class="calAcct">
+        <div class="calAcctHead"><span>📧 ${esc(gr.account||CAL_NO_ACCOUNT)}</span>
+          <span class="n">${own?`${own} you can read`:"none you can read"}</span></div>
+        ${rows}</div>`;
+    }).join("");
   }
   $("calWrap").classList.add("show");
 }
@@ -1140,6 +1466,11 @@ async function saveCalSel(){
    never persisted; this is one user-set, user-visible datum they can change or
    clear, not a location history. */
 const TRIP_MIN_KM=100;                 // + at least one overnight
+/* How sure the advisor has to be before a trip adds ITSELF. Everything below is
+   still offered, just as a candidate to confirm — the cost of the two mistakes is
+   nothing like symmetric: an extra confirm costs one tap, an invented trip packs a
+   suitcase for a city the user has never heard of (2026-08-20). */
+const TRIAGE_MIN_CONF=0.6;
 let home=null;                          // {label, postal, lat, lon} or null
 
 function roundCoarse(n){ return Math.round(n*10)/10; }   // ~11 km
@@ -1199,8 +1530,37 @@ async function triageCandidate(c){
 
   if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
   if(!t.city)   return {decision:"ask",  why:"no city could be determined"};
+  // A trip the app adds on its own initiative is one the user never agreed to, so
+  // the model has to be SURE. Under the floor the candidate is not lost — it drops
+  // back to being CONFIRMED by hand, which is what the confirm step is for. The
+  // server defaults a missing or unparseable confidence to 0.5, so an answer that
+  // does not state one lands here too, deliberately.
+  if(!(t.confidence>=TRIAGE_MIN_CONF))
+    return {decision:"ask", why:`not sure this is travel (${Math.round((t.confidence||0)*100)}%)`};
+  // The LLM writes this string and a PUBLIC geocoder is about to be asked it, so
+  // it has to look like a place name before either happens. Any script counts —
+  // the test is "two letters", not "two Latin letters".
+  if((String(t.city).match(/\p{L}/gu)||[]).length<2)
+    return {decision:"ask", why:`"${t.city}" isn't a place name`};
   let g;
   try{ g=await geocode(t.city); }catch(e){ return {decision:"ask", why:`couldn't place "${t.city}"`}; }
+  // The Kazakhstan gate. A fuzzy geocode answers a name nobody asked about, and
+  // the distance test then PASSES precisely because the answer is far away — the
+  // wronger the hit, the more certainly it becomes a trip. If the place we got
+  // back is not the place we asked about, we have not placed it, and an unplaced
+  // candidate is asked about rather than invented.
+  // The WHOLE name is compared, qualifier included: the model is asked for a bare
+  // city and does not always give one, and "Cambridge, UK" answered with Cambridge,
+  // Massachusetts is a wrong destination 5,000 km out that a city-only test waves
+  // through.
+  // geoPlaceEXACT, not geoPlaceMatches: nobody is looking at this answer, so the
+  // name that comes back has to be the name that was asked for. The loose test
+  // lets a name grow by whole words, which is right when a human is reading the
+  // result and wrong here — "Frankfurt" would accept "Frankfurt (Oder)" and
+  // "York" would accept "York New Salem", each of them the Petropavl failure with
+  // a plausible-looking name on it.
+  if(!geoPlaceExact(t.city,g))
+    return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);
   if(km<TRIP_MIN_KM) return {decision:"skip", why:`${Math.round(km)} km from home`};
   if(c.nights<1)     return {decision:"skip", why:"no overnight"};
@@ -1324,7 +1684,10 @@ function packAvail(it,departureMs,laundryBefore){
 }
 function packPayload(trip){
   const dep=isoMs(trip.start);
-  return closet.map(i=>({id:i.id,label:i.label,category:i.category,colors:i.colors,
+  // group/type travel with the item: the packing prompt prints the type, and a trip
+  // list that cannot tell a shirt from a tee packs the wrong one for a business day.
+  return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    type:normType(i.type,i.group),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
     availableCount:packAvail(i,dep,!!trip.laundryBefore)}))
     .filter(i=>i.availableCount>=1);
@@ -1373,7 +1736,7 @@ async function cancelTrip(trip){
 function closetPayload(){
   const trip=tripInProgress();
   const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
-    roles:normRoles(i.roles,i.category),colors:i.colors,
+    type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
     warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
   if(trip){
     const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
@@ -1491,14 +1854,24 @@ function renderTrips(){
     const days=Math.round((isoMs(x.start)-isoMs(t))/DAY_MS);
     const when=away?"on this trip now":days===0?"leaves today":days===1?"leaves tomorrow":`in ${days} days`;
     const packed=x.packed&&x.packed.length;
+    // esc() returns a STRING, so `esc(n)+1` concatenated the digit instead of
+    // adding it — a 3-night trip read "31 days" (2026-08-20).
+    const nDays=(x.nights||nightsBetween(x.start,x.end))+1;
     return `<div class="item2" data-trip="${esc(x.id)}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
         <b>${x.type==="business"?"💼":"🏖️"} ${esc(x.place||x.title)}</b>
         <span class="note" style="margin:0">${esc(when)}</span>
       </div>
-      <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(x.nights||nightsBetween(x.start,x.end))+1} days · ${esc((x.styles||[]).join(" + "))}</div>
-      ${packed?`<span class="chip src" style="margin-top:6px">🧳 packed — ${x.packed.length} items with you</span>`:
-                `<span class="chip" style="margin-top:6px">tap for your packing list</span>`}
+      <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(nDays)} days · ${esc((x.styles||[]).join(" + "))}</div>
+      ${/* A trip the app added by itself has to say so, and say what it came from.
+            Without this an auto-detected trip is indistinguishable from one the
+            user confirmed, which is what "unknown trips" means. */""}
+      ${x.auto?`<div class="note" style="margin:4px 0 0">🤖 found in your calendar: "${esc(x.title)}"${x.km?` · ${esc(x.km)} km from home`:""}</div>`:""}
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        ${packed?`<span class="chip src">🧳 packed — ${x.packed.length} items with you</span>`:
+                  `<span class="chip">tap for your packing list</span>`}
+        <button class="ghost" data-edit="${esc(x.id)}" style="margin-left:auto;padding:5px 10px;font-size:.72rem">Edit</button>
+      </div>
     </div>`;
   }).join("");
 
@@ -1524,10 +1897,13 @@ function paintTripSegs(){
   $("tsLaundry").checked=!!tsheet.trip.laundryBefore;
 }
 function openTripSheet(trip,isNew,hint){
-  tsheet={trip:{...trip,styles:[...(trip.styles||["casual"])]},isNew,matches:[]};
+  tsheet={trip:{...trip,styles:[...(trip.styles||["casual"])]},isNew,matches:[],geo:null};
   $("tsTitle").textContent=isNew?"Confirm trip":"Edit trip";
   $("tsWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
   $("tsCity").value=trip.place?trip.place.split(",")[0]:"";
+  // what the city box currently NAMES — see syncCityToGeo
+  tsheet.geo=(trip.place&&trip.lat!=null&&trip.lon!=null)
+    ? {lat:trip.lat,lon:trip.lon,place:trip.place,city:$("tsCity").value.trim()} : null;
   $("tsMatches").innerHTML=""; $("tsErr").textContent="";
   const h=$("tsHint");
   if(hint){ h.style.display="block"; h.textContent=`Your calendar says: "${hint}" — name the city so we can get its weather.`; }
@@ -1559,8 +1935,29 @@ async function findCity(){
 function pickCity(i){
   const g=tsheet.matches[i]; if(!g) return;
   tsheet.trip.lat=g.lat; tsheet.trip.lon=g.lon; tsheet.trip.place=g.place;
+  tsheet.geo={lat:g.lat,lon:g.lon,place:g.place,city:$("tsCity").value.trim()};
   $("tsMatches").innerHTML="";
   const p=$("tsPlace"); p.style.display="block"; p.textContent="✓ "+g.place;
+}
+
+/* The city text and the coordinates must never disagree. Editing an existing trip
+   opens the sheet on its old lat/lon/place, so retyping the city and tapping Save
+   without a fresh Find would have stored the OLD destination under the NEW name —
+   the edit silently dropped, and the weather still fetched for the old city
+   (2026-08-20). Text that no longer names the place the coordinates came from drops
+   the geocode, which is what makes tsSave's "Find the destination city first."
+   fire. Typing the original name back restores it, so opening the sheet to change
+   only the dates, the styles or the notice period costs nothing. */
+function syncCityToGeo(){
+  if(!tsheet) return;
+  const typed=$("tsCity").value.trim(), g=tsheet.geo, p=$("tsPlace");
+  if(g&&typed.toLowerCase()===g.city.toLowerCase()){
+    tsheet.trip.lat=g.lat; tsheet.trip.lon=g.lon; tsheet.trip.place=g.place;
+    p.style.display="block"; p.textContent="✓ "+g.place;
+  }else{
+    tsheet.trip.lat=null; tsheet.trip.lon=null; tsheet.trip.place="";
+    tsheet.matches=[]; $("tsMatches").innerHTML=""; p.style.display="none";
+  }
 }
 
 /* ── packing list ── */
@@ -1795,6 +2192,22 @@ async function refreshReadiness(){
 }
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); } });
 
+/* ───────── the three sheets (2026-08-20) ─────────
+   Everything used to live on one scrolling page in an order nobody chose. These
+   are pages now, switched by the bottom tab strip. Which one you were on is
+   REMEMBERED: the app is opened to answer one of three questions, and reopening
+   it should not put you back at the top of somebody else's answer. */
+const TABS=["advice","closet","calendar"];
+let tab="advice";
+function showTab(name,remember){
+  tab=TABS.includes(name)?name:"advice";
+  for(const t of TABS){ const p=$("pane-"+t); if(p) p.classList.toggle("on",t===tab); }
+  [...$("tabBar").children].forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
+  // Each sheet starts at its own top; jsdom has no layout, hence the guard.
+  if(window.scrollY) window.scrollTo(0,0);
+  if(remember!==false) prefSet("oa.tab",tab);
+}
+
 /* ───────── persistence ─────────
    PRIVACY: coordinates are NEVER persisted (locked product decision — RAM only).
    Only the typed city NAME is saved; coords are re-derived by geocoding on demand.
@@ -1812,6 +2225,7 @@ async function load(){
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
   // remembers the CHOICE (GPS vs a typed city), never the location itself
   state.useGps=(await prefGet("oa.useGps","0"))==="1";
+  tab=await prefGet("oa.tab","advice");
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
@@ -1853,6 +2267,8 @@ $("saveSchedule").onclick=async()=>{ await saveSchedule(); refreshReadiness(); }
 $("saveUrl").onclick=async()=>{ const v=$("baseUrl").value.trim(); if(v){ state.baseUrl=v; await persist(); toast("Server saved"); } };
 $("dShare").onclick=shareIt; $("dNotify").onclick=previewPush;
 
+$("tabBar").onclick=e=>{ const b=e.target.closest("button"); if(b) showTab(b.dataset.tab); };
+
 /* ── closet wiring ── */
 $("addCamBtn").onclick=()=>addItem("CAMERA");
 $("addGalBtn").onclick=()=>addItem("PHOTOS");
@@ -1871,11 +2287,34 @@ $("closetGrid").onclick=e=>{
 $("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;sheet.item.warmth=+b.dataset.w;paintSheetSegs();};
 $("shCat").onchange=()=>{ if(!sheet) return;
   // Changing the primary layer re-suggests the folder and re-seeds the roles, so a
-  // mis-classified item can be corrected in one move instead of three.
+  // mis-classified item can be corrected in one move instead of three. The category
+  // is the field the user just touched, so here it leads and the folder follows —
+  // the reverse of reconcileItem's group-wins rule, which is why the group is set
+  // explicitly before reconciling. A type from the old folder cannot survive the
+  // move, so it is dropped rather than silently re-interpreted.
   sheet.item.category=$("shCat").value;
   sheet.item.group=GROUP_FROM_CAT[sheet.item.category]||"tops";
-  sheet.item.roles=normRoles([sheet.item.category],sheet.item.category);
-  $("shGroup").value=sheet.item.group;
+  sheet.item.type=null;
+  sheet.item.roles=[sheet.item.category];
+  reconcileItem(sheet.item);
+  $("shGroup").value=sheet.item.group; $("shCat").value=sheet.item.category;
+  paintTypes(); paintRoles(); };
+$("shGroup").onchange=()=>{ if(!sheet) return;
+  // Moving an item to another folder is the strongest statement the user can make
+  // about what it IS, so the layer follows it. Without this, filing a mistaken
+  // undershirt under Tops left category="inner" behind and the advisor kept
+  // offering it as an undershirt (user, 2026-08-18).
+  sheet.item.group=$("shGroup").value;
+  reconcileItem(sheet.item);
+  $("shCat").value=sheet.item.category;
+  paintTypes(); paintRoles(); };
+$("shType").onchange=()=>{ if(!sheet) return;
+  // The type narrows the roles (a Coat is outer only, where Outerwear allows mid
+  // too), so the chips are repainted from the reconciled item rather than left
+  // showing a role the save path would strip.
+  sheet.item.type=normType($("shType").value,sheet.item.group);
+  reconcileItem(sheet.item);
+  $("shCat").value=sheet.item.category;
   paintRoles(); };
 $("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
   const i=sheet.item.formality.indexOf(f);
@@ -1893,9 +2332,10 @@ $("shSave").onclick=async()=>{
   if(!it.label){ toast("Give it a name first"); return; }
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
-  // normRoles has the last word, so an inner item can never be saved with visible
-  // roles even if the UI were bypassed.
-  it.roles=normRoles(it.roles,it.category);
+  it.type=$("shType").value||null;
+  // reconcileItem has the last word, so an inner item can never be saved with
+  // visible roles — nor a Top with the inner role — even if the UI were bypassed.
+  reconcileItem(it);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);
@@ -2013,6 +2453,15 @@ $("candList").onclick=async e=>{
   }
 };
 $("tripList").onclick=e=>{
+  // Edit first: it is inside the tappable card, and it is the ONLY route to the
+  // trip sheet's Delete. Before this an auto-detected trip could not be removed at
+  // all — the card opened a packing list and nothing else (2026-08-20).
+  const ed=e.target.closest("[data-edit]");
+  if(ed){
+    const trip=trips.find(x=>x.id===ed.dataset.edit);
+    if(trip) openTripSheet(trip,false,"");
+    return;
+  }
   const t=e.target.closest("[data-trip]"); if(!t) return;
   const trip=trips.find(x=>x.id===t.dataset.trip); if(trip) openPacking(trip);
 };
@@ -2034,6 +2483,7 @@ $("tsMinus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays>0){tsheet.trip.notif
 $("tsPlus").onclick=()=>{if(tsheet&&tsheet.trip.notifyDays<14){tsheet.trip.notifyDays++;paintTripSegs();}};
 $("tsFind").onclick=findCity;
 $("tsCity").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();findCity();}});
+$("tsCity").addEventListener("input",syncCityToGeo);
 $("tsMatches").onclick=e=>{const b=e.target.closest("[data-pick]");if(b)pickCity(+b.dataset.pick);};
 $("tsCancel").onclick=closeTripSheet;
 $("tripWrap").onclick=e=>{if(e.target===$("tripWrap"))closeTripSheet();};
@@ -2058,6 +2508,12 @@ $("tsDel").onclick=async()=>{
   const t=tsheet.trip;
   await cancelTrip(t);
   trips=trips.filter(x=>x.id!==t.id);
+  // The calendar event outlives the trip we made from it. Deleting the trip alone
+  // leaves the event in neither `trips` nor `tripsDismissed`, so the very next scan
+  // judges it afresh and auto-adds the same trip back — Delete would hold only
+  // until the next scan. Record the dismissal so the decision sticks (2026-08-20).
+  if(t.calId&&!tripsDismissed.includes(t.calId)) tripsDismissed.push(t.calId);
+  candidates=candidates.filter(c=>c.calId!==t.calId);
   await saveTrips(); closeTripSheet(); toast("Trip removed");
 };
 $("pkClose").onclick=()=>$("packWrap").classList.remove("show");
@@ -2076,6 +2532,7 @@ $("pkPacked").onclick=async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
+  showTab(tab,false);   // false: restoring where you were is not a new choice
   renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();

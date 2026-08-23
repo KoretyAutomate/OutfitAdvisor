@@ -19,7 +19,7 @@ import logging
 
 import httpx
 
-from vocab import CATEGORIES, GROUPS, STYLES
+from vocab import CATEGORIES, GROUPS, STYLES, TYPE_LABEL, TYPES
 
 # Same handler app.py configures; never log prompt or closet CONTENT here — the
 # privacy invariant is that item labels never reach the logs. Ids only.
@@ -134,24 +134,51 @@ async def classify_image(image_b64: str) -> dict | None:
     The image is a request-scoped local: passed to vLLM, never stored/logged.
     Caller sanitizes/validates every field before it goes anywhere else.
     """
+    # Ask WHAT IT IS before HOW IT IS WORN, and make the underwear question a
+    # yes/no gate rather than one option among seven.
+    #
+    # The old prompt asked for `category` first and buried "inner = underwear" in a
+    # parenthesis, so a plain t-shirt drew `inner` often enough that the user's Tops
+    # folder came back with inner and base mixed together (2026-08-18). The order
+    # matters because the model answers the fields in the order it is asked: once it
+    # has committed to "this is a Top", answering "inner" next reads as a
+    # contradiction to it too. vocab.reconcile() enforces the same relation in code
+    # afterwards — this only stops the model producing the contradiction in the
+    # first place, since a repaired guess is still a guess the user has to check.
     prompt = (
-        "Classify the clothing item in this photo. Reply ONLY JSON:\n"
+        "Classify the clothing item in this photo.\n"
+        "FIRST decide what the garment IS. The one question that matters most: is "
+        "this UNDERWEAR — a plain undershirt or a thermal top, worn directly on the "
+        "skin UNDER a shirt and never seen by anyone? Or is it a VISIBLE garment "
+        "someone wears out of the house? A t-shirt, a tank top, a camisole and a "
+        "vest top are all VISIBLE clothing even when they are plain, thin, white or "
+        "sleeveless. Only answer underwear when the garment would look like being "
+        "caught undressed if it were the outermost thing worn.\n"
+        "THEN say how it is worn. These two must agree: an item in the underwear "
+        'group is always exactly ["inner"], and an item in ANY other group is never '
+        '"inner".\n'
+        "Reply ONLY JSON:\n"
         '{"label": short item name a person would say (e.g. "navy merino crew-neck"), '
-        f'"category": one of {list(CATEGORIES)} '
-        "(inner=UNDERWEAR worn on skin under the shirt and never visible: "
-        "undershirt, undershirt-style tank, or thermal — a fashion tank top or "
-        "camisole meant to be worn visibly is base, "
-        "base=shirt/tee worn over the inner, mid=sweater/cardigan, outer=jacket/coat), "
         f'"group": one of {list(GROUPS)} — what the garment IS, not how it is worn '
-        "(underwear=undershirts/thermals, tops=tees/shirts/blouses/polos, "
-        "knitwear=sweaters/cardigans/fleece, outerwear=jackets/coats), "
+        "(underwear=undershirts/thermals worn on skin under a shirt, "
+        "tops=tees/shirts/blouses/polos/tank tops AND sweaters/cardigans/fleece, "
+        "outerwear=jackets/coats, onepiece=dresses/jumpsuits/dungarees), "
+        # The second level. Listing the types PER GROUP rather than as one flat set
+        # is what stops "polo" coming back with group "outerwear": the model reads
+        # its own group choice off the line it is answering from.
+        '"type": the specific kind of garment, taken from the list for the group '
+        "you just chose — " + "; ".join(f"{g}: {'|'.join(ts)}" for g, ts in TYPES.items())
+        + ". Use null if none of them fits, "
+        f'"category": one of {list(CATEGORIES)} — the layer it usually plays '
+        "(inner=the undershirt slot, ONLY for the underwear group; base=the visible "
+        "shirt/tee worn over it; mid=sweater/cardigan; outer=jacket/coat), "
         f'"roles": the subset of {list(CATEGORIES)} this ONE garment can plausibly '
         "be worn as across the year. Real clothes change role with the season: an "
         "oxford shirt is the OUTER layer over a tee in summer and a base or mid "
         'under a coat in winter, so it is ["base","mid","outer"]. A wool coat is '
         'only ["outer"]. A t-shirt is usually just ["base"]. UNDERWEAR IS CLOSED: '
-        'if it is underwear the answer is exactly ["inner"], and nothing else may '
-        'include "inner" — a visible tee is never underwear, '
+        'underwear is exactly ["inner"], and nothing else may include "inner" — a '
+        "visible tee is never underwear, "
         '"colors": [1-3 lowercase color words], '
         '"warmth": 1-5 (1=summer-thin, 5=deep-winter), '
         f'"formality": subset of {list(STYLES)} where it fits, '
@@ -167,7 +194,8 @@ async def classify_image(image_b64: str) -> dict | None:
                 ],
             }
         ],
-        max_tokens=150,
+        # 150 was sized before `type` joined the schema; the extra key costs ~10.
+        max_tokens=180,
         timeout=60,
     )
     return _parse_json(out)
@@ -186,8 +214,15 @@ def _pack_prompt(
     _closet_prompt (fixed 6 slots) this schema is open-ended and would otherwise
     truncate mid-JSON on a long trip from a big closet."""
     days, summary = forecast
+    # The type goes in beside the label: "navy top" and "navy polo" read identically
+    # to the model otherwise, and on a business trip the type is the only thing
+    # separating the shirt worth packing from the tee. Unlike the outfit prompt this
+    # one keeps NON_SLOT_TYPES — a packing list that forgets underwear and socks is
+    # worse than useless.
     lines = [
-        f"{i['id']} | {i['category']} | {i['label']} | colors: {','.join(i['colors'])}"
+        f"{i['id']} | {i['category']} | {i['label']}"
+        + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
+        + f" | colors: {','.join(i['colors'])}"
         f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"

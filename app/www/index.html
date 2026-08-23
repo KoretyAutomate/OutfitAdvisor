@@ -1862,8 +1862,14 @@ async function geocodeMany(city){
   const q=geoParts(city)[0]||String(city||"");
   const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${GEO_COUNT}&language=en`);
   const d=await r.json();
+  // `regions` carries the geocoder's OWN fields, exactly as geocode() does, and
+  // geoPlaceMatches needs them: the display string ends in the full country name,
+  // so without the code "Osaka, JP" and "Paris, FR" match nothing and a correctly
+  // qualified destination ranks below the misses. The label keeps the long country
+  // name because it is what a person reads; the codes ride alongside for matching.
   const all=(d.results||[]).map(g=>({lat:g.latitude,lon:g.longitude,
-    place:[g.name,g.admin1,g.country].filter(Boolean).join(", ")}));
+    place:[g.name,g.admin1,g.country].filter(Boolean).join(", "),
+    regions:[g.admin1,g.admin2,g.admin3,g.admin4,g.country,g.country_code].filter(Boolean)}));
   // Same-named places at the SAME SPOT come back more than once; the second copy
   // is noise in a list somebody has to read. Same name at a DIFFERENT spot is a
   // different town, and dropping it hides a real destination — Open-Meteo returns

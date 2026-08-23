@@ -535,6 +535,30 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("a qualifier nothing matches still leaves every answer to choose from",
     mm.length === 3, mm.length);
 
+  console.log("\n--- 10a. an ISO code qualifier matches in the picker too --------");
+  /* The picker's own objects must carry the geocoder's region FIELDS, not just the
+     display string: that string ends in the full country name, so "Osaka, JP" and
+     "Paris, FR" would match nothing and rank a correctly qualified destination
+     below the misses. Raised by the pre-push reviewer, 2026-08-23. */
+  omStub([
+    { name: "Paris", admin1: "Texas",       country: "United States", country_code: "US", latitude: 33.66, longitude: -95.55 },
+    { name: "Paris", admin1: "Ile-de-France", country: "France",      country_code: "FR", latitude: 48.85, longitude: 2.35 },
+  ]);
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  mm = await ev(`geocodeMany("Paris, FR")`);
+  check("a two-letter country code puts France first, though Texas is far nearer",
+    /France/.test(mm[0].place), mm.map(x => x.place));
+  check("the picker's answers carry the geocoder's own region fields",
+    Array.isArray(mm[0].regions) && mm[0].regions.includes("FR"), mm[0].regions);
+
+  omStub([
+    { name: "Paris", admin1: "Texas",       country: "United States", country_code: "US", latitude: 33.66, longitude: -95.55 },
+    { name: "Paris", admin1: "Ile-de-France", country: "France",      country_code: "FR", latitude: 48.85, longitude: 2.35 },
+  ]);
+  mm = await ev(`geocodeMany("Paris, France")`);
+  check("and the long country name still works", /France/.test(mm[0].place),
+    mm.map(x => x.place));
+
   console.log("\n--- 10b. same name, different town, is not a duplicate ----------");
   /* Open-Meteo really does return three separate Lawrencevilles in Pennsylvania:
      143, 275 and 448 km from this user (live, 2026-08-23). A label-only dedupe key

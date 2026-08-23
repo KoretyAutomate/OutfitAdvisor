@@ -535,6 +535,34 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("a qualifier nothing matches still leaves every answer to choose from",
     mm.length === 3, mm.length);
 
+  console.log("\n--- 10b. same name, different town, is not a duplicate ----------");
+  /* Open-Meteo really does return three separate Lawrencevilles in Pennsylvania:
+     143, 275 and 448 km from this user (live, 2026-08-23). A label-only dedupe key
+     collapsed them to whichever came first, hiding the nearest — and could leave a
+     single result that findCity() then auto-selects. Raised by the pre-push
+     reviewer. */
+  const PA = [
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 41.998, longitude: -77.126 },
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 40.463, longitude: -79.965 },
+    { name: "Lawrenceville", admin1: "Pennsylvania", country: "United States", country_code: "US", latitude: 40.983, longitude: -75.181 },
+  ];
+  omStub(PA);
+  mm = await ev(`geocodeMany("Lawrenceville")`);
+  check("three distinct Pennsylvania towns all survive", mm.length === 3,
+    mm.map(x => `${x.place} ${x.km}km`));
+  check("and the nearest of them is offered first",
+    mm[0].km <= mm[1].km && mm[1].km <= mm[2].km, mm.map(x => x.km));
+
+  // The genuine duplicate — the same record twice at a slightly different centre —
+  // is still collapsed, which is what the dedupe is for.
+  omStub([
+    { name: "Springfield", admin1: "Illinois", country: "United States", country_code: "US", latitude: 39.800, longitude: -89.640 },
+    { name: "Springfield", admin1: "Illinois", country: "United States", country_code: "US", latitude: 39.802, longitude: -89.641 },
+  ]);
+  mm = await ev(`geocodeMany("Springfield")`);
+  check("but one town listed twice at almost the same spot collapses to one",
+    mm.length === 1, mm.map(x => x.place));
+
   console.log("\n--- 11. a lone answer is not auto-committed over a qualifier ----");
   /* "Osaka, Texas" returns exactly one result — Osaka, JAPAN. Picking it silently
      overrules the user's own qualifier with a shrug. */

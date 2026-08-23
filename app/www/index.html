@@ -798,6 +798,10 @@ function geoNearestFirst(list){
    Length-bounded deliberately: a long string nothing matches is a typo, and
    "couldn't find it" is the honest thing to say about a typo. */
 const GEO_SHORT=4;
+/* Two answers with the same name this close together are one place recorded
+   twice, not two towns. Small on purpose: the nearest pair this has to keep
+   apart is 143 km. */
+const GEO_DUPE_KM=2;
 const geoUnplaceableShort=(q,list)=>
   String(q||"").trim().length<=GEO_SHORT &&
   !(list||[]).some(x=>geoPlaceMatches(q,x));
@@ -1860,11 +1864,20 @@ async function geocodeMany(city){
   const d=await r.json();
   const all=(d.results||[]).map(g=>({lat:g.latitude,lon:g.longitude,
     place:[g.name,g.admin1,g.country].filter(Boolean).join(", ")}));
-  // Same-named places at the same spot come back more than once; the second copy
-  // is noise in a list somebody has to read.
-  const seen=new Set();
-  const uniq=all.filter(g=>{const k=g.place.toLowerCase();
-    if(seen.has(k)) return false; seen.add(k); return true;});
+  // Same-named places at the SAME SPOT come back more than once; the second copy
+  // is noise in a list somebody has to read. Same name at a DIFFERENT spot is a
+  // different town, and dropping it hides a real destination — Open-Meteo returns
+  // three separate Lawrencevilles in Pennsylvania, 143, 275 and 448 km from this
+  // user, and a label-only key would have collapsed them to whichever came first.
+  // So the coordinates are part of the test, with a small tolerance for the same
+  // place recorded twice at slightly different centres.
+  const kept=[];
+  for(const g of all){
+    const dup=kept.some(k=>k.place.toLowerCase()===g.place.toLowerCase()&&
+                           haversineKm(k.lat,k.lon,g.lat,g.lon)<=GEO_DUPE_KM);
+    if(!dup) kept.push(g);
+  }
+  const uniq=kept;
   // The qualifier is stripped from the QUERY (Open-Meteo matches a name, so
   // "Lawrenceville, Georgia" as a query matches nothing at all) and must therefore
   // be applied to the ANSWERS. Without this the strip silently discards what the

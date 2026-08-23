@@ -340,29 +340,42 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
      Both answer with total confidence, and the distance test then CONFIRMS the
      trip precisely BECAUSE the answer is far away — the wronger the hit, the more
      certainly it becomes a trip to Kazakhstan. */
-  check("a 3-letter all-caps code is recognised as a code", ev(`geoLooksLikeCode("PPK")`));
-  check("so is LVL", ev(`geoLooksLikeCode("LVL")`));
-  check("and a 4-character one", ev(`geoLooksLikeCode("KPMG")`));
-  check("a real city is NOT a code", !ev(`geoLooksLikeCode("Boston")`));
-  check("nor is an all-caps city — length is what separates them",
-    !ev(`geoLooksLikeCode("BOSTON")`));
-  check("nor a qualified name", !ev(`geoLooksLikeCode("Princeton, NJ")`));
-
+  /* The gate is the strict NAME test that was already here: PPK comes back named
+     Petropavl, and a place that is not the place we asked about has not been
+     placed. No shape rule — see the note on geoUnplaceableShort for why every
+     shape rule tried here was wrong more often than right. */
   ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
-  // The model answers with the code itself as the "city"; the geocoder must never
-  // be asked about it, so calling it here is a test failure by construction.
   ev(`
     fetch = async (url) => {
       const u = String(url);
       if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
         {isTrip:true, city:"PPK", type:"business", confidence:0.9, reason:"offsite"}) };
-      throw new Error("the geocoder must not be called for a code");
+      return { ok:true, json: async () => ({ results: [
+        { name:"Petropavl", admin1:"North Kazakhstan", country:"Kazakhstan", country_code:"KZ",
+          latitude:54.87, longitude:69.15 }] }) };
     };`);
   let vc = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
                      start:"2026-09-02",end:"2026-09-03"})`);
-  check("a code city is ASKED about, never geocoded into a trip",
+  check("PPK is ASKED about, never turned into a trip to Kazakhstan",
     vc.decision === "ask", vc);
-  check("and the reason says why", /code, not a city/.test(vc.why || ""), vc);
+  check("and the reason names what came back instead",
+    /didn't match/.test(vc.why || "") && /Petropavl/.test(vc.why || ""), vc);
+
+  // LVL is the nastier one: the name that comes back IS the name asked about, so
+  // only the region tells Virginia from New Jersey.
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"Lawrenceville", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Lawrenceville", admin1:"Virginia",   country:"United States", country_code:"US", latitude:36.758, longitude:-77.847 },
+        { name:"Lawrenceville", admin1:"New Jersey", country:"United States", country_code:"US", latitude:40.297, longitude:-74.729 }] }) };
+    };`);
+  vc = await ev(`triageCandidate({title:"Team sync",hint:"LVL",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("two far-apart Lawrencevilles are asked about, not guessed",
+    vc.decision === "ask", vc);
 
   console.log("\n--- 7. of two same-named towns, the near one is meant -----------");
   /* Open-Meteo ranks by population, so the user's OWN town loses to bigger
@@ -478,6 +491,21 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   }
   check("a LONG query that matches nothing is not called a code — it is a typo",
     !ev(`geoUnplaceableShort("Pettropavvl",${JSON.stringify(asPetro)})`));
+
+  /* The case the reviewer caught: a shape rule refuses a PASTED name too. Calendar
+     text and copied addresses arrive upper-cased all the time, and "ROME" is a
+     city however it is typed. Every short city is checked in BOTH cases. */
+  for (const city of ["rome", "oslo", "nice", "lyon", "bath", "york", "kobe",
+                      "pisa", "graz", "cork", "riga", "bonn", "linz", "gent"]) {
+    const proper = city[0].toUpperCase() + city.slice(1);
+    const answer = [{ lat: 0, lon: 0, place: `${proper}, Somewhere, XX` }];
+    check(`'${city.toUpperCase()}' pasted in caps still geocodes`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(city.toUpperCase())},${JSON.stringify(answer)})`));
+    check(`'${proper}' typed normally still geocodes`,
+      !ev(`geoUnplaceableShort(${JSON.stringify(proper)},${JSON.stringify(answer)})`));
+  }
+  check("'LVL' answered with Lawrenceville, Virginia is refused — nothing is named LVL",
+    ev(`geoUnplaceableShort("LVL",[{lat:0,lon:0,place:"Lawrenceville, Virginia, United States"}])`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

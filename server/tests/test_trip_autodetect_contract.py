@@ -153,14 +153,28 @@ def test_a_building_code_never_reaches_the_geocoder():
     the common case, not an exotic one.
     """
     src = INDEX.read_text()
-    assert re.search(r"const geoLooksLikeCode=", src), "nothing recognises a code"
+    # The gate is the strict NAME test: PPK comes back named Petropavl, and a place
+    # that is not the place we asked about has not been placed.
     body = _triage_candidate()
-    assert "geoLooksLikeCode(t.city)" in body, \
-        "the automatic path must refuse a code before geocoding it"
-    guard = body.index("geoLooksLikeCode(t.city)")
-    assert 'decision:"ask"' in body[guard:guard + 200], \
-        "a code must degrade to asking, never to inventing a destination"
-    # The refusal has to come BEFORE the network call, or the wrong answer is
-    # already in hand and only discipline stops it being used.
-    assert guard < body.index("await geocode("), \
-        "the code test must run before the geocoder is called"
+    assert "geoPlaceExact(t.city,g)" in body, \
+        "nothing checks that the geocoder answered the name it was asked"
+
+    # No SHAPE rule, in either direction. `[A-Z0-9]{2,4}` refuses a pasted "ROME";
+    # making it case-insensitive additionally refuses Rome, Oslo, Nice, Lyon, Bath,
+    # York, Kobe, Pisa, Graz, Cork, Riga, Bonn, Linz and Gent. Every one is a real
+    # city of four letters or fewer, so a shape rule is wrong more often than right.
+    # Both were tried and both were reverted; this keeps them out.
+    assert "geoLooksLikeCode" not in src, \
+        "a code must be recognised by the ANSWER, never by the shape of the query"
+
+    # The user-facing picker refuses a short query that nothing came back named
+    # after, which is what catches lowercase codes without touching short cities.
+    assert re.search(r"const geoUnplaceableShort=", src), \
+        "nothing catches a code the user types into the picker"
+    short = src[src.index("const geoUnplaceableShort="):]
+    short = short[:short.index(";\n")]
+    assert "geoPlaceMatches" in short, "the test must compare the answer with the query"
+    assert "GEO_SHORT" in short, "the test must be bounded to short queries"
+    bound = re.search(r"const GEO_SHORT=(\d+)", src)
+    assert bound and int(bound.group(1)) <= 5, \
+        "a long unmatched string is a typo, not a code — saying 'code' there misleads"

@@ -14,15 +14,10 @@ The parity table in `app/tests/closet_types.test.js` covers the phone-side twins
 of these functions; if one side is edited alone the two suites disagree, which is
 the point.
 """
-import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "server"))
-
-import vocab  # noqa: E402
+import vocab
 
 
 # ── the shape of the vocabulary ────────────────────────────────────────────────

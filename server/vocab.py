@@ -360,7 +360,7 @@ def reconcile(
     raw_type = (
         str(type_).strip().lower().replace("-", "_").replace(" ", "_") if type_ else None
     )
-    if canon and (canon, raw_type) in LEGACY_TYPE_GROUP:
+    if canon and raw_type and (canon, raw_type) in LEGACY_TYPE_GROUP:
         canon = LEGACY_TYPE_GROUP[(canon, raw_type)]
     # 3. No usable group? The type names one exactly, and is a better source than
     #    the category — which is a guess about how the thing is worn.

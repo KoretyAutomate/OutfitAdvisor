@@ -18,14 +18,11 @@ WHY THIS EXISTS
 """
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import engine  # noqa: E402
+import engine
 
 GOLDEN = Path(__file__).parent / "golden_engine.json"
 

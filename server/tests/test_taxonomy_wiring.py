@@ -9,18 +9,13 @@ unit was individually correct and only the wiring was wrong:
   - underwear that is not a torso garment was a legal undershirt (08-20)
 """
 import asyncio
-import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "server"))
-
-import closet as closet_mod  # noqa: E402
-import llm  # noqa: E402
-import vocab  # noqa: E402
-from app import ClosetItem  # noqa: E402
+import closet as closet_mod
+import llm
+import vocab
+from app import ClosetItem
 
 WEATHER = {
     "lo": 8, "hi": 15, "feelsLo": 6, "feelsHi": 14, "desc": "Cloudy", "rain": 10,

@@ -146,7 +146,11 @@
   /* Tabs sit at the TOP, under the header (user, 2026-08-23). Sticky rather than
      static so they stay reachable down a long closet, and full-bleed via the
      negative margin so nothing scrolls through the 16px gutters behind them. */
-  .sheetTabs{position:sticky;top:0;z-index:30;display:flex;gap:3px;
+  /* top is the INSET, not 0: on an edge-to-edge phone a sticky bar pinned at
+     viewport 0 slides under the status bar or the camera cutout once the header
+     scrolls away, and stops being tappable. Zero on a phone with no inset, so
+     this costs nothing where it is not needed. */
+  .sheetTabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;gap:3px;
     align-items:flex-start;margin:2px -16px 14px;padding:6px 16px 0;
     background:linear-gradient(0deg,rgba(11,19,34,0),#0b1322 55%);
     border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
@@ -969,26 +973,45 @@ const TYPE_WORDS={
 /* Words to whole-word tokens, so "shirt" does not fire inside "t-shirt" and
    "tie" does not fire inside "tights". */
 const geoWordy=s=>` ${String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim()} `;
-/* The longest phrase that appears wins: "t-shirt" (2 tokens) beats "shirt" (1),
-   "down jacket" beats "jacket", "sports bra" beats "bra". Two DIFFERENT types
-   matching at the same length is a genuine ambiguity — left untyped rather than
-   settled by table order. Restricted to the types the group actually allows, so a
-   "denim jacket" in Outerwear cannot come back as jeans. */
+/* Which type wins when a label matches more than one, MOST SPECIFIC FIRST.
+   Character length is not specificity and using it as a proxy gets the commonest
+   labels wrong: "Navy polo shirt" matches both `polo` and `shirt`, and "shirt" is
+   the longer word, so the generic answer won. Same for "Down puffer jacket".
+   Every type appears exactly once — closet_types.test.js asserts that, so a type
+   added to TYPES without a place here fails the suite instead of silently
+   defaulting. */
+const TYPE_PRECEDENCE=[
+  "thermal","undershirt","sleepwear","bra","briefs",
+  "t_shirt","polo","blouse","tank","waistcoat","hoodie","cardigan","fleece","sweater","shirt",
+  "rainwear","puffer","blazer","coat","jacket",
+  "jeans","leggings","shorts","skirt","trousers",
+  "overalls","jumpsuit","dress",
+  "dress_shoes","sneakers","loafers","sandals","boots","socks",
+  "tie","belt","gloves","hat","scarf","umbrella"];
+const TYPE_RANK={};
+TYPE_PRECEDENCE.forEach((t,i)=>{ TYPE_RANK[t]=i; });
+/* A longer PHRASE still wins first — "t-shirt" (2 words) beats "shirt" (1), and
+   "denim jacket" beats "denim" — because naming more of the garment is stronger
+   evidence than naming less of it. Only when two matches are the same length does
+   specificity decide, and it decides by the table above rather than by accident.
+   Restricted to the types the group allows, so a denim jacket in Outerwear cannot
+   come back as jeans. */
 function typeFromLabel(label,group){
   const hay=geoWordy(label);
   if(hay.trim().length<2) return null;
-  let best=null, bestLen=0, tied=false;
+  let best=null, bestWords=0;
   const allowed=TYPES[group]||Object.keys(TYPE_WORDS);
   for(const t of allowed){
     for(const w of (TYPE_WORDS[t]||[])){
       const needle=geoWordy(w);
       if(needle.trim().length<2||!hay.includes(needle)) continue;
-      const len=needle.trim().split(" ").length*100+needle.trim().length;
-      if(len>bestLen){ best=t; bestLen=len; tied=false; }
-      else if(len===bestLen&&best!==t){ tied=true; }
+      const words=needle.trim().split(" ").length;
+      if(words>bestWords||(words===bestWords&&best!==null&&TYPE_RANK[t]<TYPE_RANK[best])){
+        best=t; bestWords=words;
+      }else if(best===null){ best=t; bestWords=words; }
     }
   }
-  return tied?null:best;
+  return best;
 }
 /* A type whose group MOVED carries the correction with it: an item saved as
    bottoms/dress is a dress that predates the onepiece group, not mislabelled

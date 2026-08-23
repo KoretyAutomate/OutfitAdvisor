@@ -125,6 +125,18 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
     bar.closest(".wrap") !== null);
   check("and it is still the only tab bar", doc.querySelectorAll("#tabBar").length === 1);
 
+  /* A sticky bar pinned at viewport 0 slides under the status bar or the camera
+     cutout on an edge-to-edge phone once the header scrolls away, and stops being
+     tappable. Raised by the pre-push reviewer, 2026-08-23. jsdom does not compute
+     env(), so the RULE is asserted rather than the layout. */
+  const css = fs.readFileSync(HTML, "utf8");
+  const rule = css.slice(css.indexOf(".sheetTabs{"));
+  const decl = rule.slice(0, rule.indexOf("}"));
+  check("the sticky bar is offset by the safe-area inset, not pinned at 0",
+    /top:\s*env\(safe-area-inset-top/.test(decl), decl.slice(0, 120));
+  check("and it is sticky, so it survives the header scrolling away",
+    /position:\s*sticky/.test(decl), decl.slice(0, 120));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

@@ -289,6 +289,42 @@ check("migrateItem is reconcileItem — one repair pass on load",
     stated.type === "shirt", stated);
   check("and carries no by-name marker", !stated.typeFrom, stated);
 
+  console.log("\n--- 11. specific beats generic, by table not by accident -------");
+  /* Character length is not specificity. Scoring by it filed "Navy polo shirt" as
+     a plain shirt, because "shirt" has one more character than "polo" — and that
+     is one of the commonest labels in the closet. Raised by the pre-push reviewer,
+     2026-08-23. */
+  const PREFER = [
+    ["Navy polo shirt",      "tops", "polo"],
+    ["Polo shirt",           "tops", "polo"],
+    ["Grey v-neck t-shirt",  "tops", "t_shirt"],
+    ["White dress shirt",    "tops", "shirt"],     // a dress shirt IS a shirt
+    ["Knit cardigan",        "tops", "cardigan"],  // beats sweater's "knit"
+    ["Hooded sweatshirt",    "tops", "hoodie"],
+    ["Down puffer jacket",   "outerwear", "puffer"],
+    ["Rain jacket",          "outerwear", "rainwear"],
+    ["Navy suit jacket",     "outerwear", "blazer"],
+    ["Blue denim jacket",    "outerwear", "jacket"],
+    ["Black skinny jeans",   "bottoms", "jeans"],
+  ];
+  for (const [label, grp, want] of PREFER)
+    check(`"${label}" files as ${want}`,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`) === want,
+      ev(`typeFromLabel(${JSON.stringify(label)},${JSON.stringify(grp)})`));
+
+  // The self-guard: a type added to TYPES with no place in the precedence table
+  // would rank `undefined` and lose every tie silently. Fail here instead.
+  const everyType = ev(`Object.values(TYPES).flat()`);
+  const ranked = ev(`TYPE_PRECEDENCE`);
+  check("every type has a precedence entry",
+    everyType.every(t => ranked.includes(t)),
+    everyType.filter(t => !ranked.includes(t)));
+  check("and the table invents none that do not exist",
+    ranked.every(t => everyType.includes(t)),
+    ranked.filter(t => !everyType.includes(t)));
+  check("each exactly once", ranked.length === new Set(ranked).size && ranked.length === everyType.length,
+    { table: ranked.length, types: everyType.length });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

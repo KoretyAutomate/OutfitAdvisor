@@ -164,7 +164,11 @@
   /* calendar picker — grouped by the account each calendar belongs to (2026-08-20) */
   .calAcct{margin-bottom:14px}
   .calAcctHead{display:flex;align-items:baseline;gap:7px;font-size:.82rem;font-weight:600;
-    padding:7px 0;border-bottom:1px solid var(--line);word-break:break-all}
+    padding:9px 0;border-bottom:1px solid var(--line);word-break:break-all;
+    width:100%;background:none;border-left:none;border-right:none;border-top:none;
+    color:var(--txt);text-align:left;cursor:pointer}
+  .calAcctHead .tw{color:var(--muted);flex-shrink:0;width:11px}
+  .calAcctHead .em{min-width:0;overflow:hidden;text-overflow:ellipsis}
   .calAcctHead .n{margin-left:auto;flex-shrink:0;color:var(--muted);font-size:.7rem;font-weight:400}
   .calRow{display:flex;align-items:center;gap:10px;padding:9px 0 9px 20px;
     border-bottom:1px solid var(--line)}
@@ -1166,7 +1170,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.16";
+const WEB_BUILD="1.17";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1677,6 +1681,7 @@ function renderCalSel(){
   el.textContent=names.length?`${names.length} selected · ${names.slice(0,2).join(", ")}${names.length>2?"…":""}`
     :`${calSel.length} selected`;
 }
+let calAcctOpen=new Set();   // accounts the user has expanded, remembered across launches
 async function openCalPicker(){
   const list=$("calList");
   let err="";
@@ -1701,11 +1706,39 @@ async function openCalPicker(){
           <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
           <span>${esc(calLabel(c))}</span></label>`;
       }).join("");
+      // Collapsed by DEFAULT (user, 2026-08-23: "calendar is too difficult to
+      // review"). A phone signed into several accounts lists dozens of calendars,
+      // and a wall of them is not reviewable — one line per address is. The state
+      // is remembered so the account you actually use stays open.
+      //
+      // HIDDEN, never removed from the DOM: saveCalSel decides "all", "some" or
+      // "none" by comparing how many boxes are ticked with how many EXIST, so a
+      // collapsed account whose rows had been unmounted would read as deselected
+      // and silently stop that calendar being scanned.
+      const acct=gr.account||CAL_NO_ACCOUNT;
+      const open=calAcctOpen.has(acct);
+      const sel=gr.cals.filter(c=>!c.shared&&((calMode==="all")||(calMode==="some"&&calSel.includes(c.id)))).length;
       return `<div class="calAcct">
-        <div class="calAcctHead"><span>📧 ${esc(gr.account||CAL_NO_ACCOUNT)}</span>
-          <span class="n">${own?`${own} you can read`:"none you can read"}</span></div>
-        ${rows}</div>`;
+        <button class="calAcctHead" data-acct="${esc(acct)}" aria-expanded="${open}">
+          <span class="tw">${open?"▾":"▸"}</span>
+          <span class="em">📧 ${esc(acct)}</span>
+          <span class="n">${own?`${sel}/${own} scanned`:"none you can read"}</span></button>
+        <div class="calAcctBody"${open?"":' style="display:none"'}>${rows}</div></div>`;
     }).join("");
+    // First time in: open the account that actually has readable calendars, rather
+    // than presenting every group shut and making the user hunt for the live one.
+    // Only when nothing has been remembered — after that the user's choice stands,
+    // including "all closed".
+    if(!calAcctOpen.size&&!(await prefGet("oa.calAcctOpen",""))){
+      const first=calGroups().find(g=>g.cals.some(c=>!c.shared));
+      if(first){ calAcctOpen.add(first.account||CAL_NO_ACCOUNT); return openCalPicker(); }
+    }
+    list.querySelectorAll(".calAcctHead").forEach(b=>{
+      b.onclick=()=>{ const a=b.dataset.acct;
+        if(calAcctOpen.has(a)) calAcctOpen.delete(a); else calAcctOpen.add(a);
+        prefSet("oa.calAcctOpen",JSON.stringify([...calAcctOpen]));
+        openCalPicker(); };
+    });
   }
   $("calWrap").classList.add("show");
 }
@@ -1828,7 +1861,10 @@ async function triageCandidate(c){
   // "York" would accept "York New Salem", each of them the Petropavl failure with
   // a plausible-looking name on it.
   if(!geoPlaceExact(t.city,g))
-    return {decision:"ask", why:`"${t.city}" didn't match "${g.place}"`};
+    // Deliberately does not name what came back, for the same reason the picker
+    // does not: quoting "Petropavl, North Kazakhstan" reads as a suggestion, and
+    // this string is one screen away from being shown at any time.
+    return {decision:"ask", why:`couldn't place "${t.city}"`};
   // AMBIGUITY IS NOT A DECISION. Several real places carry this exact name and
   // they are far apart — Princeton NJ and Princeton IN are 1,130 km apart, and
   // nothing in a bare "Princeton" says which the event means. Choosing the nearest
@@ -2176,11 +2212,23 @@ function renderOutfit(o,text,source,res){
 
    TRIPS_RULES_VERSION is the stamp. Raise it only when a rule change again makes
    previously-found trips untrustworthy. */
-const TRIPS_RULES_VERSION="1.16";
+const TRIPS_RULES_VERSION="1.17";
 let staleTripNote="";
 async function flagTripsFoundUnderOldRules(){
   if(await prefGet("oa.tripsRules","")===TRIPS_RULES_VERSION) return;
-  const stale=trips.filter(t=>t.auto&&!(t.packed&&t.packed.length));
+  // EVERY trip that came from the calendar, not just the ones added unattended.
+  // The first cut of this filtered on `auto`, which is set only on the automatic
+  // path — so a trip the user CONFIRMED from a candidate carried no flag and the
+  // migration walked straight past it, leaving Petropavl on screen exactly as
+  // before (2026-08-23). The broken code was the one that read a calendar
+  // location, and it fed both paths, so `calId` is the honest test: it means this
+  // destination came out of a calendar event.
+  //
+  // Packed trips are included too. They were excluded while this DELETED things,
+  // because a packing list is work; now that it only ASKS, excluding them just
+  // hides the question from someone who has already packed for Kazakhstan.
+  // Trips typed in by hand have no calId and are never questioned.
+  const stale=trips.filter(t=>t.calId||t.auto);
   if(stale.length){
     for(const t of stale) t.needsReview=true;
     await prefSet("oa.trips",JSON.stringify(trips));
@@ -2300,8 +2348,13 @@ async function findCity(){
   // by shape, so lowercase codes are refused without refusing Rome or Oslo.
   if(geoUnplaceableShort(c,m)){
     $("tsMatches").innerHTML="";
-    $("tsErr").textContent=`Nothing is called "${c}" — the closest match is `+
-      `"${m[0].place}". If "${c}" is a building or airport code, type the town it is in.`;
+    // Do NOT name what came back. The geocoder answers a code out of an airport
+    // table, so "PPK" returns Petropavl, KAZAKHSTAN — and a message reading
+    // 'the closest match is "Petropavl, North Kazakhstan"' looks exactly like the
+    // app PROPOSING Kazakhstan, which is the very thing the user reported twice.
+    // The refusal is the whole answer; the wrong place is not worth repeating.
+    $("tsErr").textContent=`"${c}" looks like a building or airport code, not a town. `+
+      `Type the town it is in — the weather comes from the town.`;
     return;
   }
   // A lone answer is only committed to unattended if it IS what was asked for.
@@ -2626,6 +2679,7 @@ async function load(){
   tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
+  try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
   // "all calendars" — read it back with exactly that meaning.

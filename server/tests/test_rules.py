@@ -282,3 +282,26 @@ def test_the_users_own_example_still_blames_the_visible_layer():
     """Asymmetric rules are unaffected: the undershirt stays, the white tee goes."""
     v = rules.violations([BAN], {"inner": "i1", "base": "i2"}, BY_ITEM)
     assert [x["slot"] for x in v] == ["base"]
+
+
+def test_a_colour_that_normalises_away_is_not_a_shared_colour():
+    """A rejected colour becomes "", and two "" are not a match.
+
+    Filtering the original string instead of the normalised one let a non-colour
+    through as empty, so two garments each carrying one appeared to share a colour
+    and an avoid_same_color rule cleared a garment that broke nothing. Raised by the
+    pre-push reviewer, 2026-08-24.
+    """
+    junk_a = {"id": "a", "type": "t_shirt", "category": "base",
+              "colors": ["a very long description of a colour"]}
+    junk_b = {"id": "b", "type": "sweater", "category": "mid",
+              "colors": ["another one entirely too wordy"]}
+    assert rules._colors(junk_a) == set()
+    r = {"kind": "avoid_same_color", "a": {"role": "base"}, "b": {"role": "mid"}}
+    assert not rules.violations([r], {"base": "a", "mid": "b"},
+                                {"a": junk_a, "b": junk_b})
+    # A genuinely shared colour still fires.
+    good_a = dict(junk_a, colors=["navy"])
+    good_b = dict(junk_b, colors=["navy"])
+    assert rules.violations([r], {"base": "a", "mid": "b"},
+                            {"a": good_a, "b": good_b})

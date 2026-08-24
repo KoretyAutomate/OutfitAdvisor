@@ -116,7 +116,14 @@ def clean_rules(rules: object) -> list[dict]:
 
 
 def _colors(item: dict) -> set[str]:
-    return {_norm_color(c) for c in (item.get("colors") or []) if str(c).strip()}
+    """The garment's colours, as this module compares them.
+
+    Filtered AFTER normalising, not before. _norm_color rejects a value that is not
+    colour-shaped, so a filter on the original string lets a rejected one through as
+    "" — and two garments each carrying one would then "share" the empty colour and
+    break an avoid_same_color rule that neither of them violates.
+    """
+    return {c for c in (_norm_color(x) for x in (item.get("colors") or [])) if c}
 
 
 def _matches(desc: dict, slot: str, item: dict) -> bool:

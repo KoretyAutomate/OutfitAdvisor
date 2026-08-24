@@ -35,6 +35,11 @@ const dom = new JSDOM(fs.readFileSync(HTML, "utf8"), {
 const w = dom.window;
 const doc = w.document;
 const ev = (c) => w.eval(c);
+// Trip dates must be in the future or tsSave refuses them, so they are computed
+// rather than written down — a hard-coded date silently expires.
+const DAY_ = 86400000;
+const iso = (off) => { const d = new Date(Date.now() + off * DAY_);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const drain = async (n = 8) => { for (let i = 0; i < n; i++) await new Promise(r => setTimeout(r, 0)); };
 
 // One overnight event, on a calendar of the user's own, 30 days out.
@@ -157,7 +162,36 @@ function stubDevice() {
     w.localStorage.getItem("oa.tripsRules") === ev(`TRIPS_RULES_VERSION`),
     w.localStorage.getItem("oa.tripsRules"));
 
-  ev(`trips.push({id:"t4",auto:true,place:"Nowhere",title:"x",start:"2026-11-01",end:"2026-11-02",packed:[]});`);
+  /* An auto trip the user OPENED AND SAVED is no longer the app's guess: they may
+     have corrected the destination, the dates, the styles or the notice period, and
+     none of that is re-derivable from the calendar. Saving must therefore clear the
+     `auto` flag, or this migration throws that correction away on the next upgrade.
+     Raised by the pre-push reviewer, 2026-08-23. */
+  w.localStorage.removeItem("oa.tripsRules");
+  ev(`trips=[{id:"e1",auto:true,calId:"c1",place:"Chicago, Illinois, US",title:"Offsite",
+              start:"${iso(9)}",end:"${iso(11)}",lat:41.88,lon:-87.63,styles:["smart"],
+              notifyDays:5,packed:[]}];
+      openTripSheet(trips[0],false);`);
+  await ev(`$("tsSave").onclick()`);
+  check("saving an auto-found trip makes it the user's", !ev(`trips[0].auto`), ev(`trips[0]`));
+  await ev(`dropTripsFoundUnderOldRules()`);
+  check("so the migration no longer discards it",
+    ev(`trips.some(t=>t.id==="e1")`), ev(`trips.map(t=>t.id)`));
+
+  /* The reminder lives in the NATIVE layer and outlives the record, so a trip
+     dropped from storage alone leaves a packing notification to fire for a trip
+     that is no longer anywhere in the app. */
+  w.localStorage.removeItem("oa.tripsRules");
+  ev(`cancelled=[];
+      Plugins.OutfitPacking={arm:async()=>true,cancel:async({tripId})=>{cancelled.push(tripId);}};
+      trips=[{id:"n1",auto:true,place:"Petropavl, KZ",title:"x",start:"2026-09-01",end:"2026-09-02",packed:[]}];`);
+  await ev(`dropTripsFoundUnderOldRules()`);
+  check("a dropped trip has its native reminder cancelled",
+    JSON.stringify(ev(`cancelled`)) === '["n1"]', ev(`cancelled`));
+
+  // The stamp is already written by the runs above, so this is the second launch:
+  // a trip the app finds AFTER the migration must survive it.
+  ev(`trips=[{id:"t4",auto:true,place:"Nowhere",title:"x",start:"2026-11-01",end:"2026-11-02",packed:[]}];`);
   await ev(`dropTripsFoundUnderOldRules()`);
   check("it runs ONCE — a later auto-detected trip is not swept away",
     ev(`trips.map(t=>t.id)`).includes("t4"), ev(`trips.map(t=>t.id)`));

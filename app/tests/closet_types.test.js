@@ -409,6 +409,27 @@ check("migrateItem is reconcileItem — one repair pass on load",
     /Couldn't identify/.test(w.document.getElementById("rescanNote").textContent),
     w.document.getElementById("rescanNote").textContent);
 
+  console.log("\n--- 13. the control exists on a COLD START ----------------------");
+  /* The whole point of the re-scan is the closet that is already on the phone, so
+     it has to be there when the app is merely opened. It was wired to saveCloset
+     only, which meant a user with a legacy closet had to perform some unrelated
+     write before the recovery action would appear at all. Raised by the pre-push
+     reviewer, 2026-08-23. */
+  w.localStorage.setItem("oa.closet", JSON.stringify([
+    {id:"c1",label:"navy merino crew-neck",category:"base",group:"tops",count:1,photo:true,
+     colors:[],warmth:3,formality:["casual"],waterproof:false}]));
+  w.document.getElementById("rescanRow").style.display = "none";   // as a fresh page would be
+  await ev(`load()`);
+  ev(`renderCloset(); refreshRescan();`);
+  check("a closet loaded from storage with no Kinds offers the re-scan",
+    w.document.getElementById("rescanRow").style.display !== "none",
+    w.document.getElementById("rescanRow").style.display);
+  // And the init path itself must call it, not just this test.
+  const src = fs.readFileSync(HTML, "utf8");
+  const init = src.slice(src.indexOf("const appReady="));
+  check("init refreshes the control, so opening the app is enough",
+    /refreshRescan\(\)/.test(init.slice(0, init.indexOf("})();"))), "not called in init");
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

@@ -2175,6 +2175,10 @@ async function dropTripsFoundUnderOldRules(){
   const stale=trips.filter(t=>t.auto&&!(t.packed&&t.packed.length));
   if(stale.length){
     const ids=new Set(stale.map(t=>t.id));
+    // The reminder is armed in the NATIVE layer and outlives the record. Removing
+    // the trip from storage alone leaves a packing notification to fire days later
+    // for a trip that is no longer anywhere in the app.
+    for(const t of stale) await cancelTrip(t);
     trips=trips.filter(t=>!ids.has(t.id));
     await prefSet("oa.trips",JSON.stringify(trips));
     // Say so. A trip vanishing with no explanation is its own bug report.
@@ -2870,6 +2874,13 @@ $("tsSave").onclick=async()=>{
   if(t.lat==null||t.lon==null){ $("tsErr").textContent="Find the destination city first."; return; }
   if(isoMs(t.start)<isoMs(todayISO())){ $("tsErr").textContent="That trip has already started."; return; }
   const idx=trips.findIndex(x=>x.id===t.id);
+  // Saving here makes the trip the USER'S, whatever found it. `auto` means "the app
+  // put this here on its own initiative, unreviewed", and once someone has opened
+  // the sheet and pressed Save that is no longer true. It also has to stop being
+  // true for storage: dropTripsFoundUnderOldRules discards auto trips as derived
+  // data, and a corrected destination, dates or reminder settings are not derived —
+  // re-scanning would not bring them back.
+  delete t.auto;
   if(idx>=0) trips[idx]=t; else trips.push(t);
   candidates=candidates.filter(c=>c.calId!==t.calId);
   await saveTrips();
@@ -2915,7 +2926,7 @@ const appReady=(async()=>{
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
   showTab(tab,false);   // false: restoring where you were is not a new choice
-  renderCloset(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
+  renderCloset(); refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

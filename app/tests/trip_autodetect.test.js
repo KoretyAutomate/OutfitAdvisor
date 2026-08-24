@@ -760,6 +760,19 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and the trip TYPE comes from the event, not from the table",
     kw.type === "vacation", kw);
 
+  /* The model routinely returns NO city for "BOS OFF" — precisely because it can
+     see that is an office code and not a city name. Demanding one anyway threw away
+     the destination already in hand and sent the user back to confirming by hand,
+     which is the thing this table exists to stop. */
+  ev(`fetch = async (url) => {
+        if (String(url).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:null, type:"business", confidence:0.9, reason:"client visit"}) };
+        throw new Error("a taught destination must not be geocoded"); };`);
+  kw = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a taught place still resolves when the model names no city at all",
+    kw.decision === "trip" && kw.place === "Boston, Massachusetts, US", kw);
+
   // A model answer that disagrees with the table cannot move the destination: the
   // taught place wins, and the name-matching guards are skipped rather than misfiring.
   ev(`fetch = async () => ({ ok:true, json: async () => (

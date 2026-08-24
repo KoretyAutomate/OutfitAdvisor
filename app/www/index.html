@@ -2032,7 +2032,13 @@ async function triageCandidate(c){
   }catch(e){ return {decision:"ask", why:"can't reach the DGX — check Tailscale"}; }
 
   if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
-  if(!t.city)   return {decision:"ask",  why:"no city could be determined"};
+  // The city checks are for a destination we do NOT know. With a taught code we do:
+  // the model is being asked only whether this is travel, and it routinely returns
+  // no city for "BOS OFF" precisely because it can see that is an office code and
+  // not a city name. Demanding one anyway throws away the answer already in hand
+  // and sends the user back to confirming by hand — the thing this table exists to
+  // stop. Raised by the pre-push reviewer, 2026-08-24.
+  if(!kp&&!t.city) return {decision:"ask", why:"no city could be determined"};
   // A trip the app adds on its own initiative is one the user never agreed to, so
   // the model has to be SURE. Under the floor the candidate is not lost — it drops
   // back to being CONFIRMED by hand, which is what the confirm step is for. The
@@ -2043,7 +2049,7 @@ async function triageCandidate(c){
   // The LLM writes this string and a PUBLIC geocoder is about to be asked it, so
   // it has to look like a place name before either happens. Any script counts —
   // the test is "two letters", not "two Latin letters".
-  if((String(t.city).match(/\p{L}/gu)||[]).length<2)
+  if(!kp&&(String(t.city).match(/\p{L}/gu)||[]).length<2)
     return {decision:"ask", why:`"${t.city}" isn't a place name`};
   let g;
   if(kp){

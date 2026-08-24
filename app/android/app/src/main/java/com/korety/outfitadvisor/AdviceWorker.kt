@@ -211,6 +211,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 .put("lat", lat).put("lon", lon)
                 .put("gender", gender).put("style", style).put("day", 0)
                 .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
+                .also { attachWardrobe(it) }
                 .toString()
             conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -246,6 +247,44 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         }
     }
 
+    /**
+     * Put the wardrobe and the wearer's rules on the morning request.
+     *
+     * This request had been carrying NEITHER, so the one that matters most — the
+     * 06:45 push, the whole point of the app — was generic advice, with a
+     * prohibition the server had never been told about. It is also why the server
+     * logged `closet=0/0` on every push while the app's own requests carried 17
+     * items (2026-08-24).
+     *
+     * Read, not computed. Availability depends on the wear log, the cooldown and
+     * whether a trip is under way; a Kotlin twin of that arithmetic would be a
+     * fourth place for the same rules to drift, and this project has paid for twin
+     * drift before. index.html writes `oa.pushPayload` whenever any of its inputs
+     * change, and on every launch.
+     *
+     * A stale payload is REFUSED rather than sent. Items come back from the laundry
+     * on a timer, so an old copy under-reports what is wearable — which is the safe
+     * direction, but past a few days it stops describing the wardrobe at all, and
+     * generic advice is honester than confidently dressing someone from last week's.
+     */
+    private fun attachWardrobe(body: JSONObject) {
+        try {
+            val prefs = applicationContext
+                .getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
+            val p = JSONObject(raw)
+            val age = System.currentTimeMillis() - p.optLong("at", 0L)
+            if (age !in 0..PUSH_PAYLOAD_MAX_AGE_MS) return
+            val closet = p.optJSONArray("closet") ?: return
+            if (closet.length() == 0) return
+            body.put("closet", closet)
+            val rules = p.optJSONArray("rules")
+            if (rules != null && rules.length() > 0) body.put("rules", rules)
+        } catch (e: Exception) {
+            // A wardrobe we cannot read costs generic advice, never the notification.
+        }
+    }
+
     private fun appVersion(): String = try {
         applicationContext.packageManager
             .getPackageInfo(applicationContext.packageName, 0).versionName ?: "?"
@@ -257,6 +296,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val KEY_UPD_NOTIFIED = "oa.updNotified"
         /** Twin of TODAY_KEY in index.html — both sides write this one key. */
         const val KEY_TODAY = "oa.today"
+        /** Twin of PUSH_PAYLOAD_KEY in index.html — the app writes it, this reads it. */
+        const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
+        /** Past this the payload no longer describes the wardrobe; send nothing. */
+        const val PUSH_PAYLOAD_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
         // How long to wait for WakeActivity's fix when we cannot read location
         // ourselves. Long enough for the FSI to start an activity and get a fix,
         // short enough that a device where the FSI never fires still produces the

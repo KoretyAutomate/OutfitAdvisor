@@ -220,8 +220,29 @@ def _dedupe_picks(picks: dict, by_cat: dict) -> dict:
     return out
 
 
+def _drop_banned_bullets(bullets: list[str], banned: list[str]) -> list[str]:
+    """Remove lines that still recommend a garment we had to clear.
+
+    The bullets are what the user actually reads — in the app and in the morning
+    notification. Nulling the structured pick and leaving the prose saying "the
+    white undershirt under your white tee" would keep the ban's promise in the data
+    and break it on screen, which is the half that matters.
+
+    A bullet is free text, not keyed to a slot, so the test is the garment's own
+    label. Where that leaves nothing to say, the caller adds a line explaining the
+    gap rather than serving a silently shorter list.
+    """
+    if not banned:
+        return bullets
+    low = [b.lower() for b in banned]
+    kept = [b for b in bullets if not any(n in b.lower() for n in low)]
+    if len(kept) != len(bullets):
+        kept.append("Left a layer out — it broke one of your own rules.")
+    return kept
+
+
 def _enforce_user_rules(picks: dict, by_item: dict,
-                        user_rules: list[dict] | None, attempt: int) -> str:
+                        user_rules: list[dict] | None, attempt: int) -> tuple[str, list[str]]:
     """Hold the outfit to the wearer's own prohibitions.
 
     Checked, not merely asked for. The prompt carries the rules as prose, and prose
@@ -235,18 +256,41 @@ def _enforce_user_rules(picks: dict, by_item: dict,
     """
     broke = rules.violations(user_rules or [], picks, by_item)
     if not broke:
-        return ""
+        return "", []
     if attempt == 0:
         detail = "; ".join(b["why"] for b in broke)
         return (
             f"Your last reply broke rules the wearer set: {detail}. "
             "These are not preferences to balance against the weather — they are "
             "prohibitions. Choose differently, or use null for that slot. "
-        )
+        ), []
+    cleared = []
     for b in broke:
+        iid = picks.get(b["slot"])
+        label = (by_item.get(iid) or {}).get("label") if iid else None
+        if label:
+            cleared.append(str(label))
         log.warning("closet picks: %s cleared — %s", b["slot"], b["why"])
         picks[b["slot"]] = None
-    return ""
+    return "", cleared
+
+
+def _index(closet: list[dict]) -> tuple[set, dict, dict, dict, dict]:
+    """The five lookups every validation step below reads.
+
+    Built once, from the SAME already-filtered wardrobe the prompt was built from —
+    an index over a different list is how a model gets to name an item the validator
+    then rejects.
+    """
+    return (
+        {i["id"] for i in closet},
+        {i["id"]: i["category"] for i in closet},
+        # What each item is ALLOWED to be today. app.py has already normalized these
+        # (inner closed, empty -> [category]), so this is a straight read.
+        {i["id"]: (i.get("roles") or [i["category"]]) for i in closet},
+        {i["id"]: i.get("group") for i in closet},
+        {i["id"]: i for i in closet},
+    )
 
 
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
@@ -264,13 +308,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
     if not closet:
         log.warning("closet_outfit: nothing in the wardrobe can fill a slot")
         return None
-    valid_ids = {i["id"] for i in closet}
-    by_cat = {i["id"]: i["category"] for i in closet}
-    # What each item is ALLOWED to be today. app.py has already normalized these
-    # (inner closed, empty -> [category]), so this is a straight read.
-    by_roles = {i["id"]: (i.get("roles") or [i["category"]]) for i in closet}
-    by_group = {i["id"]: i.get("group") for i in closet}
-    by_item = {i["id"]: i for i in closet}
+    valid_ids, by_cat, by_roles, by_group, by_item = _index(closet)
     error_note = ""
     for attempt in range(2):
         # 280 (plan estimate) truncated mid-JSON on a 6-item closet; 560 fit
@@ -341,7 +379,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # carries them as prose, and prose in a prompt is followed most of the time,
         # which is not the same as followed. "This combination shall be banned" is a
         # promise the user is entitled to see kept every morning (2026-08-24).
-        rule_note = _enforce_user_rules(picks, by_item, user_rules, attempt)
+        rule_note, banned_labels = _enforce_user_rules(picks, by_item, user_rules, attempt)
         if rule_note:
             error_note = rule_note
             continue
@@ -372,6 +410,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                 log.warning("closet picks: %s was too thin for the cold, cleared", c)
                 picks[c] = None
         bullets = [str(b).strip() for b in out["bullets"] if str(b).strip()]
+        # A garment cleared for breaking a rule must not survive in the prose.
+        bullets = _drop_banned_bullets(bullets, banned_labels)
         if not bullets:
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "

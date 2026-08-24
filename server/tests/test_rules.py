@@ -121,3 +121,37 @@ def test_no_rules_adds_nothing_to_the_prompt():
 def test_a_rule_about_clothes_nobody_is_wearing_does_not_fire():
     assert not rules.violations([BAN], {"footwear": "i3"}, {"i3": NAVY_TEE})
     assert not rules.violations([BAN], {}, BY_ITEM)
+
+
+def test_a_cleared_garment_is_dropped_from_the_prose_too():
+    """The bullets are what the user reads, in the app and in the notification.
+
+    Nulling the structured pick and leaving the prose saying "your white undershirt
+    under the white tee" keeps the ban's promise in the data and breaks it on the
+    screen — which is the half that matters. Raised by the pre-push reviewer.
+    """
+    import closet as closet_mod
+    bullets = [
+        "Start with the white v-neck undershirt.",
+        "Navy chinos work today.",
+        "Trainers are fine in this.",
+    ]
+    kept = closet_mod._drop_banned_bullets(bullets, ["white v-neck undershirt"])
+    assert not any("undershirt" in b for b in kept)
+    assert "Navy chinos work today." in kept
+    assert any("your own rules" in b for b in kept), \
+        "a gap in the advice must explain itself, not just be shorter"
+
+
+def test_nothing_cleared_leaves_the_prose_untouched():
+    import closet as closet_mod
+    bullets = ["Navy chinos work today."]
+    assert closet_mod._drop_banned_bullets(bullets, []) == bullets
+
+
+def test_the_label_test_is_case_insensitive():
+    """The classifier writes "White V-neck", the bullet says "white v-neck"."""
+    import closet as closet_mod
+    kept = closet_mod._drop_banned_bullets(
+        ["Wear the White V-Neck Undershirt."], ["white v-neck undershirt"])
+    assert not any("Undershirt" in b for b in kept)

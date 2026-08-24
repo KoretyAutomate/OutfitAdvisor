@@ -1197,6 +1197,7 @@ async function saveCloset(){
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
   refreshRescan();
+  await savePushPayload();     // the morning push reads this, not the closet itself
 }
 
 /* ───────── in-app updates (2026-07-28) ─────────
@@ -2334,6 +2335,7 @@ async function saveTrips(){
   const cut=dayISO(Date.now()-TRIP_KEEP_DAYS*DAY_MS);
   trips=trips.filter(t=>t.end>=cut);
   await prefSet("oa.trips",JSON.stringify(trips));
+  savePushPayload();           // on a trip the push must dress from the suitcase
   await prefSet("oa.tripsDismissed",JSON.stringify(tripsDismissed.slice(-100)));
   renderTrips();
 }
@@ -2376,6 +2378,36 @@ function closetPayload(){
   }
   return closet.map(i=>({...meta(i),availableCount:avail(i)}))
     .filter(i=>i.availableCount>=1);
+}
+
+/* What the MORNING PUSH should send.
+
+   The native worker had been sending neither the closet nor the rules, so the one
+   request that matters most — the 06:45 push, the whole point of the app — was
+   generic advice with a ban it had never been told about. It is also why the
+   server logged `closet=0/0` on every push while the app's own requests carried 17
+   items (found 2026-08-24 while reading those logs for something else).
+
+   The worker READS this rather than computing it. Availability depends on the wear
+   log, the cooldown and whether a trip is under way, and a Kotlin twin of that
+   arithmetic would be a fourth place for the same rules to drift — this project has
+   been bitten by twin drift more than once. One implementation, written where the
+   data lives, re-stamped whenever anything it depends on changes.
+
+   It therefore AGES. An item comes back from the laundry on a timer, so a payload
+   written yesterday can under-report what is wearable this morning. That direction
+   is the safe one — the advisor offers less than it could, never something dirty —
+   and the worker refuses a payload older than PUSH_PAYLOAD_MAX_AGE_MS rather than
+   dressing the user from a stale wardrobe. */
+const PUSH_PAYLOAD_KEY="oa.pushPayload";
+async function savePushPayload(){
+  try{
+    const cl=closetPayload();
+    await prefSet(PUSH_PAYLOAD_KEY, JSON.stringify({
+      at:Date.now(),
+      closet:cl,
+      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[]}));
+  }catch(e){}
 }
 
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
@@ -2810,6 +2842,7 @@ let userRules=[];
 async function saveRules(){
   await prefSet("oa.rules", JSON.stringify(userRules.slice(0,24)));
   renderRules();
+  await savePushPayload();     // a ban the push has not been told is not a ban
 }
 function renderRules(){
   const el=$("rlList"); if(!el) return;
@@ -3436,6 +3469,9 @@ const appReady=(async()=>{
   // morning push. Before renderCloset, so the page is not blank while photos load.
   await loadToday();
   await renderCloset();
+  // Re-stamped on every launch, so the push's copy is at most a day behind even if
+  // nothing was edited.
+  await savePushPayload();
   refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces(); renderRules();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();

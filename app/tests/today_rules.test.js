@@ -165,6 +165,40 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("but not when there is no closet to apply them to",
     !ev(`__sent.rules`), ev(`__sent`));
 
+  console.log("\n--- 7b. the MORNING PUSH gets them too --------------------------");
+  /* The push had been sending neither the closet nor the rules, so the request that
+     matters most was generic advice with a ban it had never been told about — and
+     the server logged closet=0/0 on every push while the app's own requests carried
+     17 items. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`closet=[{id:"itm-1",label:"tee",category:"base",group:"tops",type:"t_shirt",
+      roles:["base"],colors:["navy"],warmth:1,formality:["casual"],waterproof:false,count:1}];
+      wearLog=[]; trips=[];
+      userRules=[{id:"a",kind:"avoid_pair",a:{type:"undershirt",color:"white"},
+                  b:{type:"t_shirt",color:"white"},text:"x"}];`);
+  await ev(`savePushPayload()`);
+  const pp = JSON.parse(w.localStorage.getItem("oa.pushPayload") || "{}");
+  check("the push payload is written", !!pp.at, pp);
+  check("it carries the wardrobe", (pp.closet || []).length === 1, pp.closet);
+  check("with availability already worked out — no arithmetic left for Kotlin",
+    pp.closet[0].availableCount === 1, pp.closet[0]);
+  check("and the rules", (pp.rules || []).length === 1, pp.rules);
+
+  // Rules without a closet are meaningless: a rule names garments.
+  ev(`closet=[];`);
+  await ev(`savePushPayload()`);
+  const empty = JSON.parse(w.localStorage.getItem("oa.pushPayload") || "{}");
+  check("no closet means no rules either", (empty.rules || []).length === 0, empty);
+
+  // The worker must read the very key the app writes, and refuse a stale copy.
+  const jsPush = (fs.readFileSync(HTML, "utf8").match(/const PUSH_PAYLOAD_KEY="([^"]+)"/) || [])[1];
+  const ktPush = (kt.match(/const val KEY_PUSH_PAYLOAD = "([^"]+)"/) || [])[1];
+  check("the phone and the worker agree on the payload key",
+    jsPush === ktPush, { jsPush, ktPush });
+  check("the worker attaches it to the morning request",
+    /body\.put\("closet", closet\)/.test(kt) && /body\.put\("rules", rules\)/.test(kt));
+  check("and refuses one too old to describe the wardrobe",
+    /PUSH_PAYLOAD_MAX_AGE_MS/.test(kt) && /age !in 0\.\./.test(kt));
+
   console.log("\n--- 8. removing a rule --------------------------------------------");
   ev(`userRules=[{id:"a",kind:"avoid_pair",a:{type:"jeans"},b:{type:"blazer"},
                   restated:"No jeans with a blazer",text:"x"}]; renderRules();`);

@@ -782,6 +782,35 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and a partial run of its words does not",
     ev(`knownPlace("NEW YORK CLIENT")`) === null, ev(`knownPlace("NEW YORK CLIENT")`));
 
+  console.log("\n--- 13d. codes that are not written in ASCII --------------------");
+  /* An ASCII-only key normalised 東京 to the empty string, so a Japanese code saved
+     fine and could then never match — the app kept guessing while claiming it had
+     learned it. Raised by the pre-push reviewer, 2026-08-24; this user writes their
+     weekly report in Japanese, so it is not a hypothetical. */
+  ev(`places = [{abbr:"東京", city:"Tokyo", place:"Tokyo, JP", lat:35.68, lon:139.69},
+                {abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729}];`);
+  check("a Japanese code has a non-empty key", ev(`abbrKey("東京")`).length > 0, ev(`abbrKey("東京")`));
+  check("and it matches when written alone",
+    (ev(`knownPlace("東京")`) || {}).abbr === "東京");
+  /* Japanese does not space its words, so "東京オフィス" is ONE token. A whole-token
+     rule would match only the bare form, which makes the feature nearly useless in
+     the language it was just fixed for. Inside such a token a substring match is
+     also SAFE in a way it is not for Latin: 東京 inside a longer run still means
+     Tokyo, whereas "ppk" inside "Klippka" means nothing. */
+  check("and inside a run of characters, where there are no spaces to split on",
+    (ev(`knownPlace("東京オフィス")`) || {}).abbr === "東京",
+    ev(`knownPlace("東京オフィス")`));
+  check("and mixed in among other text",
+    (ev(`knownPlace("会議 東京 3F")`) || {}).abbr === "東京");
+  check("an untaught Japanese place is still unknown",
+    ev(`knownPlace("大阪支社")`) === null, ev(`knownPlace("大阪支社")`));
+  check("the Latin whole-token rule is unchanged — no substring matching there",
+    ev(`knownPlace("Klippka")`) === null, ev(`knownPlace("Klippka")`));
+
+  // A code that normalises to nothing could never match, so it is refused at entry
+  // rather than saved and silently inert.
+  check("punctuation alone has no key", ev(`abbrKey("---")`) === "");
+
   // With nothing taught, the old road is still taken.
   ev(`places = [];`);
   check("an empty table changes nothing", ev(`knownPlace("PPK")`) === null);

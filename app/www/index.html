@@ -1809,6 +1809,10 @@ async function addPlace(){
   const abbr=$("plAbbr").value.trim(), city=$("plCity").value.trim();
   $("plErr").textContent=""; $("plMatches").innerHTML="";
   if(!abbr){ $("plErr").textContent="Type the code your calendar uses."; return; }
+  // A code of nothing but punctuation normalises to an empty key and could never
+  // be matched. Saving it would look like it worked and change nothing.
+  if(!abbrKey(abbr)){
+    $("plErr").textContent=`"${abbr}" has no letters or numbers to match on.`; return; }
   if(!city){ $("plErr").textContent="Type the town that code is in."; return; }
   if(places.some(p=>abbrKey(p.abbr)===abbrKey(abbr))){
     $("plErr").textContent=`"${abbr}" is already taught — remove it first to change it.`; return; }
@@ -1873,7 +1877,11 @@ let home=null;                          // {label, postal, lat, lon} or null
 
    {abbr, city, place, lat, lon}  — `abbr` is stored normalised. */
 let places=[];
-const abbrKey=s=>String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"");
+/* Unicode letters and numbers, not [a-z0-9]. An ASCII-only key normalises 東京 to
+   the empty string, so a code in Japanese saved fine and then could never match —
+   the app would keep guessing while claiming it had learned it. */
+const abbrKey=s=>String(s||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"");
+const abbrWords=s=>String(s||"").trim().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 async function savePlaces(){
   await prefSet("oa.places", JSON.stringify(places));
   renderPlaces();
@@ -1883,11 +1891,22 @@ async function savePlaces(){
    "Klippka" is not. Longest match wins, so a two-word code beats a one-word one. */
 function knownPlace(text){
   if(!places.length) return null;
-  const toks=String(text||"").toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  const toks=String(text||"").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if(!toks.length) return null;
+  /* Scripts that do not put spaces between words. "東京オフィス" is ONE token, so a
+     whole-token rule can only match 東京 when the calendar happens to write it
+     alone — which would make this feature nearly useless in Japanese. Inside such
+     a token a substring match is the right rule, and it is safe in a way it is not
+     for Latin: 東京 occurring inside a longer run still means Tokyo, whereas "ppk"
+     inside "Klippka" means nothing at all. */
+  const NO_WORD_BREAKS=/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
   let best=null, bestLen=0;
   for(const p of places){
     const key=abbrKey(p.abbr); if(!key) continue;
+    if(NO_WORD_BREAKS.test(key)){
+      if(toks.some(t=>t.includes(key))&&key.length>bestLen){ best=p; bestLen=key.length; }
+      continue;
+    }
     // The window is THIS code's own word count, not a fixed cap. A cap of four
     // silently excluded anything longer — "NEW YORK CLIENT OFFICE HQ" is five, and
     // the UI accepts it — so a code the user had taught still went back through the
@@ -1897,7 +1916,7 @@ function knownPlace(text){
     // taught code back to the model. From 1, because a multi-word code is also
     // written without its spaces — "BOS OFF" appears as "BOSOFF" — and the key is
     // compared with punctuation stripped, so both spellings are the same string.
-    const words=Math.max(1,String(p.abbr).trim().split(/[^a-z0-9]+/i).filter(Boolean).length);
+    const words=Math.max(1,abbrWords(p.abbr).length);
     for(let n=1;n<=words;n++){
       for(let i=0;i+n<=toks.length;i++){
         if(toks.slice(i,i+n).join("")!==key) continue;

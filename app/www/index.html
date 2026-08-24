@@ -2408,12 +2408,15 @@ function closetPayload(){
    a week out if none do. The worker refuses it past that rather than dressing
    somebody from a wardrobe they are not standing in. */
 const PUSH_PAYLOAD_KEY="oa.pushPayload";
-/* The last day this payload still describes the right clothes.
+/* The first day this payload NO LONGER describes the right clothes — exclusive.
    Every trip start, and every day after a trip ends, changes which wardrobe
-   closetPayload() answers with — so the answer is only good until the first of
-   them. Capped at a week because an unbounded snapshot stops being current for the
-   slow reasons even when no trip moves. */
-function pushPayloadValidUntil(){
+   closetPayload() answers with, and it has already changed ON that day: a payload
+   stamped with the departure date is wrong the morning it departs. Naming the field
+   for the day it STOPS being valid keeps that boundary from being read as
+   inclusive, which is exactly the off-by-one it was written with.
+   Capped at a week because an unbounded snapshot stops being current for the slow
+   reasons even when no trip moves. */
+function pushPayloadValidBefore(){
   const today=todayISO();
   let best=dayISO(Date.now()+7*DAY_MS);
   for(const t of trips){
@@ -2428,7 +2431,7 @@ async function savePushPayload(){
     const cl=closetPayload();
     await prefSet(PUSH_PAYLOAD_KEY, JSON.stringify({
       at:Date.now(),
-      validUntil:pushPayloadValidUntil(),
+      validBefore:pushPayloadValidBefore(),
       onTrip:!!tripInProgress(),
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[]}));

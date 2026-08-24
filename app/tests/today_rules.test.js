@@ -199,15 +199,15 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
       roles:["base"],colors:["navy"],warmth:1,formality:["casual"],waterproof:false,count:1}];
       wearLog=[]; trips=[];`);
   await ev(`savePushPayload()`);
-  check("with no trips, the payload is good for a week",
-    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil === isoIn(7),
-    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil);
+  check("with no trips, the payload stops being valid a week out",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(7),
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore);
 
   ev(`trips=[{id:"t",start:"${isoIn(2)}",end:"${isoIn(5)}",place:"Osaka",packed:[]}];`);
   await ev(`savePushPayload()`);
-  check("a trip starting in two days shortens it to the day it departs",
-    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil === isoIn(2),
-    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil);
+  check("a trip starting in two days invalidates it ON the departure day",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(2),
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore);
 
   // A trip only counts as under way once something is packed — that is what makes
   // closetPayload() answer with the suitcase instead of the wardrobe.
@@ -216,16 +216,20 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   await ev(`savePushPayload()`);
   const onTrip = JSON.parse(w.localStorage.getItem("oa.pushPayload"));
   check("and a trip ending tomorrow expires it the day after",
-    onTrip.validUntil === isoIn(2), onTrip.validUntil);
+    onTrip.validBefore === isoIn(2), onTrip.validBefore);
   check("the payload says which wardrobe it describes", onTrip.onTrip === true, onTrip);
   check("and while away it holds the SUITCASE, not the wardrobe",
     onTrip.closet.length === 1 && onTrip.closet[0].id === "itm-1", onTrip.closet);
   ev(`trips=[];`);
   await ev(`savePushPayload()`);
 
-  check("and the worker refuses one past its day",
-    /validUntil/.test(kt) && /today\(\) > validUntil/.test(kt),
-    "the worker ignores the validity stamp");
+  /* EXCLUSIVE. A payload stamped with the departure date is already wrong on that
+     morning, so the worker must reject it when the dates are EQUAL — accepting it
+     sends the home wardrobe on the first day of the trip, and the suitcase on the
+     first day home. Raised by the pre-push reviewer, 2026-08-24. */
+  check("and the worker refuses one on its boundary day, not just after it",
+    /validBefore/.test(kt) && /today\(\) >= validBefore/.test(kt),
+    "the worker treats the stamp as inclusive");
 
   // The worker must read the very key the app writes, and refuse a stale copy.
   const jsPush = (fs.readFileSync(HTML, "utf8").match(/const PUSH_PAYLOAD_KEY="([^"]+)"/) || [])[1];

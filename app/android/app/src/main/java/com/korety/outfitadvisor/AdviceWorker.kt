@@ -279,8 +279,13 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // departure is hours old and describes clothes 800 km away. The app
             // stamps the last day its answer applies; past that, send nothing and
             // let the advice be generic rather than confidently wrong.
-            val validUntil = p.optString("validUntil", "")
-            if (validUntil.isNotEmpty() && today() > validUntil) return
+            // EXCLUSIVE. The stamp is the first day the payload is wrong, and it is
+            // already wrong on that day: one stamped with a trip's departure date
+            // describes the home wardrobe on the morning of the flight. `>=`, and
+            // the field is named for the boundary so it cannot be misread as the
+            // last good day.
+            val validBefore = p.optString("validBefore", "")
+            if (validBefore.isNotEmpty() && today() >= validBefore) return
             val closet = p.optJSONArray("closet") ?: return
             if (closet.length() == 0) return
             body.put("closet", closet)

@@ -75,30 +75,40 @@ const seed = () => ev(`closet=[
   {id:"i4",label:"wool coat",category:"outer",group:"outerwear",roles:["outer"],count:1,colors:[],warmth:5,formality:["smart"],waterproof:false}
 ]; wearLog=[]; closetFolded=new Set();`);
 (async () => {
-  for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain();
-  await new Promise(r => setTimeout(r, 30));   // let load()'s last await settle
+  // Wait for the page to finish initialising. appReady is the real signal;
+  // polling for a field load() happens to set early is a guess about one.
+  await ev("appReady");
   seed();
   await ev("renderCloset()"); await drain();
   const heads = [...w.document.querySelectorAll(".folderHead b")].map(e => e.textContent);
-  check("one folder per non-empty group, in vocabulary order",
-    JSON.stringify(heads) === '["Underwear","Tops","Outerwear"]', heads);
-  check("empty groups are not shown at all",
+  /* Folders are the RECOMMENDATION'S slots as of 2026-08-23 ("align with the way
+     how recommendation grouping"), not the garment groups. The labels are the very
+     ones renderOutfit prints, so the closet and the advice name things alike. */
+  check("one folder per non-empty SLOT, in the recommendation's own order",
+    JSON.stringify(heads) === '["Inner layer","Base layer","Outer layer"]', heads);
+  check("and those are the labels the advice itself uses",
+    heads.every(h => Object.values(ev("LABELS")).includes(h)), heads);
+  check("empty slots are not shown at all",
     !heads.includes("Bottoms") && !heads.includes("Footwear"), heads);
+  // The oxford is base/mid/outer, but it appears ONCE — under its primary slot.
+  // Filing on every role would make the counts lie and repeat the same photo.
+  check("a multi-role garment appears in exactly one folder",
+    w.document.querySelectorAll('.item[data-id="i2"]').length === 1);
   const counts = [...w.document.querySelectorAll(".fcount")].map(e => e.textContent);
   check("each folder counts wearable/total items", JSON.stringify(counts) === '["2/1","4/2","1/1"]', counts);
   check("every item still renders as a tile",
     w.document.querySelectorAll(".item").length === 4);
 
   console.log("\n--- 4. folders collapse, and the state survives a relaunch -------");
-  w.document.querySelector('.folderHead[data-grp="tops"]').click();
+  w.document.querySelector('.folderHead[data-grp="base"]').click();
   await drain(); await drain();
-  check("clicking a folder head collapses it", ev(`closetFolded.has("tops")`));
-  // Tops holds TWO items (oxford + tee), so collapsing it leaves 4 - 2 = 2.
+  check("clicking a folder head collapses it", ev(`closetFolded.has("base")`));
+  // Base holds TWO items (oxford + tee), so collapsing it leaves 4 - 2 = 2.
   check("a collapsed folder renders none of its tiles",
     w.document.querySelectorAll(".item").length === 2,
     w.document.querySelectorAll(".item").length);
   check("the collapsed set is persisted",
-    (w.localStorage.getItem("oa.closetFolded") || "").includes("tops"),
+    (w.localStorage.getItem("oa.closetFolded") || "").includes("base"),
     w.localStorage.getItem("oa.closetFolded"));
 
   console.log("\n--- 5. the server is told the group and the roles -----------------");

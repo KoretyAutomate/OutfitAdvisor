@@ -968,6 +968,31 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     !/Boston/.test(w.document.getElementById("plMatches").textContent),
     w.document.getElementById("plMatches").textContent);
 
+  /* Editing WHILE a lookup is still pending. The guard used to return early when
+     there were no results yet — which is exactly the in-flight case — so the old
+     request landed, rendered answers for text the user had already changed, and a
+     tap stored the abbreviation they had moved on from. Raised by the pre-push
+     reviewer, 2026-08-24. */
+  ev(`places = [];
+      geocodeMany = async () => { await new Promise(r => setTimeout(r, 60));
+        return [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}]; };`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  const inflight = ev(`addPlace()`);
+  const box = w.document.getElementById("plAbbr");
+  box.value = "PPK";
+  box.dispatchEvent(new w.Event("input", { bubbles: true }));
+  await inflight;
+  await new Promise(r => setTimeout(r, 90));
+  check("editing during a pending lookup abandons it",
+    ev(`placeMatches.list.length`) === 0, ev(`placeMatches`));
+  check("and clears the spinner it left on screen",
+    w.document.getElementById("plMatches").innerHTML === "",
+    w.document.getElementById("plMatches").innerHTML);
+  await ev(`pickPlace(0)`);
+  check("so a tap cannot store the code the user moved on from",
+    ev(`places.length`) === 0, ev(`places`));
+
   // A code that normalises to nothing is refused rather than saved and inert.
   w.document.getElementById("plAbbr").value = "---";
   w.document.getElementById("plCity").value = "Boston";

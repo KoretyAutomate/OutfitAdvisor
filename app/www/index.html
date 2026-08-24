@@ -2161,36 +2161,32 @@ function renderOutfit(o,text,source,res){
 
    The 2026-08-20 build read the location field "PPK" — an office on Princeton
    Pike, NJ — geocoded it through Open-Meteo's airport table, got Petropavl,
-   KAZAKHSTAN, measured 9,000 km and filed a trip. v1.15 stops that happening
-   again, but a trip already in storage stays on the screen for ever, which is
-   why the user still saw Kazakhstan after updating.
+   KAZAKHSTAN, measured 9,000 km and filed a trip. v1.15 stopped that happening
+   again, but a trip already in storage stays on screen for ever, which is why the
+   user still saw Kazakhstan after updating.
 
-   Only `auto` trips are dropped, and only once. They are safe to drop because
-   they are DERIVED: the next calendar scan re-finds every one that is real, now
-   under rules that refuse a code. A trip the user created or confirmed by hand is
-   never touched — that is not derived data, and re-deriving it is not possible.
-   Anything already packed is kept too: a packing list is work the user did.
+   These are FLAGGED, not deleted. Deleting looked safe on the argument that an
+   auto trip is derived data the next scan re-finds — but `auto` survived an edit
+   in every build before this one, so a trip the user had already opened,
+   corrected and saved is indistinguishable from an untouched guess. A corrected
+   destination or notice period is NOT derivable, and there is no way to tell the
+   two apart after the fact. So the app does not choose: it says which trips were
+   found under the old rules and offers Keep or Remove on each. Nothing is lost by
+   a wrong guess, because no guess is made.
 
    TRIPS_RULES_VERSION is the stamp. Raise it only when a rule change again makes
    previously-found trips untrustworthy. */
 const TRIPS_RULES_VERSION="1.16";
 let staleTripNote="";
-async function dropTripsFoundUnderOldRules(){
+async function flagTripsFoundUnderOldRules(){
   if(await prefGet("oa.tripsRules","")===TRIPS_RULES_VERSION) return;
   const stale=trips.filter(t=>t.auto&&!(t.packed&&t.packed.length));
   if(stale.length){
-    const ids=new Set(stale.map(t=>t.id));
-    // The reminder is armed in the NATIVE layer and outlives the record. Removing
-    // the trip from storage alone leaves a packing notification to fire days later
-    // for a trip that is no longer anywhere in the app.
-    for(const t of stale) await cancelTrip(t);
-    trips=trips.filter(t=>!ids.has(t.id));
+    for(const t of stale) t.needsReview=true;
     await prefSet("oa.trips",JSON.stringify(trips));
-    // Say so. A trip vanishing with no explanation is its own bug report.
-    staleTripNote=`Removed ${stale.length} trip${stale.length===1?"":"s"} the app had `+
-      `found by itself (${stale.map(t=>t.place||t.title).join(", ")}). `+
-      `Codes like "PPK" were being read as far-away cities. Check your calendar again `+
-      `to find the real ones.`;
+    staleTripNote=`${stale.length} trip${stale.length===1?" was":"s were"} found automatically `+
+      `before the location fix. Codes like "PPK" were being read as far-away cities — `+
+      `check ${stale.length===1?"it":"them"} below and remove anything wrong.`;
   }
   await prefSet("oa.tripsRules",TRIPS_RULES_VERSION);
 }
@@ -2226,6 +2222,15 @@ function renderTrips(){
             Without this an auto-detected trip is indistinguishable from one the
             user confirmed, which is what "unknown trips" means. */""}
       ${x.auto?`<div class="note" style="margin:4px 0 0">🤖 found in your calendar: "${esc(x.title)}"${x.km?` · ${esc(x.km)} km from home`:""}</div>`:""}
+      ${/* Found under the pre-1.16 rules, where a location code could geocode to a
+            city thousands of km away. The app cannot tell a corrected trip from an
+            untouched guess, so it asks instead of choosing. */""}
+      ${x.needsReview?`<div class="note" style="margin:6px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:9px">
+        ⚠️ Found before the location fix — is <b>${esc(x.place||x.title)}</b> right?
+        <div style="display:flex;gap:8px;margin-top:7px">
+          <button class="ghost" data-keep="${esc(x.id)}" style="padding:5px 10px;font-size:.72rem">Yes, keep it</button>
+          <button class="ghost" data-drop="${esc(x.id)}" style="padding:5px 10px;font-size:.72rem">Remove</button>
+        </div></div>`:""}
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
         ${packed?`<span class="chip src">🧳 packed — ${x.packed.length} items with you</span>`:
                   `<span class="chip">tap for your packing list</span>`}
@@ -2614,7 +2619,7 @@ async function load(){
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
   try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
-  await dropTripsFoundUnderOldRules();
+  await flagTripsFoundUnderOldRules();
   // thermal calibration — written by this page AND by the native FeedbackReceiver,
   // so re-read it on every load rather than trusting the in-memory copy.
   const off=parseFloat(await prefGet("oa.tempOffset","0"));
@@ -2843,6 +2848,33 @@ $("candList").onclick=async e=>{
   }
 };
 $("tripList").onclick=e=>{
+  // Answering the review question is not opening the trip, so both win over the
+  // card's own tap handler and stop there.
+  const keep=e.target.closest("[data-keep]"), drop=e.target.closest("[data-drop]");
+  if(keep){
+    e.stopPropagation();
+    const t=trips.find(x=>x.id===keep.dataset.keep);
+    if(t){ delete t.needsReview; delete t.auto; }   // confirmed by hand = the user's now
+    staleTripNote="";
+    saveTrips().then(renderTrips);
+    return;
+  }
+  if(drop){
+    e.stopPropagation();
+    const t=trips.find(x=>x.id===drop.dataset.drop);
+    if(t){
+      // The reminder is armed natively and outlives the record.
+      cancelTrip(t);
+      // The calendar event outlives the trip too: without dismissing it, the very
+      // next scan judges it afresh and can put the same trip straight back.
+      if(t.calId) tripsDismissed.push(t.calId);
+      trips=trips.filter(x=>x.id!==t.id);
+    }
+    staleTripNote="";
+    saveTrips().then(renderTrips);
+    toast("Removed");
+    return;
+  }
   // Edit first: it is inside the tappable card, and it is the ONLY route to the
   // trip sheet's Delete. Before this an auto-detected trip could not be removed at
   // all — the card opened a packing list and nothing else (2026-08-20).

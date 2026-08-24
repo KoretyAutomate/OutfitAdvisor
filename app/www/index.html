@@ -1933,13 +1933,17 @@ function knownPlace(text){
      for Latin: 東京 occurring inside a longer run still means Tokyo, whereas "ppk"
      inside "Klippka" means nothing at all. */
   const NO_WORD_BREAKS=/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+  /* Both rules are tried, never one instead of the other. Branching on the script
+     and stopping there missed a MIXED code: "東京 OFF" collapses to "東京off", which
+     no single token contains, and the token matcher was skipped by the branch. The
+     score is the matched key's length either way, so the most specific taught code
+     wins whichever rule found it. */
   let best=null, bestLen=0;
+  const take=(p,key)=>{ if(key.length>bestLen){ best=p; bestLen=key.length; } };
   for(const p of places){
     const key=abbrKey(p.abbr); if(!key) continue;
-    if(NO_WORD_BREAKS.test(key)){
-      if(toks.some(t=>t.includes(key))&&key.length>bestLen){ best=p; bestLen=key.length; }
-      continue;
-    }
+    // Inside a single token, for scripts that do not space their words.
+    if(NO_WORD_BREAKS.test(key)&&toks.some(t=>t.includes(key))) take(p,key);
     // The window is THIS code's own word count, not a fixed cap. A cap of four
     // silently excluded anything longer — "NEW YORK CLIENT OFFICE HQ" is five, and
     // the UI accepts it — so a code the user had taught still went back through the
@@ -1949,13 +1953,11 @@ function knownPlace(text){
     // taught code back to the model. From 1, because a multi-word code is also
     // written without its spaces — "BOS OFF" appears as "BOSOFF" — and the key is
     // compared with punctuation stripped, so both spellings are the same string.
+    // Across whole tokens, which is also how a mixed code like "東京 OFF" is found.
     const words=Math.max(1,abbrWords(p.abbr).length);
-    for(let n=1;n<=words;n++){
-      for(let i=0;i+n<=toks.length;i++){
-        if(toks.slice(i,i+n).join("")!==key) continue;
-        if(n>bestLen){ best=p; bestLen=n; }
-      }
-    }
+    for(let n=1;n<=words;n++)
+      for(let i=0;i+n<=toks.length;i++)
+        if(toks.slice(i,i+n).join("")===key) take(p,key);
   }
   return best;
 }

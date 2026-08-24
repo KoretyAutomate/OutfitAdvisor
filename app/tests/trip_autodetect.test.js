@@ -906,6 +906,21 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("the Latin whole-token rule is unchanged — no substring matching there",
     ev(`knownPlace("Klippka")`) === null, ev(`knownPlace("Klippka")`));
 
+  /* A MIXED code. "東京 OFF" collapses to "東京off", which no single token contains,
+     so branching on the script and stopping there missed it entirely. Both rules
+     are tried now. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places.push({abbr:"東京 OFF", city:"Shinagawa", place:"Shinagawa, Tokyo, JP", lat:35.63, lon:139.74});`);
+  check("a code mixing Japanese and Latin resolves",
+    (ev(`knownPlace("東京 OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京 OFF")`));
+  check("written without its space too",
+    (ev(`knownPlace("東京OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京OFF")`));
+  check("and among other text",
+    (ev(`knownPlace("会議 東京 OFF 3F")`) || {}).abbr === "東京 OFF");
+  check("the more specific code wins over the shorter one it contains",
+    (ev(`knownPlace("東京 OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京 OFF")`));
+  check("while the shorter one still matches on its own",
+    (ev(`knownPlace("東京オフィス")`) || {}).abbr === "東京");
+
   // A code that normalises to nothing could never match, so it is refused at entry
   // rather than saved and silently inert.
   check("punctuation alone has no key", ev(`abbrKey("---")`) === "");

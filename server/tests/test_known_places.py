@@ -56,6 +56,18 @@ def test_the_list_is_bounded():
     assert block.count(" = ") <= 40
 
 
+def test_the_table_does_not_override_a_named_destination():
+    """A location field often says where you set OFF from, not where you go.
+
+    "Flight to London" with location PPK is a trip to London. Telling the model to
+    answer with the taught city "and nothing else" made it bury exactly that — and
+    the phone relies on being told London to tell that case from a local meeting.
+    """
+    block = llm._known_places_block([{"abbr": "PPK", "city": "Lawrenceville, NJ"}])
+    assert "do NOT decide the destination" in block
+    assert "answer with THAT city" in block
+
+
 def test_the_model_is_told_not_to_stretch_the_table():
     """A near-miss must fall through to the ordinary rules, not snap to a row.
 

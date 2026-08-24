@@ -298,6 +298,29 @@ def _names_banned(line: str, banned: list[dict]) -> bool:
     return any(_term_hit(t, low) for item in banned for t in _ban_terms(item))
 
 
+def _enforce_onepiece(picks: dict, by_group: dict, by_item: dict,
+                      banned: list[dict], attempt: int) -> tuple[str, list[dict]]:
+    """Trousers under a dress.
+
+    _onepiece_conflicts REPAIRS as it tests — it clears bottoms on either attempt —
+    so the picks that come out are never a dress over trousers. What the retry buys
+    is the BULLETS: only a regeneration can rewrite the line that recommended the
+    trousers. Out of retries, the garment joins the banned list instead, so the
+    prose is held to the same standard as the picks rather than left recommending
+    something that is no longer part of the outfit.
+    """
+    dropped = by_item.get(picks.get("bottoms")) if picks.get("bottoms") else None
+    if not _onepiece_conflicts(picks, by_group):
+        return "", banned
+    if attempt == 0:
+        return (
+            "Your last reply put bottoms under a one-piece garment. A dress, "
+            "jumpsuit or pair of dungarees already covers the legs — leave "
+            "bottoms null and say so in its bullet. "
+        ), banned
+    return "", ([*banned, dropped] if dropped else banned)
+
+
 def _enforce_user_rules(picks: dict, by_item: dict,
                         user_rules: list[dict] | None, attempt: int) -> tuple[str, list[dict]]:
     """Hold the outfit to the wearer's own prohibitions.
@@ -444,12 +467,14 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # Trousers under a dress. Retried on the first attempt like every other
         # violation here, because the repair alone would leave the BULLETS naming a
         # garment that is no longer picked — and the bullets are what the user reads.
-        if _onepiece_conflicts(picks, by_group) and attempt == 0:
-            error_note = (
-                "Your last reply put bottoms under a one-piece garment. A dress, "
-                "jumpsuit or pair of dungarees already covers the legs — leave "
-                "bottoms null and say so in its bullet. "
-            )
+        # _onepiece_conflicts REPAIRS as it tests — it clears bottoms on either
+        # attempt, and it is the left operand here, so the picks that come out are
+        # never a dress over trousers. What the retry buys is the BULLETS: only a
+        # regeneration can rewrite the line that recommended the trousers.
+        onepiece_note, banned_labels = _enforce_onepiece(
+            picks, by_group, by_item, banned_labels, attempt)
+        if onepiece_note:
+            error_note = onepiece_note
             continue
 
         # Legal role, wrong garment for the cold — see _OUTER_MIN_WARMTH.

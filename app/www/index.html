@@ -1818,8 +1818,14 @@ async function addPlace(){
     $("plErr").textContent=`"${abbr}" is already taught — remove it first to change it.`; return; }
   $("plMatches").innerHTML='<span class="spin"></span>';
   placeMatches={abbr:"",city:"",list:[]};
+  // Two lookups in flight and the SLOWER one lands last, so its answers overwrite
+  // the newer question's. clearPlaceMatches cannot help — it runs before the stale
+  // continuation resumes. A token settles it: only the most recent request is
+  // allowed to write anything.
+  const token=++placeReq;
   let m=[];
   try{ m=await geocodeMany(city); }catch(e){ m=[]; }
+  if(token!==placeReq) return;
   if(!m.length){ $("plMatches").innerHTML="";
     $("plErr").textContent=`Couldn't find "${city}". Try the town on its own, e.g. "Lawrenceville, NJ".`; return; }
   // The user names the TOWN here, so the same nearest-home ranking and the same
@@ -1837,6 +1843,7 @@ async function addPlace(){
   placeMatches={abbr, city, list:m};
 }
 let placeMatches={abbr:"",city:"",list:[]};
+let placeReq=0;   // only the newest lookup may write placeMatches — see addPlace
 /* Editing either box after a lookup makes the answers stale — they belong to what
    was typed before. Dropping them forces another Find rather than leaving a list
    that looks current. */

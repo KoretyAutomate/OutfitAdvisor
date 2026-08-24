@@ -909,13 +909,39 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and the boxes are cleared, so the next code starts empty",
     w.document.getElementById("plAbbr").value === "" && w.document.getElementById("plCity").value === "");
 
+  /* Two lookups in flight, the SLOWER one landing last: its answers would overwrite
+     the newer question's, and the user taps a result belonging to a code they have
+     already moved on from. clearPlaceMatches cannot prevent it — the stale
+     continuation resumes afterwards. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places = [];
+      geocodeMany = async (c) => {
+        if (/Boston/.test(c)) { await new Promise(r => setTimeout(r, 60));
+          return [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}]; }
+        return [{lat:40.297, lon:-74.729, place:"Lawrenceville, New Jersey, US", km:9}]; };`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  const slow = ev(`addPlace()`);
+  w.document.getElementById("plAbbr").value = "PPK";
+  w.document.getElementById("plCity").value = "Lawrenceville";
+  await ev(`addPlace()`);
+  await slow;
+  await new Promise(r => setTimeout(r, 90));
+  check("a slow earlier lookup cannot overwrite a newer one",
+    ev(`placeMatches.abbr`) === "PPK" && ev(`placeMatches.city`) === "Lawrenceville",
+    ev(`JSON.stringify({a:placeMatches.abbr,c:placeMatches.city})`));
+  check("and the stale answers are not on screen either",
+    !/Boston/.test(w.document.getElementById("plMatches").textContent),
+    w.document.getElementById("plMatches").textContent);
+
   // A code that normalises to nothing is refused rather than saved and inert.
   w.document.getElementById("plAbbr").value = "---";
   w.document.getElementById("plCity").value = "Boston";
   await ev(`addPlace()`);
   check("a code with nothing to match on is refused at entry",
-    ev(`places.length`) === 1 && /no letters or numbers/.test(w.document.getElementById("plErr").textContent),
+    /no letters or numbers/.test(w.document.getElementById("plErr").textContent),
     w.document.getElementById("plErr").textContent);
+  check("and nothing unmatchable is ever stored",
+    ev(`places.every(p=>abbrKey(p.abbr)!=="")`), ev(`places`));
 
   // With nothing taught, the old road is still taken.
   ev(`places = [];`);

@@ -183,10 +183,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     private fun persistToday(prefs: android.content.SharedPreferences, a: Advice) {
         val raw = a.raw ?: return
         try {
-            val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                .format(java.util.Date())
             val out = JSONObject()
-                .put("day", day)
+                .put("day", today())
                 .put("at", System.currentTimeMillis())
                 .put("how", "push")
                 .put("weather", raw.opt("weather"))
@@ -275,6 +273,14 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val p = JSONObject(raw)
             val age = System.currentTimeMillis() - p.optLong("at", 0L)
             if (age !in 0..PUSH_PAYLOAD_MAX_AGE_MS) return
+            // A trip boundary invalidates the payload ABRUPTLY, in a way age cannot
+            // see: closetPayload() answers "the suitcase" on a trip and "the
+            // wardrobe" otherwise, so one written at home the evening before a
+            // departure is hours old and describes clothes 800 km away. The app
+            // stamps the last day its answer applies; past that, send nothing and
+            // let the advice be generic rather than confidently wrong.
+            val validUntil = p.optString("validUntil", "")
+            if (validUntil.isNotEmpty() && today() > validUntil) return
             val closet = p.optJSONArray("closet") ?: return
             if (closet.length() == 0) return
             body.put("closet", closet)
@@ -284,6 +290,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // A wardrobe we cannot read costs generic advice, never the notification.
         }
     }
+
+    /** Local calendar day, the same "yyyy-MM-dd" the app compares against. */
+    private fun today(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
 
     private fun appVersion(): String = try {
         applicationContext.packageManager

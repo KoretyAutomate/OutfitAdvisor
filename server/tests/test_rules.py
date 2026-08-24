@@ -123,6 +123,30 @@ def test_a_rule_about_clothes_nobody_is_wearing_does_not_fire():
     assert not rules.violations([BAN], {}, BY_ITEM)
 
 
+def test_a_brand_named_garment_is_still_removed_from_the_prose():
+    """The label is not the only way the prose names a garment.
+
+    A user labels an item "Airism"; the model writes "your white V-neck undershirt".
+    Same garment, no shared word — and the line survives to recommend exactly what
+    was just banned. Raised by the pre-push reviewer, 2026-08-24.
+    """
+    import closet as closet_mod
+    item = {"label": "Airism", "type": "undershirt", "colors": ["white"],
+            "group": "underwear"}
+    kept = closet_mod._drop_banned_bullets(
+        ["Start with your white V-neck undershirt.", "Navy chinos work today."], [item])
+    assert not any("undershirt" in b for b in kept)
+    assert "Navy chinos work today." in kept
+
+
+def test_a_colour_alone_does_not_delete_unrelated_advice():
+    """Both words must appear. An outfit missing lines it should keep is its own bug."""
+    import closet as closet_mod
+    item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
+    kept = closet_mod._drop_banned_bullets(["White trainers finish it."], [item])
+    assert "White trainers finish it." in kept
+
+
 def test_a_cleared_garment_is_dropped_from_the_prose_too():
     """The bullets are what the user reads, in the app and in the notification.
 
@@ -136,7 +160,9 @@ def test_a_cleared_garment_is_dropped_from_the_prose_too():
         "Navy chinos work today.",
         "Trainers are fine in this.",
     ]
-    kept = closet_mod._drop_banned_bullets(bullets, ["white v-neck undershirt"])
+    kept = closet_mod._drop_banned_bullets(
+        bullets, [{"label": "white v-neck undershirt", "type": "undershirt",
+                   "colors": ["white"]}])
     assert not any("undershirt" in b for b in kept)
     assert "Navy chinos work today." in kept
     assert any("your own rules" in b for b in kept), \
@@ -153,7 +179,8 @@ def test_the_label_test_is_case_insensitive():
     """The classifier writes "White V-neck", the bullet says "white v-neck"."""
     import closet as closet_mod
     kept = closet_mod._drop_banned_bullets(
-        ["Wear the White V-Neck Undershirt."], ["white v-neck undershirt"])
+        ["Wear the White V-Neck Undershirt."],
+        [{"label": "white v-neck undershirt", "type": "undershirt", "colors": ["white"]}])
     assert not any("Undershirt" in b for b in kept)
 
 

@@ -189,6 +189,44 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   const empty = JSON.parse(w.localStorage.getItem("oa.pushPayload") || "{}");
   check("no closet means no rules either", (empty.rules || []).length === 0, empty);
 
+  /* A TRIP BOUNDARY invalidates the payload abruptly, in a way age cannot see:
+     closetPayload() answers "the suitcase" on a trip and "the wardrobe" otherwise,
+     so one written at home the evening before a departure is hours old and lists
+     clothes that are 800 km away by morning. Raised by the pre-push reviewer. */
+  const isoIn = (n) => { const d = new Date(Date.now() + n * 86400000);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+  ev(`closet=[{id:"itm-1",label:"tee",category:"base",group:"tops",type:"t_shirt",
+      roles:["base"],colors:["navy"],warmth:1,formality:["casual"],waterproof:false,count:1}];
+      wearLog=[]; trips=[];`);
+  await ev(`savePushPayload()`);
+  check("with no trips, the payload is good for a week",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil === isoIn(7),
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil);
+
+  ev(`trips=[{id:"t",start:"${isoIn(2)}",end:"${isoIn(5)}",place:"Osaka",packed:[]}];`);
+  await ev(`savePushPayload()`);
+  check("a trip starting in two days shortens it to the day it departs",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil === isoIn(2),
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validUntil);
+
+  // A trip only counts as under way once something is packed — that is what makes
+  // closetPayload() answer with the suitcase instead of the wardrobe.
+  ev(`trips=[{id:"t",start:"${isoIn(-2)}",end:"${isoIn(1)}",place:"Osaka",
+              packed:[{id:"itm-1",qty:1}]}];`);
+  await ev(`savePushPayload()`);
+  const onTrip = JSON.parse(w.localStorage.getItem("oa.pushPayload"));
+  check("and a trip ending tomorrow expires it the day after",
+    onTrip.validUntil === isoIn(2), onTrip.validUntil);
+  check("the payload says which wardrobe it describes", onTrip.onTrip === true, onTrip);
+  check("and while away it holds the SUITCASE, not the wardrobe",
+    onTrip.closet.length === 1 && onTrip.closet[0].id === "itm-1", onTrip.closet);
+  ev(`trips=[];`);
+  await ev(`savePushPayload()`);
+
+  check("and the worker refuses one past its day",
+    /validUntil/.test(kt) && /today\(\) > validUntil/.test(kt),
+    "the worker ignores the validity stamp");
+
   // The worker must read the very key the app writes, and refuse a stale copy.
   const jsPush = (fs.readFileSync(HTML, "utf8").match(/const PUSH_PAYLOAD_KEY="([^"]+)"/) || [])[1];
   const ktPush = (kt.match(/const val KEY_PUSH_PAYLOAD = "([^"]+)"/) || [])[1];

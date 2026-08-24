@@ -2394,17 +2394,42 @@ function closetPayload(){
    been bitten by twin drift more than once. One implementation, written where the
    data lives, re-stamped whenever anything it depends on changes.
 
-   It therefore AGES. An item comes back from the laundry on a timer, so a payload
-   written yesterday can under-report what is wearable this morning. That direction
-   is the safe one — the advisor offers less than it could, never something dirty —
-   and the worker refuses a payload older than PUSH_PAYLOAD_MAX_AGE_MS rather than
-   dressing the user from a stale wardrobe. */
+   It therefore AGES, in two different ways.
+
+   Slowly: an item comes back from the laundry on a timer, so yesterday's payload
+   can under-report what is wearable. That direction is safe — the advisor offers
+   less than it could, never something dirty.
+
+   And abruptly, at a TRIP BOUNDARY. closetPayload() answers "the suitcase" while a
+   trip is under way and "the wardrobe" otherwise, so a payload written at home the
+   evening before a trip describes clothes that are 800 km away by morning. Age
+   alone cannot catch that — it is hours old and completely wrong. So the payload
+   carries the day its answer stops applying: the next boundary any trip crosses, or
+   a week out if none do. The worker refuses it past that rather than dressing
+   somebody from a wardrobe they are not standing in. */
 const PUSH_PAYLOAD_KEY="oa.pushPayload";
+/* The last day this payload still describes the right clothes.
+   Every trip start, and every day after a trip ends, changes which wardrobe
+   closetPayload() answers with — so the answer is only good until the first of
+   them. Capped at a week because an unbounded snapshot stops being current for the
+   slow reasons even when no trip moves. */
+function pushPayloadValidUntil(){
+  const today=todayISO();
+  let best=dayISO(Date.now()+7*DAY_MS);
+  for(const t of trips){
+    for(const edge of [t.start, dayISO(isoMs(t.end)+DAY_MS)]){
+      if(edge>today&&edge<best) best=edge;
+    }
+  }
+  return best;
+}
 async function savePushPayload(){
   try{
     const cl=closetPayload();
     await prefSet(PUSH_PAYLOAD_KEY, JSON.stringify({
       at:Date.now(),
+      validUntil:pushPayloadValidUntil(),
+      onTrip:!!tripInProgress(),
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[]}));
   }catch(e){}

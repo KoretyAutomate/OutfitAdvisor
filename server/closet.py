@@ -19,6 +19,8 @@ Depends one way on llm.py (transport + shared weather flags); llm.py does not
 import this, so there is no cycle.
 """
 
+import re
+
 import rules
 from llm import _chat, _parse_json, _plan_temp, _weather_flags, log
 from vocab import CATEGORIES, NON_SLOT_TYPES, TYPE_LABEL
@@ -220,7 +222,34 @@ def _dedupe_picks(picks: dict, by_cat: dict) -> dict:
     return out
 
 
-def _drop_banned_bullets(bullets: list[str], banned: list[str]) -> list[str]:
+def _ban_terms(item: dict) -> list[list[str]]:
+    """Ways the prose might name this garment. Each entry is a set of words that
+    must ALL appear for a bullet to be about it.
+
+    The label alone is not enough. A user labels an item "Airism" and the model
+    writes "your white V-neck undershirt" — same garment, no shared word, and the
+    line survives to recommend what was just banned. So the garment's own validated
+    attributes are used as well: colour plus type is a description of the thing
+    rather than a name for it, and it is what a model reaches for when the label is
+    a brand.
+
+    Requiring BOTH words keeps it honest — "white" alone would delete a bullet about
+    white trainers, and an outfit missing lines it should have kept is its own bug.
+    """
+    terms: list[list[str]] = []
+    label = str(item.get("label") or "").strip().lower()
+    if len(label) >= 3:
+        terms.append([label])
+    kind = str(item.get("type") or "").strip().lower()
+    words = [w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()) if len(w) > 2]
+    colors = [str(c).strip().lower() for c in (item.get("colors") or []) if str(c).strip()]
+    for word in words[:2]:
+        for c in colors[:3]:
+            terms.append([c, word])
+    return terms
+
+
+def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
     """Remove lines that still recommend a garment we had to clear.
 
     The bullets are what the user actually reads — in the app and in the morning
@@ -228,21 +257,24 @@ def _drop_banned_bullets(bullets: list[str], banned: list[str]) -> list[str]:
     white undershirt under your white tee" would keep the ban's promise in the data
     and break it on screen, which is the half that matters.
 
-    A bullet is free text, not keyed to a slot, so the test is the garment's own
-    label. Where that leaves nothing to say, the caller adds a line explaining the
-    gap rather than serving a silently shorter list.
+    A bullet is free text, not keyed to a slot, so a line is judged by whether it
+    NAMES the garment — see _ban_terms. Where that leaves the advice shorter, a line
+    explains the gap rather than letting it look like an oversight.
     """
     if not banned:
         return bullets
-    low = [b.lower() for b in banned]
-    kept = [b for b in bullets if not any(n in b.lower() for n in low)]
+    terms = [t for item in banned for t in _ban_terms(item)]
+    if not terms:
+        return bullets
+    kept = [b for b in bullets
+            if not any(all(w in b.lower() for w in t) for t in terms)]
     if len(kept) != len(bullets):
         kept.append("Left a layer out — it broke one of your own rules.")
     return kept
 
 
 def _enforce_user_rules(picks: dict, by_item: dict,
-                        user_rules: list[dict] | None, attempt: int) -> tuple[str, list[str]]:
+                        user_rules: list[dict] | None, attempt: int) -> tuple[str, list[dict]]:
     """Hold the outfit to the wearer's own prohibitions.
 
     Checked, not merely asked for. The prompt carries the rules as prose, and prose
@@ -267,9 +299,9 @@ def _enforce_user_rules(picks: dict, by_item: dict,
     cleared = []
     for b in broke:
         iid = picks.get(b["slot"])
-        label = (by_item.get(iid) or {}).get("label") if iid else None
-        if label:
-            cleared.append(str(label))
+        item = by_item.get(iid) if iid else None
+        if item:
+            cleared.append(item)
         log.warning("closet picks: %s cleared — %s", b["slot"], b["why"])
         picks[b["slot"]] = None
     return "", cleared

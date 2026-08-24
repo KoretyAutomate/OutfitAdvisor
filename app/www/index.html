@@ -1817,6 +1817,7 @@ async function addPlace(){
   if(places.some(p=>abbrKey(p.abbr)===abbrKey(abbr))){
     $("plErr").textContent=`"${abbr}" is already taught — remove it first to change it.`; return; }
   $("plMatches").innerHTML='<span class="spin"></span>';
+  placeMatches={abbr:"",city:"",list:[]};
   let m=[];
   try{ m=await geocodeMany(city); }catch(e){ m=[]; }
   if(!m.length){ $("plMatches").innerHTML="";
@@ -1828,14 +1829,31 @@ async function addPlace(){
   $("plMatches").innerHTML=m.map((g,i)=>
     `<button class="ghost" data-pladd="${i}" style="width:100%;text-align:left;margin:4px 0">${esc(g.place)}`+
     `${g.km!=null?`<span style="color:var(--muted);font-weight:400"> · ${g.km<1?"under 1":g.km} km from home</span>`:""}</button>`).join("");
-  placeMatches=m;
+  // The answers are pinned to the QUESTION they answer. Reading the boxes again at
+  // pick time is how a code gets taught with somebody else's coordinates: type
+  // "Boston", Find, change the code to PPK, tap a result — and PPK is now mapped to
+  // Boston for ever, deterministically wrong, which is worse than the guessing this
+  // table replaced. Same defect the trip sheet had on 2026-08-20; same remedy.
+  placeMatches={abbr, city, list:m};
 }
-let placeMatches=[];
+let placeMatches={abbr:"",city:"",list:[]};
+/* Editing either box after a lookup makes the answers stale — they belong to what
+   was typed before. Dropping them forces another Find rather than leaving a list
+   that looks current. */
+function clearPlaceMatches(){
+  if(!placeMatches.list.length) return;
+  if($("plAbbr").value.trim()===placeMatches.abbr &&
+     $("plCity").value.trim()===placeMatches.city) return;
+  placeMatches={abbr:"",city:"",list:[]};
+  $("plMatches").innerHTML="";
+}
 async function pickPlace(i){
-  const g=placeMatches[i]; if(!g) return;
-  places.push({abbr:$("plAbbr").value.trim(), city:$("plCity").value.trim(),
+  const g=placeMatches.list[i]; if(!g) return;
+  // The stored pair is the one that was looked up, not whatever is in the boxes now.
+  places.push({abbr:placeMatches.abbr, city:placeMatches.city,
                place:g.place, lat:g.lat, lon:g.lon});
-  $("plAbbr").value=""; $("plCity").value=""; $("plMatches").innerHTML=""; placeMatches=[];
+  $("plAbbr").value=""; $("plCity").value=""; $("plMatches").innerHTML="";
+  placeMatches={abbr:"",city:"",list:[]};
   await savePlaces();
   toast("Learned — that code will not be guessed at again");
 }
@@ -3072,6 +3090,8 @@ $("placesBtn").onclick=()=>{ renderPlaces(); $("plWrap").classList.add("show"); 
 $("plDone").onclick=()=>$("plWrap").classList.remove("show");
 $("plWrap").onclick=e=>{ if(e.target===$("plWrap")) $("plWrap").classList.remove("show"); };
 $("plFind").onclick=addPlace;
+$("plAbbr").addEventListener("input",clearPlaceMatches);
+$("plCity").addEventListener("input",clearPlaceMatches);
 $("plMatches").onclick=e=>{ const b=e.target.closest("[data-pladd]"); if(b) pickPlace(+b.dataset.pladd); };
 $("plList").onclick=async e=>{ const b=e.target.closest("[data-plrm]"); if(!b) return;
   places.splice(+b.dataset.plrm,1); await savePlaces(); };

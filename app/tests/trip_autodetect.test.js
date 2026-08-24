@@ -811,6 +811,48 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   // rather than saved and silently inert.
   check("punctuation alone has no key", ev(`abbrKey("---")`) === "");
 
+  console.log("\n--- 13e. a code cannot be taught the wrong coordinates ----------");
+  /* Reading the input boxes again at pick time is how a code gets taught with
+     somebody else's coordinates: type "Boston", Find, change the code to PPK, tap a
+     result — and PPK is mapped to Boston for ever. Deterministically wrong is worse
+     than the guessing this table replaced. Same defect the trip sheet had on
+     2026-08-20; raised again here by the pre-push reviewer. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672}; places = [];
+      geocodeMany = async () => [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}];`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  await ev(`addPlace()`);
+  check("the answers are pinned to the question that produced them",
+    ev(`placeMatches.abbr`) === "BOS" && ev(`placeMatches.city`) === "Boston",
+    ev(`JSON.stringify({a:placeMatches.abbr,c:placeMatches.city})`));
+
+  const abbrBox = w.document.getElementById("plAbbr");
+  abbrBox.value = "PPK";
+  abbrBox.dispatchEvent(new w.Event("input", { bubbles: true }));
+  check("editing the code drops the stale answers", ev(`placeMatches.list.length`) === 0);
+  check("and takes them off the screen too",
+    w.document.getElementById("plMatches").innerHTML === "");
+  await ev(`pickPlace(0)`);
+  check("so there is nothing left to teach the wrong coordinates to",
+    ev(`places.length`) === 0, ev(`places`));
+
+  w.document.getElementById("plCity").value = "Lawrenceville";
+  ev(`geocodeMany = async () => [{lat:40.297, lon:-74.729, place:"Lawrenceville, New Jersey, US", km:9}];`);
+  await ev(`addPlace()`);
+  await ev(`pickPlace(0)`);
+  check("a fresh lookup teaches the pair that was actually looked up",
+    ev(`places[0].abbr`) === "PPK" && ev(`places[0].lat`) === 40.297, ev(`places[0]`));
+  check("and the boxes are cleared, so the next code starts empty",
+    w.document.getElementById("plAbbr").value === "" && w.document.getElementById("plCity").value === "");
+
+  // A code that normalises to nothing is refused rather than saved and inert.
+  w.document.getElementById("plAbbr").value = "---";
+  w.document.getElementById("plCity").value = "Boston";
+  await ev(`addPlace()`);
+  check("a code with nothing to match on is refused at entry",
+    ev(`places.length`) === 1 && /no letters or numbers/.test(w.document.getElementById("plErr").textContent),
+    w.document.getElementById("plErr").textContent);
+
   // With nothing taught, the old road is still taken.
   ev(`places = [];`);
   check("an empty table changes nothing", ev(`knownPlace("PPK")`) === null);

@@ -160,8 +160,13 @@ function stubDevice() {
     ev(`trips.length`) === 4, ev(`trips.map(t=>t.id)`));
   check("the auto-found trip is flagged for review",
     ev(`trips.find(t=>t.id==="t1").needsReview`) === true, ev(`trips[0]`));
-  check("a trip TYPED IN BY HAND is not questioned — no calendar was involved",
-    !ev(`trips.find(t=>t.id==="t2").needsReview`), ev(`trips[1]`));
+  /* EVERY trip is questioned once, including one typed in by hand. Two narrower
+     filters already failed to reach the trip that mattered — `auto` missed one
+     confirmed from a candidate, `calId` would miss one typed while an old build was
+     suggesting Petropavl as the match. Generosity is safe because this only ASKS:
+     a right trip costs one tap, a wrong one is finally removable. */
+  check("even a hand-made trip is questioned once — the cost is a tap, not data",
+    ev(`trips.find(t=>t.id==="t2").needsReview`) === true, ev(`trips[1]`));
   /* A trip the user CONFIRMED from a candidate carries no `auto` flag, so the first
      cut of this migration walked straight past it and left Petropavl on screen.
      The broken code read a calendar LOCATION and fed both paths, so what marks a
@@ -212,12 +217,20 @@ function stubDevice() {
   check("it runs ONCE — a later auto-detected trip is not flagged",
     !ev(`trips[0].needsReview`), ev(`trips[0]`));
 
-  // Nothing to flag must not leave a note claiming something happened.
+  // An EMPTY trip list must not leave a note claiming something happened.
   w.localStorage.removeItem("oa.tripsRules");
-  ev(`trips=[{id:"t5",place:"Osaka, JP",title:"Holiday",start:"${iso(70)}",end:"${iso(74)}",packed:[]}]; staleTripNote="";`);
+  ev(`trips=[]; staleTripNote="";`);
   await ev(`flagTripsFoundUnderOldRules()`);
-  check("a list of hand-made trips produces no note at all",
+  check("no trips at all produces no note",
     ev(`staleTripNote`) === "", ev(`staleTripNote`));
+  // The note must point at the CURE, not only the symptom: teaching the code is
+  // what stops this recurring, and the user cannot do that if nothing says so.
+  w.localStorage.removeItem("oa.tripsRules");
+  ev(`trips=[{id:"t6",calId:"c6",place:"Petropavl, North Kazakhstan, KZ",title:"Team sync",
+              start:"${iso(80)}",end:"${iso(81)}",packed:[]}]; staleTripNote="";`);
+  await ev(`flagTripsFoundUnderOldRules()`);
+  check("the note names where to teach the advisor the code",
+    /place codes/i.test(ev(`staleTripNote`)), ev(`staleTripNote`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

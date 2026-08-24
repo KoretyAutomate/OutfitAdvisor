@@ -677,6 +677,351 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     !NAMES_A_WRONG_PLACE.test(codeOnly),
     codeOnly.split("\n").filter(l => NAMES_A_WRONG_PLACE.test(l)).slice(0, 3));
 
+  console.log("\n--- 13. codes the user has TAUGHT are looked up, not guessed ----");
+  /* The user's own diagnosis, 2026-08-24: "it's always letting LLM decide and not
+     overwriting with deterministic locations". Correct. Every fix before this one
+     was a better REFUSAL — the app still had to infer what "PPK" meant, and both a
+     122B model and a fuzzy geocoder will supply an answer for that with total
+     confidence. A table cannot be 85% sure. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};
+      places = [
+        {abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729},
+        {abbr:"BOS OFF", city:"Boston, MA", place:"Boston, Massachusetts, US", lat:42.36, lon:-71.06}];`);
+
+  const KNOWN = [
+    ["PPK", "PPK"], ["ppk", "PPK"],                 // case does not matter
+    ["PPK Building 3", "PPK"], ["at PPK-3", "PPK"], // a code inside a longer string
+    ["bos off", "BOS OFF"], ["BOSOFF", "BOS OFF"],  // a multi-word code, punctuation-blind
+  ];
+  for (const [text, want] of KNOWN)
+    check(`"${text}" resolves to ${want}`,
+      (ev(`knownPlace(${JSON.stringify(text)})`) || {}).abbr === want,
+      ev(`knownPlace(${JSON.stringify(text)})`));
+
+  // Whole tokens ONLY. A substring rule would make every word containing the code
+  // a false hit, which is the same class of error as the IATA table.
+  check("a code buried INSIDE a word is not a match",
+    ev(`knownPlace("Klippka")`) === null, ev(`knownPlace("Klippka")`));
+  check("an untaught code stays unknown", ev(`knownPlace("LVL")`) === null);
+  check("and empty text matches nothing", ev(`knownPlace("")`) === null);
+
+  /* THE POINT: a known code never reaches the model OR the geocoder. Any network
+     call here is a test failure by construction. */
+  /* The GEOCODER is never consulted for a taught code — that is the promise, and it
+     is what the IATA table broke. The model is still asked whether the event is
+     travel (a location code can name where you set off from), so it is stubbed here
+     rather than forbidden; anything reaching Open-Meteo is a test failure. */
+  ev(`fetch = async (u) => {
+        if (String(u).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:null, type:"business", confidence:0.9, reason:"x"}) };
+        throw new Error("a taught code must never be geocoded"); };`);
+  let kv = await ev(`triageCandidate({title:"Team sync",hint:"PPK Building 3",nights:1,
+                     start:"2026-09-02",end:"2026-09-03"})`);
+  check("a taught code near home is skipped, without ever being geocoded",
+    kv.decision === "skip" && /9 km/.test(kv.why || ""), kv);
+  /* Far away, the table fixes the DESTINATION but the model still judges travel —
+     see 13b. So this one needs the model to answer; what is asserted here is that
+     the coordinates come from the table and not from a geocoder. */
+  ev(`fetch = async (url) => {
+        if (String(url).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:"Boston", type:"business", confidence:0.95, reason:"client visit"}) };
+        throw new Error("a taught destination must not be geocoded"); };`);
+  kv = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a taught code far away becomes a trip to THAT town, ungeocoded",
+    kv.decision === "trip" && kv.place === "Boston, Massachusetts, US", kv);
+  check("an overnight is still required",
+    (await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:0,
+      start:"2026-09-02",end:"2026-09-02"})`)).decision === "skip");
+
+  // Determinism is the whole point: same input, same answer, every time.
+  // The geocoder is never involved, so the destination cannot drift between runs
+  // however the model phrases its answer.
+  ev(`fetch = async (u) => {
+        if (String(u).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:null, type:"business", confidence:0.9, reason:"x"}) };
+        throw new Error("a taught code must never be geocoded"); };`);
+  const answers = new Set();
+  for (let i = 0; i < 5; i++)
+    answers.add(JSON.stringify(await ev(`triageCandidate({title:"Team sync",hint:"PPK",
+      nights:1,start:"2026-09-02",end:"2026-09-03"})`)));
+  check("five runs give ONE answer — a table cannot be 85% sure",
+    answers.size === 1, [...answers]);
+
+  console.log("\n--- 13b. the table answers WHERE, not WHETHER --------------------");
+  /* Conflating the two turns "two-day workshop at BOS OFF, joining on Zoom" into a
+     trip to Boston — an office is not travel however many days it spans, which the
+     triage prompt already says. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`fetch = async () => ({ ok:true, json: async () => (
+    {isTrip:false, city:null, type:"business", confidence:0.9, reason:"office, joining remotely"}) });`);
+  let kw = await ev(`triageCandidate({title:"Workshop",hint:"BOS OFF / Zoom",nights:2,
+                     start:"2026-09-02",end:"2026-09-04"})`);
+  check("a far taught place is NOT a trip when the event is not travel",
+    kw.decision === "skip", kw);
+
+  // The type comes from the event too: a taught code appears on holidays as well,
+  // and hard-coding business puts a beach week on the business packing path.
+  ev(`fetch = async () => ({ ok:true, json: async () => (
+    {isTrip:true, city:"Boston", type:"vacation", confidence:0.95, reason:"holiday"}) });`);
+  kw = await ev(`triageCandidate({title:"Break",hint:"BOS OFF",nights:3,
+                 start:"2026-09-02",end:"2026-09-05"})`);
+  check("when it IS travel, the taught coordinates are used", 
+    kw.decision === "trip" && kw.lat === 42.36 && kw.place === "Boston, Massachusetts, US", kw);
+  check("and the trip TYPE comes from the event, not from the table",
+    kw.type === "vacation", kw);
+
+  /* The model routinely returns NO city for "BOS OFF" — precisely because it can
+     see that is an office code and not a city name. Demanding one anyway threw away
+     the destination already in hand and sent the user back to confirming by hand,
+     which is the thing this table exists to stop. */
+  ev(`fetch = async (url) => {
+        if (String(url).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:null, type:"business", confidence:0.9, reason:"client visit"}) };
+        throw new Error("a taught destination must not be geocoded"); };`);
+  kw = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a taught place still resolves when the model names no city at all",
+    kw.decision === "trip" && kw.place === "Boston, Massachusetts, US", kw);
+
+  /* A model answer naming somewhere ELSE is a different destination, not a
+     misreading of the taught one — that is the "Flight to London" case. So it goes
+     down the ordinary geocoding road, guards and all, and a name nothing matches is
+     asked about rather than silently pinned to the taught coordinates. */
+  ev(`fetch = async (u) => {
+        if (String(u).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:"Bost", type:"business", confidence:0.95, reason:"x"}) };
+        return { ok:true, json: async () => ({ results: [] }) }; };`);
+  kw = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a city the model names that is NOT the taught place is judged on its own",
+    kw.decision === "ask", kw);
+
+  console.log("\n--- 13c. a long taught code still matches -----------------------");
+  /* The window was capped at four words while the UI accepts a 40-character code,
+     so anything longer silently fell back to the model — breaking the one promise
+     this table makes. The window is each code's own word count now. */
+  ev(`places.push({abbr:"NEW YORK CLIENT OFFICE HQ", city:"New York, NY",
+                   place:"New York, New York, US", lat:40.71, lon:-74.0});`);
+  check("a five-word code resolves",
+    (ev(`knownPlace("meeting at NEW-YORK CLIENT OFFICE HQ tomorrow")`) || {}).abbr
+      === "NEW YORK CLIENT OFFICE HQ",
+    ev(`knownPlace("meeting at NEW YORK CLIENT OFFICE HQ tomorrow")`));
+  check("and a partial run of its words does not",
+    ev(`knownPlace("NEW YORK CLIENT")`) === null, ev(`knownPlace("NEW YORK CLIENT")`));
+
+  console.log("\n--- 13b2. a taught city keeps its qualifier ---------------------");
+  /* The prompt hands the model "BOS OFF = Boston, MA", so it echoes the qualifier
+     back. Comparing against `{place, regions: []}` made every qualifier fail, and
+     the supposedly deterministic place went to the public geocoder anyway — the one
+     thing this table exists to avoid. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places = [{abbr:"BOS OFF", city:"Boston, MA", place:"Boston, Massachusetts, US", lat:42.36, lon:-71.06}];
+      home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  for (const said of [null, "Boston", "Boston, MA", "Boston, Massachusetts"]) {
+    ev(`fetch = async (u) => {
+          if (String(u).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+            {isTrip:true, city:${JSON.stringify(said)}, type:"business", confidence:0.95, reason:"x"}) };
+          throw new Error("a taught destination must never be geocoded"); };`);
+    const q = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                        start:"2026-09-02",end:"2026-09-04"})`);
+    check(`the model saying ${JSON.stringify(said)} still uses the taught coordinates`,
+      q.decision === "trip" && q.lat === 42.36, q);
+  }
+
+  console.log("\n--- 13c2. the code is not the whole story -----------------------");
+  /* A location field can name where you set OFF from, not where you are going.
+     "Flight to London" with location PPK is a real trip, and an early skip on the
+     code alone buried it for ever — a false negative that no later scan recovers,
+     because the event is marked dismissed. Raised by the pre-push reviewer. */
+  ev(`places = [{abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729}];
+      home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  const withTriage = (triage, geo) => ev(`
+    fetch = async (u) => {
+      if (String(u).indexOf("/triage") >= 0)
+        return { ok:true, json: async () => (${JSON.stringify(triage)}) };
+      return { ok:true, json: async () => ({ results: ${JSON.stringify(geo || [])} }) }; };`);
+
+  withTriage({ isTrip: true, city: "London", type: "business", confidence: 0.95, reason: "flight" },
+    [{ name: "London", admin1: "England", country: "United Kingdom", country_code: "GB", latitude: 51.5, longitude: -0.12 }]);
+  let ff = await ev(`triageCandidate({title:"Flight to London",hint:"PPK",nights:1,
+                     start:"2026-09-02",end:"2026-09-03"})`);
+  check("a trip elsewhere is NOT buried by a local code in the location field",
+    ff.decision === "trip" && /London/.test(ff.place), ff);
+
+  withTriage({ isTrip: true, city: "Lawrenceville", type: "business", confidence: 0.9, reason: "x" });
+  ff = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("but when the model names the taught place, the table's coordinates are used",
+    ff.decision === "skip" && /9 km/.test(ff.why || ""), ff);
+
+  withTriage({ isTrip: true, city: null, type: "business", confidence: 0.9, reason: "x" });
+  ff = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("and when it names none at all, the taught place is the destination",
+    ff.decision === "skip" && /9 km/.test(ff.why || ""), ff);
+
+  withTriage({ isTrip: false, city: null, type: "business", confidence: 0.9, reason: "local office" });
+  ff = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                 start:"2026-09-02",end:"2026-09-03"})`);
+  check("the model's 'not travel' still ends it", ff.decision === "skip", ff);
+
+  console.log("\n--- 13c3. an outage asks, it does not decide --------------------");
+  /* Deliberate, and contested: the reviewer asked for a deterministic skip here for
+     a taught code near home. Rejected, because three rounds earlier the same
+     reviewer raised the opposite as a P1 — a nearby code is not evidence the EVENT
+     is local, and skipping on it buries "Flight to London" for good. An outage is
+     precisely not knowing, and everywhere else in this app not knowing costs one
+     tap rather than a silent decision. Asking is also the recoverable direction. */
+  ev(`places = [{abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729}];
+      home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};
+      fetch = async () => { throw new Error("DGX unreachable"); };`);
+  const down = await ev(`triageCandidate({title:"Flight to London",hint:"PPK",nights:1,
+                         start:"2026-09-02",end:"2026-09-03"})`);
+  check("with the advisor down, a taught local code is ASKED about, not skipped",
+    down.decision === "ask", down);
+  check("and the reason says what is actually wrong",
+    /DGX|Tailscale/.test(down.why || ""), down.why);
+
+  console.log("\n--- 13d. codes that are not written in ASCII --------------------");
+  /* An ASCII-only key normalised 東京 to the empty string, so a Japanese code saved
+     fine and could then never match — the app kept guessing while claiming it had
+     learned it. Raised by the pre-push reviewer, 2026-08-24; this user writes their
+     weekly report in Japanese, so it is not a hypothetical. */
+  ev(`places = [{abbr:"東京", city:"Tokyo", place:"Tokyo, JP", lat:35.68, lon:139.69},
+                {abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729}];`);
+  check("a Japanese code has a non-empty key", ev(`abbrKey("東京")`).length > 0, ev(`abbrKey("東京")`));
+  check("and it matches when written alone",
+    (ev(`knownPlace("東京")`) || {}).abbr === "東京");
+  /* Japanese does not space its words, so "東京オフィス" is ONE token. A whole-token
+     rule would match only the bare form, which makes the feature nearly useless in
+     the language it was just fixed for. Inside such a token a substring match is
+     also SAFE in a way it is not for Latin: 東京 inside a longer run still means
+     Tokyo, whereas "ppk" inside "Klippka" means nothing. */
+  check("and inside a run of characters, where there are no spaces to split on",
+    (ev(`knownPlace("東京オフィス")`) || {}).abbr === "東京",
+    ev(`knownPlace("東京オフィス")`));
+  check("and mixed in among other text",
+    (ev(`knownPlace("会議 東京 3F")`) || {}).abbr === "東京");
+  check("an untaught Japanese place is still unknown",
+    ev(`knownPlace("大阪支社")`) === null, ev(`knownPlace("大阪支社")`));
+  check("the Latin whole-token rule is unchanged — no substring matching there",
+    ev(`knownPlace("Klippka")`) === null, ev(`knownPlace("Klippka")`));
+
+  /* A MIXED code. "東京 OFF" collapses to "東京off", which no single token contains,
+     so branching on the script and stopping there missed it entirely. Both rules
+     are tried now. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places.push({abbr:"東京 OFF", city:"Shinagawa", place:"Shinagawa, Tokyo, JP", lat:35.63, lon:139.74});`);
+  check("a code mixing Japanese and Latin resolves",
+    (ev(`knownPlace("東京 OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京 OFF")`));
+  check("written without its space too",
+    (ev(`knownPlace("東京OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京OFF")`));
+  check("and among other text",
+    (ev(`knownPlace("会議 東京 OFF 3F")`) || {}).abbr === "東京 OFF");
+  check("the more specific code wins over the shorter one it contains",
+    (ev(`knownPlace("東京 OFF")`) || {}).abbr === "東京 OFF", ev(`knownPlace("東京 OFF")`));
+  check("while the shorter one still matches on its own",
+    (ev(`knownPlace("東京オフィス")`) || {}).abbr === "東京");
+
+  // A code that normalises to nothing could never match, so it is refused at entry
+  // rather than saved and silently inert.
+  check("punctuation alone has no key", ev(`abbrKey("---")`) === "");
+
+  console.log("\n--- 13e. a code cannot be taught the wrong coordinates ----------");
+  /* Reading the input boxes again at pick time is how a code gets taught with
+     somebody else's coordinates: type "Boston", Find, change the code to PPK, tap a
+     result — and PPK is mapped to Boston for ever. Deterministically wrong is worse
+     than the guessing this table replaced. Same defect the trip sheet had on
+     2026-08-20; raised again here by the pre-push reviewer. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672}; places = [];
+      geocodeMany = async () => [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}];`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  await ev(`addPlace()`);
+  check("the answers are pinned to the question that produced them",
+    ev(`placeMatches.abbr`) === "BOS" && ev(`placeMatches.city`) === "Boston",
+    ev(`JSON.stringify({a:placeMatches.abbr,c:placeMatches.city})`));
+
+  const abbrBox = w.document.getElementById("plAbbr");
+  abbrBox.value = "PPK";
+  abbrBox.dispatchEvent(new w.Event("input", { bubbles: true }));
+  check("editing the code drops the stale answers", ev(`placeMatches.list.length`) === 0);
+  check("and takes them off the screen too",
+    w.document.getElementById("plMatches").innerHTML === "");
+  await ev(`pickPlace(0)`);
+  check("so there is nothing left to teach the wrong coordinates to",
+    ev(`places.length`) === 0, ev(`places`));
+
+  w.document.getElementById("plCity").value = "Lawrenceville";
+  ev(`geocodeMany = async () => [{lat:40.297, lon:-74.729, place:"Lawrenceville, New Jersey, US", km:9}];`);
+  await ev(`addPlace()`);
+  await ev(`pickPlace(0)`);
+  check("a fresh lookup teaches the pair that was actually looked up",
+    ev(`places[0].abbr`) === "PPK" && ev(`places[0].lat`) === 40.297, ev(`places[0]`));
+  check("and the boxes are cleared, so the next code starts empty",
+    w.document.getElementById("plAbbr").value === "" && w.document.getElementById("plCity").value === "");
+
+  /* Two lookups in flight, the SLOWER one landing last: its answers would overwrite
+     the newer question's, and the user taps a result belonging to a code they have
+     already moved on from. clearPlaceMatches cannot prevent it — the stale
+     continuation resumes afterwards. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places = [];
+      geocodeMany = async (c) => {
+        if (/Boston/.test(c)) { await new Promise(r => setTimeout(r, 60));
+          return [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}]; }
+        return [{lat:40.297, lon:-74.729, place:"Lawrenceville, New Jersey, US", km:9}]; };`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  const slow = ev(`addPlace()`);
+  w.document.getElementById("plAbbr").value = "PPK";
+  w.document.getElementById("plCity").value = "Lawrenceville";
+  await ev(`addPlace()`);
+  await slow;
+  await new Promise(r => setTimeout(r, 90));
+  check("a slow earlier lookup cannot overwrite a newer one",
+    ev(`placeMatches.abbr`) === "PPK" && ev(`placeMatches.city`) === "Lawrenceville",
+    ev(`JSON.stringify({a:placeMatches.abbr,c:placeMatches.city})`));
+  check("and the stale answers are not on screen either",
+    !/Boston/.test(w.document.getElementById("plMatches").textContent),
+    w.document.getElementById("plMatches").textContent);
+
+  /* Editing WHILE a lookup is still pending. The guard used to return early when
+     there were no results yet — which is exactly the in-flight case — so the old
+     request landed, rendered answers for text the user had already changed, and a
+     tap stored the abbreviation they had moved on from. Raised by the pre-push
+     reviewer, 2026-08-24. */
+  ev(`places = [];
+      geocodeMany = async () => { await new Promise(r => setTimeout(r, 60));
+        return [{lat:42.36, lon:-71.06, place:"Boston, Massachusetts, US", km:374}]; };`);
+  w.document.getElementById("plAbbr").value = "BOS";
+  w.document.getElementById("plCity").value = "Boston";
+  const inflight = ev(`addPlace()`);
+  const box = w.document.getElementById("plAbbr");
+  box.value = "PPK";
+  box.dispatchEvent(new w.Event("input", { bubbles: true }));
+  await inflight;
+  await new Promise(r => setTimeout(r, 90));
+  check("editing during a pending lookup abandons it",
+    ev(`placeMatches.list.length`) === 0, ev(`placeMatches`));
+  check("and clears the spinner it left on screen",
+    w.document.getElementById("plMatches").innerHTML === "",
+    w.document.getElementById("plMatches").innerHTML);
+  await ev(`pickPlace(0)`);
+  check("so a tap cannot store the code the user moved on from",
+    ev(`places.length`) === 0, ev(`places`));
+
+  // A code that normalises to nothing is refused rather than saved and inert.
+  w.document.getElementById("plAbbr").value = "---";
+  w.document.getElementById("plCity").value = "Boston";
+  await ev(`addPlace()`);
+  check("a code with nothing to match on is refused at entry",
+    /no letters or numbers/.test(w.document.getElementById("plErr").textContent),
+    w.document.getElementById("plErr").textContent);
+  check("and nothing unmatchable is ever stored",
+    ev(`places.every(p=>abbrKey(p.abbr)!=="")`), ev(`places`));
+
+  // With nothing taught, the old road is still taken.
+  ev(`places = [];`);
+  check("an empty table changes nothing", ev(`knownPlace("PPK")`) === null);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

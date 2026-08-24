@@ -712,23 +712,75 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
                      start:"2026-09-02",end:"2026-09-03"})`);
   check("a taught code near home is skipped, offline, with no model call",
     kv.decision === "skip" && /9 km/.test(kv.why || ""), kv);
+  /* Far away, the table fixes the DESTINATION but the model still judges travel —
+     see 13b. So this one needs the model to answer; what is asserted here is that
+     the coordinates come from the table and not from a geocoder. */
+  ev(`fetch = async (url) => {
+        if (String(url).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+          {isTrip:true, city:"Boston", type:"business", confidence:0.95, reason:"client visit"}) };
+        throw new Error("a taught destination must not be geocoded"); };`);
   kv = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
                  start:"2026-09-02",end:"2026-09-04"})`);
-  check("a taught code far away becomes a trip to THAT town",
+  check("a taught code far away becomes a trip to THAT town, ungeocoded",
     kv.decision === "trip" && kv.place === "Boston, Massachusetts, US", kv);
-  check("and it says the answer came from the user, not from a guess",
-    /you told me/.test(kv.why || ""), kv.why);
   check("an overnight is still required",
     (await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:0,
       start:"2026-09-02",end:"2026-09-02"})`)).decision === "skip");
 
   // Determinism is the whole point: same input, same answer, every time.
+  // PPK is near home, so this whole loop runs offline — the throwing fetch below
+  // is the proof that no model and no geocoder are consulted.
+  ev(`fetch = async () => { throw new Error("a near-home taught code needs no network"); };`);
   const answers = new Set();
   for (let i = 0; i < 5; i++)
     answers.add(JSON.stringify(await ev(`triageCandidate({title:"Team sync",hint:"PPK",
       nights:1,start:"2026-09-02",end:"2026-09-03"})`)));
   check("five runs give ONE answer — a table cannot be 85% sure",
     answers.size === 1, [...answers]);
+
+  console.log("\n--- 13b. the table answers WHERE, not WHETHER --------------------");
+  /* Conflating the two turns "two-day workshop at BOS OFF, joining on Zoom" into a
+     trip to Boston — an office is not travel however many days it spans, which the
+     triage prompt already says. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`fetch = async () => ({ ok:true, json: async () => (
+    {isTrip:false, city:null, type:"business", confidence:0.9, reason:"office, joining remotely"}) });`);
+  let kw = await ev(`triageCandidate({title:"Workshop",hint:"BOS OFF / Zoom",nights:2,
+                     start:"2026-09-02",end:"2026-09-04"})`);
+  check("a far taught place is NOT a trip when the event is not travel",
+    kw.decision === "skip", kw);
+
+  // The type comes from the event too: a taught code appears on holidays as well,
+  // and hard-coding business puts a beach week on the business packing path.
+  ev(`fetch = async () => ({ ok:true, json: async () => (
+    {isTrip:true, city:"Boston", type:"vacation", confidence:0.95, reason:"holiday"}) });`);
+  kw = await ev(`triageCandidate({title:"Break",hint:"BOS OFF",nights:3,
+                 start:"2026-09-02",end:"2026-09-05"})`);
+  check("when it IS travel, the taught coordinates are used", 
+    kw.decision === "trip" && kw.lat === 42.36 && kw.place === "Boston, Massachusetts, US", kw);
+  check("and the trip TYPE comes from the event, not from the table",
+    kw.type === "vacation", kw);
+
+  // A model answer that disagrees with the table cannot move the destination: the
+  // taught place wins, and the name-matching guards are skipped rather than misfiring.
+  ev(`fetch = async () => ({ ok:true, json: async () => (
+    {isTrip:true, city:"Bost", type:"business", confidence:0.95, reason:"x"}) });`);
+  kw = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a taught destination is not re-judged against what the model called it",
+    kw.decision === "trip" && kw.place === "Boston, Massachusetts, US", kw);
+
+  console.log("\n--- 13c. a long taught code still matches -----------------------");
+  /* The window was capped at four words while the UI accepts a 40-character code,
+     so anything longer silently fell back to the model — breaking the one promise
+     this table makes. The window is each code's own word count now. */
+  ev(`places.push({abbr:"NEW YORK CLIENT OFFICE HQ", city:"New York, NY",
+                   place:"New York, New York, US", lat:40.71, lon:-74.0});`);
+  check("a five-word code resolves",
+    (ev(`knownPlace("meeting at NEW-YORK CLIENT OFFICE HQ tomorrow")`) || {}).abbr
+      === "NEW YORK CLIENT OFFICE HQ",
+    ev(`knownPlace("meeting at NEW YORK CLIENT OFFICE HQ tomorrow")`));
+  check("and a partial run of its words does not",
+    ev(`knownPlace("NEW YORK CLIENT")`) === null, ev(`knownPlace("NEW YORK CLIENT")`));
 
   // With nothing taught, the old road is still taken.
   ev(`places = [];`);

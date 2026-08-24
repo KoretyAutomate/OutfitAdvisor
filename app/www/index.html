@@ -1888,9 +1888,18 @@ function knownPlace(text){
   let best=null, bestLen=0;
   for(const p of places){
     const key=abbrKey(p.abbr); if(!key) continue;
-    // a code may itself be several words once normalised, so slide a window
-    for(let i=0;i<toks.length;i++){
-      for(let n=1;n<=4&&i+n<=toks.length;n++){
+    // The window is THIS code's own word count, not a fixed cap. A cap of four
+    // silently excluded anything longer — "NEW YORK CLIENT OFFICE HQ" is five, and
+    // the UI accepts it — so a code the user had taught still went back through the
+    // model, breaking the one promise this table makes.
+    // Up to THIS code's own word count, never a fixed cap: "NEW YORK CLIENT OFFICE
+    // HQ" is five words and the UI accepts it, so a cap of four silently sent a
+    // taught code back to the model. From 1, because a multi-word code is also
+    // written without its spaces — "BOS OFF" appears as "BOSOFF" — and the key is
+    // compared with punctuation stripped, so both spellings are the same string.
+    const words=Math.max(1,String(p.abbr).trim().split(/[^a-z0-9]+/i).filter(Boolean).length);
+    for(let n=1;n<=words;n++){
+      for(let i=0;i+n<=toks.length;i++){
         if(toks.slice(i,i+n).join("")!==key) continue;
         if(n>bestLen){ best=p; bestLen=n; }
       }
@@ -1949,13 +1958,25 @@ async function triageCandidate(c){
      that is already known — and the whole PPK/Kazakhstan family of failures came
      from asking anyway. No network call, no confidence score, same answer every
      time. */
+  /* A taught code answers WHERE. It does not answer WHETHER this is travel, and
+     conflating the two turns "two-day workshop at BOS OFF, joining on Zoom" into a
+     trip to Boston — an office is not travel however many days it spans, which is
+     a rule the triage prompt already states.
+
+     So the table is used for what it actually knows:
+       - near home, it ends the question by itself. No event context can make a
+         9 km office into a trip, so this needs no model and works offline. That is
+         the PPK case, and it is the one that has been wrong for four releases.
+       - far away, it FIXES the destination — the coordinates and the name stop
+         being anybody's guess — but the model still decides whether the person is
+         travelling, and what kind of trip it is. A taught code appears on holidays
+         and family visits too; hard-coding `business` would put a beach week on the
+         business packing path. */
   const kp=knownPlace(c.hint);
   if(kp){
-    const km=haversineKm(home.lat,home.lon,kp.lat,kp.lon);
-    if(km<TRIP_MIN_KM) return {decision:"skip", why:`${kp.abbr} is ${Math.round(km)} km from home`};
-    if(c.nights<1)     return {decision:"skip", why:"no overnight"};
-    return {decision:"trip", city:kp.city, type:"business", lat:kp.lat, lon:kp.lon,
-            place:kp.place, km:Math.round(km), why:`${kp.abbr} — you told me this is ${kp.place}`};
+    const kkm=haversineKm(home.lat,home.lon,kp.lat,kp.lon);
+    if(kkm<TRIP_MIN_KM)
+      return {decision:"skip", why:`${kp.abbr} is ${Math.round(kkm)} km from home`};
   }
   let t;
   try{
@@ -1988,7 +2009,15 @@ async function triageCandidate(c){
   if((String(t.city).match(/\p{L}/gu)||[]).length<2)
     return {decision:"ask", why:`"${t.city}" isn't a place name`};
   let g;
-  try{ g=await geocode(t.city); }catch(e){ return {decision:"ask", why:`couldn't place "${t.city}"`}; }
+  if(kp){
+    // Taught: the destination is known, so nothing is geocoded and none of the
+    // name-matching guards below can misfire on it. Only the travel judgement above
+    // came from the model.
+    g={lat:kp.lat, lon:kp.lon, place:kp.place, regions:[], alts:[]};
+    t={...t, city:kp.city};
+  }else{
+    try{ g=await geocode(t.city); }catch(e){ return {decision:"ask", why:`couldn't place "${t.city}"`}; }
+  }
   // The Kazakhstan gate. A fuzzy geocode answers a name nobody asked about, and
   // the distance test then PASSES precisely because the answer is far away — the
   // wronger the hit, the more certainly it becomes a trip. If the place we got
@@ -2004,7 +2033,7 @@ async function triageCandidate(c){
   // result and wrong here — "Frankfurt" would accept "Frankfurt (Oder)" and
   // "York" would accept "York New Salem", each of them the Petropavl failure with
   // a plausible-looking name on it.
-  if(!geoPlaceExact(t.city,g))
+  if(!kp&&!geoPlaceExact(t.city,g))
     // Deliberately does not name what came back, for the same reason the picker
     // does not: quoting "Petropavl, North Kazakhstan" reads as a suggestion, and
     // this string is one screen away from being shown at any time.
@@ -2016,7 +2045,7 @@ async function triageCandidate(c){
   // is how the Kazakhstan trips got invented. Both answers are wrong a fair share
   // of the time, so neither is taken unattended: one confirmation tap, the same
   // price this app pays everywhere else it cannot be sure.
-  const alts=g.alts||[];
+  const alts=kp?[]:(g.alts||[]);
   if(alts.length>1&&alts.some(a=>haversineKm(alts[0].lat,alts[0].lon,a.lat,a.lon)>=TRIP_MIN_KM))
     return {decision:"ask", why:`"${t.city}" names ${alts.length} different places`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);

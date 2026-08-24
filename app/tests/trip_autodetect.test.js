@@ -677,6 +677,63 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     !NAMES_A_WRONG_PLACE.test(codeOnly),
     codeOnly.split("\n").filter(l => NAMES_A_WRONG_PLACE.test(l)).slice(0, 3));
 
+  console.log("\n--- 13. codes the user has TAUGHT are looked up, not guessed ----");
+  /* The user's own diagnosis, 2026-08-24: "it's always letting LLM decide and not
+     overwriting with deterministic locations". Correct. Every fix before this one
+     was a better REFUSAL — the app still had to infer what "PPK" meant, and both a
+     122B model and a fuzzy geocoder will supply an answer for that with total
+     confidence. A table cannot be 85% sure. */
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};
+      places = [
+        {abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729},
+        {abbr:"BOS OFF", city:"Boston, MA", place:"Boston, Massachusetts, US", lat:42.36, lon:-71.06}];`);
+
+  const KNOWN = [
+    ["PPK", "PPK"], ["ppk", "PPK"],                 // case does not matter
+    ["PPK Building 3", "PPK"], ["at PPK-3", "PPK"], // a code inside a longer string
+    ["bos off", "BOS OFF"], ["BOSOFF", "BOS OFF"],  // a multi-word code, punctuation-blind
+  ];
+  for (const [text, want] of KNOWN)
+    check(`"${text}" resolves to ${want}`,
+      (ev(`knownPlace(${JSON.stringify(text)})`) || {}).abbr === want,
+      ev(`knownPlace(${JSON.stringify(text)})`));
+
+  // Whole tokens ONLY. A substring rule would make every word containing the code
+  // a false hit, which is the same class of error as the IATA table.
+  check("a code buried INSIDE a word is not a match",
+    ev(`knownPlace("Klippka")`) === null, ev(`knownPlace("Klippka")`));
+  check("an untaught code stays unknown", ev(`knownPlace("LVL")`) === null);
+  check("and empty text matches nothing", ev(`knownPlace("")`) === null);
+
+  /* THE POINT: a known code never reaches the model OR the geocoder. Any network
+     call here is a test failure by construction. */
+  ev(`fetch = async () => { throw new Error("a taught code must not be asked about"); };`);
+  let kv = await ev(`triageCandidate({title:"Team sync",hint:"PPK Building 3",nights:1,
+                     start:"2026-09-02",end:"2026-09-03"})`);
+  check("a taught code near home is skipped, offline, with no model call",
+    kv.decision === "skip" && /9 km/.test(kv.why || ""), kv);
+  kv = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                 start:"2026-09-02",end:"2026-09-04"})`);
+  check("a taught code far away becomes a trip to THAT town",
+    kv.decision === "trip" && kv.place === "Boston, Massachusetts, US", kv);
+  check("and it says the answer came from the user, not from a guess",
+    /you told me/.test(kv.why || ""), kv.why);
+  check("an overnight is still required",
+    (await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:0,
+      start:"2026-09-02",end:"2026-09-02"})`)).decision === "skip");
+
+  // Determinism is the whole point: same input, same answer, every time.
+  const answers = new Set();
+  for (let i = 0; i < 5; i++)
+    answers.add(JSON.stringify(await ev(`triageCandidate({title:"Team sync",hint:"PPK",
+      nights:1,start:"2026-09-02",end:"2026-09-03"})`)));
+  check("five runs give ONE answer — a table cannot be 85% sure",
+    answers.size === 1, [...answers]);
+
+  // With nothing taught, the old road is still taken.
+  ev(`places = [];`);
+  check("an empty table changes nothing", ev(`knownPlace("PPK")`) === null);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

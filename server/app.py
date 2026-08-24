@@ -199,6 +199,18 @@ class AdviceRequest(BaseModel):
     closet: list[ClosetItem] | None = Field(None, max_length=100)
 
 
+class KnownPlace(BaseModel):
+    """One abbreviation the user has told their phone the meaning of."""
+
+    abbr: str = Field("", max_length=40)
+    city: str = Field("", max_length=80)
+
+    @field_validator("abbr", "city")
+    @classmethod
+    def _san(cls, v: str) -> str:
+        return _clean(v, 80)
+
+
 class TriageRequest(BaseModel):
     """A calendar entry to judge. Free text, so it is sanitized exactly like closet
     labels before it reaches the prompt (plan amendment 1)."""
@@ -207,6 +219,14 @@ class TriageRequest(BaseModel):
     nights: int = Field(1, ge=0, le=60)
     start: str = Field("", max_length=10)
     end: str = Field("", max_length=10)
+    # The phone's own table of what its owner's abbreviations mean (2026-08-24).
+    # A work calendar writes "PPK", and nothing in that string says it is an office
+    # on Princeton Pike — so the model was inferring a fact the user already knew,
+    # and Open-Meteo's IATA table was happy to make PPK mean Petropavl, Kazakhstan.
+    # The phone answers an exact match itself and never calls here; this list is for
+    # the cases it could not match on whole tokens ("PPK-3", "at PPK").
+    # Abbreviation and town only. No coordinates: this server has no use for them.
+    known: list[KnownPlace] = Field(default_factory=list, max_length=40)
 
     @field_validator("title", "location")
     @classmethod
@@ -524,7 +544,8 @@ async def triage(req: TriageRequest, x_oa_client: str = Header(default="")):
     which is why the log line carries only the outcome shape.
     """
     t0 = time.monotonic()
-    out = await llm.triage_event(req.title, req.location, req.nights, req.start, req.end)
+    out = await llm.triage_event(req.title, req.location, req.nights, req.start, req.end,
+                                 known=[k.model_dump() for k in req.known])
     dt = round(time.monotonic() - t0, 2)
     if out is None:
         log.info("triage failed %.2fs", dt)

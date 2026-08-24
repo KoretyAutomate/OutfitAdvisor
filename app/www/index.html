@@ -333,6 +333,15 @@
         </div>
         <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
       </div>
+      <!-- What the user's own abbreviations mean. A calendar writes "PPK"; only
+           its owner knows that is an office on Princeton Pike (user, 2026-08-24). -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="min-width:0">
+          <label class="lbl" style="margin:0">My place codes</label>
+          <div class="note" id="placesLine" style="margin-top:2px">none yet</div>
+        </div>
+        <button class="ghost" id="placesBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Manage</button>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <div style="min-width:0">
           <label class="lbl" style="margin:0">Calendars</label>
@@ -541,6 +550,30 @@
       <p class="note">The DGX server that writes the outfit text. Reachable over Tailscale.
         If unreachable, the app falls back to an on-device estimate.</p>
     </details>
+  </div>
+</div>
+
+<!-- Place codes sheet: teach the app what your abbreviations mean, once. -->
+<div class="modal" id="plWrap">
+  <div class="sheet">
+    <div class="shHead"><b>My place codes</b>
+      <button class="ghost" id="plDone" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Done</button></div>
+    <p class="note" style="margin:0 0 10px">Your calendar writes short codes like <b>PPK</b>. Tell the
+      advisor what they mean and it stops guessing — a code you have taught it is looked up, never
+      interpreted, so it can't turn into a city on the other side of the world.</p>
+    <div id="plList"></div>
+    <div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
+      <label class="lbl">Add a code</label>
+      <div class="row" style="gap:8px">
+        <input id="plAbbr" placeholder="PPK" style="flex:0 0 33%" maxlength="40">
+        <input id="plCity" placeholder="Town it is in — e.g. Lawrenceville, NJ" style="flex:1" maxlength="80">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="plFind">Find that town</button>
+      </div>
+      <div id="plMatches"></div>
+      <div id="plErr" class="err"></div>
+    </div>
   </div>
 </div>
 
@@ -1170,7 +1203,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.17";
+const WEB_BUILD="1.18";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1756,6 +1789,53 @@ async function saveCalSel(){
   renderCalSel();
 }
 
+/* ── place-codes sheet ── */
+function renderPlaces(){
+  const line=$("placesLine");
+  if(line) line.textContent=places.length
+    ? `${places.length} known · ${places.slice(0,3).map(p=>p.abbr).join(", ")}${places.length>3?"…":""}`
+    : "none yet — add one so PPK stops being a guess";
+  const list=$("plList"); if(!list) return;
+  list.innerHTML=places.length?places.map((p,i)=>
+    `<div class="calRow" style="padding-left:0">
+       <div style="min-width:0;flex:1">
+         <b>${esc(p.abbr)}</b> → ${esc(p.place)}
+       </div>
+       <button class="ghost" data-plrm="${i}" style="padding:4px 9px;font-size:.72rem">Remove</button>
+     </div>`).join("")
+    :`<p class="note" style="margin:0">Nothing taught yet.</p>`;
+}
+async function addPlace(){
+  const abbr=$("plAbbr").value.trim(), city=$("plCity").value.trim();
+  $("plErr").textContent=""; $("plMatches").innerHTML="";
+  if(!abbr){ $("plErr").textContent="Type the code your calendar uses."; return; }
+  if(!city){ $("plErr").textContent="Type the town that code is in."; return; }
+  if(places.some(p=>abbrKey(p.abbr)===abbrKey(abbr))){
+    $("plErr").textContent=`"${abbr}" is already taught — remove it first to change it.`; return; }
+  $("plMatches").innerHTML='<span class="spin"></span>';
+  let m=[];
+  try{ m=await geocodeMany(city); }catch(e){ m=[]; }
+  if(!m.length){ $("plMatches").innerHTML="";
+    $("plErr").textContent=`Couldn't find "${city}". Try the town on its own, e.g. "Lawrenceville, NJ".`; return; }
+  // The user names the TOWN here, so the same nearest-home ranking and the same
+  // distance labels the trip picker uses apply — this is the one moment the
+  // mapping is fixed, and picking the wrong Lawrenceville here would bake the
+  // original bug into the table that exists to prevent it.
+  $("plMatches").innerHTML=m.map((g,i)=>
+    `<button class="ghost" data-pladd="${i}" style="width:100%;text-align:left;margin:4px 0">${esc(g.place)}`+
+    `${g.km!=null?`<span style="color:var(--muted);font-weight:400"> · ${g.km<1?"under 1":g.km} km from home</span>`:""}</button>`).join("");
+  placeMatches=m;
+}
+let placeMatches=[];
+async function pickPlace(i){
+  const g=placeMatches[i]; if(!g) return;
+  places.push({abbr:$("plAbbr").value.trim(), city:$("plCity").value.trim(),
+               place:g.place, lat:g.lat, lon:g.lon});
+  $("plAbbr").value=""; $("plCity").value=""; $("plMatches").innerHTML=""; placeMatches=[];
+  await savePlaces();
+  toast("Learned — that code will not be guessed at again");
+}
+
 /* ───────── home area + automatic trip detection (2026-08-14) ─────────
    The user's objection was blunt and correct: making them confirm every calendar
    candidate defeats the point of reading the calendar. To judge a trip we need a
@@ -1773,6 +1853,51 @@ const TRIP_MIN_KM=100;                 // + at least one overnight
    suitcase for a city the user has never heard of (2026-08-20). */
 const TRIAGE_MIN_CONF=0.6;
 let home=null;                          // {label, postal, lat, lon} or null
+
+/* ───────── known places: the user's own abbreviations (2026-08-24) ─────────
+
+   A work calendar writes "PPK", not "Princeton Pike, New Jersey". Nothing in that
+   string says what it means, so every layer downstream was left GUESSING at a fact
+   the user already knows — and a guess is exactly what a 122B model and a fuzzy
+   geocoder are each happy to supply. Open-Meteo resolves PPK out of an IATA table
+   to Petropavl, KAZAKHSTAN; the model sometimes returns the code back as a city
+   name; and both answer with total confidence.
+
+   Every fix so far has been a better refusal. This is the fix that makes the
+   question answerable: the user says once what their own codes mean, and after
+   that the answer is a lookup, not an inference. Deterministic, offline, and the
+   same on every run — a table cannot be 85% sure.
+
+   Kept ON THE PHONE and never hard-coded: where somebody works is theirs, and this
+   repository is public.
+
+   {abbr, city, place, lat, lon}  — `abbr` is stored normalised. */
+let places=[];
+const abbrKey=s=>String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"");
+async function savePlaces(){
+  await prefSet("oa.places", JSON.stringify(places));
+  renderPlaces();
+}
+/* Does this calendar location text contain a code the user has taught us?
+   Whole tokens only: "PPK" in "PPK Building 3" is the office, but the "ppk" inside
+   "Klippka" is not. Longest match wins, so a two-word code beats a one-word one. */
+function knownPlace(text){
+  if(!places.length) return null;
+  const toks=String(text||"").toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  if(!toks.length) return null;
+  let best=null, bestLen=0;
+  for(const p of places){
+    const key=abbrKey(p.abbr); if(!key) continue;
+    // a code may itself be several words once normalised, so slide a window
+    for(let i=0;i<toks.length;i++){
+      for(let n=1;n<=4&&i+n<=toks.length;n++){
+        if(toks.slice(i,i+n).join("")!==key) continue;
+        if(n>bestLen){ best=p; bestLen=n; }
+      }
+    }
+  }
+  return best;
+}
 
 function roundCoarse(n){ return Math.round(n*10)/10; }   // ~11 km
 function haversineKm(a,b,c,d){
@@ -1819,12 +1944,31 @@ async function setHomeFromHere(){
    must degrade to asking the user, not to losing the candidate. */
 async function triageCandidate(c){
   if(!home) return {decision:"ask", why:"no home area set"};
+  /* A code the user has TAUGHT us is not a question. Answered here, before the
+     model and before the geocoder, because both of them are guessing at something
+     that is already known — and the whole PPK/Kazakhstan family of failures came
+     from asking anyway. No network call, no confidence score, same answer every
+     time. */
+  const kp=knownPlace(c.hint);
+  if(kp){
+    const km=haversineKm(home.lat,home.lon,kp.lat,kp.lon);
+    if(km<TRIP_MIN_KM) return {decision:"skip", why:`${kp.abbr} is ${Math.round(km)} km from home`};
+    if(c.nights<1)     return {decision:"skip", why:"no overnight"};
+    return {decision:"trip", city:kp.city, type:"business", lat:kp.lat, lon:kp.lon,
+            place:kp.place, km:Math.round(km), why:`${kp.abbr} — you told me this is ${kp.place}`};
+  }
   let t;
   try{
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/triage",{
       method:"POST",headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      // The table goes to the model too. A code that did not match a whole token
+      // here may still be recognisable in context ("PPK-3", "at PPK"), and giving
+      // the model the user's own list lets it defer to a fact instead of reaching
+      // for an airport code it half-remembers. Abbreviation and town only — no
+      // coordinates, which the server has no use for and should never hold.
       body:JSON.stringify({title:c.title,location:c.hint,nights:c.nights,
-                           start:c.start,end:c.end})});
+                           start:c.start,end:c.end,
+                           known:places.slice(0,40).map(p=>({abbr:p.abbr,city:p.city}))})});
     if(!r.ok) return {decision:"ask", why:"advisor unavailable"};
     t=await r.json();
   }catch(e){ return {decision:"ask", why:"can't reach the DGX — check Tailscale"}; }
@@ -2212,7 +2356,7 @@ function renderOutfit(o,text,source,res){
 
    TRIPS_RULES_VERSION is the stamp. Raise it only when a rule change again makes
    previously-found trips untrustworthy. */
-const TRIPS_RULES_VERSION="1.17";
+const TRIPS_RULES_VERSION="1.18";
 let staleTripNote="";
 async function flagTripsFoundUnderOldRules(){
   if(await prefGet("oa.tripsRules","")===TRIPS_RULES_VERSION) return;
@@ -2228,13 +2372,24 @@ async function flagTripsFoundUnderOldRules(){
   // because a packing list is work; now that it only ASKS, excluding them just
   // hides the question from someone who has already packed for Kazakhstan.
   // Trips typed in by hand have no calId and are never questioned.
-  const stale=trips.filter(t=>t.calId||t.auto);
+  // EVERY trip, now. Two narrower filters have already failed to reach the one
+  // trip that mattered: `auto` missed trips the user confirmed from a candidate,
+  // and `calId` would miss one typed in by hand while an old build was suggesting
+  // Petropavl as the match. Three releases have gone out with the wrong trip still
+  // on screen, and each narrowing was a guess about how it got there.
+  //
+  // Being generous is safe BECAUSE this only asks. A correct trip costs one tap of
+  // "Yes, keep it" and is never questioned again; a wrong one is finally removable.
+  // Precision is worth having when the cost of a false positive is data loss — it
+  // is not worth having when the cost is a tap.
+  const stale=trips.slice();
   if(stale.length){
     for(const t of stale) t.needsReview=true;
     await prefSet("oa.trips",JSON.stringify(trips));
-    staleTripNote=`${stale.length} trip${stale.length===1?" was":"s were"} found automatically `+
-      `before the location fix. Codes like "PPK" were being read as far-away cities — `+
-      `check ${stale.length===1?"it":"them"} below and remove anything wrong.`;
+    staleTripNote=`${stale.length} trip${stale.length===1?"":"s"} ${stale.length===1?"was":"were"} `+
+      `saved before the location fix. A code like "PPK" could be read as a city far away, `+
+      `so check ${stale.length===1?"it":"them"} below — keep what is right, remove what is not. `+
+      `Teach the advisor your codes under "My place codes" and it will stop guessing.`;
   }
   await prefSet("oa.tripsRules",TRIPS_RULES_VERSION);
 }
@@ -2681,6 +2836,7 @@ async function load(){
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
+  try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
   // "all calendars" — read it back with exactly that meaning.
   try{
@@ -2864,6 +3020,13 @@ $("fbNote").onclick=async()=>{
 
 /* ── trips wiring ── */
 $("homeBtn").onclick=setHomeFromHere;
+$("placesBtn").onclick=()=>{ renderPlaces(); $("plWrap").classList.add("show"); };
+$("plDone").onclick=()=>$("plWrap").classList.remove("show");
+$("plWrap").onclick=e=>{ if(e.target===$("plWrap")) $("plWrap").classList.remove("show"); };
+$("plFind").onclick=addPlace;
+$("plMatches").onclick=e=>{ const b=e.target.closest("[data-pladd]"); if(b) pickPlace(+b.dataset.pladd); };
+$("plList").onclick=async e=>{ const b=e.target.closest("[data-plrm]"); if(!b) return;
+  places.splice(+b.dataset.plrm,1); await savePlaces(); };
 $("calPickBtn").onclick=openCalPicker;
 $("gearBtn").onclick=()=>{ $("setWrap").classList.add("show");
   // Both read live device state, so refresh them as the sheet opens rather than
@@ -3026,7 +3189,7 @@ const appReady=(async()=>{
   // the grid still pending, and a caller that acts on appReady can have its own
   // render overwritten a moment later by the initial one finishing.
   await renderCloset();
-  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
+  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

@@ -135,6 +135,17 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
     return not ("color" in desc and desc["color"] not in _colors(item))
 
 
+def _slot_order(slot: str) -> int:
+    """Where a slot sits in the outfit, inner outwards.
+
+    Used to pick WHICH of two garments to drop when a pair rule fires. The later
+    slot loses: the inner layers are what the outfit is built on, so removing the
+    addition is the smaller change — and it has to be deterministic, or the same
+    outfit repairs differently on different mornings.
+    """
+    return vocab.CATEGORIES.index(slot) if slot in vocab.CATEGORIES else 99
+
+
 def _found(desc: dict, worn: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
     return [(slot, it) for slot, it in worn if _matches(desc, slot, it)]
 
@@ -150,6 +161,7 @@ def violations(rules: list[dict], picks: dict, by_item: dict) -> list[dict]:
     worn = [(slot, by_item[i]) for slot, i in picks.items() if i and i in by_item]
     out: list[dict] = []
     seen: set[tuple[int, str]] = set()
+    pairs_seen: set[tuple[int, frozenset]] = set()
 
     def add(idx: int, slot: str, why: str, rule: dict) -> None:
         # One violation per (rule, slot). A slot cleared once is cleared; reporting
@@ -176,13 +188,23 @@ def violations(rules: list[dict], picks: dict, by_item: dict) -> list[dict]:
             for slot_b, item_b in _found(side_b, worn):
                 if slot_b == slot_a:
                     continue          # one garment cannot be both sides of a pair
+                # The pair is UNORDERED. With overlapping descriptors — a and b both
+                # {type: t_shirt}, tees in base and mid — the loops see the same two
+                # garments twice, once each way round, and clearing both sides of a
+                # pair when removing either satisfies the rule strips two layers off
+                # the outfit for one violation.
+                key = (idx, frozenset((slot_a, slot_b)))
+                if key in pairs_seen:
+                    continue
+                pairs_seen.add(key)
+                blame = max(slot_a, slot_b, key=_slot_order)
                 if kind == "avoid_pair":
-                    add(idx, slot_b,
+                    add(idx, blame,
                         f"{_describe(a)} and {_describe(side_b)} are not worn together", r)
                 elif kind == "avoid_same_color":
                     shared = _colors(item_a) & _colors(item_b)
                     if shared:
-                        add(idx, slot_b,
+                        add(idx, blame,
                             f"{_describe(a)} and {_describe(side_b)} are both "
                             f"{sorted(shared)[0]}", r)
     return out

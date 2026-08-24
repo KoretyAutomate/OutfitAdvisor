@@ -288,7 +288,20 @@
           <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
         </div>
         <p class="note" id="fbNote"></p>
+      <!-- Free-text feedback, turned into a rule the SERVER checks (2026-08-24).
+           "White V-neck inner + white T — this combination shall be banned." -->
+      <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:11px">
+        <label class="lbl">Something to avoid</label>
+        <div class="row" style="gap:8px">
+          <input id="rlText" style="flex:1" maxlength="200"
+                 placeholder="e.g. never a white undershirt under a white t-shirt">
+          <button class="ghost" id="rlAdd" style="flex:0 0 auto;padding:9px 13px">Add</button>
+        </div>
+        <p class="note" id="rlErr" style="margin:5px 0 0"></p>
+        <div id="rlList"></div>
       </div>
+      </div>
+      <p class="note" id="todayFrom" style="display:none;margin:8px 0 0"></p>
       <div class="deliver" style="margin-top:12px">
         <button id="dShare">💬 Share</button>
         <button id="dNotify">🔔 Preview push</button>
@@ -1184,6 +1197,7 @@ async function saveCloset(){
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
   refreshRescan();
+  await savePushPayload();     // the morning push reads this, not the closet itself
 }
 
 /* ───────── in-app updates (2026-07-28) ─────────
@@ -1203,7 +1217,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.18";
+const WEB_BUILD="1.19";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2321,6 +2335,7 @@ async function saveTrips(){
   const cut=dayISO(Date.now()-TRIP_KEEP_DAYS*DAY_MS);
   trips=trips.filter(t=>t.end>=cut);
   await prefSet("oa.trips",JSON.stringify(trips));
+  savePushPayload();           // on a trip the push must dress from the suitcase
   await prefSet("oa.tripsDismissed",JSON.stringify(tripsDismissed.slice(-100)));
   renderTrips();
 }
@@ -2365,6 +2380,64 @@ function closetPayload(){
     .filter(i=>i.availableCount>=1);
 }
 
+/* What the MORNING PUSH should send.
+
+   The native worker had been sending neither the closet nor the rules, so the one
+   request that matters most — the 06:45 push, the whole point of the app — was
+   generic advice with a ban it had never been told about. It is also why the
+   server logged `closet=0/0` on every push while the app's own requests carried 17
+   items (found 2026-08-24 while reading those logs for something else).
+
+   The worker READS this rather than computing it. Availability depends on the wear
+   log, the cooldown and whether a trip is under way, and a Kotlin twin of that
+   arithmetic would be a fourth place for the same rules to drift — this project has
+   been bitten by twin drift more than once. One implementation, written where the
+   data lives, re-stamped whenever anything it depends on changes.
+
+   It therefore AGES, in two different ways.
+
+   Slowly: an item comes back from the laundry on a timer, so yesterday's payload
+   can under-report what is wearable. That direction is safe — the advisor offers
+   less than it could, never something dirty.
+
+   And abruptly, at a TRIP BOUNDARY. closetPayload() answers "the suitcase" while a
+   trip is under way and "the wardrobe" otherwise, so a payload written at home the
+   evening before a trip describes clothes that are 800 km away by morning. Age
+   alone cannot catch that — it is hours old and completely wrong. So the payload
+   carries the day its answer stops applying: the next boundary any trip crosses, or
+   a week out if none do. The worker refuses it past that rather than dressing
+   somebody from a wardrobe they are not standing in. */
+const PUSH_PAYLOAD_KEY="oa.pushPayload";
+/* The first day this payload NO LONGER describes the right clothes — exclusive.
+   Every trip start, and every day after a trip ends, changes which wardrobe
+   closetPayload() answers with, and it has already changed ON that day: a payload
+   stamped with the departure date is wrong the morning it departs. Naming the field
+   for the day it STOPS being valid keeps that boundary from being read as
+   inclusive, which is exactly the off-by-one it was written with.
+   Capped at a week because an unbounded snapshot stops being current for the slow
+   reasons even when no trip moves. */
+function pushPayloadValidBefore(){
+  const today=todayISO();
+  let best=dayISO(Date.now()+7*DAY_MS);
+  for(const t of trips){
+    for(const edge of [t.start, dayISO(isoMs(t.end)+DAY_MS)]){
+      if(edge>today&&edge<best) best=edge;
+    }
+  }
+  return best;
+}
+async function savePushPayload(){
+  try{
+    const cl=closetPayload();
+    await prefSet(PUSH_PAYLOAD_KEY, JSON.stringify({
+      at:Date.now(),
+      validBefore:pushPayloadValidBefore(),
+      onTrip:!!tripInProgress(),
+      closet:cl,
+      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[]}));
+  }catch(e){}
+}
+
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
 async function getAdvice(lat,lon){
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
@@ -2379,6 +2452,10 @@ async function getAdvice(lat,lon){
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(cl.length) body.closet=cl;
+    // Only meaningful alongside a closet — a rule names garments, and generic
+    // advice has none to name.
+    if(cl.length&&userRules.length) body.rules=userRules.map(r=>
+      ({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text}));
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -2767,10 +2844,130 @@ async function run(){
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
+    await saveToday(res,"app");
+    if($("todayFrom")) $("todayFrom").style.display="none";
     if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(e.message||"Something went wrong."); }
   finally{ btn.innerHTML=old; btn.disabled=false; }
+}
+
+/* ───────── the wearer's own rules (2026-08-24) ─────────
+
+   "I got white V-neck inner + white T recommendation. this combination shall be
+   banned." A five-point warm/cold dial cannot say that, so this is the channel for
+   everything the dial has no number for.
+
+   The sentence is parsed ONCE by /rule into something checkable, and the server
+   then enforces it on every outfit — see server/rules.py. Storing the prose and
+   feeding it to the generator each morning would make the ban a suggestion, and a
+   prohibition that holds most mornings is not a prohibition.
+
+   Parsing is refused rather than approximated: feedback that does not become an
+   enforceable rule is reported as not understood. A rule stored but unenforceable
+   is the worst outcome — the user believes the advisor was told. */
+let userRules=[];
+/* Twin of AdviceRequest.rules' max_length in server/schemas.py. Held in ONE place
+   because the two ends disagreeing is not a warning, it is a 422 on every advice
+   request: a 25th rule kept in memory but not in storage was sent anyway, and the
+   morning advice failed until the app was restarted. */
+const MAX_RULES=24;
+async function saveRules(){
+  // Trimmed HERE, not only on the way to storage. Trimming the copy that gets
+  // written while the copy that gets SENT keeps growing is the whole bug.
+  if(userRules.length>MAX_RULES) userRules=userRules.slice(0,MAX_RULES);
+  await prefSet("oa.rules", JSON.stringify(userRules));
+  renderRules();
+  await savePushPayload();     // a ban the push has not been told is not a ban
+}
+function renderRules(){
+  const el=$("rlList"); if(!el) return;
+  el.innerHTML=userRules.length?userRules.map((r,i)=>
+    `<div class="calRow" style="padding-left:0">
+       <div style="min-width:0;flex:1">🚫 ${esc(r.restated||r.text)}</div>
+       <button class="ghost" data-rlrm="${i}" style="padding:4px 9px;font-size:.72rem">Remove</button>
+     </div>`).join("")
+    :`<p class="note" style="margin:6px 0 0">Nothing banned yet.</p>`;
+}
+async function addRule(){
+  const text=$("rlText").value.trim();
+  $("rlErr").textContent="";
+  if(text.length<2){ $("rlErr").textContent="Say what to avoid."; return; }
+  // Refused at the door, so the list can never exceed what the server accepts.
+  if(userRules.length>=MAX_RULES){
+    $("rlErr").textContent=`That is the most rules the advisor can hold (${MAX_RULES}). `+
+      `Remove one you no longer need first.`;
+    return;
+  }
+  const b=$("rlAdd"), old=b.textContent; b.disabled=true; b.textContent="…";
+  try{
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
+      method:"POST",headers:{"Content-Type":"application/json",
+        "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      body:JSON.stringify({text})});
+    if(r.status===422){
+      $("rlErr").textContent="Couldn't turn that into a rule. Try naming the two "+
+        "garments, e.g. \"never a white undershirt under a white t-shirt\".";
+      return;
+    }
+    if(!r.ok) throw new Error("server "+r.status);
+    const rule=await r.json();
+    rule.text=text; rule.id="rl-"+uuid(); rule.at=Date.now();
+    userRules.push(rule);
+    $("rlText").value="";
+    await saveRules();
+    toast("Rule added — "+(rule.restated||"the advisor will avoid that"));
+  }catch(e){
+    $("rlErr").textContent="Can't reach the advisor — check Tailscale, then try again.";
+  }finally{ b.disabled=false; b.textContent=old; }
+}
+
+/* ───────── today's advice, kept for the rest of the day (2026-08-24) ─────────
+
+   Two complaints, one cause. The advice vanished when the app was closed, and the
+   advice the MORNING PUSH had already worked out vanished the moment the app was
+   opened — the page started empty and the only way back was to ask for it again,
+   which meant a second 30-second wait for an answer the phone had had since 06:45.
+
+   So the answer is written down, by whoever obtained it. The native worker stores
+   the /advice response verbatim under the same key (see AdviceWorker.persistToday),
+   which is why this keeps the RAW response shape rather than the mapped one: both
+   writers must agree, and the raw shape is the one the server defines.
+
+   Stamped with the DAY, not an age. Yesterday's advice is not stale advice, it is
+   the wrong advice, and "6 hours old" says nothing about whether the date rolled
+   over. Coordinates are still never stored — `place` is the label already on
+   screen, which is what the RAM-only rule has always allowed. */
+const TODAY_KEY="oa.today";
+async function saveToday(res,how){
+  if(!res||!res.weather) return;
+  try{
+    await prefSet(TODAY_KEY, JSON.stringify({
+      day:todayISO(), at:Date.now(), how:how||"app", place:state.place||"",
+      weather:res.weather, outfit:res.outfit, outfit_text:res.text,
+      source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed}));
+  }catch(e){}
+}
+async function loadToday(){
+  let d=null;
+  try{ const raw=await prefGet(TODAY_KEY,""); d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
+  if(!d||d.day!==todayISO()||!d.weather) return false;
+  lastWeather=d.weather; lastOutfit=d.outfit||null;
+  lastText=d.outfit_text||""; lastSource=d.source||"llm";
+  lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
+           picks:d.picks||null,closetUsed:!!d.closetUsed};
+  if(d.place&&!state.place) state.place=d.place;
+  renderWeather(d.weather);
+  if(d.outfit) renderOutfit(d.outfit,d.outfit_text,d.source,lastRes);
+  const line=$("todayFrom");
+  if(line){
+    const t=new Date(d.at||Date.now());
+    line.style.display="";
+    line.textContent=`${d.how==="push"?"From this morning's push":"Worked out"} at `+
+      t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+
+      " — tap Get my outfit to refresh.";
+  }
+  return true;
 }
 
 /* ───────── delivery (bonus; the real morning push is native) ───────── */
@@ -2952,6 +3149,8 @@ async function load(){
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
+  try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
+  catch(e){ userRules=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
   // "all calendars" — read it back with exactly that meaning.
   try{
@@ -3135,6 +3334,10 @@ $("fbNote").onclick=async()=>{
 
 /* ── trips wiring ── */
 $("homeBtn").onclick=setHomeFromHere;
+$("rlAdd").onclick=addRule;
+$("rlText").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addRule(); } });
+$("rlList").onclick=async e=>{ const b=e.target.closest("[data-rlrm]"); if(!b) return;
+  userRules.splice(+b.dataset.rlrm,1); await saveRules(); };
 $("placesBtn").onclick=()=>{ renderPlaces(); $("plWrap").classList.add("show"); };
 $("plDone").onclick=()=>$("plWrap").classList.remove("show");
 $("plWrap").onclick=e=>{ if(e.target===$("plWrap")) $("plWrap").classList.remove("show"); };
@@ -3305,8 +3508,14 @@ const appReady=(async()=>{
   // makes appReady mean "the page is painted": without it the promise resolves with
   // the grid still pending, and a caller that acts on appReady can have its own
   // render overwritten a moment later by the initial one finishing.
+  // Today's advice, if it is already known — from an earlier tap or from the
+  // morning push. Before renderCloset, so the page is not blank while photos load.
+  await loadToday();
   await renderCloset();
-  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces();
+  // Re-stamped on every launch, so the push's copy is at most a day behind even if
+  // nothing was edited.
+  await savePushPayload();
+  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces(); renderRules();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

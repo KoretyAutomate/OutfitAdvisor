@@ -54,9 +54,10 @@ from pydantic import BaseModel, Field, field_validator
 import closet as closet_llm
 import engine
 import llm
+import rules
 import vocab
 import weather
-from schemas import AdviceRequest, ClosetItem, TriageRequest, _clean
+from schemas import AdviceRequest, ClosetItem, RuleRequest, TriageRequest, _clean
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("outfit")
@@ -177,7 +178,8 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     text = None
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items)
+        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items,
+                                                user_rules=rules.clean_rules(req.rules))
         if result is not None:
             text = result["text"]
             closet_used = True
@@ -378,6 +380,37 @@ async def packing(req: PackingRequest):
         "packing_text": text,
         "closetUsed": closet_used,
     }
+
+
+@app.post("/rule")
+async def rule(req: RuleRequest):
+    """Turn one line of feedback into a rule this server can CHECK.
+
+    "I got white V-neck inner + white T recommendation. this combination shall be
+    banned." (user, 2026-08-24)
+
+    The model reads that sentence once, here, and never again — everything after is
+    rules.violations(), a table lookup. That split is the point. The PPK week was a
+    long demonstration that a model is excellent at reading a sentence and
+    unreliable at remembering it on every future generation, and a prohibition that
+    holds most mornings is not a prohibition.
+
+    Returns 422 when the feedback cannot be turned into something enforceable. That
+    is the honest answer: a rule stored but unenforceable would leave the user
+    believing the advisor had been told.
+
+    PRIVACY: the sentence is used and discarded. Only the shape of the outcome is
+    logged — never what the rule says, which is a statement about what somebody
+    wears.
+    """
+    t0 = time.monotonic()
+    parsed = await llm.parse_rule(req.text)
+    dt = round(time.monotonic() - t0, 2)
+    if not parsed:
+        log.info("rule not understood %.2fs", dt)
+        raise HTTPException(422, "Couldn't turn that into a rule.")
+    log.info("rule ok kind=%s %.2fs", parsed["kind"], dt)
+    return parsed
 
 
 @app.post("/triage")

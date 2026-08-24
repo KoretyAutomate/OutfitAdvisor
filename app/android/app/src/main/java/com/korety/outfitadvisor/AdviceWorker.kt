@@ -64,6 +64,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             if (advice.lo != null && advice.hi != null) append("${advice.lo}–${advice.hi}°  ")
             append("Today's outfit")
         }
+        // Written BEFORE the notification is posted: the user can tap it immediately,
+        // and the app must already have the advice when it opens.
+        persistToday(prefs, advice)
         OutfitNotification.post(
             applicationContext, header,
             advice.text.ifBlank { "Tap to see today's outfit." },
@@ -155,8 +158,46 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
 
     private data class Advice(
         val text: String, val source: String,
-        val hi: Int?, val lo: Int?, val emoji: String?
+        val hi: Int?, val lo: Int?, val emoji: String?,
+        /** The whole response, so the app can show what the push already worked out. */
+        val raw: JSONObject?
     )
+
+    /**
+     * Write today's advice where the web layer looks for it.
+     *
+     * The morning push had the answer at 06:45 and the app threw it away: opening it
+     * showed a blank page, and getting the same advice back meant another 30-second
+     * round trip (user, 2026-08-24). SharedPreferences named "CapacitorStorage" IS
+     * the Preferences plugin's own store, so writing here is writing to the same box
+     * `prefGet("oa.today")` reads from — no bridge, no message, and it works while
+     * the app is not running, which is the whole point.
+     *
+     * The shape is the RAW /advice response plus a day stamp, because index.html's
+     * saveToday() writes the same shape from the other side and the two must agree.
+     * Stamped with the DAY: yesterday's advice is not stale, it is wrong.
+     *
+     * `place` is deliberately absent. This worker knows the coordinates and the
+     * privacy rule is that they are never persisted; the app fills in its own label.
+     */
+    private fun persistToday(prefs: android.content.SharedPreferences, a: Advice) {
+        val raw = a.raw ?: return
+        try {
+            val out = JSONObject()
+                .put("day", today())
+                .put("at", System.currentTimeMillis())
+                .put("how", "push")
+                .put("weather", raw.opt("weather"))
+                .put("outfit", raw.opt("outfit"))
+                .put("outfit_text", raw.optString("outfit_text", a.text))
+                .put("source", a.source)
+                .put("picks", raw.opt("picks"))
+                .put("closetUsed", raw.optBoolean("closetUsed", false))
+            prefs.edit().putString(KEY_TODAY, out.toString()).apply()
+        } catch (e: Exception) {
+            // Losing the copy must never cost the notification the user is waiting for.
+        }
+    }
 
     private fun fetchAdvice(
         base: String, lat: Double, lon: Double,
@@ -168,6 +209,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 .put("lat", lat).put("lon", lon)
                 .put("gender", gender).put("style", style).put("day", 0)
                 .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
+                .also { attachWardrobe(it) }
                 .toString()
             conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -193,7 +235,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 source = o.optString("source", "llm"),
                 hi = w?.takeIf { it.has("hi") }?.optInt("hi"),
                 lo = w?.takeIf { it.has("lo") }?.optInt("lo"),
-                emoji = w?.optString("emoji")
+                emoji = w?.optString("emoji"),
+                raw = o
             )
         } catch (e: Exception) {
             null
@@ -201,6 +244,62 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             conn?.disconnect()
         }
     }
+
+    /**
+     * Put the wardrobe and the wearer's rules on the morning request.
+     *
+     * This request had been carrying NEITHER, so the one that matters most — the
+     * 06:45 push, the whole point of the app — was generic advice, with a
+     * prohibition the server had never been told about. It is also why the server
+     * logged `closet=0/0` on every push while the app's own requests carried 17
+     * items (2026-08-24).
+     *
+     * Read, not computed. Availability depends on the wear log, the cooldown and
+     * whether a trip is under way; a Kotlin twin of that arithmetic would be a
+     * fourth place for the same rules to drift, and this project has paid for twin
+     * drift before. index.html writes `oa.pushPayload` whenever any of its inputs
+     * change, and on every launch.
+     *
+     * A stale payload is REFUSED rather than sent. Items come back from the laundry
+     * on a timer, so an old copy under-reports what is wearable — which is the safe
+     * direction, but past a few days it stops describing the wardrobe at all, and
+     * generic advice is honester than confidently dressing someone from last week's.
+     */
+    private fun attachWardrobe(body: JSONObject) {
+        try {
+            val prefs = applicationContext
+                .getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
+            val p = JSONObject(raw)
+            val age = System.currentTimeMillis() - p.optLong("at", 0L)
+            if (age !in 0..PUSH_PAYLOAD_MAX_AGE_MS) return
+            // A trip boundary invalidates the payload ABRUPTLY, in a way age cannot
+            // see: closetPayload() answers "the suitcase" on a trip and "the
+            // wardrobe" otherwise, so one written at home the evening before a
+            // departure is hours old and describes clothes 800 km away. The app
+            // stamps the last day its answer applies; past that, send nothing and
+            // let the advice be generic rather than confidently wrong.
+            // EXCLUSIVE. The stamp is the first day the payload is wrong, and it is
+            // already wrong on that day: one stamped with a trip's departure date
+            // describes the home wardrobe on the morning of the flight. `>=`, and
+            // the field is named for the boundary so it cannot be misread as the
+            // last good day.
+            val validBefore = p.optString("validBefore", "")
+            if (validBefore.isNotEmpty() && today() >= validBefore) return
+            val closet = p.optJSONArray("closet") ?: return
+            if (closet.length() == 0) return
+            body.put("closet", closet)
+            val rules = p.optJSONArray("rules")
+            if (rules != null && rules.length() > 0) body.put("rules", rules)
+        } catch (e: Exception) {
+            // A wardrobe we cannot read costs generic advice, never the notification.
+        }
+    }
+
+    /** Local calendar day, the same "yyyy-MM-dd" the app compares against. */
+    private fun today(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
 
     private fun appVersion(): String = try {
         applicationContext.packageManager
@@ -211,6 +310,12 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val DEFAULT_BASE = "http://100.112.171.54:8787"
         const val WORK_NAME = "daily-advice"
         const val KEY_UPD_NOTIFIED = "oa.updNotified"
+        /** Twin of TODAY_KEY in index.html — both sides write this one key. */
+        const val KEY_TODAY = "oa.today"
+        /** Twin of PUSH_PAYLOAD_KEY in index.html — the app writes it, this reads it. */
+        const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
+        /** Past this the payload no longer describes the wardrobe; send nothing. */
+        const val PUSH_PAYLOAD_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
         // How long to wait for WakeActivity's fix when we cannot read location
         // ourselves. Long enough for the FSI to start an activity and get a fix,
         // short enough that a device where the FSI never fires still produces the

@@ -515,7 +515,7 @@ async def packing(req: PackingRequest):
 
 
 @app.post("/triage")
-async def triage(req: TriageRequest):
+async def triage(req: TriageRequest, x_oa_client: str = Header(default="")):
     """Is this calendar entry a trip, and to which city?
 
     PRIVACY: the entry's text is used and discarded. Nothing about it is logged —
@@ -529,7 +529,12 @@ async def triage(req: TriageRequest):
     if out is None:
         log.info("triage failed %.2fs", dt)
         raise HTTPException(status_code=503, detail="could not judge this entry")
-    log.info("triage ok isTrip=%s hasCity=%s conf=%.2f %.2fs",
+    # `src` is the build that called, same as /advice logs. Without it, a report of
+    # "the calendar is still wrong" cannot be told apart from "the phone never got
+    # the fix" — which cost a whole round of shipping to the wrong problem
+    # (2026-08-23). Still no event text: only which client, and the outcome shape.
+    log.info("triage ok src=%s isTrip=%s hasCity=%s conf=%.2f %.2fs",
+             _clean(x_oa_client, 24) or "?",
              out["isTrip"], bool(out["city"]), out["confidence"], dt)
     return out
 

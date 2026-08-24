@@ -359,8 +359,18 @@ async function pickerChecks() {
     at("Alex's calendar") > at("korehito@gmail.com") &&
     at("Alex's calendar") < at("feeds@partner.example"),
     [at("korehito@gmail.com"), at("Alex's calendar"), at("feeds@partner.example")]);
-  check("and each heading says how many of its calendars can be read",
-    /2 you can read/.test(html) && /1 you can read/.test(html), heads);
+  /* The heading reports what is actually SCANNED, not merely what is readable —
+     "2/2 scanned" answers the question a folded account raises ("is anything on
+     this address being read?") without expanding it. */
+  /* The heading reports what is actually SCANNED out of what is readable, which
+     answers the question a folded account raises — "is anything on this address
+     being read?" — without expanding it. Asserted as a shape, not as fixed
+     numbers: the selection is whatever the checks above left behind. */
+  const counts = [...html.matchAll(/(\d+)\/(\d+) scanned/g)].map(m => `${m[1]}/${m[2]}`);
+  check("and each heading says how many of its calendars are being scanned",
+    counts.length === heads.length, { counts, heads });
+  check("never claiming more are scanned than the account has",
+    counts.every(c => { const [a, b] = c.split("/").map(Number); return a <= b; }), counts);
 
   // A device calendar with no account at all must still land somewhere named.
   ev(`calAvail=[{id:"local",title:"My calendar",account:"",shared:false}];`);
@@ -369,6 +379,70 @@ async function pickerChecks() {
     solo.length === 1 && solo[0].account === "" && solo[0].own === 1, solo);
   check("and the picker names that heading rather than showing a blank line",
     ev(`CAL_NO_ACCOUNT`).length > 0, ev(`CAL_NO_ACCOUNT`));
+
+  await accountFoldChecks();
+}
+
+/* Accounts fold (user, 2026-08-23: "calendar is too difficult to review. we should
+   make it expandable and collapsable by email address"). */
+async function accountFoldChecks() {
+  console.log("\n-- the picker folds by email address --");
+  ev(`Plugins.OutfitAlarm = {listCalendars: async () => ({calendars:[
+      {id:"w1",title:"Personal",account:"korehito@gmail.com",shared:false},
+      {id:"w2",title:"Work",account:"korehito@gmail.com",shared:false},
+      {id:"h1",title:"US Holidays",account:"feeds@partner.example",shared:false},
+      {id:"p1",title:"Alex's",account:"korehito@gmail.com",shared:true,sharedBy:"alex@x.com"}]})};
+    calMode="all"; calSel=[]; calAcctOpen=new Set();`);
+  w.localStorage.removeItem("oa.calAcctOpen");
+  await ev(`openCalPicker()`);
+
+  const heads = [...w.document.querySelectorAll(".calAcctHead")];
+  check("one foldable head per email address", heads.length === 2, heads.length);
+  check("each head is a real button, so it is reachable and announces its state",
+    heads.every(h => h.tagName === "BUTTON" && h.hasAttribute("aria-expanded")),
+    heads.map(h => h.tagName));
+  check("the head says how many of that account's calendars are scanned",
+    /2\/2 scanned/.test(heads[0].textContent), heads[0].textContent.replace(/\s+/g, " "));
+
+  const bodies = () => [...w.document.querySelectorAll(".calAcctBody")]
+    .map(b => b.style.display === "none" ? "folded" : "open");
+  check("the account with readable calendars starts open, the rest folded",
+    JSON.stringify(bodies()) === '["open","folded"]', bodies());
+
+  /* THE ONE THAT MATTERS. saveCalSel decides all/some/none by comparing ticked
+     boxes against how many EXIST, so a folded account whose rows were unmounted
+     would read as deselected — and that calendar would silently stop being
+     scanned, which is the exact bug class this picker exists to prevent. */
+  check("a folded account's checkboxes stay in the DOM",
+    w.document.querySelectorAll("#calList input[data-cal]").length === 3,
+    w.document.querySelectorAll("#calList input[data-cal]").length);
+  await ev(`saveCalSel()`);
+  check("so everything ticked while folded still means ALL, not a filter",
+    ev(`calMode`) === "all" && ev(`calSel.length`) === 0,
+    { mode: ev(`calMode`), sel: ev(`calSel`) });
+
+  // And unticking one inside a folded account is still honoured.
+  w.document.querySelector('#calList input[data-cal="h1"]').checked = false;
+  await ev(`saveCalSel()`);
+  check("unticking a calendar in a folded account still applies",
+    ev(`calMode`) === "some" && !ev(`calSel`).includes("h1"), ev(`calSel`));
+
+  ev(`calMode="all"; calSel=[];`);
+  w.document.querySelector('[data-acct="feeds@partner.example"]').click();
+  await new Promise(r => setTimeout(r, 20));
+  check("tapping a head unfolds it", JSON.stringify(bodies()) === '["open","open"]', bodies());
+  check("and the choice is remembered across launches",
+    (w.localStorage.getItem("oa.calAcctOpen") || "").includes("feeds@partner.example"),
+    w.localStorage.getItem("oa.calAcctOpen"));
+
+  w.document.querySelector('[data-acct="korehito@gmail.com"]').click();
+  await new Promise(r => setTimeout(r, 20));
+  w.document.querySelector('[data-acct="feeds@partner.example"]').click();
+  await new Promise(r => setTimeout(r, 20));
+  check("everything CAN be folded — the auto-open only fires on a first visit",
+    JSON.stringify(bodies()) === '["folded","folded"]', bodies());
+  check("and a shared calendar is still not offered a checkbox",
+    w.document.querySelectorAll('#calList input[data-cal="p1"]').length === 0);
 }
 
 // Wait for the page to finish initialising before any of these seed state: load()

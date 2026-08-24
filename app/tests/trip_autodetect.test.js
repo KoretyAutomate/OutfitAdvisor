@@ -179,8 +179,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   v = await ev(`triageCandidate(${CAND()})`);
   check("a geocode that answers a DIFFERENT city -> ask, not a trip to Kazakhstan",
     v.decision === "ask", v);
-  check("and it shows both names so the mismatch is visible",
-    /Petro/.test(v.why) && /Petropavl/.test(v.why), v.why);
+  check("and the reason names the city ASKED for, never the one that came back",
+    /Petro"/.test(v.why) && !/Petropavl|Kazakh/i.test(v.why), v.why);
 
   console.log("\n--- 4b. the qualifier is part of the name (2026-08-20) -----------");
   /* The model is asked for a bare city and does not always give one: it writes
@@ -266,8 +266,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   v = await ev(`triageCandidate(${CAND({ hint: "Messe Frankfurt" })})`);
   check("a city answered with a LONGER name -> ask, not a trip to the wrong Frankfurt",
     v.decision === "ask", v);
-  check("and it shows both names so the mismatch is visible",
-    /Frankfurt \(Oder\)/.test(v.why), v.why);
+  check("and the reason does not repeat the wrong Frankfurt back at the user",
+    /Frankfurt/.test(v.why) && !/Oder/.test(v.why), v.why);
 
   stub({ triage: { isTrip: true, city: "Frankfurt", type: "business", confidence: .95, reason: "conference" },
          cities: { Frankfurt: { lat: 50.11, lon: 8.68, place: "Frankfurt, Hesse, DE",
@@ -359,8 +359,8 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
                      start:"2026-09-02",end:"2026-09-03"})`);
   check("PPK is ASKED about, never turned into a trip to Kazakhstan",
     vc.decision === "ask", vc);
-  check("and the reason names what came back instead",
-    /didn't match/.test(vc.why || "") && /Petropavl/.test(vc.why || ""), vc);
+  check("and the reason does not name the country nobody mentioned",
+    !/kazakh|petropavl/i.test(vc.why || ""), vc);
 
   // LVL is the nastier one: the name that comes back IS the name asked about, so
   // only the region tells Virginia from New Jersey.
@@ -625,6 +625,57 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and the user is told to name the town",
     /building or airport code/.test(ev(`document.getElementById("tsErr").textContent`)),
     ev(`document.getElementById("tsErr").textContent`));
+
+  console.log("\n--- 12. the refusal must not NAME the wrong place ---------------");
+  /* The bug that survived two releases. Every path correctly refused to build a
+     trip to Kazakhstan — and then printed:
+
+       Nothing is called "PPK" — the closest match is "Petropavl, North Kazakhstan".
+
+     Which reads, to anyone looking at their phone, as the app proposing Kazakhstan.
+     The user reported "PPK is wrongly classified as somewhere in Kazakhstan" twice
+     while the trip logic was already correct, because the MESSAGE was the defect.
+     A refusal is the whole answer; repeating the wrong answer undoes it. */
+  const NAMES_A_WRONG_PLACE = /kazakh|petropavl/i;
+
+  ev(`tsheet={trip:{id:"t",start:"2099-01-01",end:"2099-01-03",styles:["casual"]},
+              isNew:true,matches:[],geo:null};
+      document.getElementById("tsErr").textContent="";
+      document.getElementById("tsCity").value="PPK";`);
+  omStub([{ name: "Petropavl", admin1: "North Kazakhstan", country: "Kazakhstan", country_code: "KZ", latitude: 54.87, longitude: 69.15 }]);
+  await ev(`findCity()`);
+  const msg = ev(`document.getElementById("tsErr").textContent`);
+  check("the picker refuses the code", ev(`tsheet.trip.place||null`) === null, ev(`tsheet.trip`));
+  check("and does NOT print the place the geocoder wrongly returned",
+    !NAMES_A_WRONG_PLACE.test(msg), msg);
+  check("it says what the string actually is, and what to type instead",
+    /building or airport code/.test(msg) && /town/.test(msg), msg);
+
+  ev(`home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  ev(`
+    fetch = async (url) => {
+      const u = String(url);
+      if (u.indexOf("/triage") >= 0) return { ok:true, json: async () => (
+        {isTrip:true, city:"PPK", type:"business", confidence:0.9, reason:"offsite"}) };
+      return { ok:true, json: async () => ({ results: [
+        { name:"Petropavl", admin1:"North Kazakhstan", country:"Kazakhstan", country_code:"KZ",
+          latitude:54.87, longitude:69.15 }] }) };
+    };`);
+  const vr = await ev(`triageCandidate({title:"Team sync",hint:"PPK",nights:1,
+                       start:"2026-09-02",end:"2026-09-03"})`);
+  check("the automatic path refuses it too", vr.decision === "ask", vr);
+  check("and its reason names no country nobody mentioned",
+    !NAMES_A_WRONG_PLACE.test(JSON.stringify(vr)), vr);
+
+  // Nothing anywhere in the shipped page may put that string in front of a person.
+  const pageSrc = fs.readFileSync(HTML, "utf8");
+  const codeOnly = pageSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")               // block comments, including continuations
+    .split("\n").filter(l => !/^\s*\/\//.test(l))    // line comments
+    .join("\n");
+  check("no user-facing string in the page mentions the wrong place",
+    !NAMES_A_WRONG_PLACE.test(codeOnly),
+    codeOnly.split("\n").filter(l => NAMES_A_WRONG_PLACE.test(l)).slice(0, 3));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

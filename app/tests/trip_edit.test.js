@@ -152,17 +152,24 @@ function stubDevice() {
   ev(`trips=[
     {id:"t1",auto:true,calId:"c1",place:"Petropavl, North Kazakhstan, KZ",title:"Team sync",start:"${iso(20)}",end:"${iso(21)}",packed:[]},
     {id:"t2",place:"Boston, Massachusetts, US",title:"Conference",start:"${iso(30)}",end:"${iso(32)}",packed:[]},
-    {id:"t3",auto:true,calId:"c3",place:"Tokyo, JP",title:"Client visit",start:"${iso(40)}",end:"${iso(44)}",packed:[{id:"i1",qty:1}]}];
+    {id:"t3",auto:true,calId:"c3",place:"Tokyo, JP",title:"Client visit",start:"${iso(40)}",end:"${iso(44)}",packed:[{id:"i1",qty:1}]},
+    {id:"t4c",calId:"c4",place:"Petropavl, North Kazakhstan, KZ",title:"Team sync",start:"${iso(25)}",end:"${iso(26)}",packed:[]}];
     tripsDismissed=[];`);
   await ev(`flagTripsFoundUnderOldRules()`);
   check("NOTHING is deleted — an edited trip is not re-derivable",
-    ev(`trips.length`) === 3, ev(`trips.map(t=>t.id)`));
+    ev(`trips.length`) === 4, ev(`trips.map(t=>t.id)`));
   check("the auto-found trip is flagged for review",
     ev(`trips.find(t=>t.id==="t1").needsReview`) === true, ev(`trips[0]`));
-  check("a trip the USER made is not questioned",
+  check("a trip TYPED IN BY HAND is not questioned — no calendar was involved",
     !ev(`trips.find(t=>t.id==="t2").needsReview`), ev(`trips[1]`));
-  check("nor is one already packed — a packing list is work the user did",
-    !ev(`trips.find(t=>t.id==="t3").needsReview`), ev(`trips[2]`));
+  /* A trip the user CONFIRMED from a candidate carries no `auto` flag, so the first
+     cut of this migration walked straight past it and left Petropavl on screen.
+     The broken code read a calendar LOCATION and fed both paths, so what marks a
+     trip as suspect is that it came from a calendar at all. */
+  check("a trip confirmed from a candidate IS questioned — same broken source",
+    ev(`trips.find(t=>t.id==="t4c").needsReview`) === true, ev(`trips.find(t=>t.id==="t4c")`));
+  check("and so is one already packed — asking costs nothing, and hiding it does",
+    ev(`trips.find(t=>t.id==="t3").needsReview`) === true, ev(`trips[2]`));
   check("and the banner explains what happened",
     /PPK/.test(ev(`staleTripNote`)), ev(`staleTripNote`));
   check("the rules stamp is recorded",

@@ -71,8 +71,17 @@ def test_a_geocode_that_answers_a_different_place_is_refused():
     assert "geoPlaceMatches(t.city" not in body and "geoNameMatches(t.city" not in body, \
         "the automatic path must not fall back on a loose, prefix-tolerant test"
     ask = body.index("geoPlaceExact(t.city,g)")
-    assert 'decision:"ask"' in body[ask:ask + 200], \
+    # Generous window: the branch carries an explanatory comment between the test
+    # and the return, and a tight window fails on prose rather than on behaviour.
+    assert 'decision:"ask"' in body[ask:ask + 600], \
         "a mismatch must degrade to asking, never to skipping or trusting"
+    # The reason must NOT name the place that came back. The geocoder resolves codes
+    # out of an airport table, so quoting it prints "Petropavl, North Kazakhstan" —
+    # which reads as the app proposing Kazakhstan. That message, not the trip logic,
+    # is what the user reported twice while the logic was already correct.
+    reason = body[ask:ask + 600]
+    assert "g.place" not in reason, \
+        "the refusal must not repeat the wrongly-geocoded place back to the user"
 
 
 def test_the_automatic_path_demands_the_same_name_not_a_prefix():

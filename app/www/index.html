@@ -301,6 +301,12 @@
         <button id="addGalBtn">🖼️ Upload</button>
         <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">🧺 Laundry done</button>
       </div>
+      <!-- Only shown when something in the closet has no Kind. An item saved before
+           2026-08-14 has none, and its folder can only file it under "Other". -->
+      <div id="rescanRow" style="display:none;margin:10px 0 0">
+        <button class="ghost" id="rescanBtn" style="width:100%;padding:9px">🔍 <span id="rescanTxt">Identify kinds from the photos</span></button>
+        <p class="note" id="rescanNote" style="margin:5px 0 0"></p>
+      </div>
       <div class="grid" id="closetGrid"></div>
       <p class="note">Photograph your clothes once — the advisor then dresses you from what you
         actually own and skips items still in the laundry. Photos stay on this phone; the DGX
@@ -333,6 +339,8 @@
       <div class="row">
         <button class="primary" id="calBtn">📅 Check my calendar</button>
       </div>
+      <p class="note" id="staleNote" style="display:none;border:1px solid var(--line);
+         border-radius:10px;padding:9px 11px;margin:10px 0 0"></p>
       <div id="tripList"></div>
       <div id="candList"></div>
       <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
@@ -1133,6 +1141,7 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
+  refreshRescan();
 }
 
 /* ───────── in-app updates (2026-07-28) ─────────
@@ -1152,7 +1161,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.15";
+const WEB_BUILD="1.16";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1377,6 +1386,69 @@ async function addItem(source){
   openSheet(item,{isNew:false});
 }
 
+/* Re-derive the KIND of items that have none, from the photo that is already on
+   this phone (user, 2026-08-23: the closet must be more granular).
+
+   Why this exists rather than more label-reading: the classifier is asked for
+   "short item name a person would say", and it obliges — "navy merino crew-neck",
+   "grey v-neck". Those are descriptions, not garment nouns, so typeFromLabel finds
+   nothing in most of them and the item stays under "Other". The photo is the only
+   place the answer actually is.
+
+   Deliberately narrow. It touches `group`, `type` and the roles those imply, and
+   NOTHING else: the label, colours, warmth, formality, count and wear history are
+   left exactly as they are, because the user may have corrected any of them by
+   hand and a re-scan must not quietly undo that. Items whose Kind was explicitly
+   cleared are skipped too — that is a choice, not a gap.
+
+   Sequential on purpose: one vLLM serves this, and firing twenty photos at it in
+   parallel makes every one of them slower. */
+let rescanBusy=false;
+function untypedItems(){
+  return closet.filter(i=>!i.type&&!i.typeCleared&&i.photo);
+}
+function refreshRescan(){
+  const row=$("rescanRow"); if(!row) return;
+  const n=untypedItems().length;
+  row.style.display=n?"":"none";
+  if(!n||rescanBusy) return;
+  $("rescanTxt").textContent=`Identify ${n} item${n===1?"":"s"} from ${n===1?"its":"their"} photo${n===1?"":"s"}`;
+  $("rescanNote").textContent=`${n} item${n===1?" has":"s have"} no Kind yet, so ${n===1?"it sits":"they sit"} under "Other".`;
+}
+async function rescanTypes(){
+  if(rescanBusy) return;
+  const todo=untypedItems();
+  if(!todo.length){ refreshRescan(); return; }
+  rescanBusy=true;
+  const btn=$("rescanBtn"); btn.disabled=true;
+  let done=0, named=0, failed=0;
+  for(const it of todo){
+    $("rescanTxt").textContent=`Identifying… ${done+1} of ${todo.length}`;
+    $("rescanNote").textContent=esc(it.label);
+    let meta=null;
+    try{
+      const src=await photoLoad(it.id);
+      // photoLoad hands back a data: URL; /classify wants the payload alone.
+      if(src) meta=await classifyPhoto(src.replace(/^data:[^,]*,/,""));
+    }catch(e){ meta=null; }
+    done++;
+    if(meta&&(meta.type||meta.group)){
+      if(meta.group) it.group=meta.group;
+      if(meta.type)  it.type=meta.type;
+      reconcileItem(it);
+      if(it.type) named++; else failed++;
+    }else failed++;
+  }
+  await saveCloset();
+  rescanBusy=false; btn.disabled=false;
+  refreshRescan();
+  const left=untypedItems().length;
+  $("rescanNote").textContent=named
+    ? `Identified ${named} of ${todo.length}.`+(left?` ${left} still unnamed — tap any tile to set its Kind by hand.`:"")
+    : `Couldn't identify any of them — ${failed===todo.length?"the advisor may be unreachable":"the photos were not clear enough"}. Tap a tile to set the Kind by hand.`;
+  toast(named?`${named} item${named===1?"":"s"} identified`:"Nothing could be identified");
+}
+
 /* ── edit sheet ── */
 let sheet=null; // {item, isNew, b64?}
 function paintSheetSegs(){
@@ -1462,12 +1534,14 @@ async function renderCloset(){
       <div class="nm">${esc(it.label)}</div></div>`;
   };
 
-  /* Second level inside a folder: "Tops ▸ Polo shirt" (user, 2026-08-20). Items with
-     no type gather under "Other", LAST, so an untyped legacy closet renders as one
-     unlabelled block — i.e. exactly what it looked like yesterday — rather than
-     every tile wearing an "Other" header. */
+  /* Second level inside a folder: "Base layer ▸ Polo shirt" (user, 2026-08-20;
+     re-levelled 2026-08-23). Items with no type gather under "Other", LAST, so an
+     untyped legacy closet renders as one unlabelled block — i.e. exactly what it
+     looked like yesterday — rather than every tile wearing an "Other" header.
+     A slot holds garments from more than one group (Base takes tops AND one-piece),
+     so the type order is the whole vocabulary in group order, not one group's. */
   const subSections=async(items,grp)=>{
-    const order=[...(TYPES[grp]||[]),null];
+    const order=[...(grp?(TYPES[grp]||[]):GROUPS.flatMap(g=>TYPES[g])),null];
     const parts=[];
     for(const t of order){
       const mine=items.filter(i=>(i.type||null)===t);
@@ -1481,24 +1555,34 @@ async function renderCloset(){
     return parts.join("");
   };
 
-  // Folders by clothing GROUP (user, 2026-08-10). Grouping by layering role would
-  // fight the seasonal behaviour — the same shirt moves between roles, but it is
-  // always a Top.
+  /* Folders are the RECOMMENDATION'S OWN SLOTS (user, 2026-08-23: "align with the
+     way how recommendation grouping"). Same seven, same order, same labels the
+     advice prints, so what the closet calls a thing is what the advice calls it.
+
+     This reverses the 2026-08-10 arrangement, which filed by garment group on the
+     reasoning that "an oxford shirt is a Top whether it is the outer layer in July
+     or a base under a coat in November". That is still true, and it is why the
+     ROLE CHIPS still let one shirt serve several slots — but the folder now
+     follows the item's PRIMARY slot, which is the one the advice fills from.
+
+     Filing on `category` and not on `roles` is what keeps one item in exactly one
+     folder. A garment listed everywhere it could go makes the counts lie and the
+     same photo appear four times. */
   const out=[];
-  for(const grp of GROUPS){
-    const items=closet.filter(i=>(GROUP_ALIAS[i.group]||i.group||GROUP_FROM_CAT[i.category])===grp);
+  for(const slot of CATS){
+    const items=closet.filter(i=>i.category===slot);
     if(!items.length) continue;                        // never show an empty folder
-    const open=!closetFolded.has(grp);
+    const open=!closetFolded.has(slot);
     const wearable=items.reduce((s,i)=>s+avail(i),0);
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const body=open?await subSections(items,grp):"";
+    const body=open?await subSections(items,null):"";
     out.push(`<div class="folder">
-      <button class="folderHead" data-grp="${grp}">
+      <button class="folderHead" data-grp="${slot}">
         <span class="tw">${open?"▾":"▸"}</span>
-        <span>${GROUP_ICON[grp]}</span>
-        <b>${GROUP_LABEL[grp]}</b>
+        <span>${ICONS[slot]}</span>
+        <b>${LABELS[slot]}</b>
         <span class="fcount">${wearable}/${items.length}</span>
       </button>
       ${body}
@@ -2068,6 +2152,40 @@ function renderOutfit(o,text,source,res){
   renderFeedback();
 }
 
+/* Trips the app added BY ITSELF under rules we have since found to be wrong.
+
+   The 2026-08-20 build read the location field "PPK" — an office on Princeton
+   Pike, NJ — geocoded it through Open-Meteo's airport table, got Petropavl,
+   KAZAKHSTAN, measured 9,000 km and filed a trip. v1.15 stops that happening
+   again, but a trip already in storage stays on the screen for ever, which is
+   why the user still saw Kazakhstan after updating.
+
+   Only `auto` trips are dropped, and only once. They are safe to drop because
+   they are DERIVED: the next calendar scan re-finds every one that is real, now
+   under rules that refuse a code. A trip the user created or confirmed by hand is
+   never touched — that is not derived data, and re-deriving it is not possible.
+   Anything already packed is kept too: a packing list is work the user did.
+
+   TRIPS_RULES_VERSION is the stamp. Raise it only when a rule change again makes
+   previously-found trips untrustworthy. */
+const TRIPS_RULES_VERSION="1.16";
+let staleTripNote="";
+async function dropTripsFoundUnderOldRules(){
+  if(await prefGet("oa.tripsRules","")===TRIPS_RULES_VERSION) return;
+  const stale=trips.filter(t=>t.auto&&!(t.packed&&t.packed.length));
+  if(stale.length){
+    const ids=new Set(stale.map(t=>t.id));
+    trips=trips.filter(t=>!ids.has(t.id));
+    await prefSet("oa.trips",JSON.stringify(trips));
+    // Say so. A trip vanishing with no explanation is its own bug report.
+    staleTripNote=`Removed ${stale.length} trip${stale.length===1?"":"s"} the app had `+
+      `found by itself (${stale.map(t=>t.place||t.title).join(", ")}). `+
+      `Codes like "PPK" were being read as far-away cities. Check your calendar again `+
+      `to find the real ones.`;
+  }
+  await prefSet("oa.tripsRules",TRIPS_RULES_VERSION);
+}
+
 /* ───────── trips: rendering + sheets ───────── */
 const fmtRange=(s,e)=>{
   const a=new Date(isoMs(s)), b=new Date(isoMs(e));
@@ -2107,6 +2225,9 @@ function renderTrips(){
     </div>`;
   }).join("");
 
+  // A trip removed without explanation is its own bug report, so say what went.
+  const sn=$("staleNote");
+  if(sn){ sn.style.display=staleTripNote?"":"none"; sn.textContent=staleTripNote; }
   cl.innerHTML=candidates.length?`<p class="note" style="margin-top:14px"><b>Looks like a trip:</b></p>`+
     candidates.map(c=>`<div style="border:1px dashed var(--line);border-radius:12px;padding:12px;margin:8px 0">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
@@ -2484,6 +2605,7 @@ async function load(){
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
   try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
+  await dropTripsFoundUnderOldRules();
   // thermal calibration — written by this page AND by the native FeedbackReceiver,
   // so re-read it on every load rather than trusting the in-memory copy.
   const off=parseFloat(await prefGet("oa.tempOffset","0"));
@@ -2526,6 +2648,7 @@ $("tabBar").onclick=e=>{ const b=e.target.closest("button"); if(b) showTab(b.dat
 /* ── closet wiring ── */
 $("addCamBtn").onclick=()=>addItem("CAMERA");
 $("addGalBtn").onclick=()=>addItem("PHOTOS");
+$("rescanBtn").onclick=()=>{ rescanTypes(); };
 $("laundryBtn").onclick=async()=>{
   // washing returns everything EXCEPT what was worn today (that shirt is still on you)
   const today=localDay(Date.now()); const before=wearLog.length;
@@ -2782,7 +2905,12 @@ $("pkPacked").onclick=async()=>{
 };
 
 /* ───────── init ───────── */
-(async()=>{
+/* Held so anything that must not run against a half-loaded page can await it —
+   the jsdom suites do. They used to poll for state.baseUrl and then sleep 30ms,
+   which is not a completion signal but a guess about one: adding a single await
+   inside load() pushed initialisation past the sleep, and the suite then seeded
+   state that load() overwrote a moment later. One promise, no guessing. */
+const appReady=(async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");

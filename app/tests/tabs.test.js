@@ -42,8 +42,9 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
   .filter(p => p.classList.contains("on")).map(p => p.id.replace(/^pane-/, ""));
 
 (async () => {
-  for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain();
-  await new Promise(r => setTimeout(r, 30));
+  // Wait for the page to finish initialising. appReady is the real signal;
+  // polling for a field load() happens to set early is a guess about one.
+  await ev("appReady");
 
   console.log("\n--- 1. three sheets, and the strip names the same three -----------");
   const panes = [...doc.querySelectorAll("section.pane")].map(p => p.id);

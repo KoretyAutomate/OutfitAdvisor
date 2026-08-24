@@ -60,8 +60,9 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
     nights: 3, start: "2026-09-02", end: "2026-09-05" }, over));
 
 (async () => {
-  for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain();
-  await new Promise(r => setTimeout(r, 30));
+  // Wait for the page to finish initialising. appReady is the real signal;
+  // polling for a field load() happens to set early is a guess about one.
+  await ev("appReady");
   // stub() replaces geocode wholesale, so keep the real one to test on its own.
   ev("globalThis.__realGeocode = geocode;");
 

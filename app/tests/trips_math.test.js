@@ -40,11 +40,13 @@ const w = dom.window;
 const ev = (code) => w.eval(code);
 const evj = (expr) => JSON.parse(w.eval(`JSON.stringify(${expr})`));
 
-setTimeout(() => {
-  try { run(); } catch (e) { console.log("FATAL", e && e.stack || e); failed++; }
+/* The exit used to fire on a 400ms timer while the async checks below were still
+   running — if they had ever taken longer, the process would have exited early and
+   reported a PASS for tests that never ran. It now waits for them. */
+function finish() {
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
-}, 400);
+}
 
 const iso = (off) => {
   const d = new Date(Date.now() + off * DAY);
@@ -369,6 +371,12 @@ async function pickerChecks() {
     ev(`CAL_NO_ACCOUNT`).length > 0, ev(`CAL_NO_ACCOUNT`));
 }
 
-pluginSignatureChecks()
+// Wait for the page to finish initialising before any of these seed state: load()
+// reassigns calMode/calSel/trips from storage, so a check that runs against a
+// half-loaded page has its setup overwritten a moment later.
+ev("appReady")
+  .then(() => { try { run(); } catch (e) { console.log("FATAL", e && e.stack || e); failed++; } })
+  .then(pluginSignatureChecks)
   .then(pickerChecks)
-  .catch((e) => { console.log("FATAL", e && e.stack || e); failed++; });
+  .catch((e) => { console.log("FATAL", e && e.stack || e); failed++; })
+  .then(finish);

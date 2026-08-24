@@ -134,8 +134,9 @@ check("migrateItem is reconcileItem — one repair pass on load",
   ev(`migrateItem({id:"x",label:"l",category:"inner",group:"tops"}).category`) !== "inner");
 
 (async () => {
-  for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain();
-  await new Promise(r => setTimeout(r, 30));   // let load()'s last await settle
+  // Wait for the page to finish initialising. appReady is the real signal;
+  // polling for a field load() happens to set early is a guess about one.
+  await ev("appReady");
 
   console.log("\n--- 5. the folder shows the second level --------------------------");
   ev(`closet=[
@@ -146,7 +147,11 @@ check("migrateItem is reconcileItem — one repair pass on load",
   ]; wearLog=[]; closetFolded=new Set(); trips=[];`);
   await ev("renderCloset()"); await drain();
   const heads = [...w.document.querySelectorAll(".folderHead b")].map(e => e.textContent);
-  check("all four still live in ONE folder", JSON.stringify(heads) === '["Tops"]', heads);
+  /* Folders are the recommendation's SLOTS as of 2026-08-23, so the three base
+     garments and the one mid garment separate — which is the point: the closet
+     now reads the way the advice does. */
+  check("they file by the slot the advice fills them into",
+    JSON.stringify(heads) === '["Base layer","Mid layer"]', heads);
   const subs = [...w.document.querySelectorAll(".subHead .st")].map(e => e.textContent);
   check("the folder is split by type, in vocabulary order",
     JSON.stringify(subs) === '["T-shirt","Shirt","Polo shirt","Sweater / pullover"]', subs);
@@ -164,10 +169,16 @@ check("migrateItem is reconcileItem — one repair pass on load",
   ]; wearLog=[]; closetFolded=new Set();`);
   await ev("renderCloset()"); await drain();
   const kHeads = [...w.document.querySelectorAll(".folderHead b")].map(e => e.textContent);
-  check("an UNMIGRATED knitwear item still renders under Tops",
-    JSON.stringify(kHeads) === '["Tops"]', kHeads);
+  /* Since folders became slots this renders by `category`, so GROUP_ALIAS is no
+     longer what places the tile — but the item must still SURVIVE, and its type
+     must still resolve through the retired group name. */
+  check("an UNMIGRATED knitwear item still renders, under its slot",
+    JSON.stringify(kHeads) === '["Mid layer"]', kHeads);
   check("...and there is no Knitwear folder left to render it into",
     !kHeads.includes("Knitwear"), kHeads);
+  check("its type still resolves through the retired group name",
+    [...w.document.querySelectorAll(".subHead .st")].map(e => e.textContent)[0] === "Sweater / pullover",
+    [...w.document.querySelectorAll(".subHead .st")].map(e => e.textContent));
 
   console.log("\n--- 6. an untyped closet looks exactly like it did yesterday ------");
   ev(`closet=[
@@ -341,6 +352,62 @@ check("migrateItem is reconcileItem — one repair pass on load",
     ranked.filter(t => !everyType.includes(t)));
   check("each exactly once", ranked.length === new Set(ranked).size && ranked.length === everyType.length,
     { table: ranked.length, types: everyType.length });
+
+  console.log("\n--- 12. re-reading the KIND off the photo (2026-08-23) ----------");
+  /* typeFromLabel can only go as far as the words. The classifier is asked for
+     "short item name a person would say" and obliges — "navy merino crew-neck" —
+     so most real labels name no garment at all and the item stays under "Other".
+     The photo is the only place the answer actually is. */
+  ev(`closet=[
+    {id:"r1",label:"navy merino crew-neck",category:"base",group:"tops",count:1,photo:true},
+    {id:"r2",label:"grey v-neck",category:"base",group:"tops",count:1,photo:true},
+    {id:"r3",label:"Navy polo",category:"base",group:"tops",type:"polo",count:1,photo:true},
+    {id:"r4",label:"cleared on purpose",category:"base",group:"tops",typeCleared:true,count:1,photo:true},
+    {id:"r5",label:"no photo",category:"base",group:"tops",count:1,photo:false}];`);
+  const pending = ev(`untypedItems().map(i=>i.id)`);
+  check("only items with no Kind AND a photo are offered", 
+    JSON.stringify(pending) === '["r1","r2"]', pending);
+  check("an explicitly cleared Kind is left alone", !pending.includes("r4"), pending);
+  check("and an item with no photo cannot be re-read", !pending.includes("r5"), pending);
+
+  ev(`refreshRescan()`);
+  check("the control appears when there is something to identify",
+    w.document.getElementById("rescanRow").style.display !== "none");
+  check("and says how many", /Identify 2 items/.test(w.document.getElementById("rescanTxt").textContent),
+    w.document.getElementById("rescanTxt").textContent);
+
+  // The re-scan must fill the Kind and touch NOTHING the user may have corrected.
+  ev(`photoLoad = async () => "data:image/jpeg;base64,AAAA";`);
+  ev(`classifyPhoto = async () => ({label:"REPLACED", category:"outer", group:"tops",
+       type:"sweater", colors:["red"], warmth:5, formality:["smart"], waterproof:true});`);
+  await ev(`rescanTypes()`);
+  const r1 = ev(`closet.find(i=>i.id==="r1")`);
+  check("the Kind is filled in from the photo", r1.type === "sweater", r1);
+  check("the label the user may have edited is NOT replaced",
+    r1.label === "navy merino crew-neck", r1.label);
+  check("nor the colours", JSON.stringify(r1.colors || []) !== '["red"]', r1.colors);
+  check("nor the warmth", r1.warmth !== 5, r1.warmth);
+  const r3 = ev(`closet.find(i=>i.id==="r3")`);
+  check("an item that already had a Kind is not re-scanned at all",
+    r3.type === "polo" && r3.label === "Navy polo", r3);
+  const r4 = ev(`closet.find(i=>i.id==="r4")`);
+  check("and neither is one whose Kind was deliberately cleared",
+    !r4.type, r4);
+  ev(`refreshRescan()`);
+  check("the control disappears once nothing is left to identify",
+    w.document.getElementById("rescanRow").style.display === "none",
+    w.document.getElementById("rescanRow").style.display);
+
+  // A dead server must not silently blank the closet.
+  ev(`closet=[{id:"r6",label:"navy merino crew-neck",category:"base",group:"tops",count:1,photo:true}];`);
+  ev(`classifyPhoto = async () => null;`);
+  await ev(`rescanTypes()`);
+  const r6 = ev(`closet.find(i=>i.id==="r6")`);
+  check("an unreachable advisor leaves the item exactly as it was",
+    !r6.type && r6.label === "navy merino crew-neck", r6);
+  check("and says so rather than claiming success",
+    /Couldn't identify/.test(w.document.getElementById("rescanNote").textContent),
+    w.document.getElementById("rescanNote").textContent);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

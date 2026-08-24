@@ -62,8 +62,9 @@ function stubDevice() {
 }
 
 (async () => {
-  for (let i = 0; i < 20 && !ev("state.baseUrl"); i++) await drain(1);
-  await new Promise(r => setTimeout(r, 30));
+  // Wait for the page to finish initialising. appReady is the real signal;
+  // polling for a field load() happens to set early is a guess about one.
+  await ev("appReady");
   stubDevice();
 
   console.log("\n--- 1. the scan finds it, so there is something to delete --------");
@@ -132,6 +133,41 @@ function stubDevice() {
   check("Save goes through — editing only the notice period costs no geocode",
     ev("trips.length") === 1 && ev("trips[0].notifyDays") === 5 &&
     ev("trips[0].place") === CHICAGO.place, ev("trips[0]"));
+
+  console.log("\n--- trips found under rules we now know were wrong -------------");
+  /* v1.15 stopped "PPK" being geocoded to Petropavl, KAZAKHSTAN, but a trip
+     already in storage stays on screen for ever — which is why the user still saw
+     Kazakhstan after updating (2026-08-23). */
+  w.localStorage.removeItem("oa.tripsRules");
+  ev(`trips=[
+    {id:"t1",auto:true,place:"Petropavl, North Kazakhstan, KZ",title:"Team sync",start:"2026-09-01",end:"2026-09-02",packed:[]},
+    {id:"t2",place:"Boston, Massachusetts, US",title:"Conference",start:"2026-09-10",end:"2026-09-12",packed:[]},
+    {id:"t3",auto:true,place:"Tokyo, JP",title:"Client visit",start:"2026-10-01",end:"2026-10-04",packed:[{id:"i1",qty:1}]}];`);
+  await ev(`dropTripsFoundUnderOldRules()`);
+  const left = ev(`trips.map(t=>t.id)`);
+  check("a trip the app invented for itself is dropped", !left.includes("t1"), left);
+  check("a trip the USER made is never touched — it cannot be re-derived",
+    left.includes("t2"), left);
+  check("nor is one already packed — a packing list is work the user did",
+    left.includes("t3"), left);
+  check("and the removal explains itself",
+    /Petropavl/.test(ev(`staleTripNote`)) && /PPK/.test(ev(`staleTripNote`)),
+    ev(`staleTripNote`));
+  check("the rules stamp is recorded",
+    w.localStorage.getItem("oa.tripsRules") === ev(`TRIPS_RULES_VERSION`),
+    w.localStorage.getItem("oa.tripsRules"));
+
+  ev(`trips.push({id:"t4",auto:true,place:"Nowhere",title:"x",start:"2026-11-01",end:"2026-11-02",packed:[]});`);
+  await ev(`dropTripsFoundUnderOldRules()`);
+  check("it runs ONCE — a later auto-detected trip is not swept away",
+    ev(`trips.map(t=>t.id)`).includes("t4"), ev(`trips.map(t=>t.id)`));
+
+  // Nothing to drop must not leave a note claiming something was removed.
+  w.localStorage.removeItem("oa.tripsRules");
+  ev(`trips=[{id:"t5",place:"Osaka, JP",title:"Holiday",start:"2026-12-01",end:"2026-12-05",packed:[]}]; staleTripNote="";`);
+  await ev(`dropTripsFoundUnderOldRules()`);
+  check("a list of hand-made trips produces no note at all",
+    ev(`staleTripNote`) === "", ev(`staleTripNote`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

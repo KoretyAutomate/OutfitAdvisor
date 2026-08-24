@@ -2010,11 +2010,6 @@ async function triageCandidate(c){
          and family visits too; hard-coding `business` would put a beach week on the
          business packing path. */
   const kp=knownPlace(c.hint);
-  if(kp){
-    const kkm=haversineKm(home.lat,home.lon,kp.lat,kp.lon);
-    if(kkm<TRIP_MIN_KM)
-      return {decision:"skip", why:`${kp.abbr} is ${Math.round(kkm)} km from home`};
-  }
   let t;
   try{
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/triage",{
@@ -2039,6 +2034,15 @@ async function triageCandidate(c){
   // and sends the user back to confirming by hand — the thing this table exists to
   // stop. Raised by the pre-push reviewer, 2026-08-24.
   if(!kp&&!t.city) return {decision:"ask", why:"no city could be determined"};
+  /* Whether the taught code is THIS event's destination.
+     A location field can name where you set OFF from, not where you are going:
+     "Flight to London" with location PPK is a real trip, and treating the code as
+     the answer would bury it for ever. So the code wins only when the model has not
+     named somewhere else — no city at all (it can see PPK is an office code, not a
+     city), or a city that IS the taught place. Name anywhere else and that is the
+     destination, geocoded and guarded the ordinary way. Raised by the pre-push
+     reviewer, 2026-08-24. */
+  const kpIsDestination=!!kp&&(!t.city||geoPlaceMatches(t.city,{place:kp.place,regions:[]}));
   // A trip the app adds on its own initiative is one the user never agreed to, so
   // the model has to be SURE. Under the floor the candidate is not lost — it drops
   // back to being CONFIRMED by hand, which is what the confirm step is for. The
@@ -2049,13 +2053,12 @@ async function triageCandidate(c){
   // The LLM writes this string and a PUBLIC geocoder is about to be asked it, so
   // it has to look like a place name before either happens. Any script counts —
   // the test is "two letters", not "two Latin letters".
-  if(!kp&&(String(t.city).match(/\p{L}/gu)||[]).length<2)
+  if(!kpIsDestination&&(String(t.city).match(/\p{L}/gu)||[]).length<2)
     return {decision:"ask", why:`"${t.city}" isn't a place name`};
   let g;
-  if(kp){
-    // Taught: the destination is known, so nothing is geocoded and none of the
-    // name-matching guards below can misfire on it. Only the travel judgement above
-    // came from the model.
+  if(kpIsDestination){
+    // Known: nothing is geocoded, and none of the name-matching guards below can
+    // misfire on it. The model contributed only the travel judgement and the type.
     g={lat:kp.lat, lon:kp.lon, place:kp.place, regions:[], alts:[]};
     t={...t, city:kp.city};
   }else{
@@ -2076,7 +2079,7 @@ async function triageCandidate(c){
   // result and wrong here — "Frankfurt" would accept "Frankfurt (Oder)" and
   // "York" would accept "York New Salem", each of them the Petropavl failure with
   // a plausible-looking name on it.
-  if(!kp&&!geoPlaceExact(t.city,g))
+  if(!kpIsDestination&&!geoPlaceExact(t.city,g))
     // Deliberately does not name what came back, for the same reason the picker
     // does not: quoting "Petropavl, North Kazakhstan" reads as a suggestion, and
     // this string is one screen away from being shown at any time.
@@ -2088,7 +2091,7 @@ async function triageCandidate(c){
   // is how the Kazakhstan trips got invented. Both answers are wrong a fair share
   // of the time, so neither is taken unattended: one confirmation tap, the same
   // price this app pays everywhere else it cannot be sure.
-  const alts=kp?[]:(g.alts||[]);
+  const alts=kpIsDestination?[]:(g.alts||[]);
   if(alts.length>1&&alts.some(a=>haversineKm(alts[0].lat,alts[0].lon,a.lat,a.lon)>=TRIP_MIN_KM))
     return {decision:"ask", why:`"${t.city}" names ${alts.length} different places`};
   const km=haversineKm(home.lat,home.lon,g.lat,g.lon);

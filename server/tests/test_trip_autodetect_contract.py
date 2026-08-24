@@ -68,8 +68,16 @@ def test_a_geocode_that_answers_a_different_place_is_refused():
     body = _triage_candidate()
     assert "geoPlaceExact(t.city,g)" in body, \
         "the geocoded place is never compared, strictly, with what we asked"
-    assert "geoPlaceMatches(t.city" not in body and "geoNameMatches(t.city" not in body, \
-        "the automatic path must not fall back on a loose, prefix-tolerant test"
+    # What is forbidden is the loose test being the GATE on the geocoder's answer.
+    # `geoPlaceMatches(t.city, g)` would approve Cambridge, Massachusetts for
+    # "Cambridge, UK" — 5,000 km out, and the distance test passes precisely because
+    # it is far. Comparing the model's city with a place the USER TAUGHT is a
+    # different question with no geocoder in it: a miss there sends the city down
+    # this same strict road, it does not approve anything (2026-08-24).
+    assert "geoPlaceMatches(t.city,g)" not in body.replace(" ", ""), \
+        "the geocoder's answer must not be approved by the loose test"
+    assert "geoNameMatches(t.city" not in body, \
+        "the automatic path must not fall back on a head-only test"
     ask = body.index("geoPlaceExact(t.city,g)")
     # Generous window: the branch carries an explanatory comment between the test
     # and the return, and a tight window fails on prose rather than on behaviour.

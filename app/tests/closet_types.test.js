@@ -305,17 +305,32 @@ check("migrateItem is reconcileItem — one repair pass on load",
      perfectly good wardrobe entry. Inferring on every reconcile made that option
      inert: the user picked it, the label still said "Navy polo", and polo came
      straight back. Raised by the pre-push reviewer, 2026-08-23. */
-  const cleared = ev(`reconcileItem({id:"x3",label:"Navy polo",category:"base",group:"tops",type:null,count:1})`);
-  check("clearing the Kind on an edit actually clears it", cleared.type === null, cleared);
+  // Driven through the real picker: "not specified" is a DECISION, and it is the
+  // only place the marker is set. Inferring it from "reconcile ran and there was no
+  // Kind" marks items nobody decided about — a photo added while /classify was
+  // unreachable, for one — and the re-scan then refuses the very items it is for.
+  ev(`sheet={item:{id:"x3",label:"Navy polo",category:"base",group:"tops",type:"polo",
+                   roles:["base"],count:1,colors:[],warmth:2,formality:["casual"],waterproof:false},isNew:false};
+      paintTypes();
+      w0=document.getElementById("shType"); w0.value=""; w0.onchange();`);
+  const cleared = ev(`sheet.item`);
+  check("choosing '— not specified —' actually clears the Kind", cleared.type === null, cleared);
   check("and the choice is remembered", cleared.typeCleared === true, cleared);
   const afterLoad = ev(`migrateItem(${JSON.stringify(cleared)})`);
   check("and survives the next load — the backfill does not undo it",
     afterLoad.type === null, afterLoad);
 
-  // Choosing a real type afterwards clears the marker, so the item is normal again.
-  const retyped = ev(`reconcileItem({id:"x4",label:"Navy polo",category:"base",group:"tops",type:"polo",typeCleared:true,count:1})`);
+  // Choosing a real Kind afterwards drops the marker, so the item is normal again.
+  ev(`w0.value="polo"; w0.onchange();`);
+  const retyped = ev(`sheet.item`);
   check("picking a Kind again drops the cleared marker",
     retyped.type === "polo" && !retyped.typeCleared, retyped);
+
+  // The case the reviewer caught: an item that simply never got a Kind is NOT a
+  // decision, and must stay eligible for the re-scan.
+  const offline = ev(`reconcileItem({id:"x5",label:"navy merino crew-neck",category:"base",group:"tops",count:1,photo:true})`);
+  check("an item reconciled without a Kind is not treated as a deliberate blank",
+    !offline.typeCleared, offline);
 
   console.log("\n--- 11. specific beats generic, by table not by accident -------");
   /* Character length is not specificity. Scoring by it filed "Navy polo shirt" as

@@ -1094,7 +1094,12 @@ function reconcileItem(it,inferFromLabel=false){
     const guess=typeFromLabel(it.label,g);
     if(guess){ it.type=guess; it.typeFrom="label"; }
   }
-  if(it.type) delete it.typeCleared; else if(!inferFromLabel) it.typeCleared=true;
+  // typeCleared is set ONLY by the Kind picker, never here. Reconcile runs on every
+  // path that touches an item, including adding a photo while /classify is
+  // unreachable — inferring "the user chose no Kind" from "this code ran and there
+  // was no Kind" marks those permanently, and the re-scan then refuses to offer
+  // the very items it exists for.
+  if(it.type) delete it.typeCleared;
   if(it.typeFrom&&it.type!==raw&&raw!=null) delete it.typeFrom;
   // The group's slots, narrowed by the type. Falling back to the group alone keeps
   // this total — an unpickable item is worse than a slightly loose one.
@@ -2693,7 +2698,11 @@ $("shType").onchange=()=>{ if(!sheet) return;
   // The type narrows the roles (a Coat is outer only, where Outerwear allows mid
   // too), so the chips are repainted from the reconciled item rather than left
   // showing a role the save path would strip.
+  // Choosing "— not specified —" is the one place an absent Kind is a DECISION, so
+  // it is the one place the marker is set. It stops the load-time backfill putting
+  // a Kind straight back on an item the user deliberately left blank.
   sheet.item.type=normType($("shType").value,sheet.item.group);
+  if($("shType").value==="") sheet.item.typeCleared=true;
   reconcileItem(sheet.item);
   $("shCat").value=sheet.item.category;
   paintRoles(); };

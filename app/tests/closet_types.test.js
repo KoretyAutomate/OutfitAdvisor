@@ -445,6 +445,34 @@ check("migrateItem is reconcileItem — one repair pass on load",
   check("init refreshes the control, so opening the app is enough",
     /refreshRescan\(\)/.test(init.slice(0, init.indexOf("})();"))), "not called in init");
 
+  console.log("\n--- 14. appReady means PAINTED, not merely loaded ---------------");
+  /* renderCloset reads a photo per item off disk, so it is async. If init does not
+     await it, appReady resolves with the grid still pending and the initial render
+     lands AFTER a caller has already drawn its own — silently replacing it. Raised
+     by the pre-push reviewer, 2026-08-23. */
+  const src2 = fs.readFileSync(HTML, "utf8");
+  const initBody = src2.slice(src2.indexOf("const appReady="));
+  check("init awaits the closet render before resolving",
+    /await renderCloset\(\)/.test(initBody.slice(0, initBody.indexOf("})();"))),
+    "renderCloset is not awaited in init");
+
+  // Behavioural: a slow photo read must not let the initial render clobber a later one.
+  w.localStorage.setItem("oa.closet", JSON.stringify([
+    {id:"s1",label:"Navy polo",category:"base",group:"tops",type:"polo",count:1,photo:true,
+     colors:[],warmth:2,formality:["casual"],waterproof:false}]));
+  ev(`photoLoad = async (id) => { await new Promise(r=>setTimeout(r,25));
+        return "data:image/jpeg;base64,AAAA"; };`);
+  await ev(`load()`);
+  await ev(`renderCloset()`);
+  ev(`closet=[{id:"s2",label:"Blue jeans",category:"bottoms",group:"bottoms",type:"jeans",count:1,photo:false,
+              colors:[],warmth:2,formality:["casual"],waterproof:false}];`);
+  await ev(`renderCloset()`);
+  await new Promise(r => setTimeout(r, 60));   // let any stale render land if it can
+  check("the newest render is the one on screen",
+    w.document.querySelectorAll('.item[data-id="s2"]').length === 1 &&
+    w.document.querySelectorAll('.item[data-id="s1"]').length === 0,
+    w.document.getElementById("closetGrid").innerHTML.slice(0, 200));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

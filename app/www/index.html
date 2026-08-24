@@ -2967,7 +2967,12 @@ const appReady=(async()=>{
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
   paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
   showTab(tab,false);   // false: restoring where you were is not a new choice
-  renderCloset(); refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
+  // renderCloset is async — it reads a photo per item off disk. Awaiting it is what
+  // makes appReady mean "the page is painted": without it the promise resolves with
+  // the grid still pending, and a caller that acts on appReady can have its own
+  // render overwritten a moment later by the initial one finishing.
+  await renderCloset();
+  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

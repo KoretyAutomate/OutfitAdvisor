@@ -317,3 +317,44 @@ def test_the_tip_is_held_to_the_rules_too():
     item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
     assert closet_mod._names_banned("Bring the white undershirt.", [item])
     assert not closet_mod._names_banned("Take a brolly, rain later.", [item])
+
+
+# ── every cleared garment must be recognisable in the prose ────────────────────
+
+def test_an_item_with_a_tiny_label_and_no_colours_is_still_recognised():
+    """The gap that let prose survive a repair.
+
+    A label under three characters produced no term, and an item with no colours
+    produced no colour+type term either — so _names_banned could not see the
+    garment at all and the bullets went on recommending what had just been cleared.
+    Raised by the pre-push reviewer, 2026-08-24.
+    """
+    import closet as closet_mod
+    item = {"label": "PJ", "type": "sleepwear", "colors": [], "group": "underwear"}
+    assert closet_mod._ban_terms(item), "no way to recognise this garment in prose"
+    assert closet_mod._names_banned("Your pyjamas are the warm option.", [item])
+
+
+def test_a_garment_with_nothing_but_a_short_label_falls_back_to_it():
+    import closet as closet_mod
+    item = {"label": "PJ", "type": None, "colors": [], "group": None}
+    assert closet_mod._names_banned("Take the PJ with you.", [item])
+
+
+def test_a_short_label_matches_as_a_WORD_not_a_substring():
+    """"PJ" must not fire inside an unrelated word by accident of spelling."""
+    import closet as closet_mod
+    item = {"label": "PJ", "type": None, "colors": [], "group": None}
+    assert not closet_mod._names_banned("Projections look fine today.", [item])
+
+
+def test_every_valid_closet_item_yields_at_least_one_term():
+    """A garment nothing can name is a garment the prose can keep recommending."""
+    import closet as closet_mod
+    for item in (
+        {"label": "a", "type": "t_shirt", "colors": []},
+        {"label": "a", "type": None, "colors": [], "group": "tops"},
+        {"label": "navy merino crew-neck", "type": None, "colors": []},
+        {"label": "x", "type": None, "colors": [], "group": None},
+    ):
+        assert closet_mod._ban_terms(item), item

@@ -246,7 +246,30 @@ def _ban_terms(item: dict) -> list[list[str]]:
     for word in words[:2]:
         for c in colors[:3]:
             terms.append([c, word])
-    return terms
+    if terms:
+        return terms
+    # Nothing above fired: a label too short to be distinctive ("PJ") on an item
+    # with no colours recorded. Falling through with an EMPTY list would leave the
+    # prose free to recommend the very garment just cleared, which is the one thing
+    # this function exists to prevent — so the garment's kind is used on its own.
+    # Broader than the paired test, and deliberately: with the slot cleared nothing
+    # of that kind is being worn, so a line naming one is about the item that went.
+    fallback = words[:1] or [w for w in re.split(r"[^a-z]+",
+                                                 str(item.get("group") or "").lower())
+                             if len(w) > 2][:1]
+    # Last resort, when a garment has no usable label, type or group left: match the
+    # short label as a whole WORD, so "PJ" cannot fire inside "PJs are fine" by
+    # accident of spelling while still catching the standalone mention.
+    return [fallback] if fallback else ([[label]] if label else [])
+
+
+def _term_hit(term: list[str], low: str) -> bool:
+    """Every word in the term must appear. Short ones must appear as whole words."""
+    return all(
+        (re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low) is not None)
+        if len(w) < 3 else (w in low)
+        for w in term
+    )
 
 
 def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
@@ -272,8 +295,7 @@ def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
 def _names_banned(line: str, banned: list[dict]) -> bool:
     """Does this line recommend one of the garments we had to clear?"""
     low = line.lower()
-    return any(all(w in low for w in t)
-               for item in banned for t in _ban_terms(item))
+    return any(_term_hit(t, low) for item in banned for t in _ban_terms(item))
 
 
 def _enforce_user_rules(picks: dict, by_item: dict,

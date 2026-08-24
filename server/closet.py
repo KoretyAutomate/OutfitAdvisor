@@ -263,14 +263,17 @@ def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
     """
     if not banned:
         return bullets
-    terms = [t for item in banned for t in _ban_terms(item)]
-    if not terms:
-        return bullets
-    kept = [b for b in bullets
-            if not any(all(w in b.lower() for w in t) for t in terms)]
+    kept = [b for b in bullets if not _names_banned(b, banned)]
     if len(kept) != len(bullets):
         kept.append("Left a layer out — it broke one of your own rules.")
     return kept
+
+
+def _names_banned(line: str, banned: list[dict]) -> bool:
+    """Does this line recommend one of the garments we had to clear?"""
+    low = line.lower()
+    return any(all(w in low for w in t)
+               for item in banned for t in _ban_terms(item))
 
 
 def _enforce_user_rules(picks: dict, by_item: dict,
@@ -449,7 +452,13 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             error_note = "Your last reply had empty bullets. "
             continue
         text = "\n".join(f"• {b.lstrip('•- ')}" for b in bullets)
+        # The tip is prose like the bullets, and just as visible — "bring the white
+        # tee" undoes the ban as thoroughly as a bullet would. Filtered through the
+        # same test, and dropped rather than rewritten: a tip is one sentence, so
+        # there is nothing left of it once the garment is removed.
         tip = str(out.get("tip") or "").strip()
+        if tip and _names_banned(tip, banned_labels):
+            tip = ""
         if tip:
             text += f"\n\n💡 {tip}"
         return {"picks": picks, "text": text}

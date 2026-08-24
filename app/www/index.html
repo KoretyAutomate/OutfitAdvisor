@@ -2867,8 +2867,16 @@ async function run(){
    enforceable rule is reported as not understood. A rule stored but unenforceable
    is the worst outcome — the user believes the advisor was told. */
 let userRules=[];
+/* Twin of AdviceRequest.rules' max_length in server/schemas.py. Held in ONE place
+   because the two ends disagreeing is not a warning, it is a 422 on every advice
+   request: a 25th rule kept in memory but not in storage was sent anyway, and the
+   morning advice failed until the app was restarted. */
+const MAX_RULES=24;
 async function saveRules(){
-  await prefSet("oa.rules", JSON.stringify(userRules.slice(0,24)));
+  // Trimmed HERE, not only on the way to storage. Trimming the copy that gets
+  // written while the copy that gets SENT keeps growing is the whole bug.
+  if(userRules.length>MAX_RULES) userRules=userRules.slice(0,MAX_RULES);
+  await prefSet("oa.rules", JSON.stringify(userRules));
   renderRules();
   await savePushPayload();     // a ban the push has not been told is not a ban
 }
@@ -2885,6 +2893,12 @@ async function addRule(){
   const text=$("rlText").value.trim();
   $("rlErr").textContent="";
   if(text.length<2){ $("rlErr").textContent="Say what to avoid."; return; }
+  // Refused at the door, so the list can never exceed what the server accepts.
+  if(userRules.length>=MAX_RULES){
+    $("rlErr").textContent=`That is the most rules the advisor can hold (${MAX_RULES}). `+
+      `Remove one you no longer need first.`;
+    return;
+  }
   const b=$("rlAdd"), old=b.textContent; b.disabled=true; b.textContent="…";
   try{
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
@@ -3135,7 +3149,8 @@ async function load(){
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
-  try{ userRules=JSON.parse(await prefGet("oa.rules","[]"))||[]; }catch(e){ userRules=[]; }
+  try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
+  catch(e){ userRules=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
   // "all calendars" — read it back with exactly that meaning.
   try{

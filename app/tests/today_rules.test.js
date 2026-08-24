@@ -241,6 +241,38 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and refuses one too old to describe the wardrobe",
     /PUSH_PAYLOAD_MAX_AGE_MS/.test(kt) && /age !in 0\.\./.test(kt));
 
+  console.log("\n--- 7c. the list cannot outgrow what the server accepts ---------");
+  /* A 25th rule was kept in memory while only 24 were persisted — and the in-memory
+     copy is the one that gets SENT. AdviceRequest.rules caps at 24, so every advice
+     request 422'd until the app was restarted. Raised by the pre-push reviewer. */
+  const CAP = ev(`MAX_RULES`);
+  const serverCap = Number((fs.readFileSync(
+    path.join(__dirname, "..", "..", "server", "schemas.py"), "utf8")
+    .match(/rules: list\[dict\] \| None = Field\(None, max_length=(\d+)\)/) || [])[1]);
+  check("the phone's cap is the server's cap", CAP === serverCap, { CAP, serverCap });
+
+  ev(`state.baseUrl="http://x";
+      userRules=Array.from({length:${CAP}},(_,i)=>({id:"r"+i,kind:"avoid_item",
+        a:{type:"jeans"},text:"x"}));
+      fetch = async () => ({ ok:true, status:200, json: async () => (
+        {kind:"avoid_item", a:{type:"jeans"}, restated:"no jeans"}) });`);
+  w.document.getElementById("rlText").value = "never jeans";
+  await ev(`addRule()`);
+  check("one more is refused rather than kept and then rejected by the server",
+    ev(`userRules.length`) === CAP, ev(`userRules.length`));
+  check("and the user is told why, with what to do about it",
+    /Remove one you no longer need/.test(w.document.getElementById("rlErr").textContent),
+    w.document.getElementById("rlErr").textContent);
+
+  // Storage that already holds too many (an older build) is trimmed on load, not
+  // trusted — otherwise the same 422 returns on the next launch.
+  ev(`userRules=Array.from({length:${CAP}+5},(_,i)=>({id:"x"+i,kind:"avoid_item",
+        a:{type:"jeans"},text:"x"}));`);
+  await ev(`saveRules()`);
+  check("and an over-long list is trimmed rather than sent",
+    ev(`userRules.length`) === CAP, ev(`userRules.length`));
+  ev(`userRules=[];`);
+
   console.log("\n--- 8. removing a rule --------------------------------------------");
   ev(`userRules=[{id:"a",kind:"avoid_pair",a:{type:"jeans"},b:{type:"blazer"},
                   restated:"No jeans with a blazer",text:"x"}]; renderRules();`);

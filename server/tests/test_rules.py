@@ -305,3 +305,15 @@ def test_a_colour_that_normalises_away_is_not_a_shared_colour():
     good_b = dict(junk_b, colors=["navy"])
     assert rules.violations([r], {"base": "a", "mid": "b"},
                             {"a": good_a, "b": good_b})
+
+
+def test_the_tip_is_held_to_the_rules_too():
+    """The tip is prose, and just as visible as a bullet.
+
+    "Bring the white tee" undoes a ban as thoroughly as a bullet would, and it is
+    the line the notification shows. Raised by the pre-push reviewer, 2026-08-24.
+    """
+    import closet as closet_mod
+    item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
+    assert closet_mod._names_banned("Bring the white undershirt.", [item])
+    assert not closet_mod._names_banned("Take a brolly, rain later.", [item])

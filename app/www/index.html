@@ -2031,7 +2031,23 @@ async function triageCandidate(c){
                            known:places.slice(0,40).map(p=>({abbr:p.abbr,city:p.city}))})});
     if(!r.ok) return {decision:"ask", why:"advisor unavailable"};
     t=await r.json();
-  }catch(e){ return {decision:"ask", why:"can't reach the DGX — check Tailscale"}; }
+  }catch(e){
+    /* Unreachable server: ASK, even for a taught code near home.
+       The reviewer asked twice for opposite things here, so the reasoning is
+       written down. First it said (rightly) that skipping on a nearby taught code
+       alone buries "Flight to London" whose location field says PPK — a false
+       negative nothing recovers, because the event is then marked dismissed. Then
+       it asked for that skip back, for offline determinism.
+       Both cannot hold. An outage is the definition of not knowing whether this
+       event is travel, and this app's rule everywhere else is that not knowing
+       costs one confirmation tap rather than a silent decision. Asking is also the
+       recoverable direction: a needless question is answered once, a buried trip is
+       gone.
+       The determinism that was promised is intact — a taught code is never sent to
+       a geocoder, so it can never come back as Petropavl. That never depended on
+       the DGX. */
+    return {decision:"ask", why:"can't reach the DGX — check Tailscale"};
+  }
 
   if(!t.isTrip) return {decision:"skip", why:t.reason||"not travel"};
   // The city checks are for a destination we do NOT know. With a taught code we do:

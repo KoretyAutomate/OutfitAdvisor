@@ -864,6 +864,23 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
                  start:"2026-09-02",end:"2026-09-03"})`);
   check("the model's 'not travel' still ends it", ff.decision === "skip", ff);
 
+  console.log("\n--- 13c3. an outage asks, it does not decide --------------------");
+  /* Deliberate, and contested: the reviewer asked for a deterministic skip here for
+     a taught code near home. Rejected, because three rounds earlier the same
+     reviewer raised the opposite as a P1 — a nearby code is not evidence the EVENT
+     is local, and skipping on it buries "Flight to London" for good. An outage is
+     precisely not knowing, and everywhere else in this app not knowing costs one
+     tap rather than a silent decision. Asking is also the recoverable direction. */
+  ev(`places = [{abbr:"PPK", city:"Lawrenceville, NJ", place:"Lawrenceville, New Jersey, US", lat:40.297, lon:-74.729}];
+      home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};
+      fetch = async () => { throw new Error("DGX unreachable"); };`);
+  const down = await ev(`triageCandidate({title:"Flight to London",hint:"PPK",nights:1,
+                         start:"2026-09-02",end:"2026-09-03"})`);
+  check("with the advisor down, a taught local code is ASKED about, not skipped",
+    down.decision === "ask", down);
+  check("and the reason says what is actually wrong",
+    /DGX|Tailscale/.test(down.why || ""), down.why);
+
   console.log("\n--- 13d. codes that are not written in ASCII --------------------");
   /* An ASCII-only key normalised 東京 to the empty string, so a Japanese code saved
      fine and could then never match — the app kept guessing while claiming it had

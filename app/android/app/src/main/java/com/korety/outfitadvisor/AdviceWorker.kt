@@ -64,6 +64,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             if (advice.lo != null && advice.hi != null) append("${advice.lo}–${advice.hi}°  ")
             append("Today's outfit")
         }
+        // Written BEFORE the notification is posted: the user can tap it immediately,
+        // and the app must already have the advice when it opens.
+        persistToday(prefs, advice)
         OutfitNotification.post(
             applicationContext, header,
             advice.text.ifBlank { "Tap to see today's outfit." },
@@ -155,8 +158,48 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
 
     private data class Advice(
         val text: String, val source: String,
-        val hi: Int?, val lo: Int?, val emoji: String?
+        val hi: Int?, val lo: Int?, val emoji: String?,
+        /** The whole response, so the app can show what the push already worked out. */
+        val raw: JSONObject?
     )
+
+    /**
+     * Write today's advice where the web layer looks for it.
+     *
+     * The morning push had the answer at 06:45 and the app threw it away: opening it
+     * showed a blank page, and getting the same advice back meant another 30-second
+     * round trip (user, 2026-08-24). SharedPreferences named "CapacitorStorage" IS
+     * the Preferences plugin's own store, so writing here is writing to the same box
+     * `prefGet("oa.today")` reads from — no bridge, no message, and it works while
+     * the app is not running, which is the whole point.
+     *
+     * The shape is the RAW /advice response plus a day stamp, because index.html's
+     * saveToday() writes the same shape from the other side and the two must agree.
+     * Stamped with the DAY: yesterday's advice is not stale, it is wrong.
+     *
+     * `place` is deliberately absent. This worker knows the coordinates and the
+     * privacy rule is that they are never persisted; the app fills in its own label.
+     */
+    private fun persistToday(prefs: android.content.SharedPreferences, a: Advice) {
+        val raw = a.raw ?: return
+        try {
+            val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+            val out = JSONObject()
+                .put("day", day)
+                .put("at", System.currentTimeMillis())
+                .put("how", "push")
+                .put("weather", raw.opt("weather"))
+                .put("outfit", raw.opt("outfit"))
+                .put("outfit_text", raw.optString("outfit_text", a.text))
+                .put("source", a.source)
+                .put("picks", raw.opt("picks"))
+                .put("closetUsed", raw.optBoolean("closetUsed", false))
+            prefs.edit().putString(KEY_TODAY, out.toString()).apply()
+        } catch (e: Exception) {
+            // Losing the copy must never cost the notification the user is waiting for.
+        }
+    }
 
     private fun fetchAdvice(
         base: String, lat: Double, lon: Double,
@@ -193,7 +236,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 source = o.optString("source", "llm"),
                 hi = w?.takeIf { it.has("hi") }?.optInt("hi"),
                 lo = w?.takeIf { it.has("lo") }?.optInt("lo"),
-                emoji = w?.optString("emoji")
+                emoji = w?.optString("emoji"),
+                raw = o
             )
         } catch (e: Exception) {
             null
@@ -211,6 +255,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val DEFAULT_BASE = "http://100.112.171.54:8787"
         const val WORK_NAME = "daily-advice"
         const val KEY_UPD_NOTIFIED = "oa.updNotified"
+        /** Twin of TODAY_KEY in index.html — both sides write this one key. */
+        const val KEY_TODAY = "oa.today"
         // How long to wait for WakeActivity's fix when we cannot read location
         // ourselves. Long enough for the FSI to start an activity and get a fix,
         // short enough that a device where the FSI never fires still produces the

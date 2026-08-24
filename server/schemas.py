@@ -128,6 +128,11 @@ class AdviceRequest(BaseModel):
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
+    # The wearer's own prohibitions, parsed once by /rule and held on the phone
+    # (2026-08-24). Passed through to rules.clean_rules(), which drops anything it
+    # cannot enforce rather than 422-ing the whole request — a stale rule from an
+    # older build must never cost the user their morning advice.
+    rules: list[dict] | None = Field(None, max_length=24)
 
 
 class KnownPlace(BaseModel):
@@ -140,6 +145,17 @@ class KnownPlace(BaseModel):
     @classmethod
     def _san(cls, v: str) -> str:
         return _clean(v, 80)
+
+
+class RuleRequest(BaseModel):
+    """One line of feedback to be turned into a rule the server can check."""
+
+    text: str = Field(..., min_length=2, max_length=200)
+
+    @field_validator("text")
+    @classmethod
+    def _san_text(cls, v: str) -> str:
+        return _clean(v, 200)
 
 
 class TriageRequest(BaseModel):

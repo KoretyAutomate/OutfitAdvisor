@@ -2049,7 +2049,14 @@ async function triageCandidate(c){
      city), or a city that IS the taught place. Name anywhere else and that is the
      destination, geocoded and guarded the ordinary way. Raised by the pre-push
      reviewer, 2026-08-24. */
-  const kpIsDestination=!!kp&&(!t.city||geoPlaceMatches(t.city,{place:kp.place,regions:[]}));
+  // Compared against the taught strings THEMSELVES, so their qualifiers survive.
+  // `regions: []` made every qualifier fail — and the prompt hands the model
+  // "Boston, MA", so it echoes that back and the supposedly deterministic place was
+  // then sent to the public geocoder anyway, which is the whole thing this table
+  // exists to avoid. Both forms are tried: the city as the user typed it, and the
+  // full place the geocoder named when they taught it.
+  const kpIsDestination=!!kp&&(!t.city||
+    geoPlaceMatches(t.city,kp.city)||geoPlaceMatches(t.city,kp.place));
   // A trip the app adds on its own initiative is one the user never agreed to, so
   // the model has to be SURE. Under the floor the candidate is not lost — it drops
   // back to being CONFIRMED by hand, which is what the confirm step is for. The

@@ -809,6 +809,24 @@ const CAND = (over = {}) => JSON.stringify(Object.assign(
   check("and a partial run of its words does not",
     ev(`knownPlace("NEW YORK CLIENT")`) === null, ev(`knownPlace("NEW YORK CLIENT")`));
 
+  console.log("\n--- 13b2. a taught city keeps its qualifier ---------------------");
+  /* The prompt hands the model "BOS OFF = Boston, MA", so it echoes the qualifier
+     back. Comparing against `{place, regions: []}` made every qualifier fail, and
+     the supposedly deterministic place went to the public geocoder anyway — the one
+     thing this table exists to avoid. Raised by the pre-push reviewer, 2026-08-24. */
+  ev(`places = [{abbr:"BOS OFF", city:"Boston, MA", place:"Boston, Massachusetts, US", lat:42.36, lon:-71.06}];
+      home = {label:"Princeton, NJ", lat:40.3573, lon:-74.6672};`);
+  for (const said of [null, "Boston", "Boston, MA", "Boston, Massachusetts"]) {
+    ev(`fetch = async (u) => {
+          if (String(u).indexOf("/triage") >= 0) return { ok:true, json: async () => (
+            {isTrip:true, city:${JSON.stringify(said)}, type:"business", confidence:0.95, reason:"x"}) };
+          throw new Error("a taught destination must never be geocoded"); };`);
+    const q = await ev(`triageCandidate({title:"Client",hint:"BOS OFF",nights:2,
+                        start:"2026-09-02",end:"2026-09-04"})`);
+    check(`the model saying ${JSON.stringify(said)} still uses the taught coordinates`,
+      q.decision === "trip" && q.lat === 42.36, q);
+  }
+
   console.log("\n--- 13c2. the code is not the whole story -----------------------");
   /* A location field can name where you set OFF from, not where you are going.
      "Flight to London" with location PPK is a real trip, and an early skip on the

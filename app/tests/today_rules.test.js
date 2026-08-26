@@ -301,6 +301,32 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("empty slots are not given a tile of their own",
     !tiles.some(t => ["inner", "mid", "accessories"].includes(t.dataset.slot)),
     tiles.map(t => t.dataset.slot));
+  /* Emptiness is not only "". The on-device recommender writes an absent layer as
+     PROSE — "None needed", "None essential", "None — but pack a thin layer for AC
+     indoors" — so a trim() test gave a prominent tile to each of the things the
+     user is explicitly not wearing, which on a warm day is most of the grid.
+     Raised by the pre-push reviewer, 2026-08-26. */
+  for (const absent of ["", "   ", "None needed", "None essential", "none",
+                        "None — but pack a thin layer for AC indoors"])
+    check(`${JSON.stringify(absent)} reads as nothing to wear`,
+      ev(`slotIsEmpty(${JSON.stringify(absent)})`), absent);
+  check("but a garment that merely starts with those letters does not",
+    !ev(`slotIsEmpty("Nonesuch jeans")`));
+
+  ev(`renderOutfit({inner:"None needed", base:"navy tee", mid:"None essential",
+      outer:"None — but pack a thin layer for AC indoors", bottoms:"jeans",
+      footwear:"sneakers", accessories:"", tip:""},"x","llm",{picks:{}})`);
+  check("a warm day's grid holds only what is actually worn",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].map(t => t.dataset.slot).join()
+      === "base,bottoms,footwear",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].map(t => t.dataset.slot));
+  check("and the fold still accounts for all seven slots, absences included",
+    w.document.querySelectorAll("#outfitList li").length === 7);
+  check("including the advice attached to an absence",
+    /pack a thin layer/.test(w.document.getElementById("outfitList").textContent));
+
+  ev(`renderOutfit(${JSON.stringify(OUT)},"because it is mild","llm",
+      {closetUsed:true, picks:{base:"i1", bottoms:"i2"}})`);
   check("each tile names the layer and the garment",
     /Base layer/.test(tiles[0].textContent) && /navy tee/.test(tiles[0].textContent),
     tiles[0].textContent.replace(/\s+/g, " ").trim());

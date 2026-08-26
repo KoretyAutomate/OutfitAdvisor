@@ -2519,6 +2519,11 @@ function renderWeather(w){
   $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
     .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":esc(v)+"°"}</div></div>`).join("");
 }
+/* Is this slot's line a garment, or a way of saying there isn't one?
+   Anchored at the start and on a word boundary, so a real garment that happens to
+   contain the word — "stone-none" is not a thing, but "Nonesuch" jeans might be —
+   is not read as absence. */
+const slotIsEmpty=v=>{ const t=String(v??"").trim(); return !t||/^none\b/i.test(t); };
 function renderOutfit(o,text,source,res){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
@@ -2544,10 +2549,15 @@ function renderOutfit(o,text,source,res){
   // without reading either.
   const pickOf = res && res.picks ? res.picks : {};
   const SLOTS=["inner","base","mid","outer","bottoms","footwear","accessories"];
-  // Empty slots are LEFT OUT of the pictures. "Mid layer — (nothing)" is a row of
+  // Empty slots are LEFT OUT of the pictures. "Mid layer — (nothing)" is a tile of
   // nothing to look at, and on a warm day half the grid would be blanks; the
   // item-by-item list below still names every slot, including the empty ones.
-  const worn=SLOTS.filter(k=>String(o[k]??"").trim());
+  //
+  // Emptiness is not only "". The on-device recommender writes an absent layer as
+  // prose — "None needed", "None essential", "None — but pack a thin layer for AC
+  // indoors" — so a trim() test alone gave a prominent tile to each of the things
+  // the user is explicitly NOT wearing, which on a warm day is most of the grid.
+  const worn=SLOTS.filter(k=>!slotIsEmpty(o[k]));
   // Each tile carries the ID of the garment it is showing. The photo arrives
   // asynchronously — a file read per item — and a second render can start before
   // the first one's reads finish (tapping refresh, or changing gender, both

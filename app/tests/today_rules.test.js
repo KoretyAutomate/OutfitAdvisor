@@ -416,7 +416,13 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and says where it came from",
     w.document.getElementById("srcBadge").textContent === "AI · your closet");
 
-  w.document.querySelector("#genderSeg button").click();
+  // A DIFFERENT gender — the same one is now a no-op, deliberately, and clicking it
+  // would test the guard rather than the re-render.
+  const other = [...w.document.querySelectorAll("#genderSeg button")]
+    .find(b => b.dataset.g !== ev("state.gender"));
+  ev(`lastRes = {weather:lastWeather, outfit:lastOutfit, text:"x", source:"llm",
+                 picks:{base:"i1"}, closetUsed:true, closetSent:true};`);
+  other.click();
   await new Promise(r => setTimeout(r, 40));
   check("re-dressing locally drops the old outfit's picks",
     ev(`lastRes.picks`) === null, ev(`lastRes`));
@@ -437,6 +443,27 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
 
   // Style feeds the same recommender; it used only to repaint the segment and leave
   // the old outfit on screen under the new label.
+  /* Tapping the option already selected changes nothing, so it must cost nothing.
+     Without a guard it threw away the closet-backed answer, replaced it with
+     generic clothing and saved that over the day's advice. Raised by the pre-push
+     reviewer, 2026-08-26. */
+  ev(`renderOutfit({base:"navy tee",bottoms:"jeans",tip:""},"x","llm",
+      {closetUsed:true, picks:{base:"i1"}, closetSent:true});
+      lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
+  // Cleared first, so what this asserts is that the no-op tap wrote nothing —
+  // not that an earlier test happened to leave something else behind.
+  w.localStorage.setItem("oa.today", JSON.stringify({ day: ev("todayISO()"),
+    source: "llm", weather: WX, outfit: OUT, outfit_text: "x", at: Date.now() }));
+  const already = w.document.querySelector(`#genderSeg button[data-g="${ev("state.gender")}"]`);
+  already.click();
+  await new Promise(r => setTimeout(r, 40));
+  check("re-tapping the current gender leaves the closet-backed advice alone",
+    ev(`lastSource`) === "llm" && !!ev(`lastRes.picks`), 
+    { source: ev(`lastSource`), picks: ev(`lastRes.picks`) });
+  check("and does not overwrite the day's saved advice",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source !== "local",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source);
+
   ev(`lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
   w.document.querySelectorAll("#styleSeg button")[2].click();
   await new Promise(r => setTimeout(r, 40));

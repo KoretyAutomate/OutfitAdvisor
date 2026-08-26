@@ -3264,10 +3264,17 @@ function rerenderLocalOutfit(){
   // this replaced.
   saveToday(lastRes,"app");
 }
-$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");rerenderLocalOutfit();};
+// Tapping the option you are already on changes nothing — and must therefore cost
+// nothing. Without this guard it threw away a closet-backed answer, replaced it
+// with generic on-device clothing, and saved that over the day's advice.
+$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.g===state.gender) return;
+  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");rerenderLocalOutfit();};
 // Style feeds the same recommender, so it re-dresses the same way. It used only to
 // repaint the segment and leave yesterday's outfit on screen under the new label.
-$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");rerenderLocalOutfit();};
+$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.s===state.style) return;
+  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");rerenderLocalOutfit();};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");

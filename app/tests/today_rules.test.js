@@ -374,6 +374,53 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("no tip means no tip line", 
     w.document.getElementById("outfitTip").style.display === "none");
 
+  console.log("\n--- 10b. changing gender re-dresses honestly --------------------");
+  /* The on-device recommender knows nothing about the closet, so the garments it
+     names are generic. Carrying the previous result along with them kept its
+     `picks`, and the grid put the OLD outfit's photos beside the NEW outfit's
+     names and marked them owned — wrong on both counts, and convincing. Raised by
+     the pre-push reviewer, 2026-08-26. */
+  ev(`photoLoad = async () => "data:image/jpeg;base64,OLD";
+      lastWeather = ${JSON.stringify(WX)}; lastSource = "llm";`);
+  ev(`renderOutfit({base:"navy tee",bottoms:"jeans",tip:""},"x","llm",
+      {closetUsed:true, picks:{base:"i1"}, closetSent:true})`);
+  await new Promise(r => setTimeout(r, 20));
+  check("a closet-backed outfit shows the garment's photo",
+    !!w.document.querySelector('#wearGrid .wearIt[data-slot="base"] img'));
+  check("and says where it came from",
+    w.document.getElementById("srcBadge").textContent === "AI · your closet");
+
+  w.document.querySelector("#genderSeg button").click();
+  await new Promise(r => setTimeout(r, 40));
+  check("re-dressing locally drops the old outfit's picks",
+    ev(`lastRes.picks`) === null, ev(`lastRes`));
+  check("so no photo from the previous outfit survives beside the new names",
+    !w.document.querySelector("#wearGrid .wearIt img"));
+  check("and every tile is marked as a suggestion, not something owned",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].every(t =>
+      t.classList.contains("gen")));
+  /* The badge has to move too: "AI · 122B" over an outfit the on-device
+     recommender produced credits the wrong author, and it is not an offline
+     failure either. */
+  check("the badge credits the phone, not the model it no longer came from",
+    w.document.getElementById("srcBadge").textContent === "on this phone",
+    w.document.getElementById("srcBadge").textContent);
+  check("and the kept copy matches what is on screen",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source === "local",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source);
+
+  // Style feeds the same recommender; it used only to repaint the segment and leave
+  // the old outfit on screen under the new label.
+  ev(`lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
+  w.document.querySelectorAll("#styleSeg button")[2].click();
+  await new Promise(r => setTimeout(r, 40));
+  // What is guaranteed is that the re-render RAN and is honest about it — whether
+  // the garments differ depends on the style, and asserting that would be testing
+  // the recommender's table, not this handler.
+  check("changing style re-dresses through the same path",
+    ev(`lastSource`) === "local" && ev(`lastRes.picks`) === null, 
+    { source: ev(`lastSource`), picks: ev(`lastRes.picks`) });
+
   console.log("\n--- 11. the avoid list folds too, and starts folded -------------");
   const rlDet = w.document.getElementById("rlDet");
   check("the list of bans is a fold", !!rlDet && rlDet.tagName === "DETAILS");

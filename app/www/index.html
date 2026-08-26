@@ -2544,24 +2544,39 @@ function renderOutfit(o,text,source,res){
   // nothing to look at, and on a warm day half the grid would be blanks; the
   // item-by-item list below still names every slot, including the empty ones.
   const worn=SLOTS.filter(k=>String(o[k]??"").trim());
+  // Each tile carries the ID of the garment it is showing. The photo arrives
+  // asynchronously — a file read per item — and a second render can start before
+  // the first one's reads finish (tapping refresh, or changing gender, both
+  // re-render). Addressing the tile by SLOT alone then lets the previous outfit's
+  // photo land in the new grid, on top of a different garment, with nothing to
+  // show anything went wrong. The id is what makes the callback able to tell.
   $("wearGrid").innerHTML=worn.map(k=>
-    `<div class="wearIt${pickOf[k]?"":" gen"}" data-slot="${k}">
+    `<div class="wearIt${pickOf[k]?"":" gen"}" data-slot="${k}" data-pick="${esc(pickOf[k]||"")}">
        <div class="ph" data-ph="${k}">${ICONS[k]}</div>
        <div class="who">${esc(LABELS[k])}</div>
        <div class="nm2">${esc(o[k])}</div>
      </div>`).join("");
   $("outfitList").innerHTML=SLOTS.map(k=>
-    `<li data-slot="${k}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
-  // Photos load from app-private storage, so they are async — swap them in after
-  // the grid is on screen rather than blocking the render on disk reads.
+    `<li data-slot="${k}" data-pick="${esc(pickOf[k]||"")}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   for(const k of Object.keys(pickOf)){
     const id=pickOf[k]; if(!id) continue;
     photoLoad(id).then(src=>{
       if(!src) return;
-      const ph=document.querySelector(`#wearGrid .wearIt[data-slot="${k}"] .ph`);
-      if(ph) ph.outerHTML=`<img src="${src}" alt="">`;
-      const ic=document.querySelector(`#outfitList li[data-slot="${k}"] .ic`);
-      if(ic) ic.innerHTML=`<img class="thumb" src="${src}" alt="">`;
+      // The id is compared in JS rather than written into the selector. An id in a
+      // selector needs CSS.escape, which does not exist everywhere — and the catch
+      // below would have swallowed the TypeError, leaving the photo silently
+      // missing and the icon in its place, which is precisely the failure this
+      // feature was meant to end.
+      const tile=document.querySelector(`#wearGrid .wearIt[data-slot="${k}"]`);
+      if(tile&&tile.dataset.pick===id){
+        const ph=tile.querySelector(".ph");
+        if(ph) ph.outerHTML=`<img src="${src}" alt="">`;
+      }
+      const row=document.querySelector(`#outfitList li[data-slot="${k}"]`);
+      if(row&&row.dataset.pick===id){
+        const ic=row.querySelector(".ic");
+        if(ic) ic.innerHTML=`<img class="thumb" src="${src}" alt="">`;
+      }
     }).catch(()=>{});
   }
   const tipEl=$("outfitTip");

@@ -327,6 +327,27 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("the item-by-item list gets the photo too",
     !!w.document.querySelector('#outfitList li[data-slot="base"] img'));
 
+  /* Two renders in flight — tapping refresh, or changing gender, both re-render —
+     and the SLOWER one lands last. Addressing the tile by slot alone let the
+     previous outfit's photo land on top of a different garment, with nothing to
+     show anything had gone wrong. Raised by the pre-push reviewer, 2026-08-26.
+     Note the first fix used CSS.escape inside the selector; it does not exist in
+     every environment, and the catch swallowed the TypeError so the photo simply
+     never appeared — the exact failure this feature exists to end. The id is
+     compared in JS instead. */
+  ev(`photoLoad = async (id) => {
+        if (id === "old") { await new Promise(r => setTimeout(r, 60));
+          return "data:image/jpeg;base64,OLD"; }
+        return "data:image/jpeg;base64,NEW"; };`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"old"}})`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"new"}})`);
+  await new Promise(r => setTimeout(r, 120));
+  const raced = w.document.querySelector('#wearGrid .wearIt[data-slot="base"] img');
+  check("the CURRENT garment's photo is the one shown",
+    !!raced && /NEW$/.test(raced.src), raced && raced.src.slice(-12));
+  check("a photo from a superseded render is dropped",
+    !raced || !/OLD$/.test(raced.src), raced && raced.src.slice(-12));
+
   // A missing photo file must leave the icon, not an empty box.
   ev(`photoLoad = async () => null;`);
   ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"i1"}})`);

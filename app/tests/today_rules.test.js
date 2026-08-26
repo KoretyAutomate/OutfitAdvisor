@@ -282,6 +282,219 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and the list says so rather than sitting empty",
     /Nothing banned yet/.test(w.document.getElementById("rlList").textContent));
 
+  console.log("\n--- 9. what to wear, in pictures (user, 2026-08-26) -------------");
+  /* The photo was already there, buried under an "Item-by-item" fold beneath a
+     paragraph of prose. A name is not how anyone recognises their own clothes, so
+     the pictures are the headline now and the reasoning is what folds — it is
+     worth reading once, not every morning. */
+  const OUT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
+    bottoms:"jeans", footwear:"sneakers", accessories:"", tip:"take a brolly"};
+  ev(`renderOutfit(${JSON.stringify(OUT)},"because it is mild","llm",
+      {closetUsed:true, picks:{base:"i1", bottoms:"i2"}})`);
+
+  const tiles = [...w.document.querySelectorAll("#wearGrid .wearIt")];
+  check("every garment being worn gets a tile",
+    tiles.map(t => t.dataset.slot).join() === "base,outer,bottoms,footwear",
+    tiles.map(t => t.dataset.slot));
+  /* Empty slots are left OUT. "Mid layer — (nothing)" is a tile of nothing to look
+     at, and on a warm day half the grid would be blanks. */
+  check("empty slots are not given a tile of their own",
+    !tiles.some(t => ["inner", "mid", "accessories"].includes(t.dataset.slot)),
+    tiles.map(t => t.dataset.slot));
+  /* Emptiness is not only "". The on-device recommender writes an absent layer as
+     PROSE — "None needed", "None essential", "None — but pack a thin layer for AC
+     indoors" — so a trim() test gave a prominent tile to each of the things the
+     user is explicitly not wearing, which on a warm day is most of the grid.
+     Raised by the pre-push reviewer, 2026-08-26. */
+  for (const absent of ["", "   ", "None needed", "None essential", "none",
+                        "None — but pack a thin layer for AC indoors"])
+    check(`${JSON.stringify(absent)} reads as nothing to wear`,
+      ev(`slotIsEmpty(${JSON.stringify(absent)})`), absent);
+  check("but a garment that merely starts with those letters does not",
+    !ev(`slotIsEmpty("Nonesuch jeans")`));
+
+  ev(`renderOutfit({inner:"None needed", base:"navy tee", mid:"None essential",
+      outer:"None — but pack a thin layer for AC indoors", bottoms:"jeans",
+      footwear:"sneakers", accessories:"", tip:""},"x","llm",{picks:{}})`);
+  check("a warm day's grid holds only what is actually worn",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].map(t => t.dataset.slot).join()
+      === "base,bottoms,footwear",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].map(t => t.dataset.slot));
+  check("and the fold still accounts for all seven slots, absences included",
+    w.document.querySelectorAll("#outfitList li").length === 7);
+  check("including the advice attached to an absence",
+    /pack a thin layer/.test(w.document.getElementById("outfitList").textContent));
+
+  ev(`renderOutfit(${JSON.stringify(OUT)},"because it is mild","llm",
+      {closetUsed:true, picks:{base:"i1", bottoms:"i2"}})`);
+  check("each tile names the layer and the garment",
+    /Base layer/.test(tiles[0].textContent) && /navy tee/.test(tiles[0].textContent),
+    tiles[0].textContent.replace(/\s+/g, " ").trim());
+  /* A slot the advisor filled with a generic suggestion is not something the user
+     owns, and telling the two apart must not require reading either. */
+  check("garments from the closet look different from generic suggestions",
+    !tiles[0].classList.contains("gen") && tiles[1].classList.contains("gen"),
+    tiles.map(t => `${t.dataset.slot}:${t.className}`));
+
+  /* The photo is the whole point. It arrives asynchronously — a file read per item
+     — so the grid renders with the category icon and the picture replaces it. If
+     that swap misses, the feature silently degrades to the emoji it was meant to
+     replace, and nothing errors. */
+  ev(`photoLoad = async (id) => "data:image/jpeg;base64,AAAA";`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"i1"}})`);
+  await new Promise(r => setTimeout(r, 20));
+  const baseTile = w.document.querySelector('#wearGrid .wearIt[data-slot="base"]');
+  check("an owned garment's photo replaces the placeholder icon",
+    !!baseTile.querySelector("img") && !baseTile.querySelector(".ph"),
+    baseTile.innerHTML.slice(0, 90));
+  const outerTile = w.document.querySelector('#wearGrid .wearIt[data-slot="outer"]');
+  check("a generic suggestion keeps its icon — there is no photo to show",
+    !outerTile.querySelector("img") && !!outerTile.querySelector(".ph"));
+  check("the item-by-item list gets the photo too",
+    !!w.document.querySelector('#outfitList li[data-slot="base"] img'));
+
+  /* Two renders in flight — tapping refresh, or changing gender, both re-render —
+     and the SLOWER one lands last. Addressing the tile by slot alone let the
+     previous outfit's photo land on top of a different garment, with nothing to
+     show anything had gone wrong. Raised by the pre-push reviewer, 2026-08-26.
+     Note the first fix used CSS.escape inside the selector; it does not exist in
+     every environment, and the catch swallowed the TypeError so the photo simply
+     never appeared — the exact failure this feature exists to end. The id is
+     compared in JS instead. */
+  ev(`photoLoad = async (id) => {
+        if (id === "old") { await new Promise(r => setTimeout(r, 60));
+          return "data:image/jpeg;base64,OLD"; }
+        return "data:image/jpeg;base64,NEW"; };`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"old"}})`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"new"}})`);
+  await new Promise(r => setTimeout(r, 120));
+  const raced = w.document.querySelector('#wearGrid .wearIt[data-slot="base"] img');
+  check("the CURRENT garment's photo is the one shown",
+    !!raced && /NEW$/.test(raced.src), raced && raced.src.slice(-12));
+  check("a photo from a superseded render is dropped",
+    !raced || !/OLD$/.test(raced.src), raced && raced.src.slice(-12));
+
+  // A missing photo file must leave the icon, not an empty box.
+  ev(`photoLoad = async () => null;`);
+  ev(`renderOutfit(${JSON.stringify(OUT)},"x","llm",{closetUsed:true,picks:{base:"i1"}})`);
+  await new Promise(r => setTimeout(r, 20));
+  check("a garment whose photo has gone missing still shows its icon",
+    !!w.document.querySelector('#wearGrid .wearIt[data-slot="base"] .ph'));
+
+  console.log("\n--- 10. the reasoning folds, and starts folded ------------------");
+  const why = w.document.getElementById("whyDet");
+  check("there is a fold for the explanation", !!why);
+  check("it is CLOSED on arrival — the pictures are the answer", why.open === false);
+  check("the prose is inside it", why.contains(w.document.getElementById("aiText")),
+    "the explanation is still in the headline");
+  check("and so is the full slot-by-slot list, empty slots included",
+    why.contains(w.document.getElementById("outfitList")) &&
+    w.document.querySelectorAll("#outfitList li").length === 7,
+    w.document.querySelectorAll("#outfitList li").length);
+  check("the tip stays outside the fold — one line, worth seeing",
+    !why.contains(w.document.getElementById("outfitTip")) &&
+    /take a brolly/.test(w.document.getElementById("outfitTip").textContent));
+
+  // No tip: an empty line with a lightbulb on it is worse than no line.
+  ev(`renderOutfit(${JSON.stringify({...OUT, tip: ""})},"x","llm",{picks:{}})`);
+  check("no tip means no tip line", 
+    w.document.getElementById("outfitTip").style.display === "none");
+
+  console.log("\n--- 10b. changing gender re-dresses honestly --------------------");
+  /* The on-device recommender knows nothing about the closet, so the garments it
+     names are generic. Carrying the previous result along with them kept its
+     `picks`, and the grid put the OLD outfit's photos beside the NEW outfit's
+     names and marked them owned — wrong on both counts, and convincing. Raised by
+     the pre-push reviewer, 2026-08-26. */
+  ev(`photoLoad = async () => "data:image/jpeg;base64,OLD";
+      lastWeather = ${JSON.stringify(WX)}; lastSource = "llm";`);
+  ev(`renderOutfit({base:"navy tee",bottoms:"jeans",tip:""},"x","llm",
+      {closetUsed:true, picks:{base:"i1"}, closetSent:true})`);
+  await new Promise(r => setTimeout(r, 20));
+  check("a closet-backed outfit shows the garment's photo",
+    !!w.document.querySelector('#wearGrid .wearIt[data-slot="base"] img'));
+  check("and says where it came from",
+    w.document.getElementById("srcBadge").textContent === "AI · your closet");
+
+  // A DIFFERENT gender — the same one is now a no-op, deliberately, and clicking it
+  // would test the guard rather than the re-render.
+  const other = [...w.document.querySelectorAll("#genderSeg button")]
+    .find(b => b.dataset.g !== ev("state.gender"));
+  ev(`lastRes = {weather:lastWeather, outfit:lastOutfit, text:"x", source:"llm",
+                 picks:{base:"i1"}, closetUsed:true, closetSent:true};`);
+  other.click();
+  await new Promise(r => setTimeout(r, 40));
+  check("re-dressing locally drops the old outfit's picks",
+    ev(`lastRes.picks`) === null, ev(`lastRes`));
+  check("so no photo from the previous outfit survives beside the new names",
+    !w.document.querySelector("#wearGrid .wearIt img"));
+  check("and every tile is marked as a suggestion, not something owned",
+    [...w.document.querySelectorAll("#wearGrid .wearIt")].every(t =>
+      t.classList.contains("gen")));
+  /* The badge has to move too: "AI · 122B" over an outfit the on-device
+     recommender produced credits the wrong author, and it is not an offline
+     failure either. */
+  check("the badge credits the phone, not the model it no longer came from",
+    w.document.getElementById("srcBadge").textContent === "on this phone",
+    w.document.getElementById("srcBadge").textContent);
+  check("and the kept copy matches what is on screen",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source === "local",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source);
+
+  // Style feeds the same recommender; it used only to repaint the segment and leave
+  // the old outfit on screen under the new label.
+  /* Tapping the option already selected changes nothing, so it must cost nothing.
+     Without a guard it threw away the closet-backed answer, replaced it with
+     generic clothing and saved that over the day's advice. Raised by the pre-push
+     reviewer, 2026-08-26. */
+  ev(`renderOutfit({base:"navy tee",bottoms:"jeans",tip:""},"x","llm",
+      {closetUsed:true, picks:{base:"i1"}, closetSent:true});
+      lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
+  // Cleared first, so what this asserts is that the no-op tap wrote nothing —
+  // not that an earlier test happened to leave something else behind.
+  w.localStorage.setItem("oa.today", JSON.stringify({ day: ev("todayISO()"),
+    source: "llm", weather: WX, outfit: OUT, outfit_text: "x", at: Date.now() }));
+  const already = w.document.querySelector(`#genderSeg button[data-g="${ev("state.gender")}"]`);
+  already.click();
+  await new Promise(r => setTimeout(r, 40));
+  check("re-tapping the current gender leaves the closet-backed advice alone",
+    ev(`lastSource`) === "llm" && !!ev(`lastRes.picks`), 
+    { source: ev(`lastSource`), picks: ev(`lastRes.picks`) });
+  check("and does not overwrite the day's saved advice",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source !== "local",
+    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source);
+
+  ev(`lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
+  w.document.querySelectorAll("#styleSeg button")[2].click();
+  await new Promise(r => setTimeout(r, 40));
+  // What is guaranteed is that the re-render RAN and is honest about it — whether
+  // the garments differ depends on the style, and asserting that would be testing
+  // the recommender's table, not this handler.
+  check("changing style re-dresses through the same path",
+    ev(`lastSource`) === "local" && ev(`lastRes.picks`) === null, 
+    { source: ev(`lastSource`), picks: ev(`lastRes.picks`) });
+
+  console.log("\n--- 11. the avoid list folds too, and starts folded -------------");
+  const rlDet = w.document.getElementById("rlDet");
+  check("the list of bans is a fold", !!rlDet && rlDet.tagName === "DETAILS");
+  check("closed by default — a ban is set once, then wants to be out of the way",
+    rlDet.open === false);
+  ev(`userRules=[]; renderRules();`);
+  check("with nothing banned the summary is plain",
+    w.document.getElementById("rlSum").textContent === "Things to avoid",
+    w.document.getElementById("rlSum").textContent);
+  ev(`userRules=[{id:"a",kind:"avoid_item",a:{type:"jeans"},restated:"No jeans",text:"x"},
+                 {id:"b",kind:"avoid_item",a:{type:"polo"},restated:"No polos",text:"y"}];
+      renderRules();`);
+  check("the count rides on the summary, so the fold answers 'anything banned?' shut",
+    w.document.getElementById("rlSum").textContent === "Things to avoid (2)",
+    w.document.getElementById("rlSum").textContent);
+  check("and it stays shut when the count changes", rlDet.open === false);
+  check("the rules themselves are inside it",
+    rlDet.contains(w.document.getElementById("rlList")) &&
+    /No jeans/.test(w.document.getElementById("rlList").textContent));
+  ev(`userRules=[];`);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

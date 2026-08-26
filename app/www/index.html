@@ -74,6 +74,23 @@
   .deliver button{display:flex;align-items:center;justify-content:center;gap:7px;padding:13px 10px}
   .note{color:var(--muted);font-size:.78rem;margin-top:10px;line-height:1.45}
   .err{color:#fca5a5;font-size:.85rem;margin-top:8px}
+  /* "What to wear" — the pictures, first and largest (user, 2026-08-26). Wider
+     tiles than the closet grid: this is four to seven garments being read at a
+     glance, not a wardrobe being browsed. */
+  .wear{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
+    gap:9px;margin:12px 0 0}
+  .wearIt{border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    background:var(--bg);display:flex;flex-direction:column}
+  .wearIt img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+  .wearIt .ph{width:100%;aspect-ratio:1;display:flex;align-items:center;
+    justify-content:center;font-size:2rem;background:var(--bg2)}
+  /* A slot filled by a generic suggestion rather than something owned. Dashed, so
+     "mine" and "suggested" are told apart without reading either. */
+  .wearIt.gen{border-style:dashed}
+  .wearIt .who{font-size:.58rem;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--muted);padding:5px 7px 0}
+  .wearIt .nm2{font-size:.7rem;padding:1px 7px 6px;line-height:1.25;
+    overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   .det{margin-top:10px}
   .det summary{cursor:pointer;color:var(--muted);font-size:.8rem}
   .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);
@@ -270,10 +287,14 @@
     <!-- Outfit -->
     <div class="card" id="outfitCard" style="display:none">
       <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
-      <p class="aitext" id="aiText"></p>
-      <details class="det"><summary>Item-by-item</summary>
+      <!-- WHAT TO WEAR, in pictures (user, 2026-08-26). A name is not how anyone
+           recognises their own clothes; the photo is. The reasoning moved below,
+           into a fold — it is worth reading once, not every morning. -->
+      <div class="wear" id="wearGrid"></div>
+      <p class="note" id="outfitTip"></p>
+      <details class="det" id="whyDet"><summary>Why this</summary>
+        <p class="aitext" id="aiText"></p>
         <ul class="outfit" id="outfitList"></ul>
-        <p class="note" id="outfitTip"></p>
       </details>
       <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
@@ -290,16 +311,21 @@
         <p class="note" id="fbNote"></p>
       <!-- Free-text feedback, turned into a rule the SERVER checks (2026-08-24).
            "White V-neck inner + white T — this combination shall be banned." -->
-      <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:11px">
-        <label class="lbl">Something to avoid</label>
-        <div class="row" style="gap:8px">
+      <!-- Folded by default (user, 2026-08-26). A ban is set once and then wants
+           to be out of the way; leaving the box and the whole list open under every
+           morning's advice makes a settings panel of the thing you look at daily.
+           The count rides on the summary so the fold still answers "is anything
+           banned?" without being opened. -->
+      <details class="det" id="rlDet" style="margin-top:12px;border-top:1px solid var(--line);padding-top:11px">
+        <summary id="rlSum">Things to avoid</summary>
+        <div class="row" style="gap:8px;margin-top:9px">
           <input id="rlText" style="flex:1" maxlength="200"
                  placeholder="e.g. never a white undershirt under a white t-shirt">
           <button class="ghost" id="rlAdd" style="flex:0 0 auto;padding:9px 13px">Add</button>
         </div>
         <p class="note" id="rlErr" style="margin:5px 0 0"></p>
         <div id="rlList"></div>
-      </div>
+      </details>
       </div>
       <p class="note" id="todayFrom" style="display:none;margin:8px 0 0"></p>
       <div class="deliver" style="margin-top:12px">
@@ -1217,7 +1243,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.19";
+const WEB_BUILD="1.20";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2493,11 +2519,20 @@ function renderWeather(w){
   $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
     .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":esc(v)+"°"}</div></div>`).join("");
 }
+/* Is this slot's line a garment, or a way of saying there isn't one?
+   Anchored at the start and on a word boundary, so a real garment that happens to
+   contain the word — "stone-none" is not a thing, but "Nonesuch" jeans might be —
+   is not read as absence. */
+const slotIsEmpty=v=>{ const t=String(v??"").trim(); return !t||/^none\b/i.test(t); };
 function renderOutfit(o,text,source,res){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
   if(source==="offline"){ b.textContent="offline estimate"; b.className="chip off"; }
+  // Re-dressed on the phone after a gender or style change. Not the LLM's answer
+  // any more, and not a connection failure either — saying "AI · 122B" over an
+  // outfit the on-device recommender produced credits the wrong author.
+  else if(source==="local"){ b.textContent="on this phone"; b.className="chip off"; }
   else if(res&&res.closetUsed){ b.textContent="AI · your closet"; b.className="chip src"; }
   else if(res&&res.closetSent){ b.textContent="generic — closet not used"; b.className="chip off"; }
   else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
@@ -2507,24 +2542,60 @@ function renderOutfit(o,text,source,res){
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
   wb.textContent="✅ Wearing it — update my rotation";
-  // Show the actual garment where we picked one of the user's own items. A name
-  // ("navy merino crew-neck") is not how anyone recognises their own clothes —
-  // the photo is (user, 2026-08-16). Slots filled by a generic suggestion keep
-  // the category icon, which also makes "mine" vs "suggested" visible at a glance.
+  // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
+  // recognises their own clothes — the photo is (user, 2026-08-16; made the
+  // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
+  // icon and a dashed border, so "mine" and "suggested" are told apart at a glance
+  // without reading either.
   const pickOf = res && res.picks ? res.picks : {};
-  $("outfitList").innerHTML=["inner","base","mid","outer","bottoms","footwear","accessories"].map(k=>
-    `<li data-slot="${k}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
-  // Photos load from app-private storage, so they are async — swap them in after
-  // the list is on screen rather than blocking the render on disk reads.
+  const SLOTS=["inner","base","mid","outer","bottoms","footwear","accessories"];
+  // Empty slots are LEFT OUT of the pictures. "Mid layer — (nothing)" is a tile of
+  // nothing to look at, and on a warm day half the grid would be blanks; the
+  // item-by-item list below still names every slot, including the empty ones.
+  //
+  // Emptiness is not only "". The on-device recommender writes an absent layer as
+  // prose — "None needed", "None essential", "None — but pack a thin layer for AC
+  // indoors" — so a trim() test alone gave a prominent tile to each of the things
+  // the user is explicitly NOT wearing, which on a warm day is most of the grid.
+  const worn=SLOTS.filter(k=>!slotIsEmpty(o[k]));
+  // Each tile carries the ID of the garment it is showing. The photo arrives
+  // asynchronously — a file read per item — and a second render can start before
+  // the first one's reads finish (tapping refresh, or changing gender, both
+  // re-render). Addressing the tile by SLOT alone then lets the previous outfit's
+  // photo land in the new grid, on top of a different garment, with nothing to
+  // show anything went wrong. The id is what makes the callback able to tell.
+  $("wearGrid").innerHTML=worn.map(k=>
+    `<div class="wearIt${pickOf[k]?"":" gen"}" data-slot="${k}" data-pick="${esc(pickOf[k]||"")}">
+       <div class="ph" data-ph="${k}">${ICONS[k]}</div>
+       <div class="who">${esc(LABELS[k])}</div>
+       <div class="nm2">${esc(o[k])}</div>
+     </div>`).join("");
+  $("outfitList").innerHTML=SLOTS.map(k=>
+    `<li data-slot="${k}" data-pick="${esc(pickOf[k]||"")}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
   for(const k of Object.keys(pickOf)){
     const id=pickOf[k]; if(!id) continue;
     photoLoad(id).then(src=>{
       if(!src) return;
-      const ic=document.querySelector(`#outfitList li[data-slot="${k}"] .ic`);
-      if(ic) ic.innerHTML=`<img class="thumb" src="${src}" alt="">`;
+      // The id is compared in JS rather than written into the selector. An id in a
+      // selector needs CSS.escape, which does not exist everywhere — and the catch
+      // below would have swallowed the TypeError, leaving the photo silently
+      // missing and the icon in its place, which is precisely the failure this
+      // feature was meant to end.
+      const tile=document.querySelector(`#wearGrid .wearIt[data-slot="${k}"]`);
+      if(tile&&tile.dataset.pick===id){
+        const ph=tile.querySelector(".ph");
+        if(ph) ph.outerHTML=`<img src="${src}" alt="">`;
+      }
+      const row=document.querySelector(`#outfitList li[data-slot="${k}"]`);
+      if(row&&row.dataset.pick===id){
+        const ic=row.querySelector(".ic");
+        if(ic) ic.innerHTML=`<img class="thumb" src="${src}" alt="">`;
+      }
     }).catch(()=>{});
   }
-  $("outfitTip").textContent="💡 "+(o.tip||"");
+  const tipEl=$("outfitTip");
+  tipEl.style.display=o.tip?"":"none";
+  tipEl.textContent="💡 "+(o.tip||"");
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
 }
@@ -2881,6 +2952,10 @@ async function saveRules(){
   await savePushPayload();     // a ban the push has not been told is not a ban
 }
 function renderRules(){
+  const sum=$("rlSum");
+  // The count on the summary, so the fold answers "is anything banned?" shut.
+  if(sum) sum.textContent=userRules.length
+    ? `Things to avoid (${userRules.length})` : "Things to avoid";
   const el=$("rlList"); if(!el) return;
   el.innerHTML=userRules.length?userRules.map((r,i)=>
     `<div class="calRow" style="padding-left:0">
@@ -3170,8 +3245,36 @@ async function load(){
 }
 
 /* ───────── wire up ───────── */
-$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");if(lastWeather){lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);renderOutfit(lastOutfit,lastText,lastSource,lastRes);}};
-$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");};
+/* Changing gender re-dresses the user from the ON-DEVICE recommender, which knows
+   nothing about the closet — so the garments it names are generic ones. Passing the
+   previous result along with them carried its `picks` over, and the grid then put
+   the OLD outfit's photos beside the NEW outfit's names and marked them as owned.
+   Wrong on both counts, and convincing. The re-render is generic, so it says so:
+   no picks, no closet ownership, and every tile falls back to its icon.
+   Raised by the pre-push reviewer, 2026-08-26. */
+function rerenderLocalOutfit(){
+  if(!lastWeather) return;
+  lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);
+  lastText=outfitToBullets(lastOutfit);
+  lastSource="local";
+  lastRes={weather:lastWeather,outfit:lastOutfit,text:lastText,source:lastSource,
+           picks:null,closetUsed:false,closetSent:false};
+  renderOutfit(lastOutfit,lastText,lastSource,lastRes);
+  // Kept, so reopening the app shows what is on screen rather than the LLM answer
+  // this replaced.
+  saveToday(lastRes,"app");
+}
+// Tapping the option you are already on changes nothing — and must therefore cost
+// nothing. Without this guard it threw away a closet-backed answer, replaced it
+// with generic on-device clothing, and saved that over the day's advice.
+$("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.g===state.gender) return;
+  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");rerenderLocalOutfit();};
+// Style feeds the same recommender, so it re-dresses the same way. It used only to
+// repaint the segment and leave yesterday's outfit on screen under the new label.
+$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.s===state.style) return;
+  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");rerenderLocalOutfit();};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");

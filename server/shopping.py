@@ -117,7 +117,10 @@ _ALIASES = {
     "trousers": {"chinos", "slacks", "pants"},
     "leggings": {"tights"},
     "sneakers": {"trainers"},
-    "puffer": {"down"},
+    # "down" alone is not a garment word — it sits inside "button-down" and half the
+    # prepositions in English. The alias has to be the phrase that actually names
+    # the thing.
+    "puffer": {"down jacket", "quilted", "padded"},
 }
 
 
@@ -134,8 +137,35 @@ def _garment_aliases(value: object) -> set:
         return set()
     if key in TYPES:
         return {w for t in TYPES[key] for w in _garment_aliases(t)}
-    out = {w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(key, key).lower()) if len(w) > 2}
-    return (out | _ALIASES.get(key, set()) | {key.replace("_", "")}) - {""}
+    # A label is a list of ALTERNATIVES separated by "/", and each side is a phrase.
+    # Splitting it into loose words was the bug: TYPE_LABEL["puffer"] is
+    # "Padded / down jacket", which yielded {padded, down, jacket} — so a ban on
+    # puffers matched "button-down shirt" on `down`, and would have matched any
+    # jacket at all on `jacket`.
+    phrases = {_norm_phrase(part) for part in TYPE_LABEL.get(key, key).split("/")}
+    return {p for p in (phrases | _ALIASES.get(key, set()) | {_norm_phrase(key)}) if p}
+
+
+def _norm_phrase(s: object) -> str:
+    """Lowercase, punctuation to spaces — so "T-shirt" and "t shirt" are one thing."""
+    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+def _alias_hit(alias: str, what: str) -> bool:
+    """Does this suggestion name that garment?
+
+    On WORD boundaries, not anywhere in the string. A plain substring test made the
+    `down` alias match "button-down shirt", so a ban on puffers refused a shirt.
+
+    A token that ENDS with the alias still counts, because that is how English
+    compounds garments — "overcoat" is a coat, "tshirt" is a shirt. The reverse is
+    not true and is not accepted: "coathanger" is not a coat.
+    """
+    low = _norm_phrase(what)
+    if " " in alias:
+        return alias in low
+    toks = [t for t in low.split(" ") if t]
+    return any(t == alias or (len(alias) >= 4 and t.endswith(alias)) for t in toks)
 
 
 def _words(s: object) -> set:
@@ -203,8 +233,7 @@ def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:
             # ANY of its words is enough — one alias hitting is the garment.
             if colour and not (colour <= want):
                 continue
-            if not needle or any(n in " ".join(sorted(want)) or n in what.lower()
-                                 for n in needle):
+            if not needle or any(_alias_hit(n, what) for n in needle):
                 return True
         elif side.get("role"):
             # Role-only, and the role already matched above: everything for this

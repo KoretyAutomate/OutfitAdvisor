@@ -678,3 +678,36 @@ def test_a_group_ban_reaches_the_garments_in_that_group(what, banned):
     import shopping
     rule = [{"kind": "avoid_item", "a": {"group": "outerwear"}}]
     assert shopping._is_banned(what, "outer", rule) is banned
+
+
+@pytest.mark.parametrize("sel,what,slot,banned", [
+    # "down" alone is not a garment word — it sits inside "button-down" and half the
+    # prepositions in English. A substring test made a puffer ban refuse a shirt.
+    # Raised by the pre-push reviewer, 2026-08-27.
+    ({"type": "puffer"}, "button-down shirt", "base", False),
+    ({"type": "puffer"}, "down jacket", "outer", True),
+    ({"type": "puffer"}, "quilted jacket", "outer", True),
+    ({"type": "puffer"}, "wool overcoat", "outer", False),
+    # A compound still counts: "overcoat" is a coat, "tshirt" is a shirt.
+    ({"type": "coat"}, "wool overcoat", "outer", True),
+    # But only as a SUFFIX. "coathanger" is not a coat.
+    ({"type": "coat"}, "coathanger", "outer", False),
+    # Punctuation is not a difference.
+    ({"type": "t_shirt"}, "cotton t-shirt", "base", True),
+])
+def test_an_alias_matches_on_word_boundaries(sel, what, slot, banned):
+    import shopping
+    assert shopping._is_banned(what, slot, [{"kind": "avoid_item", "a": sel}]) is banned
+
+
+def test_a_label_is_read_as_alternatives_not_loose_words():
+    """TYPE_LABEL["puffer"] is "Padded / down jacket".
+
+    Split into words that yielded {padded, down, jacket} — so the ban matched
+    `down` in "button-down", and would have matched ANY jacket on `jacket`. The
+    two sides of the slash are alternatives, and each is a phrase.
+    """
+    import shopping
+    assert shopping._garment_aliases("puffer") == {"padded", "down jacket",
+                                                   "quilted", "puffer"}
+    assert "jacket" not in shopping._garment_aliases("puffer")

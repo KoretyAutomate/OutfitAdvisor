@@ -396,10 +396,10 @@ def test_a_garment_owned_but_UNSUITABLE_is_still_a_gap():
     and was found wanting — so the alternatives filter must not apply to them.
     Raised by the pre-push reviewer, 2026-08-27.
     """
-    roles = {"shell": ["outer"], "tee": ["base"]}
+    # `unsuitable` bypasses the alternatives test — that is its purpose.
     assert closet_mod._missing_slots([], {"outer": None, "base": "tee"},
-                                     {"outer", "base"}, set(), roles,
-                                     {"outer"}) == ["outer"]
+                                     {"outer", "base"}, set(),
+                                     lambda slot: True, {"outer"}) == ["outer"]
 
 
 def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
@@ -411,17 +411,18 @@ def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
     the shopping list recommending a coat the person already owns. Raised by the
     pre-push reviewer, 2026-08-27.
     """
-    roles = {"coat1": ["outer"], "tee1": ["base"]}
     # No `unsuitable` — the pick was cleared for being a MISCHOICE (wrong role, or a
-    # duplicate), and another item fills the slot fine.
+    # duplicate), and another item fills the slot fine. The predicate is the same
+    # one the clearing steps use: unused, warm enough, legal.
     assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
-                                     {"outer", "base"}, set(), roles, set()) == []
+                                     {"outer", "base"}, set(),
+                                     lambda slot: slot == "outer", set()) == []
 
 
 def test_it_IS_a_gap_when_nothing_in_the_wardrobe_can_fill_it():
-    roles = {"tee1": ["base"]}
     assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
-                                     {"outer", "base"}, set(), roles, set()) == ["outer"]
+                                     {"outer", "base"}, set(),
+                                     lambda slot: False, set()) == ["outer"]
 
 
 def test_a_check_that_cannot_run_does_not_pass_everything():
@@ -475,3 +476,24 @@ def test_warmth_only_constrains_the_outer_layer():
     """A thin base is not a gap; the warmth rule is about what is outermost."""
     assert closet_mod._has_suitable_alternative(
         "base", {}, BY_ITEM, BY_ROLES, 4.0, [])
+
+
+def test_one_shirt_playing_two_roles_does_not_hide_the_second_gap():
+    """The aggregate role set was too coarse.
+
+    A single shirt that can play base OR mid, left in base by the deduplicator, made
+    `mid` look filled — so a real mid gap never reached the shopping evidence. The
+    predicate asks whether an UNUSED garment can fill the slot. Raised by the
+    pre-push reviewer, 2026-08-27.
+    """
+    by_item = {"shirt": {"id": "shirt", "warmth": 2, "label": "oxford",
+                         "type": "shirt", "colors": []}}
+    by_roles = {"shirt": ["base", "mid"]}
+    # The shirt is worn in base, so nothing is left for mid.
+    assert not closet_mod._has_suitable_alternative(
+        "mid", {"base": "shirt"}, by_item, by_roles, 12.0, [])
+    assert closet_mod._missing_slots(
+        [], {"base": "shirt", "mid": None}, {"base", "mid"}, set(),
+        lambda slot: closet_mod._has_suitable_alternative(
+            slot, {"base": "shirt", "mid": None}, by_item, by_roles, 12.0, []),
+        set()) == ["mid"]

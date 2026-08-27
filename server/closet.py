@@ -20,6 +20,7 @@ import this, so there is no cycle.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import rules
@@ -545,7 +546,7 @@ def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: d
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,
                    covered: set | None = None,
-                   by_roles: dict | None = None,
+                   can_fill: "Callable[[str], bool] | None" = None,
                    unsuitable: set | None = None) -> list[str]:
     """Which empty slots are a GAP IN THE WARDROBE, rather than a warm day.
 
@@ -590,10 +591,15 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     # judge and were found wanting, which is exactly the gap this feature exists to
     # notice — a closet holding only a warmth-2 shell must be able to learn that it
     # needs a warmer coat, not merely that it owns no coat.
+    # `can_fill` is the SAME suitability test the clearing steps use — is there an
+    # unused, warm enough, legal garment for this slot. An aggregate "does anything
+    # own this role" set was too coarse: one shirt that can play base OR mid, left
+    # in base by the deduplicator, advertised `mid` as filled and hid a real gap.
+    # Skipped when the test is unavailable, because a check that cannot run must not
+    # silently pass everything.
     mischosen = {c for c in emptied if c not in unsuitable}
-    if by_roles is not None:
-        fillable = {r for roles in by_roles.values() for r in (roles or ())}
-        mischosen = {c for c in mischosen if c not in fillable}
+    if can_fill is not None:
+        mischosen = {c for c in mischosen if not can_fill(c)}
     return sorted(set(named) | set(unsuitable) & set(emptied) | mischosen,
                   key=CATEGORIES.index)
 
@@ -763,6 +769,9 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                 if not _has_suitable_alternative(c, picks, by_item, by_roles,
                                                  _plan_temp(w), list(prefs.rules)):
                     unsuitable.add(c)
+        def can_fill(slot: str, _p=picks) -> bool:
+            return _has_suitable_alternative(slot, _p, by_item, by_roles,
+                                             _plan_temp(w), list(prefs.rules))
         text = _assemble_text(out, banned_labels, prefs, picks, by_item)
         if not text:
             log.warning("closet attempt %s: empty bullets", attempt + 1)
@@ -770,7 +779,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             continue
         return {"picks": picks, "text": text,
                 "missing": _missing_slots(out.get("missing"), picks, filled_before,
-                                          covered, by_roles, unsuitable)}
+                                          covered, can_fill, unsuitable)}
     log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

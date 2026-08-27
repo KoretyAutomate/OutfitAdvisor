@@ -183,6 +183,18 @@ def _alias_hit(alias: str, what: str) -> bool:
     return any(t == alias or (len(alias) >= 4 and t.endswith(alias)) for t in toks)
 
 
+def _alias_words(value: object) -> set:
+    """The aliases as WORDS, for comparing against a word set.
+
+    _garment_aliases returns phrases, because a ban has to match "down jacket" as a
+    phrase and not on the word "down" alone. Ownership is a different question,
+    asked of a word set — so an item of type `puffer` contributed the single string
+    "down jacket", which is in no word set, and a suggested "down jacket" read as
+    something new. Same source, two shapes, one for each question.
+    """
+    return {w for phrase in _garment_aliases(value) for w in phrase.split(" ") if w}
+
+
 def _words(s: object) -> set:
     return {w for w in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(w) > 2}
 
@@ -213,7 +225,7 @@ def _already_owned(what: str, closet: list[dict]) -> bool:
     # t-shirt" of type t_shirt has no "tee" in its label, so a suggestion of a
     # "cotton tee" read as something new — the same canonical-versus-spoken gap the
     # ban check had.
-    return any(want <= (_words(i.get("label")) | _garment_aliases(i.get("type")))
+    return any(want <= (_words(i.get("label")) | _alias_words(i.get("type")))
                for i in closet)
 
 

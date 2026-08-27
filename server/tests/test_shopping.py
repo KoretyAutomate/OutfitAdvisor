@@ -761,3 +761,30 @@ def test_the_floor_is_low_enough_not_to_silence_a_short_winter():
 def test_every_field_a_ban_names_must_match(sel, what, banned):
     import shopping
     assert shopping._is_banned(what, "outer", [{"kind": "avoid_item", "a": sel}]) is banned
+
+
+def test_a_brand_labelled_garment_is_recognised_by_its_kind():
+    """An item labelled "Patagonia" of type `puffer` is still a puffer.
+
+    _garment_aliases returns PHRASES, because a ban must match "down jacket" as a
+    phrase and not on "down" alone. Ownership is asked of a word set, so the phrase
+    matched nothing and the already-owned garment could be recommended. Same source,
+    two shapes, one for each question. Raised by the pre-push reviewer, 2026-08-27.
+    """
+    import shopping
+    closet = [{"label": "Patagonia", "type": "puffer"}]
+    assert shopping._already_owned("down jacket", closet)
+    assert shopping._already_owned("quilted jacket", closet)
+    assert not shopping._already_owned("wool overcoat", closet)
+
+
+def test_the_ban_still_reads_a_multi_word_alias_as_a_phrase():
+    """The two shapes must not collapse into one.
+
+    If ownership's word-splitting leaked into the ban, "down" alone would match
+    again and a puffer ban would refuse a button-down shirt.
+    """
+    import shopping
+    assert "down jacket" in shopping._garment_aliases("puffer")
+    assert not shopping._is_banned("button-down shirt", "base",
+                                   [{"kind": "avoid_item", "a": {"type": "puffer"}}])

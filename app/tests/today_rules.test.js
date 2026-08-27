@@ -672,6 +672,18 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and reading it again does not count the morning twice",
     w5.eval(`gaps.length`) === 2, w5.eval(`gaps.length`));
 
+  console.log("\n--- 13c. buying the thing settles the argument ------------------");
+  /* Evidence is about a wardrobe that no longer exists once something is added to
+     it. Seven outer gaps, then a coat arrives — and without this the button stays
+     lit and the endpoint is handed seven reasons to recommend another coat. Raised
+     by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9},
+            {slot:"mid",day:"2026-08-20",lo:2,hi:9}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer"})`);
+  check("adding a coat forgets the outer gaps it answers",
+    ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+  check("and leaves the ones it does not", ev(`gaps.length`) === 1);
+
   console.log("\n--- 14. purchase suggestions ------------------------------------");
   /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
      mornings than that would be a catalogue dressed up as an argument. */

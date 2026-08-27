@@ -534,3 +534,27 @@ def test_a_suggestion_for_a_slot_that_never_came_up_short_is_dropped(monkeypatch
                    '"verdict":"v"}')
     # _suggest submits a single `outer` gap.
     assert [s["slot"] for s in out["suggestions"]] == ["outer"]
+
+
+def test_a_warmer_coat_can_be_suggested_to_someone_who_owns_a_coat():
+    """The invariant that makes this safe, and the reason type-matching is refused.
+
+    A slot only enters the evidence when picks._missing_slots found nothing in the
+    wardrobe that could fill it. So owning a coat AND having an outer gap means the
+    coat is not up to the weather — and "a wool overcoat" is precisely what should
+    be said. Blocking it because the person owns something of type `coat` would
+    leave them with a gap the advisor can see, has evidence for, and may not name.
+
+    A reviewer asked for that block on 2026-08-27; this is the reason it was not
+    added, pinned so the next reader does not have to reconstruct it.
+    """
+    thin = {"acme": {"id": "acme", "warmth": 2, "label": "Acme", "type": "coat",
+                     "colors": []}}
+    roles = {"acme": ["outer"]}
+    assert not picks_mod._has_suitable_alternative("outer", {}, thin, roles, 4.0, [])
+
+    warm = {"acme": {**thin["acme"], "warmth": 5}}
+    assert picks_mod._has_suitable_alternative("outer", {}, warm, roles, 4.0, [])
+    # With an adequate coat there is no outer gap, so nothing is suggested for it.
+    assert picks_mod._missing_slots([], {"outer": None}, {"outer"}, set(),
+                                    lambda s: True, set()) == []

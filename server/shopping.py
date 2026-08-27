@@ -115,6 +115,18 @@ def _already_owned(what: str, closet: list[dict]) -> bool:
     Matched on the item's own words: a suggestion whose every meaningful word
     appears in something owned is that thing described again. "navy merino tee"
     against "navy merino crew-neck tee" is the same garment; "wool overcoat" is not.
+
+    Deliberately NOT matched on the garment TYPE, though a reviewer asked for it
+    (2026-08-27): "they own something of type coat, so refuse a wool overcoat".
+
+    That would delete the most useful answer this feature has. A suggestion only
+    reaches here for a slot the evidence names, and a slot only enters the evidence
+    when picks._missing_slots found nothing in the wardrobe that could fill it —
+    either nothing with the role at all, or the item there was too thin or banned
+    and no alternative existed. So owning a coat AND having an outer gap means the
+    coat is not up to the weather, and "a wool overcoat" is exactly the right thing
+    to say. Refusing it on the type would leave the person with a gap the advisor
+    can see, has evidence for, and is forbidden to name.
     """
     want = _words(what)
     if not want:

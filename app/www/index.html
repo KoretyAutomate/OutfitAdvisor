@@ -1481,6 +1481,7 @@ async function addItem(source){
     waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
+  await clearGapsFilledBy(item);   // this may be the coat those gaps were about
   await saveCloset();
   toast(meta?"Added to your closet — tap to tweak":"Saved — advisor unreachable, add the details yourself");
   openSheet(item,{isNew:false});
@@ -3056,6 +3057,21 @@ async function recordGaps(missing,w){
     refreshShopping();
   }
 }
+/* Buying the thing settles the argument.
+   Evidence is about a wardrobe that no longer exists once something is added to it:
+   seven outer gaps, then a coat arrives, and without this the button stays lit and
+   the endpoint is handed seven reasons to recommend another coat. Adding an item
+   clears the slots it can fill.
+   Only ADDING. Removing or editing an item can create a gap, never resolve one, so
+   there is nothing to forget. */
+async function clearGapsFilledBy(item){
+  if(!item) return;
+  const roles=new Set(normRoles(item.roles,item.category));
+  const before=gaps.length;
+  gaps=gaps.filter(g=>!roles.has(g.slot));
+  if(gaps.length!==before){ await saveGaps(); refreshShopping(); }
+}
+
 /* The record as the server wants it: one row per slot, with how many mornings and
    the range of weather they happened in. */
 function gapSummary(){

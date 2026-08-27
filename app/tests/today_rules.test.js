@@ -534,15 +534,23 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and the morning push is told as well",
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly === true,
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly);
-  check("the worker forwards it",
-    /optBoolean\("closetOnly"/.test(kt) && /body\.put\("closetOnly", true\)/.test(kt));
-  /* And forwards it BEFORE anything can return early. The empty-closet return is
-     exactly the morning the whole wardrobe is in the wash — which is when somebody
-     who set this most needs the honest answer rather than a catalogue. Raised by
-     the pre-push reviewer, 2026-08-27. */
-  check("before the empty-closet return, not after it",
-    kt.indexOf('body.put("closetOnly", true)') < kt.indexOf("if (closet.length() == 0) return"),
-    "closetOnly is dropped when nothing is wearable");
+  /* The worker reads the tickbox from its OWN preference, not out of the wardrobe
+     snapshot. The flag is a standing instruction about the wardrobe — it does not
+     go stale with a snapshot — and every early return below it (no payload, too
+     old, past a trip boundary, nothing wearable) is a morning when generic
+     catalogue advice would break the promise most quietly. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  const jsFlagKey = (fs.readFileSync(HTML, "utf8")
+    .match(/prefSet\("(oa\.closetComplete)"/) || [])[1];
+  const ktFlagKey = (kt.match(/const val KEY_CLOSET_COMPLETE = "([^"]+)"/) || [])[1];
+  check("the phone and the worker agree on the tickbox key",
+    jsFlagKey === ktFlagKey, { jsFlagKey, ktFlagKey });
+  check("the worker forwards it", /body\.put\("closetOnly", true\)/.test(kt));
+  check("before every early return, so no rejection below can drop it",
+    ["KEY_PUSH_PAYLOAD, null) ?: return", "today() >= validBefore",
+     "if (closet.length() == 0) return"].every(
+       marker => kt.indexOf('body.put("closetOnly", true)') < kt.indexOf(marker)),
+    "closetOnly is dropped on one of the early-return paths");
 
   console.log("\n--- 13. what the wardrobe could not cover -----------------------");
   /* Recorded ONLY while the wardrobe is declared complete. Otherwise an empty slot

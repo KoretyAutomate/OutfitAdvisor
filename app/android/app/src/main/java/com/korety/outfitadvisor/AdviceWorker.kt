@@ -280,6 +280,14 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         try {
             val prefs = applicationContext
                 .getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+            // Read from its OWN preference, before anything below can return. The
+            // flag is a standing instruction about the wardrobe — it does not go
+            // stale with a snapshot, and every one of the rejections below (no
+            // payload, too old, past a trip boundary, nothing wearable) is a
+            // morning when generic catalogue advice would break the promise most
+            // quietly. The app writes this key whenever the tickbox changes.
+            if (prefs.getString(KEY_CLOSET_COMPLETE, "0") == "1")
+                body.put("closetOnly", true)
             val raw = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
             val p = JSONObject(raw)
             val age = System.currentTimeMillis() - p.optLong("at", 0L)
@@ -297,12 +305,6 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // last good day.
             val validBefore = p.optString("validBefore", "")
             if (validBefore.isNotEmpty() && today() >= validBefore) return
-            // "My closet is complete" is forwarded FIRST, before anything can
-            // return early. It describes the wardrobe, not today's laundry — and
-            // the empty-closet case below is exactly when the wardrobe is all in
-            // the wash, which is the morning a user who set this most needs the
-            // honest answer rather than a catalogue.
-            if (p.optBoolean("closetOnly", false)) body.put("closetOnly", true)
             val closet = p.optJSONArray("closet") ?: return
             if (closet.length() == 0) return
             body.put("closet", closet)
@@ -331,6 +333,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val KEY_TODAY = "oa.today"
         /** Twin of PUSH_PAYLOAD_KEY in index.html — the app writes it, this reads it. */
         const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
+        /** Twin of "oa.closetComplete" in index.html — the tickbox, read directly. */
+        const val KEY_CLOSET_COMPLETE = "oa.closetComplete"
         /** Past this the payload no longer describes the wardrobe; send nothing. */
         const val PUSH_PAYLOAD_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
         // How long to wait for WakeActivity's fix when we cannot read location

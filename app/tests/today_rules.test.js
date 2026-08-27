@@ -559,6 +559,18 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   await ev(`recordGaps([], ${JSON.stringify(WX)})`);
   check("a day with nothing missing records nothing", ev(`gaps.length`) === 0);
 
+  /* Expiry applies on READ. Pruning only inside saveGaps meant records expired
+     only when a NEW gap arrived, so a wardrobe that stopped falling short kept its
+     evidence for ever and could still be offered suggestions argued from a winter
+     it had already fixed. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[{slot:"outer",day:"2020-01-01",lo:2,hi:9},
+            {slot:"mid",day:todayISO(),lo:4,hi:11}];`);
+  check("evidence past its keep-window is not counted",
+    ev(`gapSummary()`).length === 1 && ev(`gapSummary()`)[0].slot === "mid",
+    ev(`gapSummary()`));
+  check("nor does it make the button think a week has passed",
+    ev(`shoppingDays()`) === 1, ev(`shoppingDays()`));
+
   ev(`gaps=[{slot:"outer",day:"2026-08-01",lo:2,hi:9},
             {slot:"outer",day:"2026-08-02",lo:4,hi:11},
             {slot:"mid",day:"2026-08-02",lo:4,hi:11}];`);

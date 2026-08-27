@@ -426,6 +426,30 @@ def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str
     return "", _dedupe_picks(picks, by_cat)
 
 
+def _missing_slots(claimed: object, picks: dict, filled_before: set) -> list[str]:
+    """Which empty slots are a GAP IN THE WARDROBE, rather than a warm day.
+
+    Two sources, because the model only knows about one of them.
+
+    What it claims: slots it left null because nothing suitable was listed. Filtered
+    to the ones that are actually empty — a model naming a slot it then filled would
+    have the phone remembering a gap that never existed.
+
+    What VALIDATION emptied: a slot the model filled and this module then cleared —
+    a duplicate, an item in a role it cannot play, a garment too thin for the cold,
+    one the wearer has banned. Every one of those means the wardrobe had nothing
+    legal for that slot, which is exactly a gap; and because the model believed it
+    was filled, it never appears in `claimed`. Without this the slot reads "None
+    needed" — the weather excused it — and the shopping list never hears about it.
+
+    _onepiece_conflicts is the deliberate exception and is handled by its own path:
+    bottoms cleared under a dress is not a hole in the wardrobe, it is a dress.
+    """
+    named = [c for c in (claimed or []) if c in CATEGORIES and not picks.get(c)]
+    emptied = [c for c in filled_before if not picks.get(c) and c != "bottoms"]
+    return sorted(set(named) | set(emptied), key=CATEGORIES.index)
+
+
 def _unknown_ids(picks: dict, valid_ids: set) -> str:
     """A corrective note naming ids that are not in the wardrobe, or "" if all are.
 
@@ -530,6 +554,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # carries them as prose, and prose in a prompt is followed most of the time,
         # which is not the same as followed. "This combination shall be banned" is a
         # promise the user is entitled to see kept every morning (2026-08-24).
+        filled_before = {c for c, v in picks.items() if v}
         rule_note, banned_labels = _enforce_user_rules(picks, by_item, list(prefs.rules), attempt)
         if rule_note:
             error_note = rule_note
@@ -579,12 +604,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             tip = ""
         if tip:
             text += f"\n\n💡 {tip}"
-        # Slots the wardrobe could not fill, filtered to the ones that are ACTUALLY
-        # empty — a model naming a slot it then filled would otherwise report a gap
-        # that is not one, and the phone would remember it for weeks.
-        missing = [c for c in out.get("missing") or []
-                   if c in CATEGORIES and not picks.get(c)]
-        return {"picks": picks, "text": text, "missing": missing}
+        return {"picks": picks, "text": text,
+                "missing": _missing_slots(out.get("missing"), picks, filled_before)}
     log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

@@ -2962,9 +2962,17 @@ async function run(){
    about where somebody was on a Tuesday. */
 const GAP_KEEP_DAYS=90;
 let gaps=[];   // {slot, day, lo, hi}
-async function saveGaps(){
+/* Pruned on READ, not only on write.
+   Expiring records inside saveGaps alone meant they expired only when a NEW gap
+   arrived — so a wardrobe that stopped falling short kept its old evidence for
+   ever, and could still be offered suggestions argued from a winter it had already
+   fixed. Anything that reads the record reads it through here. */
+const liveGaps=()=>{
   const cut=dayISO(Date.now()-GAP_KEEP_DAYS*DAY_MS);
-  gaps=gaps.filter(g=>g.day>=cut).slice(-400);
+  return gaps.filter(g=>g&&g.day>=cut);
+};
+async function saveGaps(){
+  gaps=liveGaps().slice(-400);
   await prefSet("oa.gaps", JSON.stringify(gaps));
 }
 /* One entry per slot per DAY. Tapping refresh five times is one cold morning, not
@@ -2991,7 +2999,7 @@ async function recordGaps(missing,w){
    the range of weather they happened in. */
 function gapSummary(){
   const by=new Map();
-  for(const g of gaps){
+  for(const g of liveGaps()){
     const e=by.get(g.slot);
     if(e){ e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
     else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
@@ -3005,7 +3013,7 @@ function gapSummary(){
    than by greying out a button and leaving the user to guess why. */
 const SHOP_MIN_DAYS=7;
 let shopBusy=false;
-function shoppingDays(){ return new Set(gaps.map(g=>g.day)).size; }
+function shoppingDays(){ return new Set(liveGaps().map(g=>g.day)).size; }
 function refreshShopping(){
   const btn=$("shopBtn"), note=$("shopNote"); if(!btn) return;
   const days=shoppingDays(), n=gapSummary().length;
@@ -3370,6 +3378,7 @@ async function load(){
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
+  gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant

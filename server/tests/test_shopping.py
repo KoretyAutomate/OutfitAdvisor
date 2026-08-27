@@ -146,3 +146,43 @@ def test_the_verdict_ends_on_a_word(monkeypatch):
     assert not out["verdict"].rstrip("…").endswith(" ")
     assert out["verdict"].endswith("…"), "a trimmed verdict should say it was trimmed"
     assert " " in out["verdict"] and not out["verdict"][:-1].endswith("ess")
+
+
+# ── a slot VALIDATION emptied is a gap too ─────────────────────────────────────
+
+def test_a_slot_we_cleared_ourselves_counts_as_missing():
+    """The model only knows about the gaps IT left.
+
+    A slot it filled and this module then cleared — a duplicate, an item in a role
+    it cannot play, a garment too thin for the cold, one the wearer has banned —
+    means the wardrobe had nothing legal for that slot. That is exactly a gap, and
+    because the model believed the slot was filled it never appears in `missing`.
+    Without this the slot reads "None needed", the weather takes the blame, and the
+    shopping list never hears about it. Raised by the pre-push reviewer, 2026-08-27.
+    """
+    got = closet_mod._missing_slots(["outer"], {"outer": None, "mid": None, "base": "x"},
+                                    {"mid", "base"})
+    assert got == ["mid", "outer"]
+
+
+def test_a_slot_the_model_claims_but_then_fills_is_not_a_gap():
+    """Otherwise the phone remembers a hole that was never there, for weeks."""
+    assert closet_mod._missing_slots(["base"], {"base": "x"}, set()) == []
+
+
+def test_bottoms_cleared_under_a_dress_is_not_a_gap():
+    """A dress covers the legs. That is a dress, not a hole in the wardrobe."""
+    assert closet_mod._missing_slots([], {"bottoms": None, "base": "d1"},
+                                     {"bottoms", "base"}) == []
+
+
+def test_the_slots_come_back_in_wearing_order():
+    """The phone lists them; inner-outwards is the order everything else uses."""
+    got = closet_mod._missing_slots(["footwear", "inner", "outer"],
+                                    {"inner": None, "outer": None, "footwear": None}, set())
+    assert got == ["inner", "outer", "footwear"]
+
+
+def test_junk_from_the_model_is_ignored():
+    assert closet_mod._missing_slots(["elbow", None, 7], {"outer": None}, set()) == []
+    assert closet_mod._missing_slots(None, {"outer": None}, set()) == []

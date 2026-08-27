@@ -2408,6 +2408,14 @@ async function cancelTrip(trip){
    suitcase. The morning push follows you to the destination by GPS, so without this
    it would cheerfully recommend the coat hanging at home, 800km away. During the
    trip window we send ONLY the packed items, capped at the packed quantity. */
+/* Everything OWNED, normalised the way the server expects — availability aside.
+   "What should I buy?" is a question about the wardrobe, not about this morning. */
+function closetOwned(){
+  return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
+    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
+    availableCount:Math.max(1,i.count||1)}));
+}
 function closetPayload(){
   const trip=tripInProgress();
   const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
@@ -3047,7 +3055,11 @@ async function askShopping(){
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/shopping",{
       method:"POST",headers:{"Content-Type":"application/json",
         "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
-      body:JSON.stringify({closet:closetPayload(),gaps:gapSummary(),tempOffset,
+      // The WHOLE wardrobe, not closetPayload(). That one answers "what can be worn
+      // today" — it drops the laundry, and on a trip it is the suitcase. Sending it
+      // would let the advisor recommend a coat hanging at home because it happened
+      // to be in the wash, which is the one thing this endpoint must not do.
+      body:JSON.stringify({closet:closetOwned(),gaps:gapSummary(),tempOffset,
         rules:userRules.map(x=>({kind:x.kind,a:x.a,b:x.b||null,id:x.id,text:x.text}))})});
     if(!r.ok) throw new Error("server "+r.status);
     renderShopping(await r.json());

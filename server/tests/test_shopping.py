@@ -237,6 +237,11 @@ def test_a_failed_generation_does_not_dress_a_complete_closet_from_a_catalogue(m
             continue
         assert value.startswith("None"), f"{slot} was filled with {value!r}"
     assert body["missing"] == [], "a failure is not evidence about the wardrobe"
+    # The TEXT as well. outfit_text() writes from a catalogue, and it is the
+    # notification's headline — emptying the slots while the prose still says "wear
+    # a coat" keeps the promise everywhere except where the user reads it.
+    assert "coat" not in body["outfit_text"].lower(), body["outfit_text"]
+    assert "Nothing to suggest" in body["outfit_text"]
 
 
 def test_without_the_flag_the_fallback_still_helps(monkeypatch):

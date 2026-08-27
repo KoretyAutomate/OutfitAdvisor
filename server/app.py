@@ -233,12 +233,18 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     # arrives as an empty list, and that is the day the promise matters most: the
     # honest answer is "nothing you own is wearable", not a catalogue.
     if req.closetOnly and not closet_used:
+        why = ("nothing of yours is wearable today" if not req.closet
+               else "the advisor couldn't answer just now")
         for slot in vocab.CATEGORIES:
-            outfit[slot] = ("None — nothing of yours is wearable today"
-                            if not req.closet else
-                            "None — the advisor couldn't answer just now")
+            outfit[slot] = f"None — {why}"
         missing = []          # a failure is not evidence about the wardrobe
-        log.info("advice closet-only fallback: emptied slots rather than inventing")
+        # The TEXT as well, not only the structured outfit. outfit_text() writes
+        # from a catalogue, and it is the notification's headline — emptying the
+        # slots while the prose still says "wear a warm coat" would leave the
+        # promise kept everywhere except the place the user actually reads.
+        text = (f"• Nothing to suggest — {why}.\n"
+                "• Your closet is set to 'complete', so nothing outside it is offered.")
+        log.info("advice closet-only fallback: emptied slots and prose")
 
     source = "llm"
     if not text:

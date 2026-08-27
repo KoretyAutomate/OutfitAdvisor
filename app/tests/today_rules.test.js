@@ -630,6 +630,13 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
         {what:"wool overcoat", slot:"outer", why:"empty on nine mornings", priority:1}],
         verdict:"One real gap."})}; };`);
   await ev(`askShopping()`);
+  /* The WHOLE wardrobe, not what is wearable today. closetPayload() drops the
+     laundry and becomes the suitcase on a trip — sending it would let the advisor
+     recommend a coat hanging at home because it happened to be in the wash, which
+     is the one thing this endpoint must not do. Raised by the pre-push reviewer. */
+  check("the request describes what they OWN, not what is clean",
+    (ev(`__sent.closet`) || []).length === ev(`closet.length`),
+    { sent: (ev(`__sent.closet`) || []).length, owned: ev(`closet.length`) });
   check("the request carries the evidence, not just the closet",
     (ev(`__sent.gaps`) || []).length === 1 && ev(`__sent.gaps[0].n`) === 9,
     ev(`__sent.gaps`));

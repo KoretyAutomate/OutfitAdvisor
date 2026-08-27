@@ -2993,7 +2993,13 @@ async function recordGaps(missing,w){
     gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi)});
     added=true;
   }
-  if(added) await saveGaps();
+  if(added){
+    await saveGaps();
+    // The week may have just completed. Without this the button stays disabled and
+    // its count stale until some unrelated closet action or a relaunch — the
+    // feature would appear a day late, for no reason the user could see.
+    refreshShopping();
+  }
 }
 /* The record as the server wants it: one row per slot, with how many mornings and
    the range of weather they happened in. */

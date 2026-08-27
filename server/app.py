@@ -220,6 +220,21 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         # result None -> honest generic fallback below, closetUsed stays False
         # (plan amendments 3 & 9: never mislabel non-closet advice).
 
+    # The tickbox has to hold when things go WRONG, not only when they go right.
+    # closet_outfit returns None on a malformed reply or an unreachable model, and
+    # the fallback below is the rule engine — which dresses from a catalogue and
+    # knows nothing about this wardrobe. Serving that to someone who has said "only
+    # what I own" breaks the promise in exactly the case they cannot check.
+    #
+    # So the slots are emptied rather than filled with clothes that do not exist,
+    # and every one of them is reported missing: on a day the advisor could not
+    # answer, the wardrobe genuinely covered nothing.
+    if req.closetOnly and req.closet and not closet_used:
+        for slot in vocab.CATEGORIES:
+            outfit[slot] = "None — the advisor couldn't answer just now"
+        missing = []          # a failure is not evidence about the wardrobe
+        log.info("advice closet-only fallback: emptied slots rather than inventing")
+
     source = "llm"
     if not text:
         text = await llm.outfit_text(wc, req.gender, req.style)

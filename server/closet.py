@@ -445,7 +445,8 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set) -> list[str
     _onepiece_conflicts is the deliberate exception and is handled by its own path:
     bottoms cleared under a dress is not a hole in the wardrobe, it is a dress.
     """
-    named = [c for c in (claimed or []) if c in CATEGORIES and not picks.get(c)]
+    seq = claimed if isinstance(claimed, list) else []
+    named = [c for c in seq if c in CATEGORIES and not picks.get(c)]
     emptied = [c for c in filled_before if not picks.get(c) and c != "bottoms"]
     return sorted(set(named) | set(emptied), key=CATEGORIES.index)
 
@@ -520,6 +521,12 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             error_note = "Your last reply was not the required JSON. "
             continue
         picks = {c: out["picks"].get(c) for c in CATEGORIES}
+        # Snapshot BEFORE any repair runs. Every clearing step below — the duplicate
+        # resolver, the role check, the warmth check, the rule repair — empties a
+        # slot the model believed it had filled, and each of those is a wardrobe gap
+        # the model will not report. Taken after one of them, that step's own
+        # casualties would be invisible.
+        filled_before = {c for c, v in picks.items() if v}
         unknown = _unknown_ids(picks, valid_ids)
         if unknown:
             error_note = unknown
@@ -554,7 +561,6 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # carries them as prose, and prose in a prompt is followed most of the time,
         # which is not the same as followed. "This combination shall be banned" is a
         # promise the user is entitled to see kept every morning (2026-08-24).
-        filled_before = {c for c, v in picks.items() if v}
         rule_note, banned_labels = _enforce_user_rules(picks, by_item, list(prefs.rules), attempt)
         if rule_note:
             error_note = rule_note

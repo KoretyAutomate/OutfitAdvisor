@@ -590,6 +590,20 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /a week of mornings/.test(w.document.getElementById("shopNote").textContent),
     w.document.getElementById("shopNote").textContent);
 
+  /* Recording the seventh morning must OPEN the feature, then and there. Without
+     a refresh the button stayed disabled and its count stale until some unrelated
+     closet action or a relaunch — the feature would appear a day late for no
+     reason the user could see. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`closetComplete=true;
+      gaps=Array.from({length:6},(_,i)=>({slot:"outer",
+        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9}));
+      refreshShopping();`);
+  check("six mornings is not yet a week", w.document.getElementById("shopBtn").disabled);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)})`);
+  check("recording the seventh opens it immediately, with no reload",
+    w.document.getElementById("shopBtn").disabled === false,
+    w.document.getElementById("shopNote").textContent);
+
   ev(`gaps=Array.from({length:9},(_,i)=>({slot:"outer",
         day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9})); refreshShopping();`);
   check("offered once a week of mornings has gone wrong",

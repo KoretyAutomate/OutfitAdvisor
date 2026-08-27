@@ -186,3 +186,66 @@ def test_the_slots_come_back_in_wearing_order():
 def test_junk_from_the_model_is_ignored():
     assert closet_mod._missing_slots(["elbow", None, 7], {"outer": None}, set()) == []
     assert closet_mod._missing_slots(None, {"outer": None}, set()) == []
+
+
+# ── the promise has to hold when things go wrong ───────────────────────────────
+
+def test_a_failed_generation_does_not_dress_a_complete_closet_from_a_catalogue(monkeypatch):
+    """closet_outfit returns None on a malformed reply or an unreachable model.
+
+    The fallback is the rule engine, which dresses from a catalogue and knows
+    nothing about this wardrobe. Serving that to someone who has said "only what I
+    own" breaks the promise in exactly the case they cannot check — a degraded day,
+    where every other signal already looks normal. Raised by the pre-push reviewer.
+    """
+    async def no_answer(*a, **k):
+        return None
+
+    async def fake_weather(*a, **k):
+        return {"lo": 2, "hi": 9, "feelsLo": 0, "feelsHi": 7, "desc": "Cold",
+                "rain": 10, "wind": 4, "morning": 3, "midday": 8, "evening": 5,
+                "swing": 7, "isRain": False, "isSnow": False, "code": 3,
+                "emoji": "☁️", "date": "2026-08-27", "timezone": "America/New_York"}
+
+    async def fake_text(*a, **k):
+        return "• wear a coat"
+
+    monkeypatch.setattr(app_mod.closet_llm, "closet_outfit", no_answer)
+    monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
+    monkeypatch.setattr(app_mod.llm, "outfit_text", fake_text)
+
+    r = client.post("/advice", json={"lat": 40.35, "lon": -74.66, "gender": "man",
+                                     "style": "casual", "closetOnly": True,
+                                     "closet": [ITEM]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["closetUsed"] is False
+    for slot, value in body["outfit"].items():
+        if slot == "tip":
+            continue
+        assert value.startswith("None"), f"{slot} was filled with {value!r}"
+    assert body["missing"] == [], "a failure is not evidence about the wardrobe"
+
+
+def test_without_the_flag_the_fallback_still_helps(monkeypatch):
+    """Anyone who has not declared their wardrobe complete still wants the hint."""
+    async def no_answer(*a, **k):
+        return None
+
+    async def fake_weather(*a, **k):
+        return {"lo": 2, "hi": 9, "feelsLo": 0, "feelsHi": 7, "desc": "Cold",
+                "rain": 10, "wind": 4, "morning": 3, "midday": 8, "evening": 5,
+                "swing": 7, "isRain": False, "isSnow": False, "code": 3,
+                "emoji": "☁️", "date": "2026-08-27", "timezone": "America/New_York"}
+
+    async def fake_text(*a, **k):
+        return "• wear a coat"
+
+    monkeypatch.setattr(app_mod.closet_llm, "closet_outfit", no_answer)
+    monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
+    monkeypatch.setattr(app_mod.llm, "outfit_text", fake_text)
+
+    body = client.post("/advice", json={"lat": 40.35, "lon": -74.66, "gender": "man",
+                                        "style": "casual", "closet": [ITEM]}).json()
+    assert any(not str(v).startswith("None")
+               for k, v in body["outfit"].items() if k != "tip")

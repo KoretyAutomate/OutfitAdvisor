@@ -518,3 +518,19 @@ def test_a_slot_already_proven_short_skips_the_test_it_has_passed():
     """`unsuitable` is only ever set after _has_suitable_alternative found nothing."""
     assert picks_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
                                      lambda slot: True, {"outer"}) == ["outer"]
+
+
+def test_a_suggestion_for_a_slot_that_never_came_up_short_is_dropped(monkeypatch):
+    """Evidence only.
+
+    A slot with no recorded gap has never once come up short, so a suggestion for it
+    is not an argument — it is the catalogue this endpoint exists to avoid, arriving
+    under the same heading as the reasoned ones and indistinguishable from them.
+    Raised by the pre-push reviewer, 2026-08-27.
+    """
+    out = _suggest(monkeypatch, '{"suggestions": ['
+                   '{"what":"leather boots","slot":"footwear","why":"x","priority":1},'
+                   '{"what":"wool overcoat","slot":"outer","why":"y","priority":1}],'
+                   '"verdict":"v"}')
+    # _suggest submits a single `outer` gap.
+    assert [s["slot"] for s in out["suggestions"]] == ["outer"]

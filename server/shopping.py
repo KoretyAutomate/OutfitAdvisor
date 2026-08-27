@@ -72,6 +72,7 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
                                   max_tokens=700, timeout=60))
     if not isinstance(out, dict) or not isinstance(out.get("suggestions"), list):
         return None
+    evidenced = {g.get("slot") for g in gaps}
     clean = []
     for sug in out["suggestions"][:5]:
         if not isinstance(sug, dict):
@@ -84,6 +85,12 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
         # Saying it is not enforcing it, and both failures are the kind a reader
         # cannot spot: a second navy tee looks like a reasonable suggestion, and a
         # banned garment looks like advice until it arrives in the post.
+        # EVIDENCE ONLY. A slot with no recorded gap has never once come up short,
+        # so a suggestion for it is not an argument — it is the catalogue this
+        # endpoint exists to avoid, arriving under the same heading as the reasoned
+        # ones and indistinguishable from them.
+        if slot not in evidenced:
+            continue
         if _already_owned(what, closet) or _is_banned(what, slot, rules_):
             continue
         pri = sug.get("priority")

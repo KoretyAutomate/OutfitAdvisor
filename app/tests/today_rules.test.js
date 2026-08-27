@@ -858,6 +858,37 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     w6.localStorage.getItem("oa.gapsPending") === "[]",
     w6.localStorage.getItem("oa.gapsPending"));
 
+  /* A queued morning is judged by the availability of THAT morning. The drain
+     happens later — by which time the laundry has moved on — so using today's
+     would turn a coat that was in the wash into one that was never owned, or the
+     reverse. The worker records which items it actually sent. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  check("the worker records what it sent", /\.put\("sent", sentIds/.test(kt));
+  const COAT = {id:"itm-coat-01", label:"wool coat", category:"outer",
+    group:"outerwear", type:"coat", roles:["outer"], colors:["navy"], warmth:5,
+    formality:["casual"], waterproof:false, count:1};
+  for (const [sent, wantGaps, why] of [
+    [[], 0, "the coat was in the wash that morning, so the slot proves nothing"],
+    [["itm-coat-01"], 1, "the coat WAS sent and the slot was still short"],
+  ]) {
+    const wx = page();
+    wx.localStorage.setItem("oa.closetComplete", "1");
+    wx.localStorage.setItem("oa.closet", JSON.stringify([COAT]));
+    wx.localStorage.setItem("oa.gapsPending", JSON.stringify([
+      { day: "2026-08-21", missing: ["outer"], lo: 2, hi: 9, planTemp: 4, sent }]));
+    await wx.eval("appReady");
+    check(why, wx.eval(`gaps.length`) === wantGaps, wx.eval(`JSON.stringify(gaps)`));
+  }
+
+  /* And the rules must be loaded BEFORE the drain, because judging a queued
+     morning asks whether a withheld garment was banned. */
+  const src = fs.readFileSync(HTML, "utf8");
+  check("the rules are restored before the queue is drained",
+    src.indexOf('prefGet("oa.rules"') < src.lastIndexOf("await drainPendingGaps()"),
+    "a banned garment would count as a suitable alternative on every cold start");
+  check("and so is the closet", 
+    src.indexOf('prefGet("oa.closet"') < src.lastIndexOf("await drainPendingGaps()"));
+
   console.log("\n--- 14. purchase suggestions ------------------------------------");
   /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
      mornings than that would be a catalogue dressed up as an argument. */

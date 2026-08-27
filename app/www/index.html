@@ -3018,7 +3018,7 @@ async function saveGaps(){
    look unfillable, and a week of washing days would have the shopping list
    recommending a replacement for a coat already hanging up. The phone is the only
    party that knows the difference, so it decides here. */
-function ownershipGaps(missing,planTemp){
+function ownershipGaps(missing,planTemp,sentIds){
   if(!Array.isArray(missing)) return [];
   // Only what was WITHHELD counts as a laundry gap. The test is not "do you own
   // something for this slot" — that discards the most valuable signal there is: a
@@ -3030,7 +3030,12 @@ function ownershipGaps(missing,planTemp){
   // So: if something that could fill the slot was kept back today, the slot proves
   // nothing about the wardrobe. If everything that could fill it was sent and the
   // answer was still "nothing suitable", that is a real gap.
-  const sent=new Set(closetPayload().map(i=>i.id));
+  // What was actually SENT that morning, where we know it. A queued observation is
+  // drained later — by which time the laundry has moved on — so judging it by
+  // today's availability turns a coat that was in the wash into one that was never
+  // owned, or the reverse. closetPayload() is the fallback for a live request,
+  // where "now" and "then" are the same moment.
+  const sent=new Set(Array.isArray(sentIds)?sentIds:closetPayload().map(i=>i.id));
   const withheld=new Set();
   for(const i of closet){
     if(sent.has(i.id)) continue;
@@ -3059,18 +3064,18 @@ async function drainPendingGaps(){
   if(!queue.length) return;
   for(const e of queue){
     if(!e||!e.day) continue;
-    await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day);
+    await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day,e.sent);
   }
   await prefSet(GAPS_PENDING_KEY,"[]");
 }
-async function recordGaps(missing,w,planTemp,day){
+async function recordGaps(missing,w,planTemp,day,sentIds){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
   // "you have not photographed it yet", not "you do not own one" — and a week of
   // that would have the advisor recommending a coat the user already has hanging
   // up. It is also what the tickbox's own text promises, and code that contradicts
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
-  missing=ownershipGaps(missing,planTemp);
+  missing=ownershipGaps(missing,planTemp,sentIds);
   if(!missing.length||!w||w.lo==null||w.hi==null) return;
   day=day||todayISO();
   let added=false;
@@ -3551,9 +3556,13 @@ async function load(){
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
-  await drainPendingGaps();   // mornings the push saw while this was shut
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
+  // AFTER the rules and the closet are loaded: judging a queued morning calls
+  // bannedOutright(), which reads userRules. Drained first, every withheld garment
+  // the wearer had banned counted as a suitable alternative and quietly suppressed
+  // the gap it could never have filled.
+  await drainPendingGaps();
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
   // "all calendars" — read it back with exactly that meaning.
   try{

@@ -275,6 +275,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
      * Bounded: past PENDING_MAX days the oldest go, because an app unopened for
      * three months has bigger problems than its evidence queue.
      */
+    /** Item ids attached to this morning's request — see attachWardrobe. */
+    private var sentIds: JSONArray? = null
+
     private fun queueGaps(prefs: android.content.SharedPreferences,
                           raw: JSONObject, day: String) {
         try {
@@ -297,6 +300,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                     .put("lo", w.opt("lo"))
                     .put("hi", w.opt("hi"))
                     .put("planTemp", raw.opt("planTemp"))
+                    .put("sent", sentIds ?: JSONArray())
             )
             val trimmed = JSONArray()
             val from = maxOf(0, out.length() - PENDING_MAX)
@@ -359,6 +363,15 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val closet = p.optJSONArray("closet") ?: return
             if (closet.length() == 0) return
             body.put("closet", closet)
+            // Remember WHICH items went. A gap only excuses itself when something
+            // that could have filled the slot was held back, and the app drains this
+            // queue later — by which time the laundry has moved on. Judging an old
+            // morning by today's availability turns a coat that was in the wash into
+            // one that was never owned, or the reverse.
+            sentIds = JSONArray().apply {
+                for (i in 0 until closet.length())
+                    closet.optJSONObject(i)?.optString("id")?.let { put(it) }
+            }
             val rules = p.optJSONArray("rules")
             if (rules != null && rules.length() > 0) body.put("rules", rules)
         } catch (e: Exception) {

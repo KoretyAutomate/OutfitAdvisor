@@ -711,3 +711,34 @@ def test_a_label_is_read_as_alternatives_not_loose_words():
     assert shopping._garment_aliases("puffer") == {"padded", "down jacket",
                                                    "quilted", "puffer"}
     assert "jacket" not in shopping._garment_aliases("puffer")
+
+
+def test_a_slot_that_came_up_short_once_cannot_carry_a_purchase(monkeypatch):
+    """The prompt says a single cold morning is not a reason to buy a coat.
+
+    But `evidenced` was satisfied by one appearance, so once seven mornings existed
+    ANYWHERE, a slot with one incidental gap could carry a suggestion. The floor is
+    in code now rather than asked for in prose. Raised by the pre-push reviewer,
+    2026-08-27.
+    """
+    import shopping
+
+    async def fake_chat(*a, **k):
+        return ('{"suggestions": ['
+                '{"what":"wool coat","slot":"outer","why":"x","priority":1},'
+                '{"what":"silk scarf","slot":"accessories","why":"y","priority":2}],'
+                '"verdict":"v"}')
+    monkeypatch.setattr(shopping, "_chat", fake_chat)
+    out = asyncio.run(shopping.shopping_list(
+        [], [{"slot": "outer", "n": 9, "loC": 2, "hiC": 9},
+             {"slot": "accessories", "n": 1, "loC": 2, "hiC": 9}], [], {"tempOffset": 0}))
+    assert [s["slot"] for s in out["suggestions"]] == ["outer"]
+
+
+def test_the_floor_is_low_enough_not_to_silence_a_short_winter():
+    """Two, not more — the RANKING separates a nuisance from a real gap.
+
+    Higher would silence somebody who has simply not met much weather yet.
+    """
+    import shopping
+    assert shopping.MIN_MORNINGS_PER_SLOT == 2

@@ -614,9 +614,36 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
                type:"coat",roles:["outer"],colors:[],warmth:5,formality:["casual"],
                waterproof:false,count:1}];`);
   ev(`wearLog=[{itemId:"itm-coat-01",wornAt:Date.now()}];`);
-  await ev(`recordGaps(["outer","mid"], ${JSON.stringify(WX)})`);
+  await ev(`recordGaps(["outer","mid"], ${JSON.stringify(WX)}, 14)`);
   check("a coat that is merely in the wash is not recorded as a gap",
     ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+
+  /* Withheld is not the same as CAPABLE. A shell in the wash that the server would
+     have refused as too thin excuses nothing — the slot was short whether or not it
+     was in the basket. Same for one the wearer has banned. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  ev(`gaps=[]; closet=[{id:"itm-thin-01",label:"thin shell",category:"outer",
+       group:"outerwear",type:"rainwear",roles:["outer"],colors:[],warmth:2,
+       formality:["casual"],waterproof:true,count:1}];
+      wearLog=[{itemId:"itm-thin-01",wornAt:Date.now()}];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 4)`);
+  check("a withheld shell too thin for the day does not excuse the gap",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=[];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 16)`);
+  check("but on a mild day, where it would have done, it does",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=[]; wearLog=[{itemId:"itm-coat-99",wornAt:Date.now()}];
+      closet=[{id:"itm-coat-99",label:"banned coat",category:"outer",
+       group:"outerwear",type:"coat",roles:["outer"],colors:["white"],warmth:5,
+       formality:["casual"],waterproof:false,count:1}];
+      userRules=[{kind:"avoid_item",a:{color:"white"}}];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 4)`);
+  check("nor does a withheld garment the wearer has banned",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+  ev(`userRules=[]; wearLog=[];`);
 
   /* But owning SOMETHING for the slot is not the test. A shell too thin for
      freezing weather, or an outer layer the wearer has banned, is reported missing

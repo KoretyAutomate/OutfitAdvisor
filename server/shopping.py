@@ -72,7 +72,15 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
                                   max_tokens=700, timeout=60))
     if not isinstance(out, dict) or not isinstance(out.get("suggestions"), list):
         return None
-    evidenced = {g.get("slot") for g in gaps}
+    # A slot has to have come up short MORE THAN ONCE. The prompt already says a
+    # single cold morning is not a reason to buy a coat, but "evidenced" was
+    # satisfied by one appearance — so once seven mornings existed anywhere, a slot
+    # with a single incidental gap could carry a purchase. The floor is stated in
+    # code rather than asked for in prose.
+    counts: dict = {}
+    for g in gaps:
+        counts[g.get("slot")] = counts.get(g.get("slot"), 0) + int(g.get("n") or 1)
+    evidenced = {slot for slot, n in counts.items() if n >= MIN_MORNINGS_PER_SLOT}
     clean = []
     for sug in out["suggestions"][:5]:
         if not isinstance(sug, dict):
@@ -144,6 +152,13 @@ def _garment_aliases(value: object) -> set:
     # jacket at all on `jacket`.
     phrases = {_norm_phrase(part) for part in TYPE_LABEL.get(key, key).split("/")}
     return {p for p in (phrases | _ALIASES.get(key, set()) | {_norm_phrase(key)}) if p}
+
+
+# How many mornings a slot must have come up short before it can carry a purchase.
+# Two, not more: this is the floor the prompt already states ("one cold morning is
+# not a reason"), and the RANKING is what separates a nuisance from a real gap.
+# Setting it higher would silence somebody who has simply not met much weather yet.
+MIN_MORNINGS_PER_SLOT = 2
 
 
 def _norm_phrase(s: object) -> str:

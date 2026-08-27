@@ -3018,7 +3018,7 @@ async function saveGaps(){
    look unfillable, and a week of washing days would have the shopping list
    recommending a replacement for a coat already hanging up. The phone is the only
    party that knows the difference, so it decides here. */
-function ownershipGaps(missing){
+function ownershipGaps(missing,planTemp){
   if(!Array.isArray(missing)) return [];
   // Only what was WITHHELD counts as a laundry gap. The test is not "do you own
   // something for this slot" — that discards the most valuable signal there is: a
@@ -3034,7 +3034,15 @@ function ownershipGaps(missing){
   const withheld=new Set();
   for(const i of closet){
     if(sent.has(i.id)) continue;
-    for(const r of normRoles(i.roles,i.category)) withheld.add(r);
+    // Withheld is not the same as CAPABLE. A shell in the wash that the server
+    // would have refused as too thin, or a garment the wearer has banned, excuses
+    // nothing — the slot was short whether or not it was in the basket. Judged by
+    // the same tests the server uses, at the same planning temperature.
+    if(bannedOutright(i)) continue;
+    for(const r of normRoles(i.roles,i.category)){
+      if(r==="outer"&&planTemp!=null&&(i.warmth||3)<minOuterWarmth(planTemp)) continue;
+      withheld.add(r);
+    }
   }
   return missing.filter(slot=>!withheld.has(slot));
 }
@@ -3045,7 +3053,7 @@ async function recordGaps(missing,w,planTemp){
   // up. It is also what the tickbox's own text promises, and code that contradicts
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
-  missing=ownershipGaps(missing);
+  missing=ownershipGaps(missing,planTemp);
   if(!missing.length||!w) return;
   const day=todayISO();
   let added=false;

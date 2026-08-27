@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 import app as app_mod
 import closet as closet_mod
+import picks as picks_mod
 
 client = TestClient(app_mod.app)
 
@@ -160,19 +161,19 @@ def test_a_slot_we_cleared_ourselves_counts_as_missing():
     Without this the slot reads "None needed", the weather takes the blame, and the
     shopping list never hears about it. Raised by the pre-push reviewer, 2026-08-27.
     """
-    got = closet_mod._missing_slots(["outer"], {"outer": None, "mid": None, "base": "x"},
+    got = picks_mod._missing_slots(["outer"], {"outer": None, "mid": None, "base": "x"},
                                     {"mid", "base"})
     assert got == ["mid", "outer"]
 
 
 def test_a_slot_the_model_claims_but_then_fills_is_not_a_gap():
     """Otherwise the phone remembers a hole that was never there, for weeks."""
-    assert closet_mod._missing_slots(["base"], {"base": "x"}, set()) == []
+    assert picks_mod._missing_slots(["base"], {"base": "x"}, set()) == []
 
 
 def test_bottoms_cleared_under_a_dress_is_not_a_gap():
     """A dress covers the legs. That is a dress, not a hole in the wardrobe."""
-    assert closet_mod._missing_slots([], {"bottoms": None, "base": "d1"},
+    assert picks_mod._missing_slots([], {"bottoms": None, "base": "d1"},
                                      {"bottoms", "base"}, {"bottoms"}) == []
 
 
@@ -184,20 +185,20 @@ def test_bottoms_cleared_for_ANY_OTHER_reason_IS_a_gap():
     blanket exclusion meant that gap could never reach the shopping evidence.
     Raised by the pre-push reviewer, 2026-08-27.
     """
-    assert closet_mod._missing_slots([], {"bottoms": None, "base": "t1"},
+    assert picks_mod._missing_slots([], {"bottoms": None, "base": "t1"},
                                      {"bottoms", "base"}, set()) == ["bottoms"]
 
 
 def test_the_slots_come_back_in_wearing_order():
     """The phone lists them; inner-outwards is the order everything else uses."""
-    got = closet_mod._missing_slots(["footwear", "inner", "outer"],
+    got = picks_mod._missing_slots(["footwear", "inner", "outer"],
                                     {"inner": None, "outer": None, "footwear": None}, set())
     assert got == ["inner", "outer", "footwear"]
 
 
 def test_junk_from_the_model_is_ignored():
-    assert closet_mod._missing_slots(["elbow", None, 7], {"outer": None}, set()) == []
-    assert closet_mod._missing_slots(None, {"outer": None}, set()) == []
+    assert picks_mod._missing_slots(["elbow", None, 7], {"outer": None}, set()) == []
+    assert picks_mod._missing_slots(None, {"outer": None}, set()) == []
 
 
 # ── the promise has to hold when things go wrong ───────────────────────────────
@@ -289,7 +290,7 @@ def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
     breaks it in the words — and the words are what the notification shows. Raised
     by the pre-push reviewer, 2026-08-27.
     """
-    assert closet_mod._names_something_unowned(line, OWNED)
+    assert picks_mod._names_something_unowned(line, OWNED)
 
 
 @pytest.mark.parametrize("line", [
@@ -301,14 +302,14 @@ def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
     "Stop by the shop first.",
 ])
 def test_prose_that_is_fine_is_kept(line):
-    assert not closet_mod._names_something_unowned(line, OWNED)
+    assert not picks_mod._names_something_unowned(line, OWNED)
 
 
 def test_the_reader_is_told_the_advice_is_shorter():
     """A gap in the advice must explain itself rather than look like an oversight."""
     out = {"bullets": ["Start with your white t-shirt.", "Add a light shell."],
            "tip": "Take a brolly."}
-    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
                                      {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
     assert "light shell" not in text
     assert "white t-shirt" in text
@@ -318,7 +319,7 @@ def test_the_reader_is_told_the_advice_is_shorter():
 def test_without_the_tickbox_the_prose_is_left_alone():
     """A half-registered wardrobe still wants the hint."""
     out = {"bullets": ["Add a light shell."], "tip": ""}
-    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(),
+    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(),
                                      {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
     assert "light shell" in text
 
@@ -326,7 +327,7 @@ def test_without_the_tickbox_the_prose_is_left_alone():
 def test_a_tip_naming_something_unowned_goes_too():
     """The tip is the line the notification shows."""
     out = {"bullets": ["Blue jeans work today."], "tip": "Bring a wool overcoat."}
-    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
                                      {"bottoms": "i2"}, {"i2": {"label": "blue jeans"}})
     assert "overcoat" not in text
 
@@ -383,7 +384,7 @@ def test_a_correctly_chosen_dress_does_not_record_a_bottoms_gap():
     recorded a false bottoms gap for ninety days on exactly the outfits that were
     correct. Coverage is read off the garment in `base`. Raised by the reviewer.
     """
-    assert closet_mod._missing_slots(["bottoms"], {"base": "d1", "bottoms": None},
+    assert picks_mod._missing_slots(["bottoms"], {"base": "d1", "bottoms": None},
                                      set(), {"bottoms"}) == []
 
 
@@ -397,7 +398,7 @@ def test_a_garment_owned_but_UNSUITABLE_is_still_a_gap():
     Raised by the pre-push reviewer, 2026-08-27.
     """
     # `unsuitable` bypasses the alternatives test — that is its purpose.
-    assert closet_mod._missing_slots([], {"outer": None, "base": "tee"},
+    assert picks_mod._missing_slots([], {"outer": None, "base": "tee"},
                                      {"outer", "base"}, set(),
                                      lambda slot: True, {"outer"}) == ["outer"]
 
@@ -414,20 +415,20 @@ def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
     # No `unsuitable` — the pick was cleared for being a MISCHOICE (wrong role, or a
     # duplicate), and another item fills the slot fine. The predicate is the same
     # one the clearing steps use: unused, warm enough, legal.
-    assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
+    assert picks_mod._missing_slots([], {"outer": None, "base": "tee1"},
                                      {"outer", "base"}, set(),
                                      lambda slot: slot == "outer", set()) == []
 
 
 def test_it_IS_a_gap_when_nothing_in_the_wardrobe_can_fill_it():
-    assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
+    assert picks_mod._missing_slots([], {"outer": None, "base": "tee1"},
                                      {"outer", "base"}, set(),
                                      lambda slot: False, set()) == ["outer"]
 
 
 def test_a_check_that_cannot_run_does_not_pass_everything():
     """Without the roles to hand the filter is skipped, not assumed satisfied."""
-    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(), None) \
+    assert picks_mod._missing_slots(["outer"], {"outer": None}, set(), set(), None) \
         == ["outer"]
 
 
@@ -448,33 +449,33 @@ def test_a_warm_coat_sitting_unused_means_the_wardrobe_is_not_short():
     Recording it would eventually recommend buying the coat they already own.
     Raised by the pre-push reviewer, 2026-08-27.
     """
-    assert closet_mod._has_suitable_alternative(
+    assert picks_mod._has_suitable_alternative(
         "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, [])
 
 
 def test_when_the_only_outer_layer_is_too_thin_it_IS_a_gap():
     by_item = {k: v for k, v in BY_ITEM.items() if k != "coat"}
-    assert not closet_mod._has_suitable_alternative(
+    assert not picks_mod._has_suitable_alternative(
         "outer", {"base": "tee"}, by_item, {"shell": ["outer"], "tee": ["base"]}, 4.0, [])
 
 
 def test_an_alternative_the_wearer_has_banned_does_not_count():
     """It has to be one the generator could legitimately have picked."""
     ban = [{"kind": "avoid_item", "a": {"type": "coat"}}]
-    assert not closet_mod._has_suitable_alternative(
+    assert not picks_mod._has_suitable_alternative(
         "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, ban)
 
 
 def test_a_garment_already_worn_elsewhere_is_not_an_alternative():
     """One garment fills one slot; it cannot rescue a second."""
-    assert not closet_mod._has_suitable_alternative(
+    assert not picks_mod._has_suitable_alternative(
         "outer", {"base": "tee", "mid": "coat"},
         BY_ITEM, {**BY_ROLES, "coat": ["outer", "mid"]}, 4.0, [])
 
 
 def test_warmth_only_constrains_the_outer_layer():
     """A thin base is not a gap; the warmth rule is about what is outermost."""
-    assert closet_mod._has_suitable_alternative(
+    assert picks_mod._has_suitable_alternative(
         "base", {}, BY_ITEM, BY_ROLES, 4.0, [])
 
 
@@ -490,11 +491,11 @@ def test_one_shirt_playing_two_roles_does_not_hide_the_second_gap():
                          "type": "shirt", "colors": []}}
     by_roles = {"shirt": ["base", "mid"]}
     # The shirt is worn in base, so nothing is left for mid.
-    assert not closet_mod._has_suitable_alternative(
+    assert not picks_mod._has_suitable_alternative(
         "mid", {"base": "shirt"}, by_item, by_roles, 12.0, [])
-    assert closet_mod._missing_slots(
+    assert picks_mod._missing_slots(
         [], {"base": "shirt", "mid": None}, {"base", "mid"}, set(),
-        lambda slot: closet_mod._has_suitable_alternative(
+        lambda slot: picks_mod._has_suitable_alternative(
             slot, {"base": "shirt", "mid": None}, by_item, by_roles, 12.0, []),
         set()) == ["mid"]
 
@@ -507,13 +508,13 @@ def test_the_models_own_claim_is_checked_against_the_wardrobe():
     recommendation to buy something already owned. Raised by the pre-push reviewer,
     2026-08-27.
     """
-    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+    assert picks_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
                                      lambda slot: True, set()) == []
-    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+    assert picks_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
                                      lambda slot: False, set()) == ["outer"]
 
 
 def test_a_slot_already_proven_short_skips_the_test_it_has_passed():
     """`unsuitable` is only ever set after _has_suitable_alternative found nothing."""
-    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+    assert picks_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
                                      lambda slot: True, {"outer"}) == ["outer"]

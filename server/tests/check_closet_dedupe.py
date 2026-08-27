@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import closet as llm  # module split 2026-08-14
+import picks  # validation split out 2026-08-27
 import vocab
 
 passed = failed = 0
@@ -57,27 +58,27 @@ print("=" * 68)
 # ---- 1. the unit that resolves it -----------------------------------------
 print("\n[1] _dedupe_picks keeps the item in the slot its CATEGORY says")
 by_cat = {i["id"]: i["category"] for i in CLOSET}
-out = llm._dedupe_picks(
+out = picks._dedupe_picks(
     {"inner": "aaaaaaaa-1", "base": "aaaaaaaa-1", "mid": None, "outer": None,
      "bottoms": "aaaaaaaa-3", "footwear": None, "accessories": None}, by_cat)
 check("a `base` item duplicated into inner+base stays in base",
       out["base"] == "aaaaaaaa-1" and out["inner"] is None, out)
 check("unrelated slots are untouched", out["bottoms"] == "aaaaaaaa-3", out)
 
-out = llm._dedupe_picks(
+out = picks._dedupe_picks(
     {"inner": "aaaaaaaa-2", "base": "aaaaaaaa-2", "mid": None, "outer": None,
      "bottoms": None, "footwear": None, "accessories": None}, by_cat)
 check("an `inner` item duplicated into inner+base stays in inner",
       out["inner"] == "aaaaaaaa-2" and out["base"] is None, out)
 
-out = llm._dedupe_picks(
+out = picks._dedupe_picks(
     {"inner": None, "base": "aaaaaaaa-3", "mid": "aaaaaaaa-3", "outer": None,
      "bottoms": None, "footwear": None, "accessories": None}, by_cat)
 kept = [k for k, v in out.items() if v == "aaaaaaaa-3"]
 check("category not among the duplicated slots -> first in CATEGORIES order wins",
       kept == ["base"], out)
 
-out = llm._dedupe_picks(
+out = picks._dedupe_picks(
     {"inner": "aaaaaaaa-2", "base": "aaaaaaaa-1", "mid": None, "outer": None,
      "bottoms": "aaaaaaaa-3", "footwear": None, "accessories": None}, by_cat)
 check("a clean answer is passed through unchanged",
@@ -146,17 +147,17 @@ ROLES = {
     "aaaaaaaa-3": ["bottoms"],
 }
 check("a shirt declaring outer MAY be the outer layer (summer)",
-      llm._slot_mismatches({"outer": "aaaaaaaa-1"}, ROLES) == [])
+      picks._slot_mismatches({"outer": "aaaaaaaa-1"}, ROLES) == [])
 check("the same shirt MAY be the base (winter)",
-      llm._slot_mismatches({"base": "aaaaaaaa-1"}, ROLES) == [])
+      picks._slot_mismatches({"base": "aaaaaaaa-1"}, ROLES) == [])
 check("but it may NOT be underwear",
-      llm._slot_mismatches({"inner": "aaaaaaaa-1"}, ROLES) == ["inner"])
+      picks._slot_mismatches({"inner": "aaaaaaaa-1"}, ROLES) == ["inner"])
 check("an undershirt may NOT be the visible top",
-      llm._slot_mismatches({"base": "aaaaaaaa-2"}, ROLES) == ["base"])
+      picks._slot_mismatches({"base": "aaaaaaaa-2"}, ROLES) == ["base"])
 check("bottoms stay bottoms",
-      llm._slot_mismatches({"outer": "aaaaaaaa-3"}, ROLES) == ["outer"])
+      picks._slot_mismatches({"outer": "aaaaaaaa-3"}, ROLES) == ["outer"])
 check("null slots are not mismatches",
-      llm._slot_mismatches({"inner": None, "base": None}, ROLES) == [])
+      picks._slot_mismatches({"inner": None, "base": None}, ROLES) == [])
 
 print("\n[5b] normalize_roles keeps underwear closed and old closets working")
 check("absent roles fall back to the item's category (pre-2026-08-10 behaviour)",
@@ -197,24 +198,24 @@ print("\n[7] warmth guard: a legal role is not automatically a sensible garment"
 # Live 2026-08-10: given a shirt legitimately allowed to be `outer`, the model put
 # that warmth-2 shirt outermost at 4C and left an available warmth-5 coat unused.
 # Every pick was legal; the advice was still wrong.
-check("deep cold demands a warmth-4 outer", llm._min_outer_warmth(2) == 4)
-check("cold demands warmth 3", llm._min_outer_warmth(8) == 3)
-check("cool demands warmth 2", llm._min_outer_warmth(15) == 2)
-check("mild accepts anything", llm._min_outer_warmth(25) == 1)
+check("deep cold demands a warmth-4 outer", picks._min_outer_warmth(2) == 4)
+check("cold demands warmth 3", picks._min_outer_warmth(8) == 3)
+check("cool demands warmth 2", picks._min_outer_warmth(15) == 2)
+check("mild accepts anything", picks._min_outer_warmth(25) == 1)
 ITEMS = {
     "thin": {"id": "thin", "warmth": 2},
     "coat": {"id": "coat", "warmth": 5},
 }
 check("a thin outer at 4C is flagged",
-      llm._warmth_violations({"outer": "thin"}, ITEMS, 4.0) == ["outer"])
+      picks._warmth_violations({"outer": "thin"}, ITEMS, 4.0) == ["outer"])
 check("a proper coat at 4C is fine",
-      llm._warmth_violations({"outer": "coat"}, ITEMS, 4.0) == [])
+      picks._warmth_violations({"outer": "coat"}, ITEMS, 4.0) == [])
 check("the same thin item is fine as outer in mild weather",
-      llm._warmth_violations({"outer": "thin"}, ITEMS, 25.0) == [])
+      picks._warmth_violations({"outer": "thin"}, ITEMS, 25.0) == [])
 check("no outer pick is never a violation",
-      llm._warmth_violations({"outer": None}, ITEMS, -5.0) == [])
+      picks._warmth_violations({"outer": None}, ITEMS, -5.0) == [])
 check("only outer is guarded — a thin base under a coat is fine",
-      llm._warmth_violations({"base": "thin", "outer": "coat"}, ITEMS, 0.0) == [])
+      picks._warmth_violations({"base": "thin", "outer": "coat"}, ITEMS, 0.0) == [])
 
 print("=" * 68)
 print(f"RESULT: {passed} passed, {failed} failed")

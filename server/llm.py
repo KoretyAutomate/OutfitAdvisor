@@ -372,7 +372,16 @@ async def packing_list(
 TRIP_TYPES = ("business", "vacation")
 
 
-def _fenced(s: str, limit: int) -> str:
+def _trim_words(s: object, limit: int) -> str:
+    """Cap a sentence at a word boundary, so a long one ends rather than stops."""
+    t = _fenced(s, limit * 2)
+    if len(t) <= limit:
+        return t
+    cut = t[:limit].rsplit(" ", 1)[0].rstrip(",;: ")
+    return f"{cut}…" if cut else t[:limit]
+
+
+def _fenced(s: object, limit: int) -> str:
     """Free text on its way INTO a fenced prompt block.
 
     app.py has already sanitized what arrives over HTTP; this is the second lock,

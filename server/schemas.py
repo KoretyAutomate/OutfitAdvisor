@@ -133,6 +133,13 @@ class AdviceRequest(BaseModel):
     # cannot enforce rather than 422-ing the whole request — a stale rule from an
     # older build must never cost the user their morning advice.
     rules: list[dict] | None = Field(None, max_length=24)
+    # "My closet is complete" (2026-08-27). The default stays False and keeps the
+    # 2026-07-15 behaviour — a slot the wardrobe cannot fill gets a generic
+    # suggestion, which answered a real complaint that a bare "None" told a user
+    # with three registered shirts nothing about their legs. Once the user says the
+    # wardrobe IS everything they own, that suggestion becomes an item they cannot
+    # wear, so the slot is reported empty instead.
+    closetOnly: bool = False
 
 
 class KnownPlace(BaseModel):
@@ -145,6 +152,33 @@ class KnownPlace(BaseModel):
     @classmethod
     def _san(cls, v: str) -> str:
         return _clean(v, 80)
+
+
+class Gap(BaseModel):
+    """One slot the wardrobe could not fill, and the weather it happened in.
+
+    Counted on the PHONE across the period, so this server still stores nothing.
+    """
+
+    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    n: int = Field(1, ge=1, le=400)
+    loC: int = Field(0, ge=-60, le=60)
+    hiC: int = Field(0, ge=-60, le=60)
+
+
+class ShoppingRequest(BaseModel):
+    """Ask what the wardrobe is missing, with the evidence for it.
+
+    The closet is sent because a suggestion must not name something already owned;
+    the gaps because they are what makes a suggestion an argument rather than a
+    catalogue; the rules because a suggestion that breaks one of the user's own bans
+    is worse than none.
+    """
+
+    closet: list[ClosetItem] | None = Field(None, max_length=100)
+    gaps: list[Gap] = Field(default_factory=list, max_length=20)
+    rules: list[dict] | None = Field(None, max_length=24)
+    tempOffset: float = Field(0.0, ge=-6, le=6)
 
 
 class RuleRequest(BaseModel):

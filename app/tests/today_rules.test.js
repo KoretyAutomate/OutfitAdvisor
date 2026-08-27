@@ -495,6 +495,515 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /No jeans/.test(w.document.getElementById("rlList").textContent));
   ev(`userRules=[];`);
 
+  console.log("\n--- 12. 'my closet is complete' (user, 2026-08-27) --------------");
+  const TEE = {id:"itm-tee-0001", label:"white t-shirt", category:"base", group:"tops",
+    type:"t_shirt", roles:["base"], colors:["white"], warmth:1,
+    formality:["casual"], waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(TEE)}]; wearLog=[]; trips=[]; userRules=[]; gaps=[];
+      closetComplete=false; __sent=null;
+      fetch = async (u,o) => { __sent = JSON.parse(o.body);
+        return {ok:true, json: async () => ({weather:${JSON.stringify(WX)},
+          outfit:{base:"white t-shirt", outer:"Waterproof shell"}, outfit_text:"x",
+          source:"llm", picks:{base:"itm-tee-0001", outer:null},
+          closetUsed:true, missing:["outer"]})}; };`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("off by default — a half-registered wardrobe still gets useful hints",
+    !ev(`__sent.closetOnly`), ev(`__sent.closetOnly`));
+
+  ev(`closetComplete=true;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("once ticked, the advisor is told to pick only from what is owned",
+    ev(`__sent.closetOnly`) === true, ev(`__sent.closetOnly`));
+
+  /* The flag describes the WARDROBE, not today's laundry. Gating it on what is
+     currently wearable turned "only recommend what I own" off on exactly the day
+     everything was in the wash — the day a straight answer matters most. Raised by
+     the pre-push reviewer, 2026-08-27. */
+  ev(`closet=[{...${JSON.stringify(TEE)}, count:1}]; wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}];`);
+  check("nothing is wearable today", ev(`closetPayload().length`) === 0);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("and the flag is still sent", ev(`__sent.closetOnly`) === true, ev(`__sent`));
+  await ev(`savePushPayload()`);
+  check("the push carries it too, wearable items or not",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly === true);
+  ev(`wearLog=[];`);
+
+  // The flag has to reach the MORNING PUSH too, or the notification goes on
+  // suggesting garments the user has said they do not own.
+  await ev(`savePushPayload()`);
+  check("and the morning push is told as well",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly === true,
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly);
+  /* The worker reads the tickbox from its OWN preference, not out of the wardrobe
+     snapshot. The flag is a standing instruction about the wardrobe — it does not
+     go stale with a snapshot — and every early return below it (no payload, too
+     old, past a trip boundary, nothing wearable) is a morning when generic
+     catalogue advice would break the promise most quietly. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  const jsFlagKey = (fs.readFileSync(HTML, "utf8")
+    .match(/prefSet\("(oa\.closetComplete)"/) || [])[1];
+  const ktFlagKey = (kt.match(/const val KEY_CLOSET_COMPLETE = "([^"]+)"/) || [])[1];
+  check("the phone and the worker agree on the tickbox key",
+    jsFlagKey === ktFlagKey, { jsFlagKey, ktFlagKey });
+  check("the worker forwards it", /body\.put\("closetOnly", true\)/.test(kt));
+  check("before every early return, so no rejection below can drop it",
+    ["KEY_PUSH_PAYLOAD, null) ?: return", "today() >= validBefore",
+     "if (closet.length() == 0) return"].every(
+       marker => kt.indexOf('body.put("closetOnly", true)') < kt.indexOf(marker)),
+    "closetOnly is dropped on one of the early-return paths");
+
+  console.log("\n--- 13. what the wardrobe could not cover -----------------------");
+  /* Recorded ONLY while the wardrobe is declared complete. Otherwise an empty slot
+     means "not photographed yet", not "you do not own one", and a week of that has
+     the advisor recommending a coat already hanging up. It is also what the
+     tickbox's own text promises. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[]; closetComplete=false;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("an incomplete wardrobe's empty slots are NOT taken as evidence",
+    ev(`gaps.length`) === 0, ev(`gaps`));
+  ev(`closetComplete=true;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("a complete one's are", ev(`gaps.length`) >= 1, ev(`gaps`));
+
+  /* Every morning the advisor comes up short, the slot and the day's temperatures
+     are written down. This is what the shopping list argues FROM — a gap on eleven
+     mornings between 2C and 9C is an argument; "you should own a coat" is not. */
+  check("the empty slot was recorded", ev(`gaps.length`) >= 1, ev(`gaps`));
+  check("with the weather it happened in",
+    ev(`gaps[0].lo`) === WX.lo && ev(`gaps[0].hi`) === WX.hi, ev(`gaps[0]`));
+  /* `at` is the planning temperature the server used; `day` is a date with no
+     time. No place, no coordinates, no clock — the record is about the wardrobe,
+     not about where somebody was on a Tuesday. */
+  check("and no place, no time of day — this is about the wardrobe",
+    Object.keys(ev(`gaps[0]`)).sort().join() === "at,day,hi,lo,slot",
+    Object.keys(ev(`gaps[0]`)));
+
+  // Tapping refresh five times is ONE cold morning, not five. Counting requests
+  // would inflate the evidence in proportion to how often the user reloads.
+  const before = ev(`gaps.length`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("asking again the same day does not count twice",
+    ev(`gaps.length`) === before, ev(`gaps`));
+
+  // A slot the weather made unnecessary is NOT a gap; only what the server named.
+  ev(`gaps=[];`);
+  await ev(`recordGaps([], ${JSON.stringify(WX)})`);
+  check("a day with nothing missing records nothing", ev(`gaps.length`) === 0);
+
+  /* Expiry applies on READ. Pruning only inside saveGaps meant records expired
+     only when a NEW gap arrived, so a wardrobe that stopped falling short kept its
+     evidence for ever and could still be offered suggestions argued from a winter
+     it had already fixed. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[{slot:"outer",day:"2020-01-01",lo:2,hi:9},
+            {slot:"mid",day:todayISO(),lo:4,hi:11}];`);
+  check("evidence past its keep-window is not counted",
+    ev(`gapSummary()`).length === 1 && ev(`gapSummary()`)[0].slot === "mid",
+    ev(`gapSummary()`));
+  check("nor does it make the button think a week has passed",
+    ev(`shoppingDays()`) === 1, ev(`shoppingDays()`));
+
+  ev(`gaps=[{slot:"outer",day:"2026-08-01",lo:2,hi:9},
+            {slot:"outer",day:"2026-08-02",lo:4,hi:11},
+            {slot:"mid",day:"2026-08-02",lo:4,hi:11}];`);
+  const sum = ev(`gapSummary()`);
+  check("the summary counts mornings per slot",
+    sum[0].slot === "outer" && sum[0].n === 2, sum);
+  check("and spans the weather they happened in",
+    sum[0].loC === 2 && sum[0].hiC === 11, sum[0]);
+
+  /* The server only ever sees what is WEARABLE — closetPayload() drops the
+     cooldown, and on a trip it is the suitcase. So a coat in the wash makes `outer`
+     look unfillable, and a week of washing days would have the shopping list
+     recommending a replacement for a coat already hanging up. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  ev(`closetComplete=true; gaps=[];
+      closet=[{id:"itm-coat-01",label:"coat",category:"outer",group:"outerwear",
+               type:"coat",roles:["outer"],colors:[],warmth:5,formality:["casual"],
+               waterproof:false,count:1}];`);
+  ev(`wearLog=[{itemId:"itm-coat-01",wornAt:Date.now()}];`);
+  await ev(`recordGaps(["outer","mid"], ${JSON.stringify(WX)}, 14)`);
+  check("a coat that is merely in the wash is not recorded as a gap",
+    ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+
+  /* Withheld is not the same as CAPABLE. A shell in the wash that the server would
+     have refused as too thin excuses nothing — the slot was short whether or not it
+     was in the basket. Same for one the wearer has banned. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  ev(`gaps=[]; closet=[{id:"itm-thin-01",label:"thin shell",category:"outer",
+       group:"outerwear",type:"rainwear",roles:["outer"],colors:[],warmth:2,
+       formality:["casual"],waterproof:true,count:1}];
+      wearLog=[{itemId:"itm-thin-01",wornAt:Date.now()}];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 4)`);
+  check("a withheld shell too thin for the day does not excuse the gap",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=[];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 16)`);
+  check("but on a mild day, where it would have done, it does",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=[]; wearLog=[{itemId:"itm-coat-99",wornAt:Date.now()}];
+      closet=[{id:"itm-coat-99",label:"banned coat",category:"outer",
+       group:"outerwear",type:"coat",roles:["outer"],colors:["white"],warmth:5,
+       formality:["casual"],waterproof:false,count:1}];
+      userRules=[{kind:"avoid_item",a:{color:"white"}}];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)}, 4)`);
+  check("nor does a withheld garment the wearer has banned",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+  ev(`userRules=[]; wearLog=[];`);
+
+  /* But owning SOMETHING for the slot is not the test. A shell too thin for
+     freezing weather, or an outer layer the wearer has banned, is reported missing
+     by a server that HAD the item in front of it and judged it unsuitable — and
+     that is the most valuable signal here. Discarding it would mean the shopping
+     list could learn "you own no coat" but never "you need a warmer one". Raised by
+     the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[]; wearLog=[];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)})`);
+  check("a coat that WAS sent and judged unsuitable is a real gap",
+    ev(`gaps.map(g=>g.slot).join()`) === "outer", ev(`JSON.stringify(gaps)`));
+  ev(`gaps=[];`);
+
+  /* An OUTAGE is where a broken promise is hardest to notice: everything else on
+     the screen looks normal. The on-device recommender dresses from a catalogue, so
+     with the closet declared complete it must not run. */
+  ev(`closetComplete=true;
+      fetch = async () => { throw new Error("DGX down"); };
+      fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off = await ev(`getAdvice(40.3,-74.6)`);
+  check("with the advisor down, nothing unowned is suggested",
+    Object.entries(off.outfit).every(([k, v]) => k === "tip" || String(v).startsWith("None")),
+    off.outfit);
+  check("and the PROSE says so too — it is what the notification shows",
+    /Nothing to suggest/.test(off.text) && !/coat|jacket/i.test(off.text), off.text);
+
+  ev(`closetComplete=false;`);
+  const off2 = await ev(`getAdvice(40.3,-74.6)`);
+  check("without the tickbox the offline estimate still helps",
+    Object.entries(off2.outfit).some(([k, v]) => k !== "tip" && !String(v).startsWith("None")),
+    off2.outfit);
+  ev(`closetComplete=true;`);
+
+  console.log("\n--- 13b. the MORNING PUSH's gaps count too ----------------------");
+  /* The push is how most advice actually arrives. Recording only in the foreground
+     path meant somebody who reads the notification and never taps refresh would
+     never accumulate a week — the weekly feature would simply never switch on for
+     them. Raised by the pre-push reviewer, 2026-08-27. */
+  check("the worker carries the missing slots home",
+    /put\("missing", raw\.opt\("missing"\)\)/.test(kt),
+    "the push response's gaps are dropped on the floor");
+
+  const w5 = page();
+  w5.localStorage.setItem("oa.closetComplete", "1");
+  w5.localStorage.setItem("oa.today", JSON.stringify({
+    day: new Date().toISOString().slice(0, 10), at: Date.now(), how: "push",
+    weather: WX, outfit: OUT, outfit_text: "x", source: "llm",
+    picks: {}, closetUsed: true, missing: ["outer", "mid"] }));
+  await w5.eval("appReady");
+  check("and opening the app records them",
+    w5.eval(`gaps.map(g=>g.slot).sort().join()`) === "mid,outer",
+    w5.eval(`JSON.stringify(gaps)`));
+  check("with the weather from that morning",
+    w5.eval(`gaps[0].lo`) === WX.lo, w5.eval(`gaps[0]`));
+  // Reading the same stored advice again must not count the morning twice.
+  await w5.eval(`loadToday()`);
+  check("and reading it again does not count the morning twice",
+    w5.eval(`gaps.length`) === 2, w5.eval(`gaps.length`));
+
+  console.log("\n--- 13c. buying the thing settles the argument ------------------");
+  /* Evidence is about a wardrobe that no longer exists once something is added to
+     it. Seven outer gaps, then a coat arrives — and without this the button stays
+     lit and the endpoint is handed seven reasons to recommend another coat. Raised
+     by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9},
+            {slot:"mid",day:"2026-08-20",lo:2,hi:9}];`);
+  const GAPS = `[{slot:"outer",day:"2026-08-20",lo:2,hi:9},
+                 {slot:"mid",day:"2026-08-20",lo:2,hi:9}]`;
+  ev(`userRules=[]; gaps=${GAPS};`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5})`);
+  check("adding a proper coat forgets the outer gaps it answers",
+    ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+  check("and leaves the ones it does not", ev(`gaps.length`) === 1);
+
+  /* But only the gaps it could ACTUALLY have filled. A second warmth-2 shell does
+     not answer an outer gap recorded at 2C — the wardrobe is exactly as short as it
+     was, and forgetting the evidence would hide that for good. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  ev(`gaps=${GAPS};`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"rainwear",warmth:2})`);
+  check("another thin shell forgets nothing",
+    ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:{type:"coat"}}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5})`);
+  check("nor does a garment the wearer has banned outright",
+    ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+
+  /* A ban may name a colour, a group or a role rather than a type. Matching only
+     the type let a white coat clear outer gaps while "never wear white" was in
+     force — evidence gone, and the server would refuse the coat anyway. Raised by
+     the pre-push reviewer, 2026-08-27. */
+  for (const [sel, item, why] of [
+    [`{color:"white"}`, `{type:"coat",colors:["white"]}`, "a banned COLOUR"],
+    [`{group:"outerwear"}`, `{type:"coat",colors:["navy"]}`, "a banned GROUP"],
+    [`{role:"outer"}`, `{type:"coat",colors:["navy"]}`, "a banned ROLE"],
+  ]) {
+    ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:${sel}}];`);
+    await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                                 warmth:5,...${item}})`);
+    check(`${why} is recognised, so the evidence is kept`,
+      ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+  }
+  // And a rule that does NOT describe the garment must not block a real answer.
+  ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:{color:"white"}}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5,colors:["navy"]})`);
+  check("a ban on a colour this garment is not still lets it settle the gap",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+  ev(`userRules=[];`);
+
+  /* Clearing happens where the user CONFIRMS the item, and only there.
+     What /classify returns is provisional — it is why the edit sheet opens next —
+     and clearing on it is irreversible: a coat read as a base layer would delete
+     the base evidence, and correcting it afterwards cannot bring that back.
+     Forgetting evidence wrongly is the expensive mistake. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  ev(`userRules=[]; closet=[]; wearLog=[]; trips=[];
+      gaps=[{slot:"base",day:"2026-08-20",lo:2,hi:9,at:4}];
+      capture=async()=>"data:image/jpeg;base64,AAAA"; downscale=async()=>"AAAA";
+      photoSave=async()=>true;
+      classifyPhoto=async()=>({label:"thing",category:"base",group:"tops",
+        type:"t_shirt",roles:["base"],colors:[],warmth:1,formality:["casual"],
+        waterproof:false});`);
+  await ev(`addItem("camera")`);
+  check("a provisional classification does not erase evidence",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+  ev(`closeSheet&&closeSheet();`);
+
+  ev(`userRules=[]; closet=[]; wearLog=[]; trips=[];
+      gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9,at:4}];
+      sheet={item:{id:"itm-new-001",label:"coat",category:"base",group:"tops",
+                   type:"t_shirt",roles:["base"],colors:[],warmth:5,
+                   formality:["casual"],waterproof:false,count:1},isNew:false};`);
+  w.document.getElementById("shLabel").value = "wool coat";
+  w.document.getElementById("shCat").value = "outer";
+  w.document.getElementById("shGroup").value = "outerwear";
+  const typeSel = w.document.getElementById("shType");
+  typeSel.innerHTML = '<option value="coat">Coat</option>';
+  typeSel.value = "coat";
+  w.document.getElementById("shColors").value = "navy";
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("correcting a misclassified item settles the gaps it answers",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+
+  /* Judged at the PLANNING temperature the server used, not the overnight low.
+     They cross the warmth thresholds on different days, so the wrong one forgets
+     gaps the server would still raise — or keeps ones it would not. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:14,at:13}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"jacket",warmth:3})`);
+  check("a warmth-3 jacket answers a gap planned at 13C",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:14,at:4}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"jacket",warmth:3})`);
+  check("but not one planned at 4C, where the server wants warmth 4",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+
+  /* The warmth table is a TWIN of _OUTER_MIN_WARMTH in server/picks.py. If they
+     drift, the evidence and the advice disagree about the same wardrobe: the app
+     forgets a gap the server would still raise, or keeps one it would not. */
+  const serverLine = (fs.readFileSync(
+    path.join(__dirname, "..", "..", "server", "picks.py"), "utf8")
+    .split("\n").find(l => l.startsWith("_OUTER_MIN_WARMTH")) || "");
+  const serverPairs = [...serverLine.matchAll(/\((\d+),\s*(\d+)\)/g)]
+    .map(m => [Number(m[1]), Number(m[2])]);
+  check("the phone's warmth table matches the server's",
+    JSON.stringify(ev(`OUTER_MIN_WARMTH`)) === JSON.stringify(serverPairs),
+    { phone: ev(`OUTER_MIN_WARMTH`), server: serverPairs });
+
+  console.log("\n--- 13d. mornings the push saw while the app was shut -----------");
+  /* oa.today holds ONE day and is overwritten by the next push. Somebody who reads
+     the notification and never opens the app therefore lost every morning but the
+     last, and could never reach the week the shopping list needs — the ordinary
+     usage pattern defeated the feature. Raised by the pre-push reviewer,
+     2026-08-27. */
+  const jsQ = (fs.readFileSync(HTML, "utf8")
+    .match(/const GAPS_PENDING_KEY="([^"]+)"/) || [])[1];
+  const ktQ = (kt.match(/const val KEY_GAPS_PENDING = "([^"]+)"/) || [])[1];
+  check("the phone and the worker agree on the queue key", jsQ === ktQ, { jsQ, ktQ });
+  check("the worker appends rather than overwriting",
+    /queueGaps\(prefs, raw, out\.getString\("day"\)\)/.test(kt));
+  check("and one entry per day, so a retry does not count twice",
+    /if \(e\.optString\("day"\) != day\) out\.put\(e\)/.test(kt));
+  check("bounded, so an app unopened for months does not grow it for ever",
+    /PENDING_MAX/.test(kt));
+
+  const w6 = page();
+  w6.localStorage.setItem("oa.closetComplete", "1");
+  w6.localStorage.setItem("oa.gapsPending", JSON.stringify([
+    { day: "2026-08-21", missing: ["outer"], lo: 2, hi: 9, planTemp: 4 },
+    { day: "2026-08-22", missing: ["outer", "mid"], lo: 3, hi: 10, planTemp: 5 }]));
+  await w6.eval("appReady");
+  check("every queued morning is recorded, not just the last",
+    w6.eval(`shoppingDays()`) === 2, w6.eval(`JSON.stringify(gaps)`));
+  check("each with the weather and planning temperature of ITS morning",
+    w6.eval(`gaps.find(g=>g.day==="2026-08-22").at`) === 5,
+    w6.eval(`JSON.stringify(gaps)`));
+  check("and the queue is emptied, so a later open does not double-count",
+    w6.localStorage.getItem("oa.gapsPending") === "[]",
+    w6.localStorage.getItem("oa.gapsPending"));
+
+  /* A push can append BETWEEN the read and the write — the app being opened while
+     one finishes is not exotic, it is the moment somebody taps the notification.
+     Clearing the key outright erased a morning that had never been recorded.
+     Raised by the pre-push reviewer, 2026-08-27. */
+  const w7 = page();
+  w7.localStorage.setItem("oa.closetComplete", "1");
+  await w7.eval("appReady");
+  w7.eval(`
+    gaps = [];
+    localStorage.setItem("oa.gapsPending", JSON.stringify(
+      [{day:"2026-08-21", missing:["outer"], lo:2, hi:9, planTemp:4, sent:[]}]));
+    const realGet = prefGet;
+    let first = true;
+    prefGet = async (k, d) => {
+      if (k === "oa.gapsPending" && first) {
+        first = false;
+        const v = localStorage.getItem(k) || d;
+        // the worker lands a new morning while we are reading
+        localStorage.setItem(k, JSON.stringify([...JSON.parse(v),
+          {day:"2026-08-22", missing:["mid"], lo:3, hi:10, planTemp:5, sent:[]}]));
+        return v;
+      }
+      return realGet(k, d);
+    };`);
+  await w7.eval(`drainPendingGaps()`);
+  check("a morning queued mid-drain is not erased unrecorded",
+    /2026-08-22/.test(w7.localStorage.getItem("oa.gapsPending")),
+    w7.localStorage.getItem("oa.gapsPending"));
+  check("and the one that WAS drained is gone",
+    !/2026-08-21/.test(w7.localStorage.getItem("oa.gapsPending")),
+    w7.localStorage.getItem("oa.gapsPending"));
+
+  /* A queued morning is judged by the availability of THAT morning. The drain
+     happens later — by which time the laundry has moved on — so using today's
+     would turn a coat that was in the wash into one that was never owned, or the
+     reverse. The worker records which items it actually sent. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  check("the worker records what it sent", /\.put\("sent", sentIds/.test(kt));
+  const COAT = {id:"itm-coat-01", label:"wool coat", category:"outer",
+    group:"outerwear", type:"coat", roles:["outer"], colors:["navy"], warmth:5,
+    formality:["casual"], waterproof:false, count:1};
+  for (const [sent, wantGaps, why] of [
+    [[], 0, "the coat was in the wash that morning, so the slot proves nothing"],
+    [["itm-coat-01"], 1, "the coat WAS sent and the slot was still short"],
+  ]) {
+    const wx = page();
+    wx.localStorage.setItem("oa.closetComplete", "1");
+    wx.localStorage.setItem("oa.closet", JSON.stringify([COAT]));
+    wx.localStorage.setItem("oa.gapsPending", JSON.stringify([
+      { day: "2026-08-21", missing: ["outer"], lo: 2, hi: 9, planTemp: 4, sent }]));
+    await wx.eval("appReady");
+    check(why, wx.eval(`gaps.length`) === wantGaps, wx.eval(`JSON.stringify(gaps)`));
+  }
+
+  /* And the rules must be loaded BEFORE the drain, because judging a queued
+     morning asks whether a withheld garment was banned. */
+  const src = fs.readFileSync(HTML, "utf8");
+  check("the rules are restored before the queue is drained",
+    src.indexOf('prefGet("oa.rules"') < src.lastIndexOf("await drainPendingGaps()"),
+    "a banned garment would count as a suitable alternative on every cold start");
+  check("and so is the closet", 
+    src.indexOf('prefGet("oa.closet"') < src.lastIndexOf("await drainPendingGaps()"));
+
+  console.log("\n--- 14. purchase suggestions ------------------------------------");
+  /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
+     mornings than that would be a catalogue dressed up as an argument. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-01",lo:2,hi:9}]; refreshShopping();`);
+  check("not offered before there is anything to argue from",
+    w.document.getElementById("shopBtn").disabled === true);
+  check("and it says how much is still needed, rather than just greying out",
+    /a week of mornings/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+
+  /* Recording the seventh morning must OPEN the feature, then and there. Without
+     a refresh the button stayed disabled and its count stale until some unrelated
+     closet action or a relaunch — the feature would appear a day late for no
+     reason the user could see. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`closetComplete=true;
+      gaps=Array.from({length:6},(_,i)=>({slot:"outer",
+        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9}));
+      refreshShopping();`);
+  check("six mornings is not yet a week", w.document.getElementById("shopBtn").disabled);
+  // A slot the wardrobe genuinely cannot fill — the coat above covers `outer`, so
+  // recording that one would (correctly) be filtered out as a laundry gap.
+  await ev(`recordGaps(["accessories"], ${JSON.stringify(WX)})`);
+  check("recording the seventh opens it immediately, with no reload",
+    w.document.getElementById("shopBtn").disabled === false,
+    w.document.getElementById("shopNote").textContent);
+
+  /* Tied to the tickbox, not only to the evidence. Untick it and the wardrobe may
+     be partial again, so suggestions argued from the old record would recommend
+     clothes already hanging up but not yet photographed. The evidence is KEPT — it
+     was true when collected — it simply stops being answered from. */
+  ev(`gaps=Array.from({length:9},(_,i)=>({slot:"outer",
+        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9}));
+      closetComplete=false; refreshShopping();`);
+  check("a week of evidence is not enough while the wardrobe is declared partial",
+    w.document.getElementById("shopBtn").disabled === true);
+  check("and the note says what to do about it",
+    /My closet is complete/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+  check("the evidence itself is kept, not thrown away", ev(`gaps.length`) === 9);
+
+  ev(`closetComplete=true; refreshShopping();`);
+  check("offered once a week of mornings has gone wrong",
+    w.document.getElementById("shopBtn").disabled === false);
+  check("and it says what it is arguing from",
+    /9 mornings/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+
+  ev(`__sent=null; fetch = async (u,o) => { __sent=JSON.parse(o.body);
+      return {ok:true, json: async () => ({suggestions:[
+        {what:"wool overcoat", slot:"outer", why:"empty on nine mornings", priority:1}],
+        verdict:"One real gap."})}; };`);
+  await ev(`askShopping()`);
+  /* The WHOLE wardrobe, not what is wearable today. closetPayload() drops the
+     laundry and becomes the suitcase on a trip — sending it would let the advisor
+     recommend a coat hanging at home because it happened to be in the wash, which
+     is the one thing this endpoint must not do. Raised by the pre-push reviewer. */
+  check("the request describes what they OWN, not what is clean",
+    (ev(`__sent.closet`) || []).length === ev(`closet.length`),
+    { sent: (ev(`__sent.closet`) || []).length, owned: ev(`closet.length`) });
+  check("the request carries the evidence, not just the closet",
+    (ev(`__sent.gaps`) || []).length === 1 && ev(`__sent.gaps[0].n`) === 9,
+    ev(`__sent.gaps`));
+  check("and the thermal calibration — someone who runs cold needs warmth, not a shirt",
+    ev(`"tempOffset" in __sent`), Object.keys(ev(`__sent`)));
+  check("the suggestion is shown with its reason",
+    /wool overcoat/.test(w.document.getElementById("shopOut").textContent) &&
+    /nine mornings/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent.slice(0, 120));
+
+  // "Nothing to buy" is a real answer, and the one a good wardrobe should get.
+  ev(`fetch = async () => ({ok:true, json: async () => (
+      {suggestions:[], verdict:"Nothing missing — your closet covers it."})});`);
+  await ev(`askShopping()`);
+  check("an empty answer is stated, not left blank",
+    /Nothing missing/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent);
+
+  ev(`fetch = async () => { throw new Error("down"); };`);
+  await ev(`askShopping()`);
+  check("an unreachable advisor says so rather than showing an empty list",
+    /Couldn't reach the advisor/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

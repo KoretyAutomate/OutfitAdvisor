@@ -16,6 +16,7 @@ import closet as closet_mod
 import llm
 import vocab
 from app import ClosetItem
+import picks as picks_mod
 
 WEATHER = {
     "lo": 8, "hi": 15, "feelsLo": 6, "feelsHi": 14, "desc": "Cloudy", "rain": 10,
@@ -157,7 +158,7 @@ def test_trousers_under_a_dress_are_cleared():
     the honest encoding is: the one-piece takes `base`, bottoms is not NEEDED."""
     picks = {"base": "itm-dress", "bottoms": "itm-chinos"}
     by_group = {"itm-dress": "onepiece", "itm-chinos": "bottoms"}
-    assert closet_mod._onepiece_conflicts(picks, by_group) is True
+    assert picks_mod._onepiece_conflicts(picks, by_group) is True
     assert picks["bottoms"] is None
     assert picks["base"] == "itm-dress"
 
@@ -165,13 +166,13 @@ def test_trousers_under_a_dress_are_cleared():
 def test_an_ordinary_top_leaves_bottoms_alone():
     picks = {"base": "itm-tee", "bottoms": "itm-chinos"}
     by_group = {"itm-tee": "tops", "itm-chinos": "bottoms"}
-    assert closet_mod._onepiece_conflicts(picks, by_group) is False
+    assert picks_mod._onepiece_conflicts(picks, by_group) is False
     assert picks["bottoms"] == "itm-chinos"
 
 
 def test_a_one_piece_with_no_bottoms_picked_is_already_correct():
     picks = {"base": "itm-dress", "bottoms": None}
-    assert closet_mod._onepiece_conflicts(picks, {"itm-dress": "onepiece"}) is False
+    assert picks_mod._onepiece_conflicts(picks, {"itm-dress": "onepiece"}) is False
 
 
 def test_a_one_piece_item_is_confined_to_the_base_slot():

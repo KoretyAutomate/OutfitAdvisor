@@ -623,3 +623,30 @@ def test_the_planning_temperature_is_returned_to_the_phone(monkeypatch):
                                         "gender": "man", "style": "casual"}).json()
     # morning wins over the midpoint, which would have been 8.
     assert body["planTemp"] == 4.0, body["planTemp"]
+
+
+@pytest.mark.parametrize("sel,what,banned", [
+    # A rule stores the CANONICAL id; a suggestion is written the way a person
+    # speaks. Comparing the two directly meant a ban on rainwear did not stop a
+    # shell being recommended. Raised by the pre-push reviewer, 2026-08-27.
+    ({"type": "rainwear"}, "waterproof shell", True),      # TYPE_LABEL: "Raincoat / shell"
+    ({"type": "rainwear"}, "wool overcoat", False),
+    ({"type": "t_shirt"}, "cotton tee", True),             # alias: the label has no "tee"
+    ({"type": "t_shirt"}, "wool overcoat", False),
+    ({"type": "puffer"}, "down jacket", True),
+    ({"type": "trousers"}, "wool chinos", True),
+    # A colour named alongside a garment must still match.
+    ({"color": "white", "type": "coat"}, "white wool coat", True),
+    ({"color": "white", "type": "coat"}, "navy wool coat", False),
+])
+def test_a_ban_reaches_the_words_a_person_would_use(sel, what, banned):
+    import shopping
+    assert shopping._is_banned(what, "outer", [{"kind": "avoid_item", "a": sel}]) is banned
+
+
+def test_every_alias_names_a_type_the_taxonomy_has():
+    """An alias for a type that does not exist can never fire, and hides a typo."""
+    import shopping
+    from vocab import TYPE_LABEL
+    assert set(shopping._ALIASES) <= set(TYPE_LABEL), \
+        set(shopping._ALIASES) - set(TYPE_LABEL)

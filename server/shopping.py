@@ -10,7 +10,7 @@ import re
 
 from llm import _chat, _fenced, _parse_json, _trim_words
 from rules import prompt_block
-from vocab import CATEGORIES
+from vocab import CATEGORIES, TYPE_LABEL
 
 async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict],
                         feedback: dict) -> dict | None:
@@ -105,6 +105,31 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
     return {"suggestions": clean, "verdict": _trim_words(out.get("verdict"), 200)}
 
 
+# Ways a garment kind gets written when it is not being written canonically. The
+# taxonomy's own labels cover most of it — TYPE_LABEL["rainwear"] is
+# "Raincoat / shell" — and these fill the gaps a label cannot, where the common
+# word shares no stem with the id.
+_ALIASES = {
+    "t_shirt": {"tee", "tshirt"},
+    "dress_shoes": {"oxfords", "brogues"},
+    "undershirt": {"singlet", "vest"},
+    "waistcoat": {"gilet"},
+    "trousers": {"chinos", "slacks", "pants"},
+    "leggings": {"tights"},
+    "sneakers": {"trainers"},
+    "puffer": {"down"},
+}
+
+
+def _garment_aliases(value: object) -> set:
+    """Every word that names this garment kind, canonical or spoken."""
+    key = str(value or "").strip().lower()
+    if not key:
+        return set()
+    out = {w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(key, key).lower()) if len(w) > 2}
+    return (out | _ALIASES.get(key, set()) | {key.replace("_", "")}) - {""}
+
+
 def _words(s: object) -> set:
     return {w for w in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(w) > 2}
 
@@ -153,9 +178,20 @@ def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:
         # "never wear outer layers" only a role. Reading type and group alone left
         # `needle` empty for both, and an empty subset test is always true — so the
         # endpoint would cheerfully recommend the very colour just banned.
-        needle = _words(side.get("type")) | _words(side.get("group")) | _words(side.get("color"))
-        if needle:
-            if needle <= want:
+        # A rule stores the CANONICAL id — `rainwear`, `t_shirt` — while a
+        # suggestion is written the way a person speaks: "waterproof shell", "tee".
+        # Comparing the two directly meant a ban on rainwear did not stop a shell
+        # being recommended. The id is expanded through the taxonomy's own label
+        # first, so `rainwear` becomes {raincoat, shell} and matches either word.
+        needle = _garment_aliases(side.get("type")) | _garment_aliases(side.get("group"))
+        colour = _words(side.get("color"))
+        if needle or colour:
+            # The colour, where named, must be present; and if a garment was named,
+            # ANY of its words is enough — one alias hitting is the garment.
+            if colour and not (colour <= want):
+                continue
+            if not needle or any(n in " ".join(sorted(want)) or n in what.lower()
+                                 for n in needle):
                 return True
         elif side.get("role"):
             # Role-only, and the role already matched above: everything for this

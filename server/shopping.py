@@ -10,7 +10,7 @@ import re
 
 from llm import _chat, _fenced, _parse_json, _trim_words
 from rules import prompt_block
-from vocab import CATEGORIES, TYPE_LABEL
+from vocab import CATEGORIES, TYPE_LABEL, TYPES
 
 async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict],
                         feedback: dict) -> dict | None:
@@ -122,10 +122,18 @@ _ALIASES = {
 
 
 def _garment_aliases(value: object) -> set:
-    """Every word that names this garment kind, canonical or spoken."""
+    """Every word that names this garment kind, canonical or spoken.
+
+    A GROUP expands to its member types as well. "Never wear outerwear" is a real
+    rule, and searching a suggestion for the literal word `outerwear` finds it in no
+    sentence anybody writes — "wool coat" and "puffer jacket" sailed past a ban that
+    names exactly them.
+    """
     key = str(value or "").strip().lower()
     if not key:
         return set()
+    if key in TYPES:
+        return {w for t in TYPES[key] for w in _garment_aliases(t)}
     out = {w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(key, key).lower()) if len(w) > 2}
     return (out | _ALIASES.get(key, set()) | {key.replace("_", "")}) - {""}
 
@@ -156,7 +164,12 @@ def _already_owned(what: str, closet: list[dict]) -> bool:
     want = _words(what)
     if not want:
         return True          # nothing to name is not a suggestion
-    return any(want <= (_words(i.get("label")) | _words(i.get("type"))) for i in closet)
+    # The item's words INCLUDING how its kind is spoken. An owned "white cotton
+    # t-shirt" of type t_shirt has no "tee" in its label, so a suggestion of a
+    # "cotton tee" read as something new — the same canonical-versus-spoken gap the
+    # ban check had.
+    return any(want <= (_words(i.get("label")) | _garment_aliases(i.get("type")))
+               for i in closet)
 
 
 def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:

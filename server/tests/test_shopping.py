@@ -650,3 +650,31 @@ def test_every_alias_names_a_type_the_taxonomy_has():
     from vocab import TYPE_LABEL
     assert set(shopping._ALIASES) <= set(TYPE_LABEL), \
         set(shopping._ALIASES) - set(TYPE_LABEL)
+
+
+def test_ownership_reads_the_spoken_word_too():
+    """An owned "white cotton t-shirt" has no "tee" in its label.
+
+    So a suggested "cotton tee" read as something new — the same canonical-versus-
+    spoken gap the ban check had. Raised by the pre-push reviewer, 2026-08-27.
+    """
+    import shopping
+    closet = [{"label": "white cotton t-shirt", "type": "t_shirt"}]
+    assert shopping._already_owned("cotton tee", closet)
+    assert not shopping._already_owned("wool overcoat", closet)
+
+
+@pytest.mark.parametrize("what,banned", [
+    ("wool coat", True),
+    ("puffer jacket", True),
+    ("cotton tee", False),          # a top, not outerwear
+])
+def test_a_group_ban_reaches_the_garments_in_that_group(what, banned):
+    """"Never wear outerwear" is a real rule.
+
+    Searching a suggestion for the literal word `outerwear` finds it in no sentence
+    anybody writes, so "wool coat" sailed past a ban that names exactly it.
+    """
+    import shopping
+    rule = [{"kind": "avoid_item", "a": {"group": "outerwear"}}]
+    assert shopping._is_banned(what, "outer", rule) is banned

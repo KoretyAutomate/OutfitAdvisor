@@ -496,7 +496,8 @@ def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,
                    covered: set | None = None,
-                   by_roles: dict | None = None) -> list[str]:
+                   by_roles: dict | None = None,
+                   unsuitable: set | None = None) -> list[str]:
     """Which empty slots are a GAP IN THE WARDROBE, rather than a warm day.
 
     Two sources, because the model only knows about one of them.
@@ -518,6 +519,7 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     whenever validation cleared a pick there for any other reason.
     """
     covered = covered or set()
+    unsuitable = {c for c in (unsuitable or set()) if c not in covered}
     seq = claimed if isinstance(claimed, list) else []
     # `covered` filters BOTH sources. A slot something else already covers is not a
     # gap however it came to be named — and the model naming it anyway is the likely
@@ -526,20 +528,25 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     named = [c for c in seq
              if c in CATEGORIES and not picks.get(c) and c not in covered]
     emptied = [c for c in filled_before if not picks.get(c) and c not in covered]
-    out = set(named) | set(emptied)
-    # A slot nothing got put in is not the same as a slot nothing FITS. The model
-    # can choose a warmth-2 jacket while a warmth-5 coat is sitting in the wardrobe,
-    # or use an item in a role it cannot play while another item plays it fine —
-    # validation then clears the pick, and calling that an ownership gap would have
-    # the shopping list recommending a coat the person already owns.
+    # Two kinds of empty slot, and only one of them is a MISCHOICE.
     #
-    # So a slot counts only when NOTHING in the wardrobe can legally fill it.
-    # Skipped when the roles are not to hand, because a check that cannot run must
-    # not silently pass everything.
+    # The model can pick an item for a role it cannot play, or the same garment
+    # twice. Validation clears that, but another item may fill the slot perfectly
+    # well — the wardrobe was never short, the choice was wrong. Those are checked
+    # against what else is owned.
+    #
+    # The rest are judgements about the GARMENT: a shell too thin for the cold, an
+    # item the wearer has banned, or the model reporting it found nothing suitable
+    # at all. In every one of those the wardrobe's contents were in front of the
+    # judge and were found wanting, which is exactly the gap this feature exists to
+    # notice — a closet holding only a warmth-2 shell must be able to learn that it
+    # needs a warmer coat, not merely that it owns no coat.
+    mischosen = {c for c in emptied if c not in unsuitable}
     if by_roles is not None:
         fillable = {r for roles in by_roles.values() for r in (roles or ())}
-        out = {c for c in out if c not in fillable}
-    return sorted(out, key=CATEGORIES.index)
+        mischosen = {c for c in mischosen if c not in fillable}
+    return sorted(set(named) | set(unsuitable) & set(emptied) | mischosen,
+                  key=CATEGORIES.index)
 
 
 def _unknown_ids(picks: dict, valid_ids: set) -> str:
@@ -618,6 +625,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # the model will not report. Taken after one of them, that step's own
         # casualties would be invisible.
         filled_before = {c for c, v in picks.items() if v}
+        unsuitable: set = set()
         unknown = _unknown_ids(picks, valid_ids)
         if unknown:
             error_note = unknown
@@ -652,7 +660,12 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # carries them as prose, and prose in a prompt is followed most of the time,
         # which is not the same as followed. "This combination shall be banned" is a
         # promise the user is entitled to see kept every morning (2026-08-24).
+        before_rules = {c for c, v in picks.items() if v}
         rule_note, banned_labels = _enforce_user_rules(picks, by_item, list(prefs.rules), attempt)
+        # Banned by the wearer: the garment was owned and is not to be worn, so the
+        # slot is short of something LEGAL — a judgement about the wardrobe, not a
+        # mischoice another item would fix.
+        unsuitable |= {c for c in before_rules if not picks.get(c)}
         if rule_note:
             error_note = rule_note
             continue
@@ -693,6 +706,9 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             for c in thin:
                 log.warning("closet picks: %s was too thin for the cold, cleared", c)
                 picks[c] = None
+                # A judgement about the GARMENT, not about the choice: the wardrobe
+                # was in front of us and had nothing warm enough. That is the gap.
+                unsuitable.add(c)
         text = _assemble_text(out, banned_labels, prefs, picks, by_item)
         if not text:
             log.warning("closet attempt %s: empty bullets", attempt + 1)
@@ -700,7 +716,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             continue
         return {"picks": picks, "text": text,
                 "missing": _missing_slots(out.get("missing"), picks, filled_before,
-                                          covered, by_roles)}
+                                          covered, by_roles, unsuitable)}
     log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

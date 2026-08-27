@@ -383,6 +383,21 @@ def test_a_correctly_chosen_dress_does_not_record_a_bottoms_gap():
                                      set(), {"bottoms"}) == []
 
 
+def test_a_garment_owned_but_UNSUITABLE_is_still_a_gap():
+    """Owning something for the slot is not the test.
+
+    A closet holding only a warmth-2 shell must be able to learn that it needs a
+    warmer coat, not merely that it owns no coat. The warmth check and the rule
+    repair are judgements about the GARMENT — the wardrobe was in front of the judge
+    and was found wanting — so the alternatives filter must not apply to them.
+    Raised by the pre-push reviewer, 2026-08-27.
+    """
+    roles = {"shell": ["outer"], "tee": ["base"]}
+    assert closet_mod._missing_slots([], {"outer": None, "base": "tee"},
+                                     {"outer", "base"}, set(), roles,
+                                     {"outer"}) == ["outer"]
+
+
 def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
     """A slot nothing got put in is not a slot nothing FITS.
 
@@ -393,14 +408,16 @@ def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
     pre-push reviewer, 2026-08-27.
     """
     roles = {"coat1": ["outer"], "tee1": ["base"]}
+    # No `unsuitable` — the pick was cleared for being a MISCHOICE (wrong role, or a
+    # duplicate), and another item fills the slot fine.
     assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
-                                     {"outer", "base"}, set(), roles) == []
+                                     {"outer", "base"}, set(), roles, set()) == []
 
 
 def test_it_IS_a_gap_when_nothing_in_the_wardrobe_can_fill_it():
     roles = {"tee1": ["base"]}
     assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
-                                     {"outer", "base"}, set(), roles) == ["outer"]
+                                     {"outer", "base"}, set(), roles, set()) == ["outer"]
 
 
 def test_a_check_that_cannot_run_does_not_pass_everything():

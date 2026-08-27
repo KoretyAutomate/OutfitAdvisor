@@ -858,6 +858,38 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     w6.localStorage.getItem("oa.gapsPending") === "[]",
     w6.localStorage.getItem("oa.gapsPending"));
 
+  /* A push can append BETWEEN the read and the write — the app being opened while
+     one finishes is not exotic, it is the moment somebody taps the notification.
+     Clearing the key outright erased a morning that had never been recorded.
+     Raised by the pre-push reviewer, 2026-08-27. */
+  const w7 = page();
+  w7.localStorage.setItem("oa.closetComplete", "1");
+  await w7.eval("appReady");
+  w7.eval(`
+    gaps = [];
+    localStorage.setItem("oa.gapsPending", JSON.stringify(
+      [{day:"2026-08-21", missing:["outer"], lo:2, hi:9, planTemp:4, sent:[]}]));
+    const realGet = prefGet;
+    let first = true;
+    prefGet = async (k, d) => {
+      if (k === "oa.gapsPending" && first) {
+        first = false;
+        const v = localStorage.getItem(k) || d;
+        // the worker lands a new morning while we are reading
+        localStorage.setItem(k, JSON.stringify([...JSON.parse(v),
+          {day:"2026-08-22", missing:["mid"], lo:3, hi:10, planTemp:5, sent:[]}]));
+        return v;
+      }
+      return realGet(k, d);
+    };`);
+  await w7.eval(`drainPendingGaps()`);
+  check("a morning queued mid-drain is not erased unrecorded",
+    /2026-08-22/.test(w7.localStorage.getItem("oa.gapsPending")),
+    w7.localStorage.getItem("oa.gapsPending"));
+  check("and the one that WAS drained is gone",
+    !/2026-08-21/.test(w7.localStorage.getItem("oa.gapsPending")),
+    w7.localStorage.getItem("oa.gapsPending"));
+
   /* A queued morning is judged by the availability of THAT morning. The drain
      happens later — by which time the laundry has moved on — so using today's
      would turn a coat that was in the wash into one that was never owned, or the

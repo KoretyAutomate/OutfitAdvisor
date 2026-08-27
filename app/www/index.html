@@ -3062,11 +3062,19 @@ async function drainPendingGaps(){
   let queue=[];
   try{ queue=JSON.parse(await prefGet(GAPS_PENDING_KEY,"[]"))||[]; }catch(e){ queue=[]; }
   if(!queue.length) return;
+  const done=new Set();
   for(const e of queue){
     if(!e||!e.day) continue;
     await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day,e.sent);
+    done.add(e.day);
   }
-  await prefSet(GAPS_PENDING_KEY,"[]");
+  // Only what was ACTUALLY drained. The worker can append between the read above
+  // and this write — the app being opened while a push finishes is not exotic, it
+  // is the moment somebody taps the notification — and clearing the key outright
+  // would erase a morning that was never recorded. Re-read, keep the rest.
+  let now=[];
+  try{ now=JSON.parse(await prefGet(GAPS_PENDING_KEY,"[]"))||[]; }catch(e){ now=[]; }
+  await prefSet(GAPS_PENDING_KEY, JSON.stringify(now.filter(e=>e&&!done.has(e.day))));
 }
 async function recordGaps(missing,w,planTemp,day,sentIds){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means

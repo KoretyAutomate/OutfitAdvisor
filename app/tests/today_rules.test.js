@@ -731,6 +731,27 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
   ev(`userRules=[];`);
 
+  /* Corrections count. addItem clears gaps from whatever /classify guessed, and
+     the user is often in the edit sheet precisely because that guess was wrong or
+     never arrived: a coat first saved as a base layer left the outer gaps standing,
+     and the shopping list would recommend the coat just photographed. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  ev(`userRules=[]; closet=[]; wearLog=[]; trips=[];
+      gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9,at:4}];
+      sheet={item:{id:"itm-new-001",label:"coat",category:"base",group:"tops",
+                   type:"t_shirt",roles:["base"],colors:[],warmth:5,
+                   formality:["casual"],waterproof:false,count:1},isNew:false};`);
+  w.document.getElementById("shLabel").value = "wool coat";
+  w.document.getElementById("shCat").value = "outer";
+  w.document.getElementById("shGroup").value = "outerwear";
+  const typeSel = w.document.getElementById("shType");
+  typeSel.innerHTML = '<option value="coat">Coat</option>';
+  typeSel.value = "coat";
+  w.document.getElementById("shColors").value = "navy";
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("correcting a misclassified item settles the gaps it answers",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+
   /* Judged at the PLANNING temperature the server used, not the overnight low.
      They cross the warmth thresholds on different days, so the wrong one forgets
      gaps the server would still raise — or keeps ones it would not. */

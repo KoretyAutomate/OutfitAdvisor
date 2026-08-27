@@ -3669,6 +3669,13 @@ $("shSave").onclick=async()=>{
   if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);
   const idx=closet.findIndex(x=>x.id===it.id);
   if(idx>=0) closet[idx]=it; else closet.push(it);
+  // After the CORRECTIONS, not before them. addItem clears gaps from whatever
+  // /classify guessed, and the user is often here precisely because that guess was
+  // wrong or never arrived — a coat first saved as a base layer would leave the
+  // outer gaps standing, and the shopping list would recommend the coat they had
+  // just photographed. Editing an existing item goes through here too, which is
+  // the other way warmth or role changes.
+  await clearGapsFilledBy(it);
   await saveCloset(); closeSheet(); toast("Saved to your closet");
 };
 $("shWear").onclick=async()=>{

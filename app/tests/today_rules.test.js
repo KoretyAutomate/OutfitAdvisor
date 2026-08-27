@@ -602,9 +602,42 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
       closet=[{id:"itm-coat-01",label:"coat",category:"outer",group:"outerwear",
                type:"coat",roles:["outer"],colors:[],warmth:5,formality:["casual"],
                waterproof:false,count:1}];`);
+  ev(`wearLog=[{itemId:"itm-coat-01",wornAt:Date.now()}];`);
   await ev(`recordGaps(["outer","mid"], ${JSON.stringify(WX)})`);
   check("a coat that is merely in the wash is not recorded as a gap",
     ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+
+  /* But owning SOMETHING for the slot is not the test. A shell too thin for
+     freezing weather, or an outer layer the wearer has banned, is reported missing
+     by a server that HAD the item in front of it and judged it unsuitable — and
+     that is the most valuable signal here. Discarding it would mean the shopping
+     list could learn "you own no coat" but never "you need a warmer one". Raised by
+     the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[]; wearLog=[];`);
+  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)})`);
+  check("a coat that WAS sent and judged unsuitable is a real gap",
+    ev(`gaps.map(g=>g.slot).join()`) === "outer", ev(`JSON.stringify(gaps)`));
+  ev(`gaps=[];`);
+
+  /* An OUTAGE is where a broken promise is hardest to notice: everything else on
+     the screen looks normal. The on-device recommender dresses from a catalogue, so
+     with the closet declared complete it must not run. */
+  ev(`closetComplete=true;
+      fetch = async () => { throw new Error("DGX down"); };
+      fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off = await ev(`getAdvice(40.3,-74.6)`);
+  check("with the advisor down, nothing unowned is suggested",
+    Object.entries(off.outfit).every(([k, v]) => k === "tip" || String(v).startsWith("None")),
+    off.outfit);
+  check("and the PROSE says so too — it is what the notification shows",
+    /Nothing to suggest/.test(off.text) && !/coat|jacket/i.test(off.text), off.text);
+
+  ev(`closetComplete=false;`);
+  const off2 = await ev(`getAdvice(40.3,-74.6)`);
+  check("without the tickbox the offline estimate still helps",
+    Object.entries(off2.outfit).some(([k, v]) => k !== "tip" && !String(v).startsWith("None")),
+    off2.outfit);
+  ev(`closetComplete=true;`);
 
   console.log("\n--- 13b. the MORNING PUSH's gaps count too ----------------------");
   /* The push is how most advice actually arrives. Recording only in the foreground

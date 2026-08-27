@@ -2531,6 +2531,20 @@ async function getAdvice(lat,lon){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
     const w=await fetchWeatherLocal(lat,lon);
+    // The on-device recommender dresses from a catalogue and knows nothing about
+    // this wardrobe. With the closet declared complete that is precisely what must
+    // not happen, and an outage is where a broken promise is hardest to notice —
+    // everything else on the screen looks normal. The server's own failure path
+    // answers this way; so does this one.
+    if(closetComplete){
+      const none={};
+      for(const k of CATS) none[k]="None — couldn't reach the advisor";
+      none.tip="";
+      return {weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
+              closetSent:cl.length>0,missing:[],
+              text:"• Nothing to suggest — couldn't reach the advisor.\n"+
+                   "• Your closet is set to 'complete', so nothing outside it is offered."};
+    }
     const o=recommend(applyTempOffset(w,tempOffset),state.gender,state.style);
     return {weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
             closetUsed:false,picks:null,closetSent:cl.length>0};
@@ -3000,9 +3014,23 @@ async function saveGaps(){
    party that knows the difference, so it decides here. */
 function ownershipGaps(missing){
   if(!Array.isArray(missing)) return [];
-  const fillable=new Set();
-  for(const i of closet) for(const r of normRoles(i.roles,i.category)) fillable.add(r);
-  return missing.filter(slot=>!fillable.has(slot));
+  // Only what was WITHHELD counts as a laundry gap. The test is not "do you own
+  // something for this slot" — that discards the most valuable signal there is: a
+  // shell too thin for freezing weather, or an outer layer the wearer has banned,
+  // is reported missing by a server that HAD the item in front of it and judged it
+  // unsuitable. Dropping that would mean the shopping list could never learn that a
+  // warmer coat is wanted, only that no coat at all is.
+  //
+  // So: if something that could fill the slot was kept back today, the slot proves
+  // nothing about the wardrobe. If everything that could fill it was sent and the
+  // answer was still "nothing suitable", that is a real gap.
+  const sent=new Set(closetPayload().map(i=>i.id));
+  const withheld=new Set();
+  for(const i of closet){
+    if(sent.has(i.id)) continue;
+    for(const r of normRoles(i.roles,i.category)) withheld.add(r);
+  }
+  return missing.filter(slot=>!withheld.has(slot));
 }
 async function recordGaps(missing,w){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means

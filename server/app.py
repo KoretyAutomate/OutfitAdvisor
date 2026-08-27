@@ -55,6 +55,7 @@ import closet as closet_llm
 import engine
 import llm
 import rules
+import shopping as shopping_llm
 import vocab
 import weather
 from schemas import (
@@ -419,7 +420,7 @@ async def shopping(req: ShoppingRequest, x_oa_client: str = Header(default="")):
     """
     t0 = time.monotonic()
     items = [i.model_dump() for i in (req.closet or [])]
-    out = await llm.shopping_list(
+    out = await shopping_llm.shopping_list(
         items,
         [g.model_dump() for g in req.gaps],
         rules.clean_rules(req.rules),

@@ -2971,6 +2971,12 @@ async function saveGaps(){
    five — counting requests instead of mornings would inflate the evidence in
    proportion to how often the user reloads. */
 async function recordGaps(missing,w){
+  // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
+  // "you have not photographed it yet", not "you do not own one" — and a week of
+  // that would have the advisor recommending a coat the user already has hanging
+  // up. It is also what the tickbox's own text promises, and code that contradicts
+  // its own label is worse than either behaviour on its own.
+  if(!closetComplete) return;
   if(!Array.isArray(missing)||!missing.length||!w) return;
   const day=todayISO();
   let added=false;

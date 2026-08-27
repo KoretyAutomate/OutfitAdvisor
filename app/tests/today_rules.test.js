@@ -525,6 +525,18 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /optBoolean\("closetOnly"/.test(kt) && /body\.put\("closetOnly", true\)/.test(kt));
 
   console.log("\n--- 13. what the wardrobe could not cover -----------------------");
+  /* Recorded ONLY while the wardrobe is declared complete. Otherwise an empty slot
+     means "not photographed yet", not "you do not own one", and a week of that has
+     the advisor recommending a coat already hanging up. It is also what the
+     tickbox's own text promises. Raised by the pre-push reviewer, 2026-08-27. */
+  ev(`gaps=[]; closetComplete=false;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("an incomplete wardrobe's empty slots are NOT taken as evidence",
+    ev(`gaps.length`) === 0, ev(`gaps`));
+  ev(`closetComplete=true;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("a complete one's are", ev(`gaps.length`) >= 1, ev(`gaps`));
+
   /* Every morning the advisor comes up short, the slot and the day's temperatures
      are written down. This is what the shopping list argues FROM — a gap on eleven
      mornings between 2C and 9C is an argument; "you should own a coat" is not. */

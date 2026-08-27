@@ -95,12 +95,12 @@ def _suggest(monkeypatch, reply):
     asyncio.run rather than pytest-asyncio: this suite has no such plugin, and the
     other wiring tests here drive coroutines the same way.
     """
-    import llm
+    import shopping
 
     async def fake_chat(*a, **k):
         return reply
-    monkeypatch.setattr(llm, "_chat", fake_chat)
-    return asyncio.run(llm.shopping_list(
+    monkeypatch.setattr(shopping, "_chat", fake_chat)
+    return asyncio.run(shopping.shopping_list(
         [ITEM], [{"slot": "outer", "n": 9, "loC": 2, "hiC": 9}], [], {"tempOffset": -1.5}))
 
 

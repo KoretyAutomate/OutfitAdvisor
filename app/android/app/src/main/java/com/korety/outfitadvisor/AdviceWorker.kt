@@ -293,16 +293,17 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // last good day.
             val validBefore = p.optString("validBefore", "")
             if (validBefore.isNotEmpty() && today() >= validBefore) return
+            // "My closet is complete" is forwarded FIRST, before anything can
+            // return early. It describes the wardrobe, not today's laundry — and
+            // the empty-closet case below is exactly when the wardrobe is all in
+            // the wash, which is the morning a user who set this most needs the
+            // honest answer rather than a catalogue.
+            if (p.optBoolean("closetOnly", false)) body.put("closetOnly", true)
             val closet = p.optJSONArray("closet") ?: return
             if (closet.length() == 0) return
             body.put("closet", closet)
             val rules = p.optJSONArray("rules")
             if (rules != null && rules.length() > 0) body.put("rules", rules)
-            // "My closet is complete" travels with the wardrobe it describes. The
-            // morning push is the request that matters most, and a flag honoured
-            // only in the app would leave the notification suggesting garments the
-            // user has told us they do not own.
-            if (p.optBoolean("closetOnly", false)) body.put("closetOnly", true)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

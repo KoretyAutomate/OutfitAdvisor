@@ -536,6 +536,13 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly);
   check("the worker forwards it",
     /optBoolean\("closetOnly"/.test(kt) && /body\.put\("closetOnly", true\)/.test(kt));
+  /* And forwards it BEFORE anything can return early. The empty-closet return is
+     exactly the morning the whole wardrobe is in the wash — which is when somebody
+     who set this most needs the honest answer rather than a catalogue. Raised by
+     the pre-push reviewer, 2026-08-27. */
+  check("before the empty-closet return, not after it",
+    kt.indexOf('body.put("closetOnly", true)') < kt.indexOf("if (closet.length() == 0) return"),
+    "closetOnly is dropped when nothing is wearable");
 
   console.log("\n--- 13. what the wardrobe could not cover -----------------------");
   /* Recorded ONLY while the wardrobe is declared complete. Otherwise an empty slot

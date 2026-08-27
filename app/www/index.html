@@ -3035,11 +3035,19 @@ function shoppingDays(){ return new Set(liveGaps().map(g=>g.day)).size; }
 function refreshShopping(){
   const btn=$("shopBtn"), note=$("shopNote"); if(!btn) return;
   const days=shoppingDays(), n=gapSummary().length;
-  const ready=days>=SHOP_MIN_DAYS&&closet.length>0;
+  // Tied to the tickbox, not only to the evidence. Untick it and the wardrobe may
+  // be partial again, so an empty slot stops meaning "you do not own one" — and
+  // suggestions argued from the old record would recommend clothes already hanging
+  // up but not yet photographed. The evidence is KEPT, because it was true when it
+  // was collected; it simply stops being answered from.
+  const ready=days>=SHOP_MIN_DAYS&&closet.length>0&&closetComplete;
   btn.disabled=!ready||shopBusy;
   btn.style.opacity=ready?"":"0.55";
   note.textContent=!closet.length
     ? "Photograph your clothes first — there is nothing to compare against."
+    : !closetComplete
+      ? `Tick \u201cMy closet is complete\u201d first — until then an empty slot `+
+        `means \u201cnot photographed yet\u201d, not \u201cyou don't own one\u201d.`
     : ready
       ? `From ${days} mornings your closet came up short, across ${n} ${n===1?"slot":"slots"}.`
       : `Needs about a week of mornings to argue from — ${days} so far. `+
@@ -3193,7 +3201,8 @@ async function saveToday(res,how){
     await prefSet(TODAY_KEY, JSON.stringify({
       day:todayISO(), at:Date.now(), how:how||"app", place:state.place||"",
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
-      source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed}));
+      source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
+      missing:res.missing||[]}));
   }catch(e){}
 }
 async function loadToday(){
@@ -3205,6 +3214,12 @@ async function loadToday(){
   lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
            picks:d.picks||null,closetUsed:!!d.closetUsed};
   if(d.place&&!state.place) state.place=d.place;
+  // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and
+  // recording only in the foreground path meant somebody who reads the notification
+  // and never taps refresh would never accumulate a week — the weekly feature would
+  // simply never switch on for them. recordGaps is idempotent per slot per day, so
+  // reading this on every launch counts each morning once.
+  recordGaps(d.missing,d.weather);
   renderWeather(d.weather);
   if(d.outfit) renderOutfit(d.outfit,d.outfit_text,d.source,lastRes);
   const line=$("todayFrom");

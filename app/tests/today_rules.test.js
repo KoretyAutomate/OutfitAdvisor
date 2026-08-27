@@ -593,6 +593,32 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and spans the weather they happened in",
     sum[0].loC === 2 && sum[0].hiC === 11, sum[0]);
 
+  console.log("\n--- 13b. the MORNING PUSH's gaps count too ----------------------");
+  /* The push is how most advice actually arrives. Recording only in the foreground
+     path meant somebody who reads the notification and never taps refresh would
+     never accumulate a week — the weekly feature would simply never switch on for
+     them. Raised by the pre-push reviewer, 2026-08-27. */
+  check("the worker carries the missing slots home",
+    /put\("missing", raw\.opt\("missing"\)\)/.test(kt),
+    "the push response's gaps are dropped on the floor");
+
+  const w5 = page();
+  w5.localStorage.setItem("oa.closetComplete", "1");
+  w5.localStorage.setItem("oa.today", JSON.stringify({
+    day: new Date().toISOString().slice(0, 10), at: Date.now(), how: "push",
+    weather: WX, outfit: OUT, outfit_text: "x", source: "llm",
+    picks: {}, closetUsed: true, missing: ["outer", "mid"] }));
+  await w5.eval("appReady");
+  check("and opening the app records them",
+    w5.eval(`gaps.map(g=>g.slot).sort().join()`) === "mid,outer",
+    w5.eval(`JSON.stringify(gaps)`));
+  check("with the weather from that morning",
+    w5.eval(`gaps[0].lo`) === WX.lo, w5.eval(`gaps[0]`));
+  // Reading the same stored advice again must not count the morning twice.
+  await w5.eval(`loadToday()`);
+  check("and reading it again does not count the morning twice",
+    w5.eval(`gaps.length`) === 2, w5.eval(`gaps.length`));
+
   console.log("\n--- 14. purchase suggestions ------------------------------------");
   /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
      mornings than that would be a catalogue dressed up as an argument. */
@@ -617,8 +643,21 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     w.document.getElementById("shopBtn").disabled === false,
     w.document.getElementById("shopNote").textContent);
 
+  /* Tied to the tickbox, not only to the evidence. Untick it and the wardrobe may
+     be partial again, so suggestions argued from the old record would recommend
+     clothes already hanging up but not yet photographed. The evidence is KEPT — it
+     was true when collected — it simply stops being answered from. */
   ev(`gaps=Array.from({length:9},(_,i)=>({slot:"outer",
-        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9})); refreshShopping();`);
+        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9}));
+      closetComplete=false; refreshShopping();`);
+  check("a week of evidence is not enough while the wardrobe is declared partial",
+    w.document.getElementById("shopBtn").disabled === true);
+  check("and the note says what to do about it",
+    /My closet is complete/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+  check("the evidence itself is kept, not thrown away", ev(`gaps.length`) === 9);
+
+  ev(`closetComplete=true; refreshShopping();`);
   check("offered once a week of mornings has gone wrong",
     w.document.getElementById("shopBtn").disabled === false);
   check("and it says what it is arguing from",

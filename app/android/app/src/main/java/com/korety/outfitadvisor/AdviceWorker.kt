@@ -193,6 +193,13 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 .put("source", a.source)
                 .put("picks", raw.opt("picks"))
                 .put("closetUsed", raw.optBoolean("closetUsed", false))
+                // The slots the wardrobe could not fill. Carried here rather than
+                // written into oa.gaps directly: the recording rules — one entry
+                // per slot per DAY, expiry, the complete-closet gate — live in
+                // index.html, and a Kotlin twin of them would be one more place for
+                // the same logic to drift. The app records them next time it opens,
+                // which is the only time anyone can act on them anyway.
+                .put("missing", raw.opt("missing"))
             prefs.edit().putString(KEY_TODAY, out.toString()).apply()
         } catch (e: Exception) {
             // Losing the copy must never cost the notification the user is waiting for.

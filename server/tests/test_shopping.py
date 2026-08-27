@@ -271,7 +271,11 @@ def test_without_the_flag_the_fallback_still_helps(monkeypatch):
 
 # ── the prose must obey the tickbox too ────────────────────────────────────────
 
-OWNED = ["white t-shirt", "shirt", "blue jeans", "jeans"]
+# (phrase, is_label): a LABEL is the name they gave the garment and means it
+# wherever it appears; a KIND is a common noun and only means theirs where the
+# sentence points at it.
+OWNED = [("white t-shirt", True), ("shirt", False),
+         ("blue jeans", True), ("jeans", False)]
 
 
 @pytest.mark.parametrize("line", [
@@ -303,6 +307,26 @@ def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
 ])
 def test_prose_that_is_fine_is_kept(line):
     assert not picks_mod._names_something_unowned(line, OWNED)
+
+
+@pytest.mark.parametrize("line,dropped", [
+    ("Start with your oxford.", False),          # their own, named
+    ("Wear the white shirt you own.", False),    # their own, pointed at
+    ("Your oxford shirt works today.", False),
+    ("Add a wool shirt.", True),                 # a DIFFERENT shirt
+    ("Consider a wool overcoat.", True),
+    ("The wind will bite.", False),              # advice, no garment
+])
+def test_a_kind_of_garment_only_means_THEIRS_when_pointed_at(line, dropped):
+    """Removing the kind unconditionally let recommendations through.
+
+    Owning an Oxford shirt made "Add a wool shirt" read as a reference to it,
+    because the word `shirt` was struck out before the line was judged. The
+    determiner is what separates the two, and this prose is English. Raised by the
+    pre-push reviewer, 2026-08-27.
+    """
+    owned = [("oxford", True), ("shirt", False)]
+    assert picks_mod._names_something_unowned(line, owned) is dropped
 
 
 def test_the_reader_is_told_the_advice_is_shorter():

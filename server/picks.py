@@ -290,7 +290,7 @@ _GARMENT_WORDS = frozenset(
      "sweater", "knit", "vest", "gilet", "parka", "anorak", "mac"}
 
 
-def _names_something_unowned(line: str, owned: list[str]) -> bool:
+def _names_something_unowned(line: str, owned: list[tuple[str, bool]]) -> bool:
     """Does this line recommend a garment that is not in the wardrobe?
 
     Only asked when the wearer has declared their closet COMPLETE. Then a bullet
@@ -316,9 +316,20 @@ def _names_something_unowned(line: str, owned: list[str]) -> bool:
     # whole sentence: "Add a wool overcoat over your white t-shirt" contains an
     # owned t-shirt, so the overcoat rode along — the one recommendation the tickbox
     # exists to suppress, in the line the notification shows.
-    for phrase in sorted(owned, key=len, reverse=True):
-        if phrase:
+    for phrase, is_label in sorted(owned, key=lambda o: len(o[0]), reverse=True):
+        if not phrase:
+            continue
+        if is_label:
+            # The name they gave it. Unambiguous wherever it appears.
             low = low.replace(phrase, " ")
+        else:
+            # A KIND of garment, which is only a reference to theirs when the
+            # sentence points at it: "your white undershirt" is the one they are
+            # wearing, "add a wool shirt" is a recommendation for one they are not.
+            # Removing the kind unconditionally let every "a wool shirt" through on
+            # the strength of an owned oxford.
+            low = re.sub(rf"\b(your|the|that|this)\s+(?:[\w-]+\s+){{0,2}}{re.escape(phrase)}\b",
+                         " ", low)
     # Substring, not whole token: the taxonomy has "coat", the model writes
     # "overcoat", and a token-exact test waved that straight through. Every word
     # tested is four characters or more, which keeps it clear of the accidents a
@@ -340,18 +351,21 @@ def _assemble_text(out: dict, banned: list[dict], prefs: Prefs,
     # label they gave it, and the kind of thing it is. A user labels an item
     # "Airism" and the model writes "your white undershirt" — strike out only the
     # label and the line reads as a recommendation for something unowned.
-    owned = []
+    # (phrase, is_label). A LABEL is the name they gave the garment and means it
+    # wherever it appears; a KIND is a common noun and only means theirs when the
+    # sentence points at it — see _names_something_unowned.
+    owned: list[tuple[str, bool]] = []
     for iid in picks.values():
         if not iid:
             continue
         item = by_item.get(iid) or {}
         label = str(item.get("label") or "").lower().strip()
         if label:
-            owned.append(label)
+            owned.append((label, True))
         kind = str(item.get("type") or "").lower()
         for word in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()):
             if len(word) > 3:
-                owned.append(word)
+                owned.append((word, False))
     if prefs.closet_only:
         kept = [b for b in bullets if not _names_something_unowned(b, owned)]
         if len(kept) != len(bullets):

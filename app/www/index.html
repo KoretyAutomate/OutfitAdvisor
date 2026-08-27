@@ -3064,11 +3064,31 @@ async function recordGaps(missing,w){
    clears the slots it can fill.
    Only ADDING. Removing or editing an item can create a gap, never resolve one, so
    there is nothing to forget. */
+/* Minimum warmth the OUTER layer needs at a planning temperature.
+   TWIN of _OUTER_MIN_WARMTH in server/picks.py — the server decides an outer layer
+   is too thin by this table, so forgetting a gap it would still raise means the
+   evidence and the advice disagree about the same wardrobe. today_rules.test.js
+   asserts the two tables match. */
+const OUTER_MIN_WARMTH=[[5,4],[12,3],[18,2]];
+function minOuterWarmth(t){
+  for(const [below,need] of OUTER_MIN_WARMTH) if(t<below) return need;
+  return 1;
+}
 async function clearGapsFilledBy(item){
   if(!item) return;
+  // A garment the wearer has banned outright answers nothing.
+  const kind=normType(item.type,item.group);
+  if(userRules.some(r=>r.kind==="avoid_item"&&r.a&&r.a.type&&r.a.type===kind)) return;
   const roles=new Set(normRoles(item.roles,item.category));
   const before=gaps.length;
-  gaps=gaps.filter(g=>!roles.has(g.slot));
+  gaps=gaps.filter(g=>{
+    if(!roles.has(g.slot)) return true;                  // nothing to do with it
+    // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
+    // does not answer an outer gap recorded at 2C — the wardrobe is exactly as
+    // short as it was, and forgetting the evidence would hide that for good.
+    if(g.slot==="outer"&&(item.warmth||3)<minOuterWarmth(g.lo)) return true;
+    return false;
+  });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }
 }
 

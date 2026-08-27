@@ -679,10 +679,43 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
      by the pre-push reviewer, 2026-08-27. */
   ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9},
             {slot:"mid",day:"2026-08-20",lo:2,hi:9}];`);
-  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer"})`);
-  check("adding a coat forgets the outer gaps it answers",
+  const GAPS = `[{slot:"outer",day:"2026-08-20",lo:2,hi:9},
+                 {slot:"mid",day:"2026-08-20",lo:2,hi:9}]`;
+  ev(`userRules=[]; gaps=${GAPS};`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5})`);
+  check("adding a proper coat forgets the outer gaps it answers",
     ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
   check("and leaves the ones it does not", ev(`gaps.length`) === 1);
+
+  /* But only the gaps it could ACTUALLY have filled. A second warmth-2 shell does
+     not answer an outer gap recorded at 2C — the wardrobe is exactly as short as it
+     was, and forgetting the evidence would hide that for good. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  ev(`gaps=${GAPS};`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"rainwear",warmth:2})`);
+  check("another thin shell forgets nothing",
+    ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+
+  ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:{type:"coat"}}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5})`);
+  check("nor does a garment the wearer has banned outright",
+    ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+  ev(`userRules=[];`);
+
+  /* The warmth table is a TWIN of _OUTER_MIN_WARMTH in server/picks.py. If they
+     drift, the evidence and the advice disagree about the same wardrobe: the app
+     forgets a gap the server would still raise, or keeps one it would not. */
+  const serverLine = (fs.readFileSync(
+    path.join(__dirname, "..", "..", "server", "picks.py"), "utf8")
+    .split("\n").find(l => l.startsWith("_OUTER_MIN_WARMTH")) || "");
+  const serverPairs = [...serverLine.matchAll(/\((\d+),\s*(\d+)\)/g)]
+    .map(m => [Number(m[1]), Number(m[2])]);
+  check("the phone's warmth table matches the server's",
+    JSON.stringify(ev(`OUTER_MIN_WARMTH`)) === JSON.stringify(serverPairs),
+    { phone: ev(`OUTER_MIN_WARMTH`), server: serverPairs });
 
   console.log("\n--- 14. purchase suggestions ------------------------------------");
   /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer

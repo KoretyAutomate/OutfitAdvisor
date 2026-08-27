@@ -563,8 +563,12 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("the empty slot was recorded", ev(`gaps.length`) >= 1, ev(`gaps`));
   check("with the weather it happened in",
     ev(`gaps[0].lo`) === WX.lo && ev(`gaps[0].hi`) === WX.hi, ev(`gaps[0]`));
-  check("and no date beyond the day, no place — this is about the wardrobe",
-    Object.keys(ev(`gaps[0]`)).sort().join() === "day,hi,lo,slot", Object.keys(ev(`gaps[0]`)));
+  /* `at` is the planning temperature the server used; `day` is a date with no
+     time. No place, no coordinates, no clock — the record is about the wardrobe,
+     not about where somebody was on a Tuesday. */
+  check("and no place, no time of day — this is about the wardrobe",
+    Object.keys(ev(`gaps[0]`)).sort().join() === "at,day,hi,lo,slot",
+    Object.keys(ev(`gaps[0]`)));
 
   // Tapping refresh five times is ONE cold morning, not five. Counting requests
   // would inflate the evidence in proportion to how often the user reloads.
@@ -703,7 +707,43 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
                                type:"coat",warmth:5})`);
   check("nor does a garment the wearer has banned outright",
     ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+
+  /* A ban may name a colour, a group or a role rather than a type. Matching only
+     the type let a white coat clear outer gaps while "never wear white" was in
+     force — evidence gone, and the server would refuse the coat anyway. Raised by
+     the pre-push reviewer, 2026-08-27. */
+  for (const [sel, item, why] of [
+    [`{color:"white"}`, `{type:"coat",colors:["white"]}`, "a banned COLOUR"],
+    [`{group:"outerwear"}`, `{type:"coat",colors:["navy"]}`, "a banned GROUP"],
+    [`{role:"outer"}`, `{type:"coat",colors:["navy"]}`, "a banned ROLE"],
+  ]) {
+    ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:${sel}}];`);
+    await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                                 warmth:5,...${item}})`);
+    check(`${why} is recognised, so the evidence is kept`,
+      ev(`gaps.length`) === 2, ev(`JSON.stringify(gaps)`));
+  }
+  // And a rule that does NOT describe the garment must not block a real answer.
+  ev(`gaps=${GAPS}; userRules=[{kind:"avoid_item",a:{color:"white"}}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"coat",warmth:5,colors:["navy"]})`);
+  check("a ban on a colour this garment is not still lets it settle the gap",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
   ev(`userRules=[];`);
+
+  /* Judged at the PLANNING temperature the server used, not the overnight low.
+     They cross the warmth thresholds on different days, so the wrong one forgets
+     gaps the server would still raise — or keeps ones it would not. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:14,at:13}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"jacket",warmth:3})`);
+  check("a warmth-3 jacket answers a gap planned at 13C",
+    ev(`gaps.length`) === 0, ev(`JSON.stringify(gaps)`));
+  ev(`gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:14,at:4}];`);
+  await ev(`clearGapsFilledBy({roles:["outer"],category:"outer",group:"outerwear",
+                               type:"jacket",warmth:3})`);
+  check("but not one planned at 4C, where the server wants warmth 4",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
 
   /* The warmth table is a TWIN of _OUTER_MIN_WARMTH in server/picks.py. If they
      drift, the evidence and the advice disagree about the same wardrobe: the app

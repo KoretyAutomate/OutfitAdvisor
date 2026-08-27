@@ -582,3 +582,44 @@ def test_a_warmer_coat_can_be_suggested_to_someone_who_owns_a_coat():
     # With an adequate coat there is no outer gap, so nothing is suggested for it.
     assert picks_mod._missing_slots([], {"outer": None}, {"outer"}, set(),
                                     lambda s: True, set()) == []
+
+
+@pytest.mark.parametrize("rule,what,slot,banned", [
+    # "Never wear white" carries a COLOUR and nothing else. Reading only type and
+    # group left the selector empty, and an empty subset test is always true — so
+    # the endpoint recommended the very colour just banned. Raised by the reviewer.
+    ({"kind": "avoid_item", "a": {"color": "white"}}, "white wool coat", "outer", True),
+    ({"kind": "avoid_item", "a": {"color": "white"}}, "navy wool coat", "outer", False),
+    # A ROLE-only ban: nothing at all can be suggested for that slot.
+    ({"kind": "avoid_item", "a": {"role": "outer"}}, "wool coat", "outer", True),
+    ({"kind": "avoid_item", "a": {"role": "outer"}}, "cotton tee", "base", False),
+    ({"kind": "avoid_item", "a": {"group": "outerwear"}}, "outerwear shell", "outer", True),
+])
+def test_a_ban_is_matched_on_every_field_it_names(rule, what, slot, banned):
+    import shopping
+    assert shopping._is_banned(what, slot, [rule]) is banned
+
+
+def test_the_planning_temperature_is_returned_to_the_phone(monkeypatch):
+    """So the phone judges a bought garment by the number THIS server used.
+
+    Outer suitability is decided from the planning temperature — morning, or the
+    midpoint — not the overnight low. The phone deciding later whether a coat
+    answers a gap has to use the same basis, and deriving it again is a twin waiting
+    to drift. Raised by the pre-push reviewer, 2026-08-27.
+    """
+    async def fake_weather(*a, **k):
+        return {"lo": 2, "hi": 14, "feelsLo": 0, "feelsHi": 12, "desc": "Cold",
+                "rain": 10, "wind": 4, "morning": 4, "midday": 12, "evening": 6,
+                "swing": 12, "isRain": False, "isSnow": False, "code": 3,
+                "emoji": "x", "date": "2026-08-27", "timezone": "America/New_York"}
+
+    async def fake_text(*a, **k):
+        return "• x"
+
+    monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
+    monkeypatch.setattr(app_mod.llm, "outfit_text", fake_text)
+    body = client.post("/advice", json={"lat": 40.35, "lon": -74.66,
+                                        "gender": "man", "style": "casual"}).json()
+    # morning wins over the midpoint, which would have been 8.
+    assert body["planTemp"] == 4.0, body["planTemp"]

@@ -200,6 +200,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 // the same logic to drift. The app records them next time it opens,
                 // which is the only time anyone can act on them anyway.
                 .put("missing", raw.opt("missing"))
+                // The temperature the server planned around, so the app can later
+                // judge whether a bought garment answers this morning's gap using
+                // the server's own number rather than a second derivation of it.
+                .put("planTemp", raw.opt("planTemp"))
             prefs.edit().putString(KEY_TODAY, out.toString()).apply()
         } catch (e: Exception) {
             // Losing the copy must never cost the notification the user is waiting for.

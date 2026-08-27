@@ -148,7 +148,17 @@ def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:
         side = r.get("a") or {}
         if side.get("role") and side["role"] != slot:
             continue
-        needle = _words(side.get("type")) | _words(side.get("group"))
-        if needle and needle <= want:
+        # A selector may name any combination of type, group, colour and role, and
+        # some name only one. "Never wear white" carries a colour and nothing else;
+        # "never wear outer layers" only a role. Reading type and group alone left
+        # `needle` empty for both, and an empty subset test is always true — so the
+        # endpoint would cheerfully recommend the very colour just banned.
+        needle = _words(side.get("type")) | _words(side.get("group")) | _words(side.get("color"))
+        if needle:
+            if needle <= want:
+                return True
+        elif side.get("role"):
+            # Role-only, and the role already matched above: everything for this
+            # slot is banned, so nothing can be suggested for it.
             return True
     return False

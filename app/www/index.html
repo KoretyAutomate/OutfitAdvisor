@@ -2524,10 +2524,10 @@ async function getAdvice(lat,lon){
     const d=await r.json();
     // What the wardrobe could not cover today, written down for the shopping list.
     // Fire-and-forget: a failure to record evidence must never cost the advice.
-    recordGaps(d.missing,d.weather);
+    recordGaps(d.missing,d.weather,d.planTemp);
     return {weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
-            missing:d.missing||[]};
+            missing:d.missing||[],planTemp:d.planTemp??null};
   }catch(e){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
@@ -3033,7 +3033,7 @@ function ownershipGaps(missing){
   }
   return missing.filter(slot=>!withheld.has(slot));
 }
-async function recordGaps(missing,w){
+async function recordGaps(missing,w,planTemp){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
   // "you have not photographed it yet", not "you do not own one" — and a week of
   // that would have the advisor recommending a coat the user already has hanging
@@ -3046,7 +3046,9 @@ async function recordGaps(missing,w){
   let added=false;
   for(const slot of missing){
     if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;
-    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi)});
+    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),
+               // `at` is the planning temperature the server used for that morning.
+               at:planTemp!=null?Math.round(planTemp):null});
     added=true;
   }
   if(added){
@@ -3074,11 +3076,30 @@ function minOuterWarmth(t){
   for(const [below,need] of OUTER_MIN_WARMTH) if(t<below) return need;
   return 1;
 }
+/* Does an avoid_item selector describe this garment?
+   Every field the selector names must match — the same shape server/rules.py uses,
+   and for the same reason: a selector may name any combination of type, group,
+   colour and role, and reading only the type let a white coat clear gaps while
+   "never wear white" was in force. */
+function bannedOutright(item){
+  const kind=normType(item.type,item.group);
+  const roles=normRoles(item.roles,item.category);
+  const colors=(item.colors||[]).map(c=>String(c).trim().toLowerCase());
+  return userRules.some(r=>{
+    if(r.kind!=="avoid_item"||!r.a) return false;
+    const a=r.a;
+    if(a.type&&a.type!==kind) return false;
+    if(a.group&&a.group!==(GROUP_ALIAS[item.group]||item.group)) return false;
+    if(a.color&&!colors.includes(String(a.color).toLowerCase())) return false;
+    if(a.role&&!roles.includes(a.role)) return false;
+    // An empty selector matches everything, which is not a rule — rules.py drops
+    // those before they are stored, so reaching here means at least one field spoke.
+    return !!(a.type||a.group||a.color||a.role);
+  });
+}
 async function clearGapsFilledBy(item){
   if(!item) return;
-  // A garment the wearer has banned outright answers nothing.
-  const kind=normType(item.type,item.group);
-  if(userRules.some(r=>r.kind==="avoid_item"&&r.a&&r.a.type&&r.a.type===kind)) return;
+  if(bannedOutright(item)) return;   // it answers nothing; the server will refuse it
   const roles=new Set(normRoles(item.roles,item.category));
   const before=gaps.length;
   gaps=gaps.filter(g=>{
@@ -3086,7 +3107,12 @@ async function clearGapsFilledBy(item){
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as
     // short as it was, and forgetting the evidence would hide that for good.
-    if(g.slot==="outer"&&(item.warmth||3)<minOuterWarmth(g.lo)) return true;
+    // Judged at the temperature the outfit was PLANNED around — the number the
+    // server itself used and sent back — not the overnight low. The two cross the
+    // warmth thresholds on different days, so comparing against the wrong one
+    // forgets gaps the server would still raise, or keeps ones it would not.
+    // `lo` is the fallback for records written before planTemp was sent.
+    if(g.slot==="outer"&&(item.warmth||3)<minOuterWarmth(g.at!=null?g.at:g.lo)) return true;
     return false;
   });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }
@@ -3281,7 +3307,7 @@ async function saveToday(res,how){
       day:todayISO(), at:Date.now(), how:how||"app", place:state.place||"",
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
-      missing:res.missing||[]}));
+      missing:res.missing||[], planTemp:res.planTemp??null}));
   }catch(e){}
 }
 async function loadToday(){
@@ -3298,7 +3324,7 @@ async function loadToday(){
   // and never taps refresh would never accumulate a week — the weekly feature would
   // simply never switch on for them. recordGaps is idempotent per slot per day, so
   // reading this on every launch counts each morning once.
-  recordGaps(d.missing,d.weather);
+  recordGaps(d.missing,d.weather,d.planTemp);
   renderWeather(d.weather);
   if(d.outfit) renderOutfit(d.outfit,d.outfit_text,d.source,lastRes);
   const line=$("todayFrom");

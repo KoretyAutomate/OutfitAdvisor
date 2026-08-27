@@ -3046,7 +3046,24 @@ function ownershipGaps(missing,planTemp){
   }
   return missing.filter(slot=>!withheld.has(slot));
 }
-async function recordGaps(missing,w,planTemp){
+/* Mornings the PUSH observed while the app was shut.
+   oa.today holds one day and is overwritten by the next push, so somebody who reads
+   the notification and never opens the app would lose every morning but the last —
+   and could never reach the week the shopping list needs. The worker queues raw
+   observations; the judging happens here, where the wardrobe is, so the recording
+   rules exist once. */
+const GAPS_PENDING_KEY="oa.gapsPending";
+async function drainPendingGaps(){
+  let queue=[];
+  try{ queue=JSON.parse(await prefGet(GAPS_PENDING_KEY,"[]"))||[]; }catch(e){ queue=[]; }
+  if(!queue.length) return;
+  for(const e of queue){
+    if(!e||!e.day) continue;
+    await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day);
+  }
+  await prefSet(GAPS_PENDING_KEY,"[]");
+}
+async function recordGaps(missing,w,planTemp,day){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
   // "you have not photographed it yet", not "you do not own one" — and a week of
   // that would have the advisor recommending a coat the user already has hanging
@@ -3054,8 +3071,8 @@ async function recordGaps(missing,w,planTemp){
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
   missing=ownershipGaps(missing,planTemp);
-  if(!missing.length||!w) return;
-  const day=todayISO();
+  if(!missing.length||!w||w.lo==null||w.hi==null) return;
+  day=day||todayISO();
   let added=false;
   for(const slot of missing){
     if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;
@@ -3534,6 +3551,7 @@ async function load(){
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
+  await drainPendingGaps();   // mornings the push saw while this was shut
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant

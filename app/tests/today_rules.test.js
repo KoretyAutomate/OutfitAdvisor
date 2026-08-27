@@ -826,6 +826,38 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     JSON.stringify(ev(`OUTER_MIN_WARMTH`)) === JSON.stringify(serverPairs),
     { phone: ev(`OUTER_MIN_WARMTH`), server: serverPairs });
 
+  console.log("\n--- 13d. mornings the push saw while the app was shut -----------");
+  /* oa.today holds ONE day and is overwritten by the next push. Somebody who reads
+     the notification and never opens the app therefore lost every morning but the
+     last, and could never reach the week the shopping list needs — the ordinary
+     usage pattern defeated the feature. Raised by the pre-push reviewer,
+     2026-08-27. */
+  const jsQ = (fs.readFileSync(HTML, "utf8")
+    .match(/const GAPS_PENDING_KEY="([^"]+)"/) || [])[1];
+  const ktQ = (kt.match(/const val KEY_GAPS_PENDING = "([^"]+)"/) || [])[1];
+  check("the phone and the worker agree on the queue key", jsQ === ktQ, { jsQ, ktQ });
+  check("the worker appends rather than overwriting",
+    /queueGaps\(prefs, raw, out\.getString\("day"\)\)/.test(kt));
+  check("and one entry per day, so a retry does not count twice",
+    /if \(e\.optString\("day"\) != day\) out\.put\(e\)/.test(kt));
+  check("bounded, so an app unopened for months does not grow it for ever",
+    /PENDING_MAX/.test(kt));
+
+  const w6 = page();
+  w6.localStorage.setItem("oa.closetComplete", "1");
+  w6.localStorage.setItem("oa.gapsPending", JSON.stringify([
+    { day: "2026-08-21", missing: ["outer"], lo: 2, hi: 9, planTemp: 4 },
+    { day: "2026-08-22", missing: ["outer", "mid"], lo: 3, hi: 10, planTemp: 5 }]));
+  await w6.eval("appReady");
+  check("every queued morning is recorded, not just the last",
+    w6.eval(`shoppingDays()`) === 2, w6.eval(`JSON.stringify(gaps)`));
+  check("each with the weather and planning temperature of ITS morning",
+    w6.eval(`gaps.find(g=>g.day==="2026-08-22").at`) === 5,
+    w6.eval(`JSON.stringify(gaps)`));
+  check("and the queue is emptied, so a later open does not double-count",
+    w6.localStorage.getItem("oa.gapsPending") === "[]",
+    w6.localStorage.getItem("oa.gapsPending"));
+
   console.log("\n--- 14. purchase suggestions ------------------------------------");
   /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
      mornings than that would be a catalogue dressed up as an argument. */

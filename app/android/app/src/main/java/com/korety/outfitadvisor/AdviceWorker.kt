@@ -3,6 +3,7 @@ package com.korety.outfitadvisor
 import android.content.Context
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -205,6 +206,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 // the server's own number rather than a second derivation of it.
                 .put("planTemp", raw.opt("planTemp"))
             prefs.edit().putString(KEY_TODAY, out.toString()).apply()
+            queueGaps(prefs, raw, out.getString("day"))
         } catch (e: Exception) {
             // Losing the copy must never cost the notification the user is waiting for.
         }
@@ -253,6 +255,55 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             null
         } finally {
             conn?.disconnect()
+        }
+    }
+
+    /**
+     * Append this morning's unfilled slots to a queue the app drains on next open.
+     *
+     * oa.today holds ONE day and is overwritten by the next push, so somebody who
+     * reads the notification and does not open the app loses every morning but the
+     * last — and can never reach the week of evidence the shopping list needs. The
+     * usage pattern that defeated it is the ordinary one.
+     *
+     * A QUEUE, not the gap store itself. The recording rules — one entry per slot
+     * per day, expiry, the complete-closet gate, whether a withheld garment was
+     * even suitable — live in index.html and depend on the wardrobe, which this
+     * worker does not have. Writing raw observations here and letting the app judge
+     * them keeps one implementation of those rules.
+     *
+     * Bounded: past PENDING_MAX days the oldest go, because an app unopened for
+     * three months has bigger problems than its evidence queue.
+     */
+    private fun queueGaps(prefs: android.content.SharedPreferences,
+                          raw: JSONObject, day: String) {
+        try {
+            val missing = raw.optJSONArray("missing") ?: return
+            if (missing.length() == 0) return
+            val w = raw.optJSONObject("weather") ?: return
+            val queue = try {
+                JSONArray(prefs.getString(KEY_GAPS_PENDING, "[]") ?: "[]")
+            } catch (e: Exception) { JSONArray() }
+            // One entry per day: a retry the same morning must not count twice.
+            val out = JSONArray()
+            for (i in 0 until queue.length()) {
+                val e = queue.optJSONObject(i) ?: continue
+                if (e.optString("day") != day) out.put(e)
+            }
+            out.put(
+                JSONObject()
+                    .put("day", day)
+                    .put("missing", missing)
+                    .put("lo", w.opt("lo"))
+                    .put("hi", w.opt("hi"))
+                    .put("planTemp", raw.opt("planTemp"))
+            )
+            val trimmed = JSONArray()
+            val from = maxOf(0, out.length() - PENDING_MAX)
+            for (i in from until out.length()) trimmed.put(out.get(i))
+            prefs.edit().putString(KEY_GAPS_PENDING, trimmed.toString()).apply()
+        } catch (e: Exception) {
+            // Losing the queue must never cost the notification.
         }
     }
 
@@ -335,6 +386,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
         /** Twin of "oa.closetComplete" in index.html — the tickbox, read directly. */
         const val KEY_CLOSET_COMPLETE = "oa.closetComplete"
+        /** Twin of GAPS_PENDING_KEY in index.html — written here, drained there. */
+        const val KEY_GAPS_PENDING = "oa.gapsPending"
+        /** Days of unattended pushes to keep. */
+        const val PENDING_MAX = 60
         /** Past this the payload no longer describes the wardrobe; send nothing. */
         const val PUSH_PAYLOAD_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
         // How long to wait for WakeActivity's fix when we cannot read location

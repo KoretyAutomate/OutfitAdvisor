@@ -495,7 +495,8 @@ def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
 
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,
-                   covered: set | None = None) -> list[str]:
+                   covered: set | None = None,
+                   by_roles: dict | None = None) -> list[str]:
     """Which empty slots are a GAP IN THE WARDROBE, rather than a warm day.
 
     Two sources, because the model only knows about one of them.
@@ -525,7 +526,20 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     named = [c for c in seq
              if c in CATEGORIES and not picks.get(c) and c not in covered]
     emptied = [c for c in filled_before if not picks.get(c) and c not in covered]
-    return sorted(set(named) | set(emptied), key=CATEGORIES.index)
+    out = set(named) | set(emptied)
+    # A slot nothing got put in is not the same as a slot nothing FITS. The model
+    # can choose a warmth-2 jacket while a warmth-5 coat is sitting in the wardrobe,
+    # or use an item in a role it cannot play while another item plays it fine —
+    # validation then clears the pick, and calling that an ownership gap would have
+    # the shopping list recommending a coat the person already owns.
+    #
+    # So a slot counts only when NOTHING in the wardrobe can legally fill it.
+    # Skipped when the roles are not to hand, because a check that cannot run must
+    # not silently pass everything.
+    if by_roles is not None:
+        fillable = {r for roles in by_roles.values() for r in (roles or ())}
+        out = {c for c in out if c not in fillable}
+    return sorted(out, key=CATEGORIES.index)
 
 
 def _unknown_ids(picks: dict, valid_ids: set) -> str:
@@ -685,7 +699,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             error_note = "Your last reply had empty bullets. "
             continue
         return {"picks": picks, "text": text,
-                "missing": _missing_slots(out.get("missing"), picks, filled_before, covered)}
+                "missing": _missing_slots(out.get("missing"), picks, filled_before,
+                                          covered, by_roles)}
     log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

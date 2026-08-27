@@ -2990,6 +2990,20 @@ async function saveGaps(){
 /* One entry per slot per DAY. Tapping refresh five times is one cold morning, not
    five — counting requests instead of mornings would inflate the evidence in
    proportion to how often the user reloads. */
+/* Which of the reported slots are gaps in the WARDROBE, as opposed to gaps in
+   today's laundry basket.
+
+   The server only ever sees what is wearable right now — closetPayload() drops the
+   cooldown, and on a trip it is the suitcase. So a coat in the wash makes `outer`
+   look unfillable, and a week of washing days would have the shopping list
+   recommending a replacement for a coat already hanging up. The phone is the only
+   party that knows the difference, so it decides here. */
+function ownershipGaps(missing){
+  if(!Array.isArray(missing)) return [];
+  const fillable=new Set();
+  for(const i of closet) for(const r of normRoles(i.roles,i.category)) fillable.add(r);
+  return missing.filter(slot=>!fillable.has(slot));
+}
 async function recordGaps(missing,w){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
   // "you have not photographed it yet", not "you do not own one" — and a week of
@@ -2997,7 +3011,8 @@ async function recordGaps(missing,w){
   // up. It is also what the tickbox's own text promises, and code that contradicts
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
-  if(!Array.isArray(missing)||!missing.length||!w) return;
+  missing=ownershipGaps(missing);
+  if(!missing.length||!w) return;
   const day=todayISO();
   let added=false;
   for(const slot of missing){

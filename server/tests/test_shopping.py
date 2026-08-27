@@ -381,3 +381,29 @@ def test_a_correctly_chosen_dress_does_not_record_a_bottoms_gap():
     """
     assert closet_mod._missing_slots(["bottoms"], {"base": "d1", "bottoms": None},
                                      set(), {"bottoms"}) == []
+
+
+def test_a_cleared_pick_is_not_a_gap_when_something_else_fits():
+    """A slot nothing got put in is not a slot nothing FITS.
+
+    The model can choose a warmth-2 jacket while a warmth-5 coat sits in the
+    wardrobe, or use an item in a role it cannot play while another plays it fine.
+    Validation clears the pick either way — and calling that an ownership gap has
+    the shopping list recommending a coat the person already owns. Raised by the
+    pre-push reviewer, 2026-08-27.
+    """
+    roles = {"coat1": ["outer"], "tee1": ["base"]}
+    assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
+                                     {"outer", "base"}, set(), roles) == []
+
+
+def test_it_IS_a_gap_when_nothing_in_the_wardrobe_can_fill_it():
+    roles = {"tee1": ["base"]}
+    assert closet_mod._missing_slots([], {"outer": None, "base": "tee1"},
+                                     {"outer", "base"}, set(), roles) == ["outer"]
+
+
+def test_a_check_that_cannot_run_does_not_pass_everything():
+    """Without the roles to hand the filter is skipped, not assumed satisfied."""
+    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(), None) \
+        == ["outer"]

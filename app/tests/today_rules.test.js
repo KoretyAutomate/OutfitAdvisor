@@ -593,6 +593,19 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and spans the weather they happened in",
     sum[0].loC === 2 && sum[0].hiC === 11, sum[0]);
 
+  /* The server only ever sees what is WEARABLE — closetPayload() drops the
+     cooldown, and on a trip it is the suitcase. So a coat in the wash makes `outer`
+     look unfillable, and a week of washing days would have the shopping list
+     recommending a replacement for a coat already hanging up. Raised by the
+     pre-push reviewer, 2026-08-27. */
+  ev(`closetComplete=true; gaps=[];
+      closet=[{id:"itm-coat-01",label:"coat",category:"outer",group:"outerwear",
+               type:"coat",roles:["outer"],colors:[],warmth:5,formality:["casual"],
+               waterproof:false,count:1}];`);
+  await ev(`recordGaps(["outer","mid"], ${JSON.stringify(WX)})`);
+  check("a coat that is merely in the wash is not recorded as a gap",
+    ev(`gaps.map(g=>g.slot).join()`) === "mid", ev(`JSON.stringify(gaps)`));
+
   console.log("\n--- 13b. the MORNING PUSH's gaps count too ----------------------");
   /* The push is how most advice actually arrives. Recording only in the foreground
      path meant somebody who reads the notification and never taps refresh would
@@ -638,7 +651,9 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
         day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9}));
       refreshShopping();`);
   check("six mornings is not yet a week", w.document.getElementById("shopBtn").disabled);
-  await ev(`recordGaps(["outer"], ${JSON.stringify(WX)})`);
+  // A slot the wardrobe genuinely cannot fill — the coat above covers `outer`, so
+  // recording that one would (correctly) be filtered out as a laundry gap.
+  await ev(`recordGaps(["accessories"], ${JSON.stringify(WX)})`);
   check("recording the seventh opens it immediately, with no reload",
     w.document.getElementById("shopBtn").disabled === false,
     w.document.getElementById("shopNote").textContent);

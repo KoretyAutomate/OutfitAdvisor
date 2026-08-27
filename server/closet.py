@@ -455,13 +455,21 @@ def _names_something_unowned(line: str, owned: list[str]) -> bool:
     told the advice is shorter and why.
     """
     low = line.lower()
+    # What the line says about garments they DO own is struck out first, and the
+    # question is asked of what is left.
+    #
+    # Asking whether an owned label appears anywhere let one mention exempt the
+    # whole sentence: "Add a wool overcoat over your white t-shirt" contains an
+    # owned t-shirt, so the overcoat rode along — the one recommendation the tickbox
+    # exists to suppress, in the line the notification shows.
+    for phrase in sorted(owned, key=len, reverse=True):
+        if phrase:
+            low = low.replace(phrase, " ")
     # Substring, not whole token: the taxonomy has "coat", the model writes
     # "overcoat", and a token-exact test waved that straight through. Every word
     # tested is four characters or more, which keeps it clear of the accidents a
     # short one invites — "top" inside "laptop", "tie" inside "tights".
-    if not any(w in low for w in _GARMENT_WORDS if len(w) >= 4):
-        return False
-    return not any(lbl and lbl in low for lbl in owned)
+    return any(w in low for w in _GARMENT_WORDS if len(w) >= 4)
 
 
 def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
@@ -474,8 +482,22 @@ def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
     """
     bullets = [str(b).strip() for b in out.get("bullets") or [] if str(b).strip()]
     bullets = _drop_banned_bullets(bullets, banned)
-    owned = [str((by_item.get(i) or {}).get("label") or "").lower()
-             for i in picks.values() if i]
+    # Every way the prose might refer to a garment they are actually wearing: the
+    # label they gave it, and the kind of thing it is. A user labels an item
+    # "Airism" and the model writes "your white undershirt" — strike out only the
+    # label and the line reads as a recommendation for something unowned.
+    owned = []
+    for iid in picks.values():
+        if not iid:
+            continue
+        item = by_item.get(iid) or {}
+        label = str(item.get("label") or "").lower().strip()
+        if label:
+            owned.append(label)
+        kind = str(item.get("type") or "").lower()
+        for word in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()):
+            if len(word) > 3:
+                owned.append(word)
     if prefs.closet_only:
         kept = [b for b in bullets if not _names_something_unowned(b, owned)]
         if len(kept) != len(bullets):

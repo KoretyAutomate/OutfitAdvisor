@@ -270,13 +270,17 @@ def test_without_the_flag_the_fallback_still_helps(monkeypatch):
 
 # ── the prose must obey the tickbox too ────────────────────────────────────────
 
-OWNED = ["white t-shirt", "blue jeans"]
+OWNED = ["white t-shirt", "shirt", "blue jeans", "jeans"]
 
 
 @pytest.mark.parametrize("line", [
     "Add a light shell for the wind.",
     "Consider a wool overcoat.",           # taxonomy has "coat", model writes "overcoat"
     "A thin merino sweater would help.",
+    # One owned mention used to exempt the whole sentence, so the unowned half rode
+    # along — in the line the notification shows. Raised by the pre-push reviewer.
+    "Add a wool overcoat over your white t-shirt.",
+    "Layer the white t-shirt under a fleece.",
 ])
 def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
     """The structured picks already say the slot is empty.

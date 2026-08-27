@@ -731,11 +731,24 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
   ev(`userRules=[];`);
 
-  /* Corrections count. addItem clears gaps from whatever /classify guessed, and
-     the user is often in the edit sheet precisely because that guess was wrong or
-     never arrived: a coat first saved as a base layer left the outer gaps standing,
-     and the shopping list would recommend the coat just photographed. Raised by the
-     pre-push reviewer, 2026-08-27. */
+  /* Clearing happens where the user CONFIRMS the item, and only there.
+     What /classify returns is provisional — it is why the edit sheet opens next —
+     and clearing on it is irreversible: a coat read as a base layer would delete
+     the base evidence, and correcting it afterwards cannot bring that back.
+     Forgetting evidence wrongly is the expensive mistake. Raised by the pre-push
+     reviewer, 2026-08-27. */
+  ev(`userRules=[]; closet=[]; wearLog=[]; trips=[];
+      gaps=[{slot:"base",day:"2026-08-20",lo:2,hi:9,at:4}];
+      capture=async()=>"data:image/jpeg;base64,AAAA"; downscale=async()=>"AAAA";
+      photoSave=async()=>true;
+      classifyPhoto=async()=>({label:"thing",category:"base",group:"tops",
+        type:"t_shirt",roles:["base"],colors:[],warmth:1,formality:["casual"],
+        waterproof:false});`);
+  await ev(`addItem("camera")`);
+  check("a provisional classification does not erase evidence",
+    ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
+  ev(`closeSheet&&closeSheet();`);
+
   ev(`userRules=[]; closet=[]; wearLog=[]; trips=[];
       gaps=[{slot:"outer",day:"2026-08-20",lo:2,hi:9,at:4}];
       sheet={item:{id:"itm-new-001",label:"coat",category:"base",group:"tops",

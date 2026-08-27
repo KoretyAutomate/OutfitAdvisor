@@ -1481,7 +1481,12 @@ async function addItem(source){
     waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
-  await clearGapsFilledBy(item);   // this may be the coat those gaps were about
+  // Gaps are NOT cleared here. What /classify returned is provisional — it is why
+  // the edit sheet opens next — and clearing on it is irreversible: a coat read as
+  // a base layer would delete the base evidence, and correcting it afterwards
+  // cannot bring that back. Forgetting evidence wrongly is the expensive mistake;
+  // keeping it a little longer costs nothing. The sheet's Save does the clearing,
+  // on the values the user has confirmed.
   await saveCloset();
   toast(meta?"Added to your closet — tap to tweak":"Saved — advisor unreachable, add the details yourself");
   openSheet(item,{isNew:false});

@@ -173,7 +173,19 @@ def test_a_slot_the_model_claims_but_then_fills_is_not_a_gap():
 def test_bottoms_cleared_under_a_dress_is_not_a_gap():
     """A dress covers the legs. That is a dress, not a hole in the wardrobe."""
     assert closet_mod._missing_slots([], {"bottoms": None, "base": "d1"},
-                                     {"bottoms", "base"}) == []
+                                     {"bottoms", "base"}, {"bottoms"}) == []
+
+
+def test_bottoms_cleared_for_ANY_OTHER_reason_IS_a_gap():
+    """Excluding the slot outright hid a real one.
+
+    Validation clears a bottoms pick for a role it cannot play, or because the
+    wearer banned it — and the model, believing the slot filled, never names it. A
+    blanket exclusion meant that gap could never reach the shopping evidence.
+    Raised by the pre-push reviewer, 2026-08-27.
+    """
+    assert closet_mod._missing_slots([], {"bottoms": None, "base": "t1"},
+                                     {"bottoms", "base"}, set()) == ["bottoms"]
 
 
 def test_the_slots_come_back_in_wearing_order():
@@ -249,3 +261,62 @@ def test_without_the_flag_the_fallback_still_helps(monkeypatch):
                                         "style": "casual", "closet": [ITEM]}).json()
     assert any(not str(v).startswith("None")
                for k, v in body["outfit"].items() if k != "tip")
+
+
+# ── the prose must obey the tickbox too ────────────────────────────────────────
+
+OWNED = ["white t-shirt", "blue jeans"]
+
+
+@pytest.mark.parametrize("line", [
+    "Add a light shell for the wind.",
+    "Consider a wool overcoat.",           # taxonomy has "coat", model writes "overcoat"
+    "A thin merino sweater would help.",
+])
+def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
+    """The structured picks already say the slot is empty.
+
+    Leaving the prose saying "add a light shell" keeps the promise in the data and
+    breaks it in the words — and the words are what the notification shows. Raised
+    by the pre-push reviewer, 2026-08-27.
+    """
+    assert closet_mod._names_something_unowned(line, OWNED)
+
+
+@pytest.mark.parametrize("line", [
+    "Start with your white t-shirt.",
+    "Blue jeans work today.",
+    "The wind will bite this morning.",     # advice, names no garment
+    "Nothing in your closet for this.",
+    "Take a laptop bag.",                   # "top" must not fire inside "laptop"
+    "Stop by the shop first.",
+])
+def test_prose_that_is_fine_is_kept(line):
+    assert not closet_mod._names_something_unowned(line, OWNED)
+
+
+def test_the_reader_is_told_the_advice_is_shorter():
+    """A gap in the advice must explain itself rather than look like an oversight."""
+    out = {"bullets": ["Start with your white t-shirt.", "Add a light shell."],
+           "tip": "Take a brolly."}
+    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+                                     {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
+    assert "light shell" not in text
+    assert "white t-shirt" in text
+    assert "nothing you own suits them" in text
+
+
+def test_without_the_tickbox_the_prose_is_left_alone():
+    """A half-registered wardrobe still wants the hint."""
+    out = {"bullets": ["Add a light shell."], "tip": ""}
+    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(),
+                                     {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
+    assert "light shell" in text
+
+
+def test_a_tip_naming_something_unowned_goes_too():
+    """The tip is the line the notification shows."""
+    out = {"bullets": ["Blue jeans work today."], "tip": "Bring a wool overcoat."}
+    text = closet_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+                                     {"bottoms": "i2"}, {"i2": {"label": "blue jeans"}})
+    assert "overcoat" not in text

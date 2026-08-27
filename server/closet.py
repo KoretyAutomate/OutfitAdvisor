@@ -426,7 +426,76 @@ def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str
     return "", _dedupe_picks(picks, by_cat)
 
 
-def _missing_slots(claimed: object, picks: dict, filled_before: set) -> list[str]:
+# Words that name a garment, from the taxonomy the app already has. A bullet that
+# uses one of these is recommending a THING to put on, as opposed to giving advice
+# about the weather.
+_GARMENT_WORDS = frozenset(
+    w for label in TYPE_LABEL.values()
+    for w in re.split(r"[^a-z]+", label.lower()) if len(w) > 3
+) | {"coat", "jacket", "shirt", "layer", "shoes", "boots", "trousers", "pants",
+     "sweater", "knit", "vest", "gilet", "parka", "anorak", "mac"}
+
+
+def _names_something_unowned(line: str, owned: list[str]) -> bool:
+    """Does this line recommend a garment that is not in the wardrobe?
+
+    Only asked when the wearer has declared their closet COMPLETE. Then a bullet
+    naming a garment none of whose words match anything they own is, by their own
+    statement, a recommendation to put on something that does not exist. The
+    structured picks already say the slot is empty; leaving the prose saying "add a
+    light shell" keeps the promise in the data and breaks it in the words — and the
+    words are what the notification shows.
+
+    A line that names no garment at all ("the wind will bite this morning") is
+    advice, not a recommendation, and is kept.
+
+    The test errs towards dropping. "Layer up as it warms" is advice and goes, and
+    that is the right way round to be wrong: a lost hint costs a sentence, while a
+    kept one costs the promise the tickbox makes. Whatever is dropped, the reader is
+    told the advice is shorter and why.
+    """
+    low = line.lower()
+    # Substring, not whole token: the taxonomy has "coat", the model writes
+    # "overcoat", and a token-exact test waved that straight through. Every word
+    # tested is four characters or more, which keeps it clear of the accidents a
+    # short one invites — "top" inside "laptop", "tie" inside "tights".
+    if not any(w in low for w in _GARMENT_WORDS if len(w) >= 4):
+        return False
+    return not any(lbl and lbl in low for lbl in owned)
+
+
+def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
+                   picks: dict, by_item: dict) -> str:
+    """The bullets and the tip, held to the same rules as the picks.
+
+    Prose is what the user actually reads, in the app and in the notification, so
+    every constraint enforced on `picks` has to reach it too — otherwise the outfit
+    is right and the advice is wrong.
+    """
+    bullets = [str(b).strip() for b in out.get("bullets") or [] if str(b).strip()]
+    bullets = _drop_banned_bullets(bullets, banned)
+    owned = [str((by_item.get(i) or {}).get("label") or "").lower()
+             for i in picks.values() if i]
+    if prefs.closet_only:
+        kept = [b for b in bullets if not _names_something_unowned(b, owned)]
+        if len(kept) != len(bullets):
+            kept.append("Left some slots empty — nothing you own suits them today.")
+        bullets = kept
+    if not bullets:
+        return ""
+    text = "\n".join(f"• {b.lstrip('•- ')}" for b in bullets)
+    # The tip is prose like the bullets and just as visible — "bring the white tee"
+    # undoes a ban as thoroughly as a bullet would. Dropped rather than rewritten: a
+    # tip is one sentence, and there is nothing left of it once the garment is out.
+    tip = str(out.get("tip") or "").strip()
+    if tip and (_names_banned(tip, banned)
+                or (prefs.closet_only and _names_something_unowned(tip, owned))):
+        tip = ""
+    return f"{text}\n\n💡 {tip}" if tip else text
+
+
+def _missing_slots(claimed: object, picks: dict, filled_before: set,
+                   covered: set | None = None) -> list[str]:
     """Which empty slots are a GAP IN THE WARDROBE, rather than a warm day.
 
     Two sources, because the model only knows about one of them.
@@ -442,12 +511,15 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set) -> list[str
     was filled, it never appears in `claimed`. Without this the slot reads "None
     needed" — the weather excused it — and the shopping list never hears about it.
 
-    _onepiece_conflicts is the deliberate exception and is handled by its own path:
-    bottoms cleared under a dress is not a hole in the wardrobe, it is a dress.
+    `covered` names slots emptied because something else already covers them —
+    bottoms under a dress. Those are not holes in the wardrobe. It is passed in
+    rather than assumed: excluding `bottoms` outright also hid a REAL bottoms gap
+    whenever validation cleared a pick there for any other reason.
     """
+    covered = covered or set()
     seq = claimed if isinstance(claimed, list) else []
     named = [c for c in seq if c in CATEGORIES and not picks.get(c)]
-    emptied = [c for c in filled_before if not picks.get(c) and c != "bottoms"]
+    emptied = [c for c in filled_before if not picks.get(c) and c not in covered]
     return sorted(set(named) | set(emptied), key=CATEGORIES.index)
 
 
@@ -573,8 +645,11 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # attempt, and it is the left operand here, so the picks that come out are
         # never a dress over trousers. What the retry buys is the BULLETS: only a
         # regeneration can rewrite the line that recommended the trousers.
+        had_bottoms = bool(picks.get("bottoms"))
         onepiece_note, banned_labels = _enforce_onepiece(
             picks, by_group, by_item, banned_labels, attempt)
+        # A dress covers the legs. That is a dress, not a hole in the wardrobe.
+        covered = {"bottoms"} if had_bottoms and not picks.get("bottoms") else set()
         if onepiece_note:
             error_note = onepiece_note
             continue
@@ -593,25 +668,13 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             for c in thin:
                 log.warning("closet picks: %s was too thin for the cold, cleared", c)
                 picks[c] = None
-        bullets = [str(b).strip() for b in out["bullets"] if str(b).strip()]
-        # A garment cleared for breaking a rule must not survive in the prose.
-        bullets = _drop_banned_bullets(bullets, banned_labels)
-        if not bullets:
+        text = _assemble_text(out, banned_labels, prefs, picks, by_item)
+        if not text:
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
-        text = "\n".join(f"• {b.lstrip('•- ')}" for b in bullets)
-        # The tip is prose like the bullets, and just as visible — "bring the white
-        # tee" undoes the ban as thoroughly as a bullet would. Filtered through the
-        # same test, and dropped rather than rewritten: a tip is one sentence, so
-        # there is nothing left of it once the garment is removed.
-        tip = str(out.get("tip") or "").strip()
-        if tip and _names_banned(tip, banned_labels):
-            tip = ""
-        if tip:
-            text += f"\n\n💡 {tip}"
         return {"picks": picks, "text": text,
-                "missing": _missing_slots(out.get("missing"), picks, filled_before)}
+                "missing": _missing_slots(out.get("missing"), picks, filled_before, covered)}
     log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
     return None
 

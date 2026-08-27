@@ -2479,7 +2479,7 @@ async function savePushPayload(){
       onTrip:!!tripInProgress(),
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
-      closetOnly:cl.length?closetComplete:false}));
+      closetOnly:closetComplete}));
   }catch(e){}
 }
 
@@ -2501,7 +2501,11 @@ async function getAdvice(lat,lon){
     // advice has none to name.
     if(cl.length&&userRules.length) body.rules=userRules.map(r=>
       ({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text}));
-    if(cl.length&&closetComplete) body.closetOnly=true;
+    // Sent whatever today's availability is. `cl` is what is WEARABLE right now, so
+    // a wardrobe entirely in the wash makes it empty — and gating on that turned
+    // "only recommend what I own" off on exactly the day the user most needs a
+    // straight answer. The flag describes the wardrobe, not the laundry.
+    if(closetComplete) body.closetOnly=true;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},

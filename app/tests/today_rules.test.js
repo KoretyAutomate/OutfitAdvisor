@@ -515,6 +515,19 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("once ticked, the advisor is told to pick only from what is owned",
     ev(`__sent.closetOnly`) === true, ev(`__sent.closetOnly`));
 
+  /* The flag describes the WARDROBE, not today's laundry. Gating it on what is
+     currently wearable turned "only recommend what I own" off on exactly the day
+     everything was in the wash — the day a straight answer matters most. Raised by
+     the pre-push reviewer, 2026-08-27. */
+  ev(`closet=[{...${JSON.stringify(TEE)}, count:1}]; wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}];`);
+  check("nothing is wearable today", ev(`closetPayload().length`) === 0);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("and the flag is still sent", ev(`__sent.closetOnly`) === true, ev(`__sent`));
+  await ev(`savePushPayload()`);
+  check("the push carries it too, wearable items or not",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly === true);
+  ev(`wearLog=[];`);
+
   // The flag has to reach the MORNING PUSH too, or the notification goes on
   // suggesting garments the user has said they do not own.
   await ev(`savePushPayload()`);

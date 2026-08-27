@@ -229,9 +229,14 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     # So the slots are emptied rather than filled with clothes that do not exist,
     # and every one of them is reported missing: on a day the advisor could not
     # answer, the wardrobe genuinely covered nothing.
-    if req.closetOnly and req.closet and not closet_used:
+    # `req.closet` is not required here. A wardrobe whose every item is in the wash
+    # arrives as an empty list, and that is the day the promise matters most: the
+    # honest answer is "nothing you own is wearable", not a catalogue.
+    if req.closetOnly and not closet_used:
         for slot in vocab.CATEGORIES:
-            outfit[slot] = "None — the advisor couldn't answer just now"
+            outfit[slot] = ("None — nothing of yours is wearable today"
+                            if not req.closet else
+                            "None — the advisor couldn't answer just now")
         missing = []          # a failure is not evidence about the wardrobe
         log.info("advice closet-only fallback: emptied slots rather than inventing")
 

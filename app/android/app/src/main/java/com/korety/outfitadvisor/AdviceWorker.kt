@@ -291,6 +291,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             body.put("closet", closet)
             val rules = p.optJSONArray("rules")
             if (rules != null && rules.length() > 0) body.put("rules", rules)
+            // "My closet is complete" travels with the wardrobe it describes. The
+            // morning push is the request that matters most, and a flag honoured
+            // only in the app would leave the notification suggesting garments the
+            // user has told us they do not own.
+            if (p.optBoolean("closetOnly", false)) body.put("closetOnly", true)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

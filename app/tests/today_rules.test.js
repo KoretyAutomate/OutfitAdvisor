@@ -495,6 +495,114 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /No jeans/.test(w.document.getElementById("rlList").textContent));
   ev(`userRules=[];`);
 
+  console.log("\n--- 12. 'my closet is complete' (user, 2026-08-27) --------------");
+  const TEE = {id:"itm-tee-0001", label:"white t-shirt", category:"base", group:"tops",
+    type:"t_shirt", roles:["base"], colors:["white"], warmth:1,
+    formality:["casual"], waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(TEE)}]; wearLog=[]; trips=[]; userRules=[]; gaps=[];
+      closetComplete=false; __sent=null;
+      fetch = async (u,o) => { __sent = JSON.parse(o.body);
+        return {ok:true, json: async () => ({weather:${JSON.stringify(WX)},
+          outfit:{base:"white t-shirt", outer:"Waterproof shell"}, outfit_text:"x",
+          source:"llm", picks:{base:"itm-tee-0001", outer:null},
+          closetUsed:true, missing:["outer"]})}; };`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("off by default — a half-registered wardrobe still gets useful hints",
+    !ev(`__sent.closetOnly`), ev(`__sent.closetOnly`));
+
+  ev(`closetComplete=true;`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("once ticked, the advisor is told to pick only from what is owned",
+    ev(`__sent.closetOnly`) === true, ev(`__sent.closetOnly`));
+
+  // The flag has to reach the MORNING PUSH too, or the notification goes on
+  // suggesting garments the user has said they do not own.
+  await ev(`savePushPayload()`);
+  check("and the morning push is told as well",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly === true,
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).closetOnly);
+  check("the worker forwards it",
+    /optBoolean\("closetOnly"/.test(kt) && /body\.put\("closetOnly", true\)/.test(kt));
+
+  console.log("\n--- 13. what the wardrobe could not cover -----------------------");
+  /* Every morning the advisor comes up short, the slot and the day's temperatures
+     are written down. This is what the shopping list argues FROM — a gap on eleven
+     mornings between 2C and 9C is an argument; "you should own a coat" is not. */
+  check("the empty slot was recorded", ev(`gaps.length`) >= 1, ev(`gaps`));
+  check("with the weather it happened in",
+    ev(`gaps[0].lo`) === WX.lo && ev(`gaps[0].hi`) === WX.hi, ev(`gaps[0]`));
+  check("and no date beyond the day, no place — this is about the wardrobe",
+    Object.keys(ev(`gaps[0]`)).sort().join() === "day,hi,lo,slot", Object.keys(ev(`gaps[0]`)));
+
+  // Tapping refresh five times is ONE cold morning, not five. Counting requests
+  // would inflate the evidence in proportion to how often the user reloads.
+  const before = ev(`gaps.length`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("asking again the same day does not count twice",
+    ev(`gaps.length`) === before, ev(`gaps`));
+
+  // A slot the weather made unnecessary is NOT a gap; only what the server named.
+  ev(`gaps=[];`);
+  await ev(`recordGaps([], ${JSON.stringify(WX)})`);
+  check("a day with nothing missing records nothing", ev(`gaps.length`) === 0);
+
+  ev(`gaps=[{slot:"outer",day:"2026-08-01",lo:2,hi:9},
+            {slot:"outer",day:"2026-08-02",lo:4,hi:11},
+            {slot:"mid",day:"2026-08-02",lo:4,hi:11}];`);
+  const sum = ev(`gapSummary()`);
+  check("the summary counts mornings per slot",
+    sum[0].slot === "outer" && sum[0].n === 2, sum);
+  check("and spans the weather they happened in",
+    sum[0].loC === 2 && sum[0].hiC === 11, sum[0]);
+
+  console.log("\n--- 14. purchase suggestions ------------------------------------");
+  /* Gated on a week of evidence. The user asked for this WEEKLY, and fewer
+     mornings than that would be a catalogue dressed up as an argument. */
+  ev(`gaps=[{slot:"outer",day:"2026-08-01",lo:2,hi:9}]; refreshShopping();`);
+  check("not offered before there is anything to argue from",
+    w.document.getElementById("shopBtn").disabled === true);
+  check("and it says how much is still needed, rather than just greying out",
+    /a week of mornings/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+
+  ev(`gaps=Array.from({length:9},(_,i)=>({slot:"outer",
+        day:"2026-08-"+String(10+i).padStart(2,"0"), lo:2, hi:9})); refreshShopping();`);
+  check("offered once a week of mornings has gone wrong",
+    w.document.getElementById("shopBtn").disabled === false);
+  check("and it says what it is arguing from",
+    /9 mornings/.test(w.document.getElementById("shopNote").textContent),
+    w.document.getElementById("shopNote").textContent);
+
+  ev(`__sent=null; fetch = async (u,o) => { __sent=JSON.parse(o.body);
+      return {ok:true, json: async () => ({suggestions:[
+        {what:"wool overcoat", slot:"outer", why:"empty on nine mornings", priority:1}],
+        verdict:"One real gap."})}; };`);
+  await ev(`askShopping()`);
+  check("the request carries the evidence, not just the closet",
+    (ev(`__sent.gaps`) || []).length === 1 && ev(`__sent.gaps[0].n`) === 9,
+    ev(`__sent.gaps`));
+  check("and the thermal calibration — someone who runs cold needs warmth, not a shirt",
+    ev(`"tempOffset" in __sent`), Object.keys(ev(`__sent`)));
+  check("the suggestion is shown with its reason",
+    /wool overcoat/.test(w.document.getElementById("shopOut").textContent) &&
+    /nine mornings/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent.slice(0, 120));
+
+  // "Nothing to buy" is a real answer, and the one a good wardrobe should get.
+  ev(`fetch = async () => ({ok:true, json: async () => (
+      {suggestions:[], verdict:"Nothing missing — your closet covers it."})});`);
+  await ev(`askShopping()`);
+  check("an empty answer is stated, not left blank",
+    /Nothing missing/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent);
+
+  ev(`fetch = async () => { throw new Error("down"); };`);
+  await ev(`askShopping()`);
+  check("an unreachable advisor says so rather than showing an empty list",
+    /Couldn't reach the advisor/.test(w.document.getElementById("shopOut").textContent),
+    w.document.getElementById("shopOut").textContent);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

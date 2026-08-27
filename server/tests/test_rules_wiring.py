@@ -35,9 +35,15 @@ def test_the_picks_are_CHECKED_against_the_rules():
 
 
 def test_advice_passes_the_phones_rules_through():
+    """The rules travel in a Prefs object as of 2026-08-27 — everything the WEARER
+    told us, as opposed to what the weather did, in one argument. Each of them has
+    to reach both the prompt and the validation, and threading them separately is
+    how a flag ends up honoured in one and ignored in the other."""
     app_src = (ROOT / "server" / "app.py").read_text()
-    assert re.search(r"closet_outfit\([^)]*user_rules=rules\.clean_rules\(req\.rules\)",
-                     app_src, re.S), "the request's rules never reach the generator"
+    assert re.search(r"Prefs\.of\(rules\.clean_rules\(req\.rules\)", app_src), \
+        "the request's rules never reach the generator"
+    assert re.search(r"closet_outfit\([^)]*prefs", app_src, re.S), \
+        "the preferences are built but never passed"
 
 
 def test_the_phone_sends_them():

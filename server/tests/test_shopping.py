@@ -1,0 +1,148 @@
+"""Purchase suggestions, and the evidence they are argued from (2026-08-27).
+
+The user asked for a weekly review that says what is worth adding. The temptation
+is to ask a model "what should they buy?" — a model asked that always has an
+answer, and the answer is a catalogue: plausible, generic, and indifferent to
+whether the person was ever actually cold.
+
+So the design is the one the PPK week and the rules engine both arrived at. The
+phone records what actually went wrong — the slots the advisor could not fill and
+the weather on those mornings — and the model argues from that. These tests cover
+what makes the evidence trustworthy; the wording is the model's job.
+"""
+import asyncio
+
+import pytest
+from fastapi.testclient import TestClient
+
+import app as app_mod
+import closet as closet_mod
+
+client = TestClient(app_mod.app)
+
+ITEM = {"id": "itm-tee-0001", "label": "white t-shirt", "category": "base",
+        "group": "tops", "type": "t_shirt", "roles": ["base"], "colors": ["white"],
+        "warmth": 1, "formality": ["casual"], "waterproof": False, "availableCount": 2}
+COLD = {"lo": 2, "hi": 9, "feelsLo": 0, "feelsHi": 7, "desc": "Cold", "rain": 10,
+        "wind": 4, "morning": 3, "midday": 8, "evening": 5, "swing": 7,
+        "isRain": False, "isSnow": False, "code": 3}
+
+
+def test_a_gap_must_name_a_real_slot():
+    """A slot this app does not have is a gap that could never be filled."""
+    r = client.post("/shopping", json={"gaps": [{"slot": "elbow", "n": 3, "loC": 2, "hiC": 9}]})
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("bad", [
+    {"slot": "outer", "n": 0, "loC": 2, "hiC": 9},        # a gap on no mornings
+    {"slot": "outer", "n": 3, "loC": -99, "hiC": 9},      # not a temperature
+    {"slot": "outer", "n": 100000, "loC": 2, "hiC": 9},   # more mornings than exist
+])
+def test_implausible_evidence_is_refused(bad):
+    """The evidence IS the argument, so nonsense in it is refused at the door."""
+    assert client.post("/shopping", json={"gaps": [bad]}).status_code == 422
+
+
+def test_the_evidence_list_is_bounded():
+    many = [{"slot": "outer", "n": 1, "loC": 2, "hiC": 9} for _ in range(50)]
+    assert client.post("/shopping", json={"gaps": many}).status_code == 422
+
+
+# ── "my closet is complete" ────────────────────────────────────────────────────
+
+def test_the_prompt_stops_suggesting_what_they_cannot_wear():
+    """With the wardrobe declared complete, a generic suggestion is not a hint.
+
+    It is a garment the user has told us they do not own and cannot put on, so the
+    slot is reported empty instead (user, 2026-08-27).
+    """
+    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM],
+                                       closet_mod.Prefs(closet_only=True))
+    assert "Nothing in your closet for this" in prompt
+    assert "not in your closet yet" not in prompt, \
+        "a complete wardrobe must not be offered garments it does not contain"
+
+
+def test_by_default_the_helpful_suggestion_stays():
+    """Off by default, deliberately.
+
+    A bare "None" told a user with three registered shirts nothing about their legs
+    (2026-07-15). That complaint is still valid for anyone who has not finished
+    photographing their wardrobe.
+    """
+    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM], closet_mod.Prefs())
+    assert "not in your closet yet" in prompt
+
+
+def test_the_model_is_asked_WHY_a_slot_is_empty():
+    """"Nothing needed" and "nothing suitable owned" are both null in `picks`.
+
+    They mean opposite things — a warm day versus a hole in the wardrobe — and the
+    shopping list is built from the second. Guessing between them would recommend
+    buying a coat because it was July.
+    """
+    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM], closet_mod.Prefs())
+    assert '"missing"' in prompt
+    assert "not the ones the weather made unnecessary" in prompt
+
+
+# ── what comes BACK from the model is validated too ────────────────────────────
+
+def _suggest(monkeypatch, reply):
+    """Run shopping_list against a canned model reply.
+
+    asyncio.run rather than pytest-asyncio: this suite has no such plugin, and the
+    other wiring tests here drive coroutines the same way.
+    """
+    import llm
+
+    async def fake_chat(*a, **k):
+        return reply
+    monkeypatch.setattr(llm, "_chat", fake_chat)
+    return asyncio.run(llm.shopping_list(
+        [ITEM], [{"slot": "outer", "n": 9, "loC": 2, "hiC": 9}], [], {"tempOffset": -1.5}))
+
+
+def test_a_suggestion_for_a_slot_the_app_has_no_place_for_is_dropped(monkeypatch):
+    """It could not be displayed, and it could never be satisfied."""
+    out = _suggest(monkeypatch, '{"suggestions": ['
+                         '{"what":"elbow pads","slot":"elbow","why":"x","priority":1},'
+                         '{"what":"wool coat","slot":"outer","why":"y","priority":1}],'
+                         '"verdict":"ok"}')
+    assert [s["slot"] for s in out["suggestions"]] == ["outer"]
+
+
+def test_a_nameless_suggestion_is_dropped(monkeypatch):
+    out = _suggest(monkeypatch, '{"suggestions": ['
+                         '{"what":"","slot":"outer","why":"x","priority":1}], "verdict":"v"}')
+    assert out["suggestions"] == []
+
+
+def test_the_list_is_capped_and_the_priority_is_sane(monkeypatch):
+    """Five is plenty; a "priority 99" would sort and label wrongly on the phone."""
+    many = ",".join(f'{{"what":"coat {i}","slot":"outer","why":"x","priority":99}}'
+                    for i in range(9))
+    out = _suggest(monkeypatch, f'{{"suggestions": [{many}], "verdict":"v"}}')
+    assert len(out["suggestions"]) <= 5
+    assert all(1 <= s["priority"] <= 3 for s in out["suggestions"])
+
+
+def test_no_suggestions_is_a_legitimate_answer(monkeypatch):
+    """A wardrobe with no real gaps should be told so, not sold something."""
+    out = _suggest(monkeypatch, '{"suggestions": [], "verdict":"Nothing missing."}')
+    assert out["suggestions"] == [] and "Nothing missing" in out["verdict"]
+
+
+def test_a_reply_that_is_not_the_required_shape_yields_nothing(monkeypatch):
+    """Better no answer than a half-parsed one presented as advice."""
+    assert _suggest(monkeypatch, "sorry, I cannot help with that") is None
+
+
+def test_the_verdict_ends_on_a_word(monkeypatch):
+    """A sentence cut mid-word reads as a bug in the app, not as a long sentence."""
+    long = "The wardrobe " + "lacks essential layers and " * 20
+    out = _suggest(monkeypatch, f'{{"suggestions": [], "verdict": "{long}"}}')
+    assert not out["verdict"].rstrip("…").endswith(" ")
+    assert out["verdict"].endswith("…"), "a trimmed verdict should say it was trimmed"
+    assert " " in out["verdict"] and not out["verdict"][:-1].endswith("ess")

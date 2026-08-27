@@ -57,7 +57,14 @@ import llm
 import rules
 import vocab
 import weather
-from schemas import AdviceRequest, ClosetItem, RuleRequest, TriageRequest, _clean
+from schemas import (
+    AdviceRequest,
+    ClosetItem,
+    RuleRequest,
+    ShoppingRequest,
+    TriageRequest,
+    _clean,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("outfit")
@@ -176,10 +183,14 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     closet_used = False
     picks = None
     text = None
+    # Slots the wardrobe could not fill. Returned to the phone, which keeps a
+    # running record of them — that record is the evidence /shopping reasons from,
+    # rather than an opinion about what a wardrobe ought to contain.
+    missing: list[str] = []
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items,
-                                                user_rules=rules.clean_rules(req.rules))
+        prefs = closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly)
+        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items, prefs)
         if result is not None:
             text = result["text"]
             closet_used = True
@@ -193,6 +204,15 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
             for slot, item_id in result["picks"].items():
                 if item_id:
                     outfit[slot] = by_id[item_id]["label"]
+                elif req.closetOnly:
+                    # The wardrobe is declared COMPLETE, so the engine's generic
+                    # suggestion is not a helpful hint — it is a garment the user
+                    # has told us they do not own and cannot put on (2026-08-27).
+                    # An empty slot is an empty slot, and which KIND of empty is
+                    # what the model reported in `missing`.
+                    outfit[slot] = ("None — nothing in your closet for this"
+                                    if slot in result["missing"] else "None needed")
+            missing = result["missing"]
             # IDs are already validated against the sent closet — echo them so
             # the app can wear-log the exact items (plan amendment 2).
             picks = result["picks"]
@@ -234,6 +254,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         "outfit_text": text,
         "source": source,
         "closetUsed": closet_used,
+        "missing": missing,
         "picks": picks,
         "tempOffset": req.tempOffset,
     }
@@ -380,6 +401,37 @@ async def packing(req: PackingRequest):
         "packing_text": text,
         "closetUsed": closet_used,
     }
+
+
+@app.post("/shopping")
+async def shopping(req: ShoppingRequest, x_oa_client: str = Header(default="")):
+    """What is worth adding to the wardrobe, argued from what actually went wrong.
+
+    The user asked for this weekly (2026-08-27). The temptation is to ask a model
+    "what should they buy?", which produces a catalogue — a model asked that always
+    has an answer. So it is handed evidence instead: the slots the advisor could not
+    fill, the weather on those mornings, the thermal calibration, and the bans. A
+    wardrobe with no gaps is told it has none.
+
+    PRIVACY: the same posture as everywhere else. Item labels and the gap counts are
+    used and discarded; nothing is written down, and the log carries only how many
+    suggestions came back.
+    """
+    t0 = time.monotonic()
+    items = [i.model_dump() for i in (req.closet or [])]
+    out = await llm.shopping_list(
+        items,
+        [g.model_dump() for g in req.gaps],
+        rules.clean_rules(req.rules),
+        {"tempOffset": req.tempOffset},
+    )
+    dt = round(time.monotonic() - t0, 2)
+    if out is None:
+        log.info("shopping failed src=%s %.2fs", _clean(x_oa_client, 24) or "?", dt)
+        raise HTTPException(503, "Couldn't work out any suggestions just now.")
+    log.info("shopping ok src=%s n=%s gaps=%s %.2fs",
+             _clean(x_oa_client, 24) or "?", len(out["suggestions"]), len(req.gaps), dt)
+    return out
 
 
 @app.post("/rule")

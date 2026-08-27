@@ -346,10 +346,27 @@
       </div>
       <!-- Only shown when something in the closet has no Kind. An item saved before
            2026-08-14 has none, and its folder can only file it under "Other". -->
+      <!-- "That is everything I own." Until the user says so, an unfillable slot
+           gets a generic suggestion, which answers a real complaint (2026-07-15).
+           Once they say it, that suggestion is a garment they cannot put on
+           (user, 2026-08-27). -->
+      <label class="calRow" style="padding-left:0;margin-top:10px">
+        <input type="checkbox" id="closetDone">
+        <span>My closet is complete
+          <br><span class="note">Only recommend what I own — leave a slot empty
+          rather than suggesting something I don't have.</span></span>
+      </label>
       <div id="rescanRow" style="display:none;margin:10px 0 0">
         <button class="ghost" id="rescanBtn" style="width:100%;padding:9px">🔍 <span id="rescanTxt">Identify kinds from the photos</span></button>
         <p class="note" id="rescanNote" style="margin:5px 0 0"></p>
       </div>
+      <!-- Reviews the weeks of advice and says what is worth adding. Enabled only
+           once there is evidence to argue from — see refreshShopping. -->
+      <div style="margin-top:11px">
+        <button class="ghost" id="shopBtn" style="width:100%;padding:10px">🛒 Give purchase suggestions</button>
+        <p class="note" id="shopNote" style="margin:5px 0 0"></p>
+      </div>
+      <div id="shopOut"></div>
       <div class="grid" id="closetGrid"></div>
       <p class="note">Photograph your clothes once — the advisor then dresses you from what you
         actually own and skips items still in the laundry. Photos stay on this phone; the DGX
@@ -1223,6 +1240,7 @@ async function saveCloset(){
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
   refreshRescan();
+  refreshShopping();
   await savePushPayload();     // the morning push reads this, not the closet itself
 }
 
@@ -1243,7 +1261,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.20";
+const WEB_BUILD="1.21";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2460,7 +2478,8 @@ async function savePushPayload(){
       validBefore:pushPayloadValidBefore(),
       onTrip:!!tripInProgress(),
       closet:cl,
-      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[]}));
+      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
+      closetOnly:cl.length?closetComplete:false}));
   }catch(e){}
 }
 
@@ -2482,6 +2501,7 @@ async function getAdvice(lat,lon){
     // advice has none to name.
     if(cl.length&&userRules.length) body.rules=userRules.map(r=>
       ({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text}));
+    if(cl.length&&closetComplete) body.closetOnly=true;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -2489,8 +2509,12 @@ async function getAdvice(lat,lon){
     clearTimeout(to);
     if(!r.ok) throw new Error("server "+r.status);
     const d=await r.json();
+    // What the wardrobe could not cover today, written down for the shopping list.
+    // Fire-and-forget: a failure to record evidence must never cost the advice.
+    recordGaps(d.missing,d.weather);
     return {weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
-            closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0};
+            closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
+            missing:d.missing||[]};
   }catch(e){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
@@ -2923,6 +2947,113 @@ async function run(){
   finally{ btn.innerHTML=old; btn.disabled=false; }
 }
 
+/* ───────── what the wardrobe could not cover (2026-08-27) ─────────
+
+   Every morning the advisor comes up short, the slot and that day's temperatures
+   are written down. This is what "give purchase suggestions" reasons FROM.
+
+   The alternative was to ask the model what to buy. A model asked that always has
+   an answer, and the answer is a catalogue — plausible, generic, and indifferent to
+   whether the person was ever actually cold. A gap recorded on eleven mornings
+   between 2C and 9C is an argument; "you should own a coat" is not.
+
+   Kept small and coarse: a count and a temperature range per slot, pruned to the
+   last GAP_KEEP_DAYS. No dates, no places — the record is about the wardrobe, not
+   about where somebody was on a Tuesday. */
+const GAP_KEEP_DAYS=90;
+let gaps=[];   // {slot, day, lo, hi}
+async function saveGaps(){
+  const cut=dayISO(Date.now()-GAP_KEEP_DAYS*DAY_MS);
+  gaps=gaps.filter(g=>g.day>=cut).slice(-400);
+  await prefSet("oa.gaps", JSON.stringify(gaps));
+}
+/* One entry per slot per DAY. Tapping refresh five times is one cold morning, not
+   five — counting requests instead of mornings would inflate the evidence in
+   proportion to how often the user reloads. */
+async function recordGaps(missing,w){
+  if(!Array.isArray(missing)||!missing.length||!w) return;
+  const day=todayISO();
+  let added=false;
+  for(const slot of missing){
+    if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;
+    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi)});
+    added=true;
+  }
+  if(added) await saveGaps();
+}
+/* The record as the server wants it: one row per slot, with how many mornings and
+   the range of weather they happened in. */
+function gapSummary(){
+  const by=new Map();
+  for(const g of gaps){
+    const e=by.get(g.slot);
+    if(e){ e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
+    else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
+  }
+  return [...by.values()].sort((a,b)=>b.n-a.n).slice(0,20);
+}
+
+/* Is there enough to argue from yet?
+   The user asked for this WEEKLY, so a week is the bar: fewer mornings than that
+   and the answer would be a catalogue dressed up as evidence. Said plainly rather
+   than by greying out a button and leaving the user to guess why. */
+const SHOP_MIN_DAYS=7;
+let shopBusy=false;
+function shoppingDays(){ return new Set(gaps.map(g=>g.day)).size; }
+function refreshShopping(){
+  const btn=$("shopBtn"), note=$("shopNote"); if(!btn) return;
+  const days=shoppingDays(), n=gapSummary().length;
+  const ready=days>=SHOP_MIN_DAYS&&closet.length>0;
+  btn.disabled=!ready||shopBusy;
+  btn.style.opacity=ready?"":"0.55";
+  note.textContent=!closet.length
+    ? "Photograph your clothes first — there is nothing to compare against."
+    : ready
+      ? `From ${days} mornings your closet came up short, across ${n} ${n===1?"slot":"slots"}.`
+      : `Needs about a week of mornings to argue from — ${days} so far. `+
+        "Tick \u201cMy closet is complete\u201d and the advisor starts noticing the gaps.";
+}
+async function askShopping(){
+  if(shopBusy) return;
+  shopBusy=true; refreshShopping();
+  const btn=$("shopBtn"), old=btn.textContent;
+  btn.textContent="Reviewing your weeks…";
+  $("shopOut").innerHTML="";
+  try{
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/shopping",{
+      method:"POST",headers:{"Content-Type":"application/json",
+        "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      body:JSON.stringify({closet:closetPayload(),gaps:gapSummary(),tempOffset,
+        rules:userRules.map(x=>({kind:x.kind,a:x.a,b:x.b||null,id:x.id,text:x.text}))})});
+    if(!r.ok) throw new Error("server "+r.status);
+    renderShopping(await r.json());
+  }catch(e){
+    $("shopOut").innerHTML=`<p class="err">Couldn't reach the advisor — check Tailscale, then try again.</p>`;
+  }finally{ shopBusy=false; btn.textContent=old; refreshShopping(); }
+}
+function renderShopping(d){
+  const list=(d&&d.suggestions)||[];
+  if(!list.length){
+    // "Nothing to buy" is a real answer, and the one a well-stocked wardrobe should
+    // get. Saying it plainly is the whole difference between advice and a catalogue.
+    $("shopOut").innerHTML=`<p class="note" style="margin:9px 0 0">`+
+      esc((d&&d.verdict)||"Nothing worth adding — your closet covers the weather you have met.")+`</p>`;
+    return;
+  }
+  const pri=v=>v===1?"most useful":v===3?"nice to have":"worth having";
+  $("shopOut").innerHTML=
+    `<p class="note" style="margin:9px 0 4px">${esc((d&&d.verdict)||"")}</p>`+
+    list.map(sg=>
+      `<div class="calRow" style="padding-left:0;align-items:flex-start">
+         <span style="flex-shrink:0">${sg.priority===1?"⭐":"•"}</span>
+         <div style="min-width:0;flex:1">
+           <b>${esc(sg.what)}</b>
+           <span class="note" style="margin:0"> — ${esc(LABELS[sg.slot]||sg.slot)}, ${esc(pri(sg.priority))}</span>
+           <div class="note" style="margin:2px 0 0">${esc(sg.why||"")}</div>
+         </div>
+       </div>`).join("");
+}
+
 /* ───────── the wearer's own rules (2026-08-24) ─────────
 
    "I got white V-neck inner + white T recommendation. this combination shall be
@@ -2937,6 +3068,12 @@ async function run(){
    Parsing is refused rather than approximated: feedback that does not become an
    enforceable rule is reported as not understood. A rule stored but unenforceable
    is the worst outcome — the user believes the advisor was told. */
+/* "My closet is complete" (user, 2026-08-27). Off by default, deliberately: until
+   somebody says their wardrobe is everything they own, a generic suggestion for an
+   unfillable slot is useful — that was the 2026-07-15 complaint, a bare "None"
+   telling a user with three registered shirts nothing about their legs. Once they
+   DO say it, the same suggestion is a garment they cannot put on. */
+let closetComplete=false;
 let userRules=[];
 /* Twin of AdviceRequest.rules' max_length in server/schemas.py. Held in ONE place
    because the two ends disagreeing is not a warning, it is a 422 on every advice
@@ -3224,6 +3361,9 @@ async function load(){
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
+  closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
+  if($("closetDone")) $("closetDone").checked=closetComplete;
+  try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
   // {mode,ids} today; a bare array is the pre-2026-08-19 shape, where [] meant
@@ -3290,6 +3430,15 @@ $("tabBar").onclick=e=>{ const b=e.target.closest("button"); if(b) showTab(b.dat
 $("addCamBtn").onclick=()=>addItem("CAMERA");
 $("addGalBtn").onclick=()=>addItem("PHOTOS");
 $("rescanBtn").onclick=()=>{ rescanTypes(); };
+$("shopBtn").onclick=()=>{ askShopping(); };
+$("closetDone").onchange=async()=>{
+  closetComplete=$("closetDone").checked;
+  await prefSet("oa.closetComplete", closetComplete?"1":"0");
+  await savePushPayload();          // the morning push must hear about it too
+  refreshShopping();
+  toast(closetComplete?"Only your own clothes from now on"
+                     :"Suggestions for gaps are back on");
+};
 $("laundryBtn").onclick=async()=>{
   // washing returns everything EXCEPT what was worn today (that shirt is still on you)
   const today=localDay(Date.now()); const before=wearLog.length;
@@ -3618,7 +3767,7 @@ const appReady=(async()=>{
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.
   await savePushPayload();
-  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces(); renderRules();
+  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

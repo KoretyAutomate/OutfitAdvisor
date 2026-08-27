@@ -6,6 +6,8 @@ today", and this one answers "what should they own", from a different kind of
 evidence and on a different cadence.
 """
 
+import re
+
 from llm import _chat, _fenced, _parse_json, _trim_words
 from rules import prompt_block
 from vocab import CATEGORIES
@@ -78,6 +80,12 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
         slot = str(sug.get("slot") or "").strip().lower()
         if not what or slot not in CATEGORIES:
             continue
+        # The prompt says not to suggest what they own or what they have banned.
+        # Saying it is not enforcing it, and both failures are the kind a reader
+        # cannot spot: a second navy tee looks like a reasonable suggestion, and a
+        # banned garment looks like advice until it arrives in the post.
+        if _already_owned(what, closet) or _is_banned(what, slot, rules_):
+            continue
         pri = sug.get("priority")
         clean.append({
             "what": what,
@@ -88,3 +96,40 @@ async def shopping_list(closet: list[dict], gaps: list[dict], rules_: list[dict]
     # Trimmed at a word, not mid-syllable. A verdict ending "...a single t-shirt
     # and jeans" reads as a bug in the app rather than a long sentence.
     return {"suggestions": clean, "verdict": _trim_words(out.get("verdict"), 200)}
+
+
+def _words(s: object) -> set:
+    return {w for w in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(w) > 2}
+
+
+def _already_owned(what: str, closet: list[dict]) -> bool:
+    """Is this suggestion a garment they have?
+
+    Matched on the item's own words: a suggestion whose every meaningful word
+    appears in something owned is that thing described again. "navy merino tee"
+    against "navy merino crew-neck tee" is the same garment; "wool overcoat" is not.
+    """
+    want = _words(what)
+    if not want:
+        return True          # nothing to name is not a suggestion
+    return any(want <= (_words(i.get("label")) | _words(i.get("type"))) for i in closet)
+
+
+def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:
+    """Would buying this break one of their own rules?
+
+    Only avoid_item is decidable here — a pair rule is about wearing two things
+    together, which owning one does not commit them to. Matched on the garment TYPE
+    the rule names, so a ban on puffers refuses a "puffer jacket".
+    """
+    want = _words(what)
+    for r in rules_:
+        if r.get("kind") != "avoid_item":
+            continue
+        side = r.get("a") or {}
+        if side.get("role") and side["role"] != slot:
+            continue
+        needle = _words(side.get("type")) | _words(side.get("group"))
+        if needle and needle <= want:
+            return True
+    return False

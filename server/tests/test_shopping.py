@@ -325,3 +325,59 @@ def test_a_tip_naming_something_unowned_goes_too():
     text = closet_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
                                      {"bottoms": "i2"}, {"i2": {"label": "blue jeans"}})
     assert "overcoat" not in text
+
+
+# ── suggestions are checked, not merely requested ──────────────────────────────
+
+def test_a_garment_they_already_own_is_not_suggested(monkeypatch):
+    """The prompt says so; saying it is not enforcing it.
+
+    A second navy tee looks like a reasonable suggestion — that is exactly why it
+    has to be caught in code. Raised by the pre-push reviewer, 2026-08-27.
+    """
+    out = _suggest(monkeypatch, '{"suggestions": ['
+                   '{"what":"white t-shirt","slot":"base","why":"x","priority":1},'
+                   '{"what":"wool overcoat","slot":"outer","why":"y","priority":1}],'
+                   '"verdict":"v"}')
+    assert [s["what"] for s in out["suggestions"]] == ["wool overcoat"]
+
+
+def test_a_garment_they_have_banned_is_not_suggested(monkeypatch):
+    """It looks like advice until it arrives in the post."""
+    import shopping
+
+    async def fake_chat(*a, **k):
+        return ('{"suggestions": [{"what":"puffer jacket","slot":"outer",'
+                '"why":"x","priority":1}], "verdict":"v"}')
+    monkeypatch.setattr(shopping, "_chat", fake_chat)
+    out = asyncio.run(shopping.shopping_list(
+        [ITEM], [{"slot": "outer", "n": 9, "loC": 2, "hiC": 9}],
+        [{"kind": "avoid_item", "a": {"type": "puffer"}}], {"tempOffset": 0}))
+    assert out["suggestions"] == []
+
+
+def test_a_pair_rule_does_not_block_a_purchase():
+    """Owning two things does not commit anybody to wearing them together."""
+    import shopping
+    pair = [{"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "t_shirt"}}]
+    assert not shopping._is_banned("cotton undershirt", "inner", pair)
+
+
+def test_matching_is_on_the_garment_not_on_a_shared_word():
+    import shopping
+    closet = [{"label": "navy merino crew-neck tee", "type": "t_shirt"}]
+    assert shopping._already_owned("navy merino tee", closet)
+    assert not shopping._already_owned("wool overcoat", closet)
+
+
+# ── a dress covers the legs, however the model got there ───────────────────────
+
+def test_a_correctly_chosen_dress_does_not_record_a_bottoms_gap():
+    """The model can get it right first time: dress in base, bottoms already null.
+
+    Nothing is cleared then, so a version that keyed coverage on the CLEARING
+    recorded a false bottoms gap for ninety days on exactly the outfits that were
+    correct. Coverage is read off the garment in `base`. Raised by the reviewer.
+    """
+    assert closet_mod._missing_slots(["bottoms"], {"base": "d1", "bottoms": None},
+                                     set(), {"bottoms"}) == []

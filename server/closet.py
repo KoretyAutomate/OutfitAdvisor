@@ -518,7 +518,12 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     """
     covered = covered or set()
     seq = claimed if isinstance(claimed, list) else []
-    named = [c for c in seq if c in CATEGORIES and not picks.get(c)]
+    # `covered` filters BOTH sources. A slot something else already covers is not a
+    # gap however it came to be named — and the model naming it anyway is the likely
+    # case, not the exotic one: asked for the slots it could not fill, "bottoms"
+    # under a dress is a plausible thing for it to say.
+    named = [c for c in seq
+             if c in CATEGORIES and not picks.get(c) and c not in covered]
     emptied = [c for c in filled_before if not picks.get(c) and c not in covered]
     return sorted(set(named) | set(emptied), key=CATEGORIES.index)
 
@@ -645,11 +650,17 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # attempt, and it is the left operand here, so the picks that come out are
         # never a dress over trousers. What the retry buys is the BULLETS: only a
         # regeneration can rewrite the line that recommended the trousers.
-        had_bottoms = bool(picks.get("bottoms"))
         onepiece_note, banned_labels = _enforce_onepiece(
             picks, by_group, by_item, banned_labels, attempt)
         # A dress covers the legs. That is a dress, not a hole in the wardrobe.
-        covered = {"bottoms"} if had_bottoms and not picks.get("bottoms") else set()
+        #
+        # Read off the garment actually in `base`, NOT off whether validation had to
+        # clear a bottoms pick. When the model gets it right first time — dress in
+        # base, bottoms already null — nothing is cleared, and a version that keyed
+        # on the clearing recorded a false bottoms gap for ninety days on exactly
+        # the outfits that were correct.
+        covered = ({"bottoms"} if by_group.get(picks.get("base")) == "onepiece"
+                   else set())
         if onepiece_note:
             error_note = onepiece_note
             continue

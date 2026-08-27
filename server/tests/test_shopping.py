@@ -497,3 +497,23 @@ def test_one_shirt_playing_two_roles_does_not_hide_the_second_gap():
         lambda slot: closet_mod._has_suitable_alternative(
             slot, {"base": "shirt", "mid": None}, by_item, by_roles, 12.0, []),
         set()) == ["mid"]
+
+
+def test_the_models_own_claim_is_checked_against_the_wardrobe():
+    """It is a judgement, and one this module can check directly.
+
+    If an unused, warm enough, legal garment is sitting there, the slot was
+    misclassified — and one such mistake would be kept for ninety days and end as a
+    recommendation to buy something already owned. Raised by the pre-push reviewer,
+    2026-08-27.
+    """
+    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+                                     lambda slot: True, set()) == []
+    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+                                     lambda slot: False, set()) == ["outer"]
+
+
+def test_a_slot_already_proven_short_skips_the_test_it_has_passed():
+    """`unsuitable` is only ever set after _has_suitable_alternative found nothing."""
+    assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(),
+                                     lambda slot: True, {"outer"}) == ["outer"]

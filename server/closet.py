@@ -597,10 +597,18 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
     # in base by the deduplicator, advertised `mid` as filled and hid a real gap.
     # Skipped when the test is unavailable, because a check that cannot run must not
     # silently pass everything.
-    mischosen = {c for c in emptied if c not in unsuitable}
+    # The model's own claim gets the same treatment. It is a judgement, and a
+    # judgement about a wardrobe this module can inspect directly: if an unused,
+    # warm enough, legal garment is sitting there, the slot was misclassified — and
+    # one such mistake would otherwise be kept for ninety days and end as a
+    # recommendation to buy something already owned.
+    #
+    # `unsuitable` skips the test because it has already been through it: those
+    # slots were only marked after _has_suitable_alternative found nothing.
+    candidates = (set(named) | set(emptied)) - set(unsuitable)
     if can_fill is not None:
-        mischosen = {c for c in mischosen if not can_fill(c)}
-    return sorted(set(named) | set(unsuitable) & set(emptied) | mischosen,
+        candidates = {c for c in candidates if not can_fill(c)}
+    return sorted(candidates | (set(unsuitable) & (set(named) | set(emptied))),
                   key=CATEGORIES.index)
 
 

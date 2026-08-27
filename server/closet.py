@@ -516,6 +516,33 @@ def _assemble_text(out: dict, banned: list[dict], prefs: "Prefs",
     return f"{text}\n\n💡 {tip}" if tip else text
 
 
+def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: dict,
+                              plan_temp: float, user_rules: list[dict]) -> bool:
+    """Could some OTHER owned garment have filled this slot properly?
+
+    Reached when a pick was cleared for being unsuitable — too thin for the cold, or
+    banned by the wearer. That says the CHOSEN garment was wrong; it does not say
+    the wardrobe is short of one. If a warm enough, legal alternative is sitting
+    there unused, recording a gap would eventually recommend buying a coat the
+    person already owns.
+
+    Judged by the same rules that did the clearing, so an alternative this accepts
+    is one the generator could legitimately have picked.
+    """
+    for iid, item in by_item.items():
+        if iid in picks.values():
+            continue                              # already worn somewhere else
+        if slot not in (by_roles.get(iid) or ()):
+            continue
+        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
+            continue
+        trial = {**picks, slot: iid}
+        if rules.violations(user_rules, trial, by_item):
+            continue
+        return True
+    return False
+
+
 def _missing_slots(claimed: object, picks: dict, filled_before: set,
                    covered: set | None = None,
                    by_roles: dict | None = None,
@@ -684,10 +711,11 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # promise the user is entitled to see kept every morning (2026-08-24).
         before_rules = {c for c, v in picks.items() if v}
         rule_note, banned_labels = _enforce_user_rules(picks, by_item, list(prefs.rules), attempt)
-        # Banned by the wearer: the garment was owned and is not to be worn, so the
-        # slot is short of something LEGAL — a judgement about the wardrobe, not a
-        # mischoice another item would fix.
-        unsuitable |= {c for c in before_rules if not picks.get(c)}
+        # Banned by the wearer: short of something LEGAL — unless something legal is
+        # sitting there unused, in which case the choice was wrong, not the wardrobe.
+        unsuitable |= {c for c in before_rules if not picks.get(c)
+                       and not _has_suitable_alternative(c, picks, by_item, by_roles,
+                                                         _plan_temp(w), list(prefs.rules))}
         if rule_note:
             error_note = rule_note
             continue
@@ -728,9 +756,13 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             for c in thin:
                 log.warning("closet picks: %s was too thin for the cold, cleared", c)
                 picks[c] = None
-                # A judgement about the GARMENT, not about the choice: the wardrobe
-                # was in front of us and had nothing warm enough. That is the gap.
-                unsuitable.add(c)
+                # A judgement about the GARMENT — but only a gap if the wardrobe has
+                # no warm enough, legal alternative. The model choosing the thin
+                # shell while a proper coat hangs unused is a mischoice, and
+                # recording it would recommend buying that coat again.
+                if not _has_suitable_alternative(c, picks, by_item, by_roles,
+                                                 _plan_temp(w), list(prefs.rules)):
+                    unsuitable.add(c)
         text = _assemble_text(out, banned_labels, prefs, picks, by_item)
         if not text:
             log.warning("closet attempt %s: empty bullets", attempt + 1)

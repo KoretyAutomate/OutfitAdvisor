@@ -428,3 +428,50 @@ def test_a_check_that_cannot_run_does_not_pass_everything():
     """Without the roles to hand the filter is skipped, not assumed satisfied."""
     assert closet_mod._missing_slots(["outer"], {"outer": None}, set(), set(), None) \
         == ["outer"]
+
+
+# ── a mischoice is not evidence, even when the pick was unsuitable ─────────────
+
+BY_ITEM = {"shell": {"id": "shell", "warmth": 2, "label": "thin shell",
+                     "type": "rainwear", "colors": []},
+           "coat": {"id": "coat", "warmth": 5, "label": "wool coat",
+                    "type": "coat", "colors": []},
+           "tee": {"id": "tee", "warmth": 1, "label": "tee",
+                   "type": "t_shirt", "colors": []}}
+BY_ROLES = {"shell": ["outer"], "coat": ["outer"], "tee": ["base"]}
+
+
+def test_a_warm_coat_sitting_unused_means_the_wardrobe_is_not_short():
+    """The model picking the thin shell is a mischoice, not a missing coat.
+
+    Recording it would eventually recommend buying the coat they already own.
+    Raised by the pre-push reviewer, 2026-08-27.
+    """
+    assert closet_mod._has_suitable_alternative(
+        "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, [])
+
+
+def test_when_the_only_outer_layer_is_too_thin_it_IS_a_gap():
+    by_item = {k: v for k, v in BY_ITEM.items() if k != "coat"}
+    assert not closet_mod._has_suitable_alternative(
+        "outer", {"base": "tee"}, by_item, {"shell": ["outer"], "tee": ["base"]}, 4.0, [])
+
+
+def test_an_alternative_the_wearer_has_banned_does_not_count():
+    """It has to be one the generator could legitimately have picked."""
+    ban = [{"kind": "avoid_item", "a": {"type": "coat"}}]
+    assert not closet_mod._has_suitable_alternative(
+        "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, ban)
+
+
+def test_a_garment_already_worn_elsewhere_is_not_an_alternative():
+    """One garment fills one slot; it cannot rescue a second."""
+    assert not closet_mod._has_suitable_alternative(
+        "outer", {"base": "tee", "mid": "coat"},
+        BY_ITEM, {**BY_ROLES, "coat": ["outer", "mid"]}, 4.0, [])
+
+
+def test_warmth_only_constrains_the_outer_layer():
+    """A thin base is not a gap; the warmth rule is about what is outermost."""
+    assert closet_mod._has_suitable_alternative(
+        "base", {}, BY_ITEM, BY_ROLES, 4.0, [])

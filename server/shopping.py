@@ -229,29 +229,24 @@ def _is_banned(what: str, slot: str, rules_: list[dict]) -> bool:
         if r.get("kind") != "avoid_item":
             continue
         side = r.get("a") or {}
-        if side.get("role") and side["role"] != slot:
-            continue
-        # A selector may name any combination of type, group, colour and role, and
-        # some name only one. "Never wear white" carries a colour and nothing else;
-        # "never wear outer layers" only a role. Reading type and group alone left
-        # `needle` empty for both, and an empty subset test is always true — so the
-        # endpoint would cheerfully recommend the very colour just banned.
-        # A rule stores the CANONICAL id — `rainwear`, `t_shirt` — while a
-        # suggestion is written the way a person speaks: "waterproof shell", "tee".
-        # Comparing the two directly meant a ban on rainwear did not stop a shell
-        # being recommended. The id is expanded through the taxonomy's own label
-        # first, so `rainwear` becomes {raincoat, shell} and matches either word.
-        needle = _garment_aliases(side.get("type")) | _garment_aliases(side.get("group"))
-        colour = _words(side.get("color"))
-        if needle or colour:
-            # The colour, where named, must be present; and if a garment was named,
-            # ANY of its words is enough — one alias hitting is the garment.
-            if colour and not (colour <= want):
-                continue
-            if not needle or any(_alias_hit(n, what) for n in needle):
-                return True
-        elif side.get("role"):
-            # Role-only, and the role already matched above: everything for this
-            # slot is banned, so nothing can be suggested for it.
+        # CONJUNCTIVE, like rules.clean_descriptor: every field the selector names
+        # must match. Unioning the type's aliases with the group's made them an OR,
+        # so a rule for type=coat AND group=outerwear also refused a puffer — the
+        # group half matching was enough, and a legitimate suggestion vanished with
+        # no way for the reader to tell why.
+        named = False
+        matched = True
+        if side.get("role"):
+            named = True
+            matched = matched and side["role"] == slot
+        for field in ("type", "group"):
+            if side.get(field):
+                named = True
+                aliases = _garment_aliases(side[field])
+                matched = matched and any(_alias_hit(n, what) for n in aliases)
+        if side.get("color"):
+            named = True
+            matched = matched and _words(side["color"]) <= want
+        if named and matched:
             return True
     return False

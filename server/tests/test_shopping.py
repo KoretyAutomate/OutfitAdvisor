@@ -742,3 +742,22 @@ def test_the_floor_is_low_enough_not_to_silence_a_short_winter():
     """
     import shopping
     assert shopping.MIN_MORNINGS_PER_SLOT == 2
+
+
+@pytest.mark.parametrize("sel,what,banned", [
+    # CONJUNCTIVE, like rules.clean_descriptor: every field named must match.
+    # Unioning the type's aliases with the group's made them an OR, so a rule for
+    # type=coat AND group=outerwear also refused a puffer — a legitimate suggestion
+    # gone, with no way for the reader to tell why. Raised by the reviewer.
+    ({"type": "coat", "group": "outerwear"}, "wool coat", True),
+    ({"type": "coat", "group": "outerwear"}, "puffer jacket", False),
+    ({"color": "white", "type": "coat"}, "white wool coat", True),
+    ({"color": "white", "type": "coat"}, "white puffer jacket", False),
+    ({"color": "white", "type": "coat"}, "navy wool coat", False),
+    # A single field still works on its own.
+    ({"type": "coat"}, "wool overcoat", True),
+    ({"group": "outerwear"}, "puffer jacket", True),
+])
+def test_every_field_a_ban_names_must_match(sel, what, banned):
+    import shopping
+    assert shopping._is_banned(what, "outer", [{"kind": "avoid_item", "a": sel}]) is banned

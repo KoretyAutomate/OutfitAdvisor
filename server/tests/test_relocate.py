@@ -181,11 +181,15 @@ def test_a_dress_added_as_the_top_clears_the_trousers_under_it():
     picks = {c: None for c in ("inner", "base", "mid", "outer",
                                "bottoms", "footwear", "accessories")}
     picks["bottoms"] = "jeans"
-    _, _, covered, _, added = closet_mod._hold_to_the_rules(
+    _, banned, covered, _, added = closet_mod._hold_to_the_rules(
         picks, mild, pk.Prefs(), wd, set(), 1)
     assert added == ("base", "dress")
     assert picks["bottoms"] is None, "no trousers under the dress"
     assert "bottoms" in covered, "and that empty slot is covered, not a gap"
+    # This runs after the last chance to regenerate, so the bullet recommending
+    # those trousers has to be struck rather than rewritten — otherwise the advice
+    # names a garment the outfit no longer contains.
+    assert any((b or {}).get("label") == "blue jeans" for b in banned), banned
 
 
 def test_a_dress_is_judged_without_the_trousers_it_replaces():
@@ -216,3 +220,31 @@ def test_without_the_one_piece_index_the_ban_still_stands():
     wd = _wd(by_item, {"shirt": ["base"], "jeans": ["bottoms"]},
              {"shirt": "tops", "jeans": "bottoms"})
     assert pk._enforce_a_top(picks, wd, 20.0, ban) is None
+
+
+def test_a_relocation_is_not_evidence_of_a_gap():
+    """The slot a garment was moved OUT OF is a filing correction. Counted as a
+    casualty it reported a base gap on an outfit that had a perfectly good top,
+    and the shopping list would have answered it with another shirt. Raised by the
+    pre-push reviewer, 2026-08-29."""
+    picks = _empty(base="itm-hoodie-01", bottoms="itm-jeans-001")
+    filled_before = {"base", "bottoms"}
+    moved = pk._relocate_mismatches(picks, ["base"], BY_ROLES)
+    filled_before -= {frm for frm, _ in moved}
+    gaps = pk._missing_slots([], picks, filled_before, set(),
+                             lambda slot: False, set())
+    assert "base" not in gaps
+    assert picks["mid"] == "itm-hoodie-01"
+
+
+def test_a_slot_cleared_for_having_nowhere_to_go_is_still_a_gap():
+    """Only a MOVE is a filing correction. A garment with nowhere to put it leaves
+    a slot the wardrobe genuinely could not fill."""
+    picks = _empty(base="itm-jeans-001", bottoms="itm-jeans-001")
+    filled_before = {"base", "bottoms"}
+    moved = pk._relocate_mismatches(picks, ["base"], BY_ROLES)
+    assert moved == []
+    filled_before -= {frm for frm, _ in moved}
+    gaps = pk._missing_slots([], picks, filled_before, set(),
+                             lambda slot: False, set())
+    assert "base" in gaps

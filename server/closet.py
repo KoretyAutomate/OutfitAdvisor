@@ -271,8 +271,16 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
         # The one-piece check ran before this one and cannot have seen it, so the
         # answer went out as trousers under a dress. Raised by the pre-push
         # reviewer, 2026-08-29.
+        #
+        # Struck from the PROSE as well, the way _enforce_onepiece does out of
+        # retries: this runs after the last chance to regenerate, so the bullet
+        # recommending those trousers would otherwise stand over an outfit that no
+        # longer contains them.
+        dropped = wd.by_item.get(picks.get("bottoms")) if picks.get("bottoms") else None
         if pk._onepiece_conflicts(picks, wd.by_group):
             covered = covered | {"bottoms"}
+            if dropped:
+                banned = [*banned, dropped]
 
     # LAST, because every repair above can take away the layer that was covering the
     # undershirt — a base cleared for breaking a rule, or an outer cleared for being
@@ -357,9 +365,18 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             moved = pk._relocate_mismatches(picks, wrong, wd.by_roles)
             for c, to in moved:
                 log.info("closet picks: %s moved to %s — the role it can play", c, to)
+            relocated = {frm for frm, _ in moved}
             for c in wrong:
-                if c not in {frm for frm, _ in moved}:
+                if c not in relocated:
                     log.warning("closet picks: %s held an item with nowhere to go, cleared", c)
+            # A slot a garment was MOVED OUT OF is a filing correction, not a slot
+            # the wardrobe could not fill. Left in the snapshot it read as the
+            # latter: moving a mid-only hoodie out of `base` produced a good outfit
+            # and reported a base gap, which the shopping list would answer by
+            # recommending another shirt. A slot the model genuinely could not fill
+            # still reaches `missing` by its own claim. Raised by the pre-push
+            # reviewer, 2026-08-29.
+            filled_before -= relocated
 
         note, banned_labels, covered, unsuitable, added = _hold_to_the_rules(
             picks, w, prefs, wd, unsuitable, attempt)

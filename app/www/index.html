@@ -2604,7 +2604,7 @@ function renderWeather(w){
    contain the word — "stone-none" is not a thing, but "Nonesuch" jeans might be —
    is not read as absence. */
 const slotIsEmpty=v=>{ const t=String(v??"").trim(); return !t||/^none\b/i.test(t); };
-function renderOutfit(o,text,source,res,isFresh){
+function renderOutfit(o,text,source,res){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
@@ -2618,10 +2618,13 @@ function renderOutfit(o,text,source,res,isFresh){
   else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
   // "Wearing it" only when the advice came from the real closet (has item IDs)
   const ids=res&&res.closetUsed&&res.picks?Object.values(res.picks).filter(Boolean):[];
-  lastPickIds=[...new Set(ids)]; wornLogged=false;
+  lastPickIds=[...new Set(ids)];
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
-  wb.textContent="✅ Wearing it — update my rotation";
+  // From the record, not reset to "Wearing it". New advice does not unwear what was
+  // already worn, and a button offering to log a second outfit for the day was how
+  // the same morning got counted twice.
+  syncWearBtn();
   // Offered whenever there is a wardrobe to correct FROM — including when the
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
@@ -2680,11 +2683,14 @@ function renderOutfit(o,text,source,res,isFresh){
   const tipEl=$("outfitTip");
   tipEl.style.display=o.tip?"":"none";
   tipEl.textContent="💡 "+(o.tip||"");
-  // A genuinely new suggestion has not been corrected — so both the memory and the
-  // stored record go. Re-rendering advice already on file (loadToday, at startup)
-  // is NOT new, and clearing there would throw away the correction a moment before
-  // it was restored.
-  if(isFresh){ woreLogged=null; saveWoreLogged(); }
+  /* The record is NOT cleared here, for any advice, fresh or restored.
+     It answers "what is in the laundry on account of today" — a fact about
+     garments, not about a suggestion. Somebody who wore the polo this morning and
+     asks for new advice at noon has still worn the polo, and clearing the record
+     while its wears stayed in the log orphaned them: nothing could find them, undo
+     released the wrong garments, and the next save counted a second outfit on the
+     same day. Staleness is a question of the DAY, and the restore checks that.
+     Raised by the pre-push reviewer, 2026-08-29. */
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
 }
@@ -3003,7 +3009,7 @@ async function run(){
     if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
-    renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res,true);
+    renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
     await saveToday(res,"app");
     if($("todayFrom")) $("todayFrom").style.display="none";
     if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
@@ -3866,7 +3872,7 @@ function rerenderLocalOutfit(){
   lastSource="local";
   lastRes={weather:lastWeather,outfit:lastOutfit,text:lastText,source:lastSource,
            picks:null,closetUsed:false,closetSent:false};
-  renderOutfit(lastOutfit,lastText,lastSource,lastRes,true);
+  renderOutfit(lastOutfit,lastText,lastSource,lastRes);
   // Kept, so reopening the app shows what is on screen rather than the LLM answer
   // this replaced.
   saveToday(lastRes,"app");
@@ -4258,9 +4264,8 @@ const appReady=(async()=>{
   // Today's advice, if it is already known — from an earlier tap or from the
   // morning push. Before renderCloset, so the page is not blank while photos load.
   await loadToday();
-  // AFTER the render loadToday does — renderOutfit clears woreLogged, correctly,
-  // because a fresh suggestion has not been corrected. Restoring first would have
-  // that render throw the restored value away.
+  // AFTER the render loadToday does, which reads woreLogged for the button state.
+  // syncWearBtn below re-runs that read once the record is back.
   try{
     const raw=await prefGet(WORE_KEY,"");
     const d=raw?JSON.parse(raw):null;

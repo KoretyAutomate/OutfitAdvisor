@@ -1250,11 +1250,10 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and records one swap, not two",
     wC.eval(`swaps.length`) === 1, wC.eval(`JSON.stringify(swaps)`));
 
-  /* New advice later the same day replaces what the correction was ABOUT, so the
-     stored record has to go with it. Clearing only the memory left yesterday's
-     answer to the wrong question on disk, and the next restart restored it — the
-     sheet opened on an outfit that was no longer suggested. Raised by the pre-push
-     reviewer, 2026-08-29. */
+  /* New advice later the same day does NOT unwear what was already worn. Clearing
+     the record while its entries stayed in the wear log orphaned them: nothing could
+     find them, undo released the wrong garments, and saving the next outfit counted
+     a second one on the same morning. Raised by the pre-push reviewer, 2026-08-29. */
   const wD = page();
   await wD.eval("appReady");
   wD.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
@@ -1262,13 +1261,22 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
            lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
            woreDraft={base:"itm-polo-001"};`);
   await wD.eval(`saveWore()`);
-  check("the correction is on disk", wD.localStorage.getItem("oa.woreToday") !== null);
-  wD.eval(`renderOutfit({base:"navy polo"},"",{},{picks:{base:"itm-polo-001"}},true)`);
-  await wD.eval(`Promise.resolve()`);
-  check("fresh advice forgets it in memory", wD.eval(`woreLogged`) === null);
-  check("and on disk too",
-    JSON.parse(wD.localStorage.getItem("oa.woreToday") || "null") === null,
-    wD.localStorage.getItem("oa.woreToday"));
+  wD.eval(`renderOutfit({base:"white tee"},"",{},
+    {closetUsed:true,picks:{base:"itm-tee-0001"}})`);
+  check("fresh advice leaves this morning's clothes in the laundry",
+    wD.eval(`activeWears("itm-polo-001")`) === 1);
+  check("and keeps the record that can find them",
+    (wD.eval(`woreLogged`) || {}).base === "itm-polo-001",
+    wD.eval(`JSON.stringify(woreLogged)`));
+  check("so the button still offers to undo, not to log a second outfit",
+    /tap to undo/.test(wD.document.getElementById("dWear").textContent),
+    wD.document.getElementById("dWear").textContent);
+  wD.eval(`woreDraft={base:"itm-tee-0001"};`);
+  await wD.eval(`saveWore()`);
+  check("and correcting against the new advice counts one outfit, not two",
+    wD.eval(`activeWears("itm-polo-001")`) === 0 &&
+    wD.eval(`activeWears("itm-tee-0001")`) === 1,
+    wD.eval(`JSON.stringify(wearLog)`));
 
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the

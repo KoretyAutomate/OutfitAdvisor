@@ -79,6 +79,22 @@ def _slot_mismatches(picks: dict, by_roles: dict) -> list[str]:
     ]
 
 
+def _inner_left_bare(picks: dict, by_group: dict) -> bool:
+    """Is the undershirt the outermost thing on the torso?
+
+    inner is UNDERWEAR (user, 2026-08-29). An undershirt with nothing over it is not
+    a lighter outfit for a hot day, it is somebody sent out in their underwear — and
+    it is a plausible-looking answer for a model that has been told to drop layers
+    as the temperature rises, which is exactly the shape of mistake this module
+    exists to catch in code rather than hope about in prose.
+
+    A one-piece in base covers the torso, so it satisfies this like any other top.
+    """
+    if not picks.get("inner"):
+        return False
+    return not any(picks.get(c) for c in ("base", "mid", "outer"))
+
+
 def _onepiece_conflicts(picks: dict, by_group: dict) -> bool:
     """Clear `bottoms` when `base` holds a one-piece garment. True if it did.
 
@@ -197,6 +213,27 @@ def _names_banned(line: str, banned: list[dict]) -> bool:
     """Does this line recommend one of the garments we had to clear?"""
     low = line.lower()
     return any(_term_hit(t, low) for item in banned for t in _ban_terms(item))
+
+
+def _enforce_underwear(picks: dict, by_item: dict, banned: list[dict],
+                       attempt: int) -> tuple[str, list[dict]]:
+    """Never send anybody out in their undershirt.
+
+    Retried once — a regeneration can put a top back on, which is a better outfit
+    than one layer fewer. Out of retries the undershirt is cleared instead: an empty
+    inner slot is invisible under a shirt nobody is wearing either, and the bullets
+    that named it go with it.
+    """
+    if not _inner_left_bare(picks, {}):
+        return "", banned
+    if attempt == 0:
+        return ("Your last reply put the undershirt on its own, with nothing over "
+                "it. inner is UNDERWEAR — if there is nothing to wear over it, "
+                "leave inner null as well. "), banned
+    item = by_item.get(picks["inner"])
+    log.warning("closet picks: inner cleared — nothing was worn over it")
+    picks["inner"] = None
+    return "", ([*banned, item] if item else banned)
 
 
 def _enforce_onepiece(picks: dict, by_group: dict, by_item: dict,
@@ -479,7 +516,7 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
                   key=CATEGORIES.index)
 
 
-def _unknown_ids(picks: dict, valid_ids: set) -> str:
+def _unknown_ids(picks: dict, valid_ids: frozenset | set) -> str:
     """A corrective note naming ids that are not in the wardrobe, or "" if all are.
 
     An id the model invented cannot be looked up, so every check after this one
@@ -492,15 +529,27 @@ def _unknown_ids(picks: dict, valid_ids: set) -> str:
             "Use ONLY listed ids or null. ")
 
 
-def _index(closet: list[dict]) -> tuple[set, dict, dict, dict, dict]:
-    """The five lookups every validation step below reads.
+@dataclass(frozen=True)
+class Wardrobe:
+    """The lookups every validation step reads, as one thing.
 
-    Built once, from the SAME already-filtered wardrobe the prompt was built from —
-    an index over a different list is how a model gets to name an item the validator
-    then rejects.
+    They are always used together, and passing them separately grew the signatures
+    past what anyone can read — and, worse, made it possible to hand one function an
+    index over a different list from another. Built once from the already-filtered
+    wardrobe the prompt was built from; an index over anything else is how a model
+    gets to name an item the validator then rejects.
     """
-    return (
-        {i["id"] for i in closet},
+
+    ids: frozenset
+    by_cat: dict
+    by_roles: dict
+    by_group: dict
+    by_item: dict
+
+
+def _index(closet: list[dict]) -> Wardrobe:
+    return Wardrobe(
+        frozenset(i["id"] for i in closet),
         {i["id"]: i["category"] for i in closet},
         # What each item is ALLOWED to be today. app.py has already normalized these
         # (inner closed, empty -> [category]), so this is a straight read.

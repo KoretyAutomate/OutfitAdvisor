@@ -3069,6 +3069,17 @@ let woreDraft=null;    // {slot: itemId|null}, the sheet's working copy
    logged, so without this it vanished from its own row and the next save silently
    replaced a correctly recorded outfit. */
 let woreLogged=null;
+const WORE_KEY="oa.woreToday";
+/* Persisted, because it describes the wear log — which is on disk. Held only in
+   memory, a restart left the app believing the suggestion had been worn while the
+   rotation still carried the correction: reopening the sheet offered the original
+   outfit, and saving it logged the suggestion ON TOP of the garment already
+   counted. Stamped with the day, like everything else here: yesterday's correction
+   is not stale, it is about a different outfit. */
+async function saveWoreLogged(){
+  await prefSet(WORE_KEY, woreLogged
+    ? JSON.stringify({day:todayISO(), map:woreLogged}) : "");
+}
 function openWoreSheet(){
   if(!lastOutfit) return;
   const suggested_=(lastRes&&lastRes.picks)||{};
@@ -3185,6 +3196,7 @@ async function saveWore(){
   await saveSwaps();
   await saveCloset();
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
+  await saveWoreLogged();
   $("woreWrap").classList.remove("show");
   $("dWear").textContent="✅ Logged — tap to undo";
   wornLogged=true;
@@ -3973,6 +3985,7 @@ $("dWear").onclick=async()=>{
     const day=todayISO(), before=swaps.length;
     swaps=swaps.filter(x=>x.day!==day);
     woreLogged=null;             // nothing is logged any more, so nothing to reopen on
+    await saveWoreLogged();
     if(swaps.length!==before) await saveSwaps();
     toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }
@@ -4202,6 +4215,14 @@ const appReady=(async()=>{
   // Today's advice, if it is already known — from an earlier tap or from the
   // morning push. Before renderCloset, so the page is not blank while photos load.
   await loadToday();
+  // AFTER the render loadToday does — renderOutfit clears woreLogged, correctly,
+  // because a fresh suggestion has not been corrected. Restoring first would have
+  // that render throw the restored value away.
+  try{
+    const raw=await prefGet(WORE_KEY,"");
+    const d=raw?JSON.parse(raw):null;
+    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
+  }catch(e){ woreLogged=null; }
   await renderCloset();
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.

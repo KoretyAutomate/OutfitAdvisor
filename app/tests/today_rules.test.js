@@ -1124,6 +1124,31 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
       woreLogged=null;`);
 
+  /* And it survives a restart, because it describes the wear log — which is on
+     disk. Held only in memory, a restart left the app believing the suggestion had
+     been worn while the rotation still carried the correction: reopening offered
+     the original outfit, and saving it logged the suggestion ON TOP of the garment
+     already counted. Raised by the pre-push reviewer, 2026-08-29. */
+  const carried = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (w.localStorage.getItem(k) != null) carried[k] = w.localStorage.getItem(k);
+  const w8 = page();
+  for (const k in carried) w8.localStorage.setItem(k, carried[k]);
+  await w8.eval("appReady");
+  check("the correction survives a restart",
+    (w8.eval(`woreLogged`) || {}).base === "itm-polo-001",
+    w8.eval(`JSON.stringify(woreLogged)`));
+
+  // Yesterday's correction is about a different outfit, not a stale version of
+  // today's, so it must not be restored.
+  const w9 = page();
+  for (const k in carried) w9.localStorage.setItem(k, carried[k]);
+  w9.localStorage.setItem("oa.woreToday", JSON.stringify(
+    { day: "2020-01-01", map: { base: "itm-polo-001" } }));
+  await w9.eval("appReady");
+  check("but yesterday's is not", w9.eval(`woreLogged`) === null,
+    w9.eval(`JSON.stringify(woreLogged)`));
+
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the
      advisor went on learning the preference would leave the app believing something

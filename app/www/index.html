@@ -3077,6 +3077,11 @@ let woreDraft=null;    // {slot: itemId|null}, the sheet's working copy
    logged, so without this it vanished from its own row and the next save silently
    replaced a correctly recorded outfit. */
 let woreLogged=null;
+/* The day that record is about. The stored copy is stamped, but the value in memory
+   was not, and this app is left open — across midnight it went on presenting
+   yesterday's outfit as logged, refusing today's logging until the user undid a
+   record about a day that had ended. Raised by the pre-push reviewer, 2026-08-29. */
+let woreDay=null;
 const WORE_KEY="oa.woreToday";
 /* Persisted, because it describes the wear log — which is on disk. Held only in
    memory, a restart left the app believing the suggestion had been worn while the
@@ -3085,12 +3090,21 @@ const WORE_KEY="oa.woreToday";
    counted. Stamped with the day, like everything else here: yesterday's correction
    is not stale, it is about a different outfit. */
 async function saveWoreLogged(){
+  woreDay=woreLogged?todayISO():null;   // stamped in memory as well as on disk
   await prefSet(WORE_KEY, woreLogged
-    ? JSON.stringify({day:todayISO(), map:woreLogged}) : "");
+    ? JSON.stringify({day:woreDay, map:woreLogged}) : "");
+}
+
+/* Today's record, or none. Everything that reads woreLogged goes through here, so a
+   day boundary retires it wherever the app happens to be. */
+function wearRecord(){
+  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; saveWoreLogged(); }
+  return woreLogged;
 }
 function openWoreSheet(){
   if(!lastOutfit) return;
   const suggested_=(lastRes&&lastRes.picks)||{};
+  wearRecord();                  // yesterday's is not what they wore today
   // What the app currently believes was worn: the saved correction if there is one,
   // otherwise the suggestion. The row must open on the former or editing it means
   // starting again from an answer already overruled.
@@ -3166,7 +3180,8 @@ function openWoreSheet(){
    happened. wornLogged resets on every launch while the wear log does not, so the
    flag cannot answer this question after a restart. */
 function loggedIds(){
-  if(woreLogged) return Object.values(woreLogged).filter(Boolean);
+  const rec=wearRecord();
+  if(rec) return Object.values(rec).filter(Boolean);
   return wornLogged?lastPickIds.slice():[];
 }
 
@@ -3176,14 +3191,14 @@ function loggedIds(){
    — an ordinary tap, on a screen that looked untouched. Raised by the pre-push
    reviewer, 2026-08-29. */
 function syncWearBtn(){
-  wornLogged=!!woreLogged;
+  wornLogged=!!wearRecord();
   const wb=$("dWear");
   // Shown when there is something to log — or a record to undo. Advice with no
   // closet-backed picks, a generic fallback, hid the button while this morning's
   // clothes were still in the laundry, taking the only way to get them back off
   // the screen. Visibility lives here rather than in renderOutfit because undo
   // changes it with no re-render in sight.
-  wb.style.display=(lastPickIds.length||woreLogged)?"":"none";
+  wb.style.display=(lastPickIds.length||wornLogged)?"":"none";
   wb.textContent=wornLogged?"✅ Logged — tap to undo"
                            :"✅ Wearing it — update my rotation";
 }
@@ -3242,10 +3257,8 @@ async function saveWore(){
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
   await saveWoreLogged();
   $("woreWrap").classList.remove("show");
-  $("dWear").textContent="✅ Logged — tap to undo";
-  wornLogged=true;
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
-  syncWearBtn();
+  syncWearBtn();   // owns the label, the visibility and wornLogged
   toast(changed?"Noted — the advisor will remember what you reach for"
                :"Logged — that is what was suggested");
   }finally{ woreSaving=false; }
@@ -4276,7 +4289,8 @@ const appReady=(async()=>{
     const raw=await prefGet(WORE_KEY,"");
     const d=raw?JSON.parse(raw):null;
     woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
-  }catch(e){ woreLogged=null; }
+    woreDay=woreLogged?d.day:null;
+  }catch(e){ woreLogged=null; woreDay=null; }
   syncWearBtn();
   await renderCloset();
   // Re-stamped on every launch, so the push's copy is at most a day behind even if

@@ -1293,6 +1293,41 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("then it hides, there being nothing left to log or undo",
     wD.document.getElementById("dWear").style.display === "none");
 
+  /* Left open across midnight, the record in memory was still yesterday's — the
+     stored copy is day-stamped, the variable was not. The button went on saying
+     today's outfit was logged and refused to log it. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wG = page();
+  await wG.eval("appReady");
+  wG.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={closetUsed:true,picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wG.eval(`saveWore()`);
+  // Midnight passes with the app still open: yesterday's wear is a day old, and the
+  // record in memory is about a day that has ended.
+  wG.eval(`wearLog=wearLog.map(x=>({...x,wornAt:x.wornAt-25*3600*1000}));
+           woreDay="2020-01-01";`);
+  wG.eval(`syncWearBtn()`);
+  check("a record from yesterday retires itself",
+    wG.eval(`woreLogged`) === null && wG.eval(`wornLogged`) === false,
+    wG.eval(`JSON.stringify(woreLogged)`));
+  check("so today's outfit can be logged normally",
+    /update my rotation/.test(wG.document.getElementById("dWear").textContent),
+    wG.document.getElementById("dWear").textContent);
+  wG.eval(`lastOutfit={base:"white tee"};
+    renderOutfit(lastOutfit,"",{},{closetUsed:true,picks:{base:"itm-tee-0001"}})`);
+  await wG.eval(`document.getElementById("dWear").onclick()`);
+  check("and logging counts today's clothes",
+    wG.eval(`wearLog.filter(x=>x.itemId==="itm-tee-0001").length`) === 1,
+    wG.eval(`JSON.stringify(wearLog)`));
+  check("without disturbing what was worn yesterday",
+    wG.eval(`wearLog.filter(x=>x.itemId==="itm-polo-001").length`) === 1);
+  wG.eval(`openWoreSheet()`);
+  check("and the sheet opens on today's outfit, not on yesterday's",
+    (wG.eval(`woreDraft`) || {}).base === "itm-tee-0001",
+    wG.eval(`JSON.stringify(woreDraft)`));
+
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the
      advisor went on learning the preference would leave the app believing something

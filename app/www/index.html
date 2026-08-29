@@ -2680,6 +2680,7 @@ function renderOutfit(o,text,source,res){
   const tipEl=$("outfitTip");
   tipEl.style.display=o.tip?"":"none";
   tipEl.textContent="💡 "+(o.tip||"");
+  woreLogged=null;        // a new suggestion has not been corrected yet
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
 }
@@ -3061,10 +3062,20 @@ const liveSwaps=()=>{
 };
 
 /* ── the "what did you wear?" sheet ── */
-let woreDraft=null;   // {slot: itemId|null}, seeded from what was suggested
+let woreDraft=null;    // {slot: itemId|null}, the sheet's working copy
+/* What was last LOGGED for today, if the sheet has already been saved.
+   Reopening has to show what the app currently believes, not the suggestion that
+   was overruled — and a count-one garment becomes unavailable the moment it is
+   logged, so without this it vanished from its own row and the next save silently
+   replaced a correctly recorded outfit. */
+let woreLogged=null;
 function openWoreSheet(){
   if(!lastOutfit) return;
-  const picked=(lastRes&&lastRes.picks)||{};
+  const suggested_=(lastRes&&lastRes.picks)||{};
+  // What the app currently believes was worn: the saved correction if there is one,
+  // otherwise the suggestion. The row must open on the former or editing it means
+  // starting again from an answer already overruled.
+  const picked=woreLogged||suggested_;
   woreDraft={};
   // On a trip the advice comes from the suitcase, so a garment left at home could
   // not have been part of it. The reviewer asked for those to be removed; they are
@@ -3092,8 +3103,14 @@ function openWoreSheet(){
     // happen. Left out, the row silently showed "— nothing —" while the draft still
     // held the item, so saving an untouched sheet logged a garment the screen said
     // was not worn.
-    const suggested=picked[slot]?closet.find(i=>i.id===picked[slot]):null;
-    if(suggested&&!options.some(o=>o.id===suggested.id)) options.unshift(suggested);
+    // Always offered: what the advisor suggested, and what is currently logged as
+    // worn. Either can read as unavailable — logging a count-one garment is enough
+    // — and a row that cannot show what it is set to is a row that lies.
+    for(const id of [picked[slot], suggested_[slot]]){
+      if(!id||options.some(o=>o.id===id)) continue;
+      const it=closet.find(i=>i.id===id);
+      if(it) options.unshift(it);
+    }
     if(!options.length){
       // No row means nothing to review, so the draft must not go on holding a
       // garment from the advice — one deleted since, with nothing left that can
@@ -3107,7 +3124,7 @@ function openWoreSheet(){
       <select data-wore="${slot}" style="flex:1;min-width:0">
         <option value="">— nothing —</option>
         ${options.map(i=>{
-          const note=i.id===picked[slot]?" (suggested)"
+          const note=i.id===suggested_[slot]?" (suggested)"
                     :(packed&&!packed.has(i.id)?" (not packed)":"");
           return `<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
                  `${esc(i.label)}${note}</option>`;
@@ -3167,6 +3184,7 @@ async function saveWore(){
   }
   await saveSwaps();
   await saveCloset();
+  woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
   $("woreWrap").classList.remove("show");
   $("dWear").textContent="✅ Logged — tap to undo";
   wornLogged=true;
@@ -3954,6 +3972,7 @@ $("dWear").onclick=async()=>{
     // something the user had just told it was not so.
     const day=todayISO(), before=swaps.length;
     swaps=swaps.filter(x=>x.day!==day);
+    woreLogged=null;             // nothing is logged any more, so nothing to reopen on
     if(swaps.length!==before) await saveSwaps();
     toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }

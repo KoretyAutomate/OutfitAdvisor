@@ -1044,7 +1044,7 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
      item, so saving an untouched sheet logged a garment the screen said was not
      worn. Raised by the pre-push reviewer, 2026-08-29. */
   ev(`closet=[${JSON.stringify({...WTEE, count: 1})}];
-      wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}];
+      wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}]; woreLogged=null;
       lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"]; wornLogged=true;`);
   ev(`openWoreSheet()`);
   const unavail = w.document.querySelector('[data-wore="base"]');
@@ -1061,7 +1061,7 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   const OXFORD = {id:"itm-shirt-01", label:"oxford", category:"base", group:"tops",
     type:"shirt", roles:["base","mid"], colors:[], warmth:2, formality:["smart"],
     waterproof:false, count:2};
-  ev(`closet=[${JSON.stringify(OXFORD)}]; wearLog=[]; swaps=[];
+  ev(`closet=[${JSON.stringify(OXFORD)}]; wearLog=[]; swaps=[]; woreLogged=null;
       lastOutfit={base:"oxford"}; lastRes={picks:{base:"itm-shirt-01"}};
       lastPickIds=["itm-shirt-01"]; wornLogged=false;`);
   ev(`openWoreSheet()`);
@@ -1092,6 +1092,37 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     ev(`swaps.length`) === 1, ev(`JSON.stringify(swaps)`));
   check("so one day cannot pass for a habit",
     ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  /* Reopening shows what the app CURRENTLY believes, not the suggestion that was
+     overruled. A count-one garment becomes unavailable the moment it is logged, so
+     without this it vanished from its own row, the sheet reseeded from the original
+     picks, and the next save silently replaced a correctly recorded outfit. Raised
+     by the pre-push reviewer, 2026-08-29. */
+  ev(`closet=[${JSON.stringify({...WTEE, count: 1})},${JSON.stringify({...POLO, count: 1})}];
+      wearLog=[]; swaps=[]; trips=[]; woreLogged=null;
+      lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const reSel = () => w.document.querySelector('[data-wore="base"]');
+  reSel().value = "itm-polo-001"; reSel().onchange();
+  await ev(`saveWore()`);
+  check("the corrected garment is now unavailable — that is what logging means",
+    ev(`avail(closet[1])`) === 0);
+  ev(`openWoreSheet()`);
+  check("reopening shows what was logged, not what was suggested",
+    reSel().value === "itm-polo-001", reSel().value);
+  check("and it is still offered despite being unavailable",
+    [...reSel().options].some(o => o.value === "itm-polo-001"),
+    [...reSel().options].map(o => o.textContent));
+  check("the original suggestion is still there too, and still labelled",
+    [...reSel().options].some(o => /white tee \(suggested\)/.test(o.textContent)),
+    [...reSel().options].map(o => o.textContent));
+  await ev(`saveWore()`);
+  check("so saving again keeps the outfit rather than replacing it",
+    ev(`swaps.length`) === 1 && ev(`swaps[0].wore`) === "itm-polo-001",
+    ev(`JSON.stringify(swaps)`));
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      woreLogged=null;`);
 
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the

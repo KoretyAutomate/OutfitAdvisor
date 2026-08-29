@@ -248,3 +248,22 @@ def test_a_slot_cleared_for_having_nowhere_to_go_is_still_a_gap():
     gaps = pk._missing_slots([], picks, filled_before, set(),
                              lambda slot: False, set())
     assert "base" in gaps
+
+
+def test_a_relocated_garment_cleared_later_is_still_a_gap():
+    """A thin jacket moved into `outer` and then rejected by the warmth check is a
+    casualty of validation like any other. Subtracting only the source left the
+    target out of the snapshot, and the gap went unreported. Raised by the pre-push
+    reviewer, 2026-08-29."""
+    picks = _empty(base="itm-shell-001")
+    filled_before = {"base"}
+    moved = pk._relocate_mismatches(picks, ["base"], {"itm-shell-001": ["outer"]})
+    assert moved == [("base", "outer")]
+    filled_before = ((filled_before - {frm for frm, _ in moved})
+                     | {to for _, to in moved})
+    assert filled_before == {"outer"}
+    picks["outer"] = None                       # what the warmth check then does
+    gaps = pk._missing_slots([], picks, filled_before, set(),
+                             lambda slot: False, {"outer"})
+    assert "outer" in gaps
+    assert "base" not in gaps, "the slot it was moved out of is still a filing fix"

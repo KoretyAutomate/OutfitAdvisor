@@ -376,7 +376,13 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             # recommending another shirt. A slot the model genuinely could not fill
             # still reaches `missing` by its own claim. Raised by the pre-push
             # reviewer, 2026-08-29.
-            filled_before -= relocated
+            #
+            # The TARGET joins it, because a relocation is also the model believing
+            # that slot filled. Subtracting only the source hid a real gap: a thin
+            # jacket moved into `outer` and then cleared by the warmth check was a
+            # casualty of validation like any other, but the slot was no longer in
+            # the snapshot for _missing_slots to notice.
+            filled_before = (filled_before - relocated) | {to for _, to in moved}
 
         note, banned_labels, covered, unsuitable, added = _hold_to_the_rules(
             picks, w, prefs, wd, unsuitable, attempt)

@@ -1004,6 +1004,80 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /Couldn't reach the advisor/.test(w.document.getElementById("shopOut").textContent),
     w.document.getElementById("shopOut").textContent);
 
+  console.log("\n--- 15. telling it what you wore instead (2026-08-29) -----------");
+  /* The best evidence the app can collect: somebody who read the suggestion,
+     disagreed, and put on something else has named BOTH the garment they wanted and
+     the one it beat. */
+  const WTEE = {id:"itm-tee-0001", label:"white tee", category:"base", group:"tops",
+    type:"t_shirt", roles:["base"], colors:[], warmth:1, formality:["casual"],
+    waterproof:false, count:2};
+  const POLO = {id:"itm-polo-001", label:"navy polo", category:"base", group:"tops",
+    type:"polo", roles:["base"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}];
+      wearLog=[]; trips=[]; swaps=[]; userRules=[]; closetComplete=false;
+      lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const sel = w.document.querySelector('[data-wore="base"]');
+  check("the sheet offers a row for the slot", !!sel);
+  check("prefilled with what was suggested", sel.value === "itm-tee-0001", sel.value);
+  check("and only garments that can play that role",
+    [...sel.options].map(o => o.value).filter(Boolean).sort().join() ===
+      "itm-polo-001,itm-tee-0001",
+    [...sel.options].map(o => o.value));
+
+  sel.value = "itm-polo-001"; sel.onchange();
+  await ev(`saveWore()`);
+  check("the swap is recorded with what it beat",
+    ev(`swaps[0].wore`) === "itm-polo-001" && ev(`swaps[0].instead`) === "itm-tee-0001",
+    ev(`JSON.stringify(swaps)`));
+  /* The laundry follows the garment actually put on, not the one proposed. */
+  check("the garment worn goes to the laundry pile",
+    ev(`activeWears("itm-polo-001")`) === 1);
+  check("and the one that was only suggested does not",
+    ev(`activeWears("itm-tee-0001")`) === 0);
+
+  console.log("\n--- 16. one swap is a day; two is a habit ----------------------");
+  ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];`);
+  check("a single correction is not reported as a preference",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+  ev(`swaps.push({day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"});`);
+  const sum2 = ev(`swapSummary()`);
+  check("twice is", sum2.length === 1 && sum2[0].label === "navy polo", sum2);
+  check("with the slot and the count", sum2[0].slot === "base" && sum2[0].n === 2, sum2[0]);
+
+  // Old habits fade rather than standing for ever.
+  ev(`swaps=[{day:"2020-01-01",slot:"base",wore:"itm-polo-001",instead:null},
+             {day:"2020-01-02",slot:"base",wore:"itm-polo-001",instead:null}];`);
+  check("corrections past the keep-window stop counting",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  // A garment since removed from the closet cannot be a preference.
+  ev(`swaps=[{day:todayISO(),slot:"base",wore:"gone-0001",instead:null},
+             {day:dayISO(Date.now()-86400000),slot:"base",wore:"gone-0001",instead:null}];`);
+  check("a garment no longer owned is not offered back",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  console.log("\n--- 17. the advisor is told, as a preference --------------------");
+  ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"},
+             {day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];
+      __sent=null;
+      fetch = async (u,o) => { __sent=JSON.parse(o.body);
+        return {ok:true, json: async () => ({weather:${JSON.stringify(WX)},
+          outfit:{base:"navy polo"}, outfit_text:"x", source:"llm"})}; };`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("the request carries what they reach for",
+    (ev(`__sent.prefers`) || []).length === 1 && ev(`__sent.prefers[0].label`) === "navy polo",
+    ev(`__sent.prefers`));
+  await ev(`savePushPayload()`);
+  check("and the morning push is told too",
+    (JSON.parse(w.localStorage.getItem("oa.pushPayload")).prefers || []).length === 1);
+
+  // Choosing differently says nothing about what the wardrobe LACKS.
+  ev(`gaps=[];`);
+  check("a correction is never mistaken for a wardrobe gap", ev(`gaps.length`) === 0);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

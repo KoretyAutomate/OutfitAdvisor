@@ -297,6 +297,11 @@
         <ul class="outfit" id="outfitList"></ul>
       </details>
       <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+      <!-- The correction (user, 2026-08-29). What somebody actually reached for,
+           having read the suggestion and decided otherwise, is better evidence than
+           any rating: it names the garment AND the one it beat. -->
+      <button class="ghost" id="dWore" style="display:none;width:100%;padding:9px;margin-top:7px">
+        ✏️ I wore something else</button>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
            the LLM plan against. Never shifts the weather shown above. -->
       <div class="fb">
@@ -610,6 +615,20 @@
 </div>
 
 <!-- Place codes sheet: teach the app what your abbreviations mean, once. -->
+<!-- "I wore something else": one row per slot, prefilled with what was suggested. -->
+<div class="modal" id="woreWrap">
+  <div class="sheet">
+    <div class="shHead"><b>What did you wear?</b>
+      <button class="ghost" id="woreCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
+    <p class="note" style="margin:0 0 10px">Change the lines you swapped and leave the rest.
+      The advisor learns what you reach for, and these go to the laundry pile.</p>
+    <div id="woreList"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="woreSave" style="flex:2">Save what I wore</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="plWrap">
   <div class="sheet">
     <div class="shHead"><b>My place codes</b>
@@ -1261,7 +1280,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.21";
+const WEB_BUILD="1.22";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2493,7 +2512,8 @@ async function savePushPayload(){
       onTrip:!!tripInProgress(),
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
-      closetOnly:closetComplete}));
+      closetOnly:closetComplete,
+      prefers:cl.length?swapSummary():[]}));
   }catch(e){}
 }
 
@@ -2520,6 +2540,9 @@ async function getAdvice(lat,lon){
     // "only recommend what I own" off on exactly the day the user most needs a
     // straight answer. The flag describes the wardrobe, not the laundry.
     if(closetComplete) body.closetOnly=true;
+    // What they actually reach for. A preference, not a rule — see the note on
+    // `swaps` for why this is deliberately not promoted into one.
+    if(cl.length){ const sw=swapSummary(); if(sw.length) body.prefers=sw; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -2598,6 +2621,10 @@ function renderOutfit(o,text,source,res){
   const wb=$("dWear");
   wb.style.display=lastPickIds.length?"":"none";
   wb.textContent="✅ Wearing it — update my rotation";
+  // Offered whenever there is a wardrobe to correct FROM — including when the
+  // advisor suggested nothing of theirs, which is exactly a morning they dressed
+  // themselves and the app would otherwise never hear about it.
+  $("dWore").style.display=closet.length?"":"none";
   // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
   // recognises their own clothes — the photo is (user, 2026-08-16; made the
   // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
@@ -2977,6 +3004,108 @@ async function run(){
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(e.message||"Something went wrong."); }
   finally{ btn.innerHTML=old; btn.disabled=false; }
+}
+
+/* ───────── what you actually wore (2026-08-29) ─────────
+
+   "I want to tell what I wore instead of the recommendation."
+
+   This is the best evidence the app can get. A five-point warm/cold dial says how
+   the day felt; a ban says what must never happen; but somebody who read the
+   suggestion, disagreed, and put on something else has named BOTH the garment they
+   wanted and the one it beat — a preference and its counterexample in one action.
+
+   It feeds three things, in descending order of confidence:
+     - the wear log, which is a fact: those clothes are now dirty.
+     - the advisor's prompt, as a preference. NOT a rule — the user has rules for
+       what must never happen, and quietly promoting "wore something else twice"
+       into a prohibition would take a decision they did not make.
+     - nothing else. In particular it is NOT gap evidence: choosing differently
+       from a wardrobe says nothing about what the wardrobe lacks. */
+const SWAP_KEEP_DAYS=60, SWAP_MIN=2;
+let swaps=[];   // {day, slot, wore, instead}
+async function saveSwaps(){
+  const cut=dayISO(Date.now()-SWAP_KEEP_DAYS*DAY_MS);
+  swaps=swaps.filter(x=>x.day>=cut).slice(-300);
+  await prefSet("oa.swaps", JSON.stringify(swaps));
+}
+/* What the advisor is told: a slot, the garment reached for, and how often — but
+   only where it has happened more than once. One swap is a day, not a habit, and
+   a prompt that reports every one-off would drown the pattern in noise. */
+function swapSummary(){
+  const by=new Map();
+  for(const x of liveSwaps()){
+    const k=x.slot+"\u0000"+x.wore;
+    const e=by.get(k);
+    if(e) e.n++; else by.set(k,{slot:x.slot,id:x.wore,n:1});
+  }
+  const named=[...by.values()].filter(e=>e.n>=SWAP_MIN)
+    .map(e=>{ const it=closet.find(i=>i.id===e.id);
+      return it?{slot:e.slot,label:it.label,n:e.n}:null; })
+    .filter(Boolean);
+  return named.sort((a,b)=>b.n-a.n).slice(0,8);
+}
+const liveSwaps=()=>{
+  const cut=dayISO(Date.now()-SWAP_KEEP_DAYS*DAY_MS);
+  return swaps.filter(x=>x&&x.day>=cut);
+};
+
+/* ── the "what did you wear?" sheet ── */
+let woreDraft=null;   // {slot: itemId|null}, seeded from what was suggested
+function openWoreSheet(){
+  if(!lastOutfit) return;
+  const picked=(lastRes&&lastRes.picks)||{};
+  woreDraft={};
+  const rows=CATS.map(slot=>{
+    woreDraft[slot]=picked[slot]||null;
+    // Only garments this slot can legitimately hold, and only ones the wearer has
+    // available — offering an item in a role it cannot play would let the correction
+    // record something the advisor could never have suggested.
+    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0);
+    if(!options.length&&!picked[slot]) return "";
+    const suggested=picked[slot]?closet.find(i=>i.id===picked[slot]):null;
+    return `<div class="calRow" style="padding-left:0;align-items:center">
+      <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
+      <select data-wore="${slot}" style="flex:1;min-width:0">
+        <option value="">— nothing —</option>
+        ${options.map(i=>`<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
+          `${esc(i.label)}${i.id===picked[slot]?" (suggested)":""}</option>`).join("")}
+      </select>
+    </div>`+(suggested&&!options.some(o=>o.id===suggested.id)
+      ? `<p class="note" style="margin:0 0 6px 34%">suggested: ${esc(suggested.label)}</p>`:"");
+  }).join("");
+  $("woreList").innerHTML=rows||`<p class="note">Photograph your clothes first — there is nothing to choose from.</p>`;
+  $("woreList").querySelectorAll("[data-wore]").forEach(sel=>{
+    sel.onchange=()=>{ woreDraft[sel.dataset.wore]=sel.value||null; };
+  });
+  $("woreWrap").classList.add("show");
+}
+async function saveWore(){
+  if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
+  const picked=(lastRes&&lastRes.picks)||{};
+  const day=todayISO();
+  // Undo the rotation entry the suggestion made, if it was taken: the clothes that
+  // went to the laundry are the ones actually put on, not the ones proposed.
+  if(wornLogged){ lastPickIds.forEach(unlogWearToday); wornLogged=false; }
+  let changed=0;
+  for(const slot of CATS){
+    const wore=woreDraft[slot]||null, was=picked[slot]||null;
+    if(wore) logWear(wore);
+    if(wore===was) continue;
+    changed++;
+    // Recorded only where a garment was actually chosen. "I wore nothing there" is
+    // a correction to the outfit, but it names no preference — there is nothing the
+    // advisor could reach for next time.
+    if(wore) swaps.push({day,slot,wore,instead:was});
+  }
+  await saveSwaps();
+  await saveCloset();
+  $("woreWrap").classList.remove("show");
+  $("dWear").textContent="✅ Logged — tap to undo";
+  wornLogged=true;
+  lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
+  toast(changed?"Noted — the advisor will remember what you reach for"
+               :"Logged — that is what was suggested");
 }
 
 /* ───────── what the wardrobe could not cover (2026-08-27) ─────────
@@ -3563,6 +3692,7 @@ async function load(){
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
+  try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
@@ -3738,6 +3868,10 @@ $("shDel").onclick=async()=>{
   await photoDel(id);
   await saveCloset(); closeSheet(); toast("Deleted");
 };
+$("dWore").onclick=openWoreSheet;
+$("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
+$("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
+$("woreSave").onclick=()=>{ saveWore(); };
 $("dWear").onclick=async()=>{
   if(!lastPickIds.length) return;
   if(!wornLogged){

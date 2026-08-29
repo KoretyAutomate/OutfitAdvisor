@@ -112,6 +112,19 @@ class ClosetItem(BaseModel):
         return [c for c in (_clean(x, 20) for x in v) if c]
 
 
+class Prefer(BaseModel):
+    """One garment the wearer keeps choosing for a slot, and how often."""
+
+    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    label: str = Field("", max_length=60)
+    n: int = Field(1, ge=1, le=400)
+
+    @field_validator("label")
+    @classmethod
+    def _san_label(cls, v: str) -> str:
+        return _clean(v, 60)
+
+
 class AdviceRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
@@ -140,6 +153,11 @@ class AdviceRequest(BaseModel):
     # wardrobe IS everything they own, that suggestion becomes an item they cannot
     # wear, so the slot is reported empty instead.
     closetOnly: bool = False
+    # What the wearer actually reached for after reading a suggestion and deciding
+    # otherwise (2026-08-29). A PREFERENCE, and deliberately not a rule: the user
+    # has `rules` for what must never happen, and promoting "wore something else
+    # twice" into a prohibition would take a decision they did not make.
+    prefers: list[Prefer] = Field(default_factory=list, max_length=8)
 
 
 class KnownPlace(BaseModel):

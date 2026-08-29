@@ -34,10 +34,13 @@ class Prefs:
 
     rules: tuple = ()
     closet_only: bool = False
+    #: garments the wearer keeps choosing for a slot — a hint, never a constraint
+    prefers: tuple = ()
 
     @classmethod
-    def of(cls, rules_list: list[dict] | None, closet_only: bool = False) -> "Prefs":
-        return cls(tuple(rules_list or []), closet_only)
+    def of(cls, rules_list: list[dict] | None, closet_only: bool = False,
+           prefers: list[dict] | None = None) -> "Prefs":
+        return cls(tuple(rules_list or []), closet_only, tuple(prefers or []))
 
 
 _OUTER_MIN_WARMTH = ((5, 4), (12, 3), (18, 2))

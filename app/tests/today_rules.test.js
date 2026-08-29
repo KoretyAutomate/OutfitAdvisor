@@ -1278,6 +1278,21 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     wD.eval(`activeWears("itm-tee-0001")`) === 1,
     wD.eval(`JSON.stringify(wearLog)`));
 
+  /* Even when the later advice has nothing of theirs in it. Hiding the button on
+     empty picks took the only way to undo off the screen while the clothes were
+     still in the laundry. Raised by the pre-push reviewer, 2026-08-29. */
+  wD.eval(`renderOutfit({base:"any dark shirt"},"",{},{closetUsed:false,picks:{}})`);
+  check("generic advice still offers to undo this morning's record",
+    wD.document.getElementById("dWear").style.display !== "none" &&
+    /tap to undo/.test(wD.document.getElementById("dWear").textContent),
+    wD.document.getElementById("dWear").style.display);
+  await wD.eval(`document.getElementById("dWear").onclick()`);
+  check("and undo works with no picks to go on",
+    wD.eval(`activeWears("itm-tee-0001")`) === 0 && wD.eval(`woreLogged`) === null,
+    wD.eval(`JSON.stringify(wearLog)`));
+  check("then it hides, there being nothing left to log or undo",
+    wD.document.getElementById("dWear").style.display === "none");
+
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the
      advisor went on learning the preference would leave the app believing something

@@ -2619,8 +2619,6 @@ function renderOutfit(o,text,source,res){
   // "Wearing it" only when the advice came from the real closet (has item IDs)
   const ids=res&&res.closetUsed&&res.picks?Object.values(res.picks).filter(Boolean):[];
   lastPickIds=[...new Set(ids)];
-  const wb=$("dWear");
-  wb.style.display=lastPickIds.length?"":"none";
   // From the record, not reset to "Wearing it". New advice does not unwear what was
   // already worn, and a button offering to log a second outfit for the day was how
   // the same morning got counted twice.
@@ -3179,8 +3177,15 @@ function loggedIds(){
    reviewer, 2026-08-29. */
 function syncWearBtn(){
   wornLogged=!!woreLogged;
-  $("dWear").textContent=wornLogged?"✅ Logged — tap to undo"
-                                   :"✅ Wearing it — update my rotation";
+  const wb=$("dWear");
+  // Shown when there is something to log — or a record to undo. Advice with no
+  // closet-backed picks, a generic fallback, hid the button while this morning's
+  // clothes were still in the laundry, taking the only way to get them back off
+  // the screen. Visibility lives here rather than in renderOutfit because undo
+  // changes it with no re-render in sight.
+  wb.style.display=(lastPickIds.length||woreLogged)?"":"none";
+  wb.textContent=wornLogged?"✅ Logged — tap to undo"
+                           :"✅ Wearing it — update my rotation";
 }
 
 let woreSaving=false;
@@ -4011,22 +4016,23 @@ $("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
 $("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
 $("woreSave").onclick=()=>{ saveWore(); };
 $("dWear").onclick=async()=>{
-  if(!lastPickIds.length) return;
   if(!wornLogged){
+    // Only the LOGGING half needs picks to log. Undo works from the record.
+    if(!lastPickIds.length) return;
     lastPickIds.forEach(logWear); wornLogged=true;
     // Recorded like a correction is. Without this a restart lost the fact, and a
     // correction afterwards released nothing — the suggestion stayed in the laundry
     // and the corrected outfit was added beside it.
     woreLogged={...((lastRes&&lastRes.picks)||{})};
     await saveWoreLogged();
-    $("dWear").textContent="✅ Logged — tap to undo";
+    syncWearBtn();
     toast("Rotation updated — these go to the laundry pile");
   }else{
     // The RECORD, not lastPickIds: after a correction the two are different
     // garments, and undoing by the suggestion left the corrected outfit counted.
     loggedIds().forEach(unlogWearToday); wornLogged=false; woreLogged=null;
     await saveWoreLogged();
-    $("dWear").textContent="✅ Wearing it — update my rotation";
+    syncWearBtn();
     // Undo the LESSON as well as the laundry. This button is what somebody taps on
     // realising they logged the wrong outfit, and reverting the wear log while the
     // advisor went on learning the preference would leave the app believing

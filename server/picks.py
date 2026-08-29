@@ -82,6 +82,35 @@ def _slot_mismatches(picks: dict, by_roles: dict) -> list[str]:
     ]
 
 
+def _relocate_mismatches(picks: dict, wrong: list, by_roles: dict) -> list:
+    """Move a misfiled garment to a slot it CAN play, rather than dropping it.
+
+    The model files a garment one slot off — a hoodie whose only role is `mid` put
+    into `base` — and the old repair cleared the slot. That threw away a top the
+    wearer owns and had been given: on 2026-08-29 a 15-item closet came back with
+    the joggers and nothing above the waist, because the one top the model chose was
+    filed as `base`, cleared for it, and never reconsidered. The user saw an outfit
+    with no shirt (reported the same morning).
+
+    Clearing is right for an item that cannot go anywhere — a bottom in a top slot
+    with `bottoms` already filled. It is wrong for one that has an empty slot of its
+    own waiting, which is the common case, because the mistake is a filing error and
+    not a judgement about the garment.
+
+    Returns the moves made, for the log. Anything unplaceable is cleared as before.
+    """
+    moved = []
+    for c in wrong:
+        item = picks[c]
+        target = next((r for r in (by_roles.get(item) or ())
+                       if r in CATEGORIES and not picks.get(r)), None)
+        picks[c] = None
+        if target:
+            picks[target] = item
+            moved.append((c, target))
+    return moved
+
+
 def _inner_left_bare(picks: dict, by_group: dict) -> bool:
     """Is the undershirt the outermost thing on the torso?
 
@@ -424,6 +453,67 @@ def _assemble_text(out: dict, banned: list[dict], prefs: Prefs,
     return f"{text}\n\n💡 {tip}" if tip else text
 
 
+def _suitable_for(slot: str, picks: dict, by_item: dict, by_roles: dict,
+                  plan_temp: float, user_rules: list[dict]) -> str | None:
+    """The first owned garment that could legitimately fill this slot, or None.
+
+    The search _has_suitable_alternative always did; it only ever reported whether
+    one existed, and _enforce_a_top needs the garment itself.
+    """
+    for iid, item in by_item.items():
+        if iid in picks.values():
+            continue                              # already worn somewhere else
+        if slot not in (by_roles.get(iid) or ()):
+            continue
+        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
+            continue
+        trial = {**picks, slot: iid}
+        if rules.violations(user_rules, trial, by_item):
+            continue
+        return iid
+    return None
+
+
+#: The layers that count as being dressed above the waist, in the order a missing
+#: top is filled: the ordinary top first, then a mid layer, then a coat. Reaching
+#: `outer` means the wardrobe holds nothing else — a coat over an undershirt is odd,
+#: and it is still an answer rather than no top at all.
+_TOP_SLOTS = ("base", "mid", "outer")
+
+
+def _enforce_a_top(picks: dict, by_item: dict, by_roles: dict,
+                   plan_temp: float, user_rules: list[dict]) -> tuple | None:
+    """Nobody is dressed by their trousers alone.
+
+    The user was sent out on 2026-08-29 with joggers and nothing above the waist:
+    the model filed its one top as `base`, the role check cleared it for being a
+    `mid`, and the undershirt went with it. _relocate_mismatches fixes that
+    particular mistake; this catches the CLASS, because every repair in this module
+    can empty a slot and none of them asks what is left.
+
+    Only when the wardrobe can actually cover it. A closet with no wearable top is
+    genuinely short of one, and inventing a garment is what closetOnly exists to
+    stop — the empty slots are then reported as the gap they are.
+    """
+    if any(picks.get(c) for c in _TOP_SLOTS):
+        return None
+    for slot in _TOP_SLOTS:
+        iid = _suitable_for(slot, picks, by_item, by_roles, plan_temp, user_rules)
+        if iid:
+            picks[slot] = iid
+            return slot, iid
+    return None
+
+
+def _added_top_line(added: tuple, by_item: dict) -> str:
+    """Say so in the prose. A garment in the picture and not in the text reads as a
+    bug in the app, and this one is there precisely because the model did not put
+    it there."""
+    label = str((by_item.get(added[1]) or {}).get("label") or "").strip()
+    return (f"{label or 'A top from your closet'} — the rest of the outfit left you "
+            "with nothing above the waist.")
+
+
 def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: dict,
                               plan_temp: float, user_rules: list[dict]) -> bool:
     """Could some OTHER owned garment have filled this slot properly?
@@ -437,18 +527,8 @@ def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: d
     Judged by the same rules that did the clearing, so an alternative this accepts
     is one the generator could legitimately have picked.
     """
-    for iid, item in by_item.items():
-        if iid in picks.values():
-            continue                              # already worn somewhere else
-        if slot not in (by_roles.get(iid) or ()):
-            continue
-        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
-            continue
-        trial = {**picks, slot: iid}
-        if rules.violations(user_rules, trial, by_item):
-            continue
-        return True
-    return False
+    return _suitable_for(slot, picks, by_item, by_roles, plan_temp,
+                         user_rules) is not None
 
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,

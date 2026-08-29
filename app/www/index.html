@@ -3168,9 +3168,19 @@ async function saveWore(){
   }
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
-  // Undo the rotation entry the suggestion made, if it was taken: the clothes that
-  // went to the laundry are the ones actually put on, not the ones proposed.
-  if(wornLogged){ lastPickIds.forEach(unlogWearToday); wornLogged=false; }
+  // Take back whatever this outfit last put in the laundry, before adding what it
+  // puts there now. Two sources, because either can be the record of it:
+  //   woreLogged — a correction already saved today, INCLUDING one restored from
+  //                disk after a restart, when wornLogged is false but the garments
+  //                are still counted. Relying on the flag alone left the previous
+  //                outfit in the rotation and added the new one beside it.
+  //   lastPickIds — the suggestion, if "Wearing it" was tapped.
+  const already=new Set([
+    ...Object.values(woreLogged||{}).filter(Boolean),
+    ...(wornLogged?lastPickIds:[]),
+  ]);
+  already.forEach(unlogWearToday);
+  wornLogged=false;
   let changed=0;
   for(const slot of CATS){
     const wore=woreDraft[slot]||null, was=picked[slot]||null;

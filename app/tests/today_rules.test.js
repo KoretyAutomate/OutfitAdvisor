@@ -1139,6 +1139,26 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     (w8.eval(`woreLogged`) || {}).base === "itm-polo-001",
     w8.eval(`JSON.stringify(woreLogged)`));
 
+  /* And editing it after the restart must RELEASE what it previously logged.
+     wornLogged is false on a fresh start while the garments are still counted, so
+     relying on the flag alone left the old outfit in the rotation and added the new
+     one beside it — both in the laundry, neither correct. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const OXFORD2 = {id:"itm-oxfrd-01", label:"oxford", category:"base", group:"tops",
+    type:"shirt", roles:["base"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  w8.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)},${JSON.stringify(OXFORD2)}];
+           lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"];`);
+  check("the restored correction is still in the rotation",
+    w8.eval(`activeWears("itm-polo-001")`) === 1);
+  w8.eval(`woreDraft={base:"itm-oxfrd-01"};`);
+  await w8.eval(`saveWore()`);
+  check("changing it releases the garment it replaces",
+    w8.eval(`activeWears("itm-polo-001")`) === 0);
+  check("and counts only the new one",
+    w8.eval(`activeWears("itm-oxfrd-01")`) === 1);
+
   // Yesterday's correction is about a different outfit, not a stale version of
   // today's, so it must not be restored.
   const w9 = page();

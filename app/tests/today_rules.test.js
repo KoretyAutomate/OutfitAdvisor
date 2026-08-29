@@ -1107,6 +1107,31 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and changing back to the suggestion retracts it",
     ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
 
+  /* On a trip the advice comes from the suitcase, so a garment left at home could
+     not have been part of it. The reviewer asked for those to be removed; they are
+     MARKED instead — this sheet exists to record what actually happened, and
+     sometimes what happened is that the packing list was wrong. Refusing to let the
+     user say so would make the one screen for telling the truth the one screen that
+     argues back. Marking keeps an accidental tap visible without removing the
+     deliberate one. Rejected in part, 2026-08-29. */
+  const dISO = (o) => { const x = new Date(Date.now() + o * 86400000);
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; };
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      trips=[{id:"t",start:"${dISO(-1)}",end:"${dISO(2)}",packed:[{id:"itm-tee-0001",qty:1}]}];
+      lastRes={picks:{base:"itm-tee-0001"}}; lastOutfit={base:"white tee"};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const away = [...w.document.querySelector('[data-wore="base"]').options]
+    .map(o => o.textContent);
+  check("a garment left at home is still offered",
+    away.some(t => /navy polo/.test(t)), away);
+  check("but marked, so choosing it is deliberate",
+    away.some(t => /navy polo \(not packed\)/.test(t)), away);
+  check("and what IS packed comes first",
+    away.indexOf("white tee (suggested)") < away.findIndex(t => /not packed/.test(t)),
+    away);
+  ev(`trips=[];`);
+
   /* A preference may only name a garment in the wardrobe being SENT.
      closetPayload() drops the laundry, and on a trip it is the suitcase — so a
      favourite left at home would have the prompt asking the model to prefer an id

@@ -3066,12 +3066,27 @@ function openWoreSheet(){
   if(!lastOutfit) return;
   const picked=(lastRes&&lastRes.picks)||{};
   woreDraft={};
+  // On a trip the advice comes from the suitcase, so a garment left at home could
+  // not have been part of it. The reviewer asked for those to be removed; they are
+  // MARKED instead.
+  //
+  // This sheet exists to record what actually happened, and the user is the
+  // authority on that. Sometimes what happened is that the packing list was wrong —
+  // a shirt thrown in at the last minute, or bought on the way. Refusing to let
+  // them say so would make the one screen for telling the truth the one screen that
+  // argues back. Marking keeps an accidental tap visible, which is the real risk,
+  // without removing the deliberate one.
+  const trip=tripInProgress();
+  const packed=trip?new Set((trip.packed||[]).map(x=>x.id)):null;
   const rows=CATS.map(slot=>{
     woreDraft[slot]=picked[slot]||null;
     // Only garments this slot can legitimately hold, and only ones the wearer has
     // available — offering an item in a role it cannot play would let the correction
     // record something the advisor could never have suggested.
-    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0);
+    // Packed garments first while away, so the ones actually to hand are what the
+    // thumb reaches, and anything else has to be scrolled to and is labelled.
+    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0)
+      .sort((a,b)=>packed?((packed.has(b.id)?1:0)-(packed.has(a.id)?1:0)):0);
     // The suggested garment is always offered, even when the rotation counts it as
     // unavailable — tapping "Wearing it" for the only copy is enough to make that
     // happen. Left out, the row silently showed "— nothing —" while the draft still
@@ -3091,8 +3106,12 @@ function openWoreSheet(){
       <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
       <select data-wore="${slot}" style="flex:1;min-width:0">
         <option value="">— nothing —</option>
-        ${options.map(i=>`<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
-          `${esc(i.label)}${i.id===picked[slot]?" (suggested)":""}</option>`).join("")}
+        ${options.map(i=>{
+          const note=i.id===picked[slot]?" (suggested)"
+                    :(packed&&!packed.has(i.id)?" (not packed)":"");
+          return `<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
+                 `${esc(i.label)}${note}</option>`;
+        }).join("")}
       </select>
     </div>`;
   }).join("");

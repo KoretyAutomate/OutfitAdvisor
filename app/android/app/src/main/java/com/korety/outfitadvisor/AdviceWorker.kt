@@ -374,6 +374,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             }
             val rules = p.optJSONArray("rules")
             if (rules != null && rules.length() > 0) body.put("rules", rules)
+            // What they actually reach for. Stored in the payload but never
+            // forwarded, so the habits shaped the advice the user asked for by hand
+            // and not the 06:45 push — the one they mostly read.
+            val prefers = p.optJSONArray("prefers")
+            if (prefers != null && prefers.length() > 0) body.put("prefers", prefers)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

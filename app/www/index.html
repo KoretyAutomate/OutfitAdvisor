@@ -3122,21 +3122,23 @@ async function saveWore(){
   for(const slot of CATS){
     const wore=woreDraft[slot]||null, was=picked[slot]||null;
     if(wore) logWear(wore);
+    // Today's record for this slot goes FIRST, whatever happens next.
+    //
+    // One correction per slot per day, so saving twice — or a double-tap while the
+    // first save is in flight — cannot appear as two occasions and meet the
+    // two-occasion bar on a single morning.
+    //
+    // And done BEFORE the unchanged check, so changing a slot back to what was
+    // suggested actually retracts the earlier correction. Skipping straight past on
+    // equality left the old swap standing: the wear log showed the suggestion and
+    // the advisor went on learning the preference the user had just undone.
+    swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
     if(wore===was) continue;
     changed++;
     // Recorded only where a garment was actually chosen. "I wore nothing there" is
     // a correction to the outfit, but it names no preference — there is nothing the
     // advisor could reach for next time.
-    // One correction per slot per DAY. Saving the sheet twice — or a double-tap
-    // while the first save is still in flight — appended the same morning again,
-    // and swapSummary counts records: one day would have met the two-occasion bar
-    // on its own and been reported as a habit.
-    if(wore){
-      swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
-      swaps.push({day,slot,wore,instead:was});
-    }else{
-      swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
-    }
+    if(wore) swaps.push({day,slot,wore,instead:was});
   }
   await saveSwaps();
   await saveCloset();

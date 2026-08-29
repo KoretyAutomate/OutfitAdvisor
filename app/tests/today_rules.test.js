@@ -1093,6 +1093,25 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("so one day cannot pass for a habit",
     ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
 
+  /* Changing a slot BACK to what was suggested retracts the correction. Skipping
+     straight past on equality left the old swap standing: the wear log showed the
+     suggestion and the advisor went on learning the preference the user had just
+     undone. Raised by the pre-push reviewer, 2026-08-29. */
+  ev(`swaps=[]; wearLog=[]; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;
+      woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("the correction is recorded", ev(`swaps.length`) === 1, ev(`swaps`));
+  ev(`woreDraft={base:"itm-tee-0001"};`);
+  await ev(`saveWore()`);
+  check("and changing back to the suggestion retracts it",
+    ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
+
+  /* The habits have to reach the 06:45 push — the advice the user mostly reads. */
+  check("the worker forwards what they reach for",
+    /body\.put\("prefers", prefers\)/.test(kt),
+    "preferences are stored but never sent with the morning request");
+
   console.log("\n--- 16. one swap is a day; two is a habit ----------------------");
   ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];`);
   check("a single correction is not reported as a preference",

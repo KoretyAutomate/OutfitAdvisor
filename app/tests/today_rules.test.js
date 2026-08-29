@@ -1038,6 +1038,47 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and the one that was only suggested does not",
     ev(`activeWears("itm-tee-0001")`) === 0);
 
+  /* An unavailable SUGGESTION is still offered. Tapping "Wearing it" for the only
+     copy is enough to make the rotation call it unavailable — and left out of the
+     options, the row silently showed "— nothing —" while the draft still held the
+     item, so saving an untouched sheet logged a garment the screen said was not
+     worn. Raised by the pre-push reviewer, 2026-08-29. */
+  ev(`closet=[${JSON.stringify({...WTEE, count: 1})}];
+      wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}];
+      lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"]; wornLogged=true;`);
+  ev(`openWoreSheet()`);
+  const unavail = w.document.querySelector('[data-wore="base"]');
+  check("a suggestion the rotation calls unavailable is still offered",
+    [...unavail.options].some(o => o.value === "itm-tee-0001"),
+    [...unavail.options].map(o => o.value));
+  check("the row shows it, and the draft agrees with the row",
+    unavail.value === "itm-tee-0001" && ev(`woreDraft.base`) === "itm-tee-0001",
+    { shown: unavail.value, draft: ev(`woreDraft.base`) });
+
+  /* One garment is worn in ONE place. A shirt that plays base or mid appears in
+     both rows, and nothing stopped it being chosen twice — recording a preference
+     for an outfit nobody could put on, and one the server rejects outright. */
+  const OXFORD = {id:"itm-shirt-01", label:"oxford", category:"base", group:"tops",
+    type:"shirt", roles:["base","mid"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(OXFORD)}]; wearLog=[]; swaps=[];
+      lastOutfit={base:"oxford"}; lastRes={picks:{base:"itm-shirt-01"}};
+      lastPickIds=["itm-shirt-01"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const midSel = w.document.querySelector('[data-wore="mid"]');
+  midSel.value = "itm-shirt-01"; midSel.onchange();
+  await ev(`saveWore()`);
+  check("wearing one garment in two places is refused",
+    /one place at a time/.test(w.document.getElementById("woreErr").textContent),
+    w.document.getElementById("woreErr").textContent);
+  check("and nothing is recorded from it", ev(`swaps.length`) === 0, ev(`swaps`));
+  midSel.value = ""; midSel.onchange();
+  await ev(`saveWore()`);
+  check("correcting the clash lets it save",
+    !w.document.getElementById("woreWrap").classList.contains("show"));
+
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];`);
+
   /* Saving twice — or a double-tap while the first save is in flight — appended
      the same morning again, and swapSummary counts RECORDS: one day would have met
      the two-occasion bar on its own and been reported as a habit. Raised by the

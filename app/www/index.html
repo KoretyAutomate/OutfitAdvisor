@@ -623,6 +623,7 @@
     <p class="note" style="margin:0 0 10px">Change the lines you swapped and leave the rest.
       The advisor learns what you reach for, and these go to the laundry pile.</p>
     <div id="woreList"></div>
+    <p class="note err" id="woreErr" style="margin:6px 0 0"></p>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="woreSave" style="flex:2">Save what I wore</button>
     </div>
@@ -3062,8 +3063,14 @@ function openWoreSheet(){
     // available — offering an item in a role it cannot play would let the correction
     // record something the advisor could never have suggested.
     const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0);
-    if(!options.length&&!picked[slot]) return "";
+    // The suggested garment is always offered, even when the rotation counts it as
+    // unavailable — tapping "Wearing it" for the only copy is enough to make that
+    // happen. Left out, the row silently showed "— nothing —" while the draft still
+    // held the item, so saving an untouched sheet logged a garment the screen said
+    // was not worn.
     const suggested=picked[slot]?closet.find(i=>i.id===picked[slot]):null;
+    if(suggested&&!options.some(o=>o.id===suggested.id)) options.unshift(suggested);
+    if(!options.length) return "";
     return `<div class="calRow" style="padding-left:0;align-items:center">
       <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
       <select data-wore="${slot}" style="flex:1;min-width:0">
@@ -3071,17 +3078,31 @@ function openWoreSheet(){
         ${options.map(i=>`<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
           `${esc(i.label)}${i.id===picked[slot]?" (suggested)":""}</option>`).join("")}
       </select>
-    </div>`+(suggested&&!options.some(o=>o.id===suggested.id)
-      ? `<p class="note" style="margin:0 0 6px 34%">suggested: ${esc(suggested.label)}</p>`:"");
+    </div>`;
   }).join("");
   $("woreList").innerHTML=rows||`<p class="note">Photograph your clothes first — there is nothing to choose from.</p>`;
   $("woreList").querySelectorAll("[data-wore]").forEach(sel=>{
-    sel.onchange=()=>{ woreDraft[sel.dataset.wore]=sel.value||null; };
+    // Seeded from what the row ACTUALLY shows, not from what was suggested. If the
+    // two ever disagree the screen is the truth — it is what the person read.
+    woreDraft[sel.dataset.wore]=sel.value||null;
+    sel.onchange=()=>{ woreDraft[sel.dataset.wore]=sel.value||null; $("woreErr").textContent=""; };
   });
+  $("woreErr").textContent="";
   $("woreWrap").classList.add("show");
 }
 async function saveWore(){
   if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
+  // One garment is worn in ONE place. A shirt that can play base or mid appears in
+  // both rows, and nothing stopped it being chosen in both — recording a preference
+  // for an outfit nobody could put on, and one the server would reject outright.
+  const chosen=CATS.map(c=>woreDraft[c]).filter(Boolean);
+  const twice=[...new Set(chosen.filter((v,i)=>chosen.indexOf(v)!==i))];
+  if(twice.length){
+    const names=twice.map(id=>(closet.find(i=>i.id===id)||{}).label||id);
+    $("woreErr").textContent=`You can only wear ${names.join(" and ")} in one place `+
+      `at a time — pick something else for one of those rows.`;
+    return;
+  }
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
   // Undo the rotation entry the suggestion made, if it was taken: the clothes that

@@ -20,6 +20,7 @@ import this, so there is no cycle.
 """
 
 import picks as pk
+import prose
 import rules
 from llm import _chat, _fenced, _parse_json, _plan_temp, _weather_flags, log
 from picks import Prefs
@@ -201,12 +202,14 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
 # Only `outer` is guarded: it is the layer that faces the weather. A thin base
 # under a proper coat is fine at any temperature.
 def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
-                       unsuitable: set, attempt: int) -> tuple[str, list[dict], set, set]:
+                       unsuitable: set, attempt: int
+                       ) -> tuple[str, list[dict], set, set, tuple | None]:
     """Every check that judges the ANSWER, in the order they have to run.
 
     Returns a corrective note to retry with (empty when the outfit stands), the
     garments whose mention must now be struck from the prose, the slots something
-    else already covers, and the slots the wardrobe is genuinely short of.
+    else already covers, the slots the wardrobe is genuinely short of, and the top
+    this had to put on when the repairs left the wearer without one.
 
     The ORDER is load-bearing, and is why these live together rather than spread
     through the loop: each repair can empty the slot the next one depends on. A base
@@ -225,10 +228,10 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # sitting there unused, in which case the choice was wrong, not the wardrobe.
     unsuitable = unsuitable | {
         c for c in before_rules if not picks.get(c)
-        and not pk._has_suitable_alternative(c, picks, wd.by_item, wd.by_roles, plan, rules_list)
+        and not pk._has_suitable_alternative(c, picks, wd, plan, rules_list)
     }
     if note:
-        return note, banned, set(), unsuitable
+        return note, banned, set(), unsuitable, None
 
     # Trousers under a dress. _onepiece_conflicts repairs as it tests, so the picks
     # are never a dress over trousers; the retry is what fixes the BULLETS.
@@ -238,7 +241,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # recorded a false bottoms gap on exactly the outfits that were correct.
     covered = {"bottoms"} if wd.by_group.get(picks.get("base")) == "onepiece" else set()
     if note:
-        return note, banned, covered, unsuitable
+        return note, banned, covered, unsuitable, None
 
     # Legal role, wrong garment for the cold — see _OUTER_MIN_WARMTH.
     thin = pk._warmth_violations(picks, wd.by_item, plan)
@@ -248,15 +251,37 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
             return (f"The outer layer you chose is too thin for today — at this "
                     f"temperature the outermost garment needs warmth {need}/5 or "
                     f"more. Pick a warmer one, or null if you own nothing warmer. ",
-                    banned, covered, unsuitable)
+                    banned, covered, unsuitable, None)
         for c in thin:
             log.warning("closet picks: %s was too thin for the cold, cleared", c)
             picks[c] = None
             # A judgement about the GARMENT — but only a gap if the wardrobe has no
             # warm enough, legal alternative.
-            if not pk._has_suitable_alternative(c, picks, wd.by_item, wd.by_roles,
-                                                plan, rules_list):
+            if not pk._has_suitable_alternative(c, picks, wd, plan, rules_list):
                 unsuitable = unsuitable | {c}
+
+    # BEFORE the underwear check, and after everything that can empty a slot: an
+    # outfit of trousers alone is not an outfit, and every repair above can leave
+    # one. Dressing the torso here also lets the undershirt stay where it belongs,
+    # under something, instead of being cleared for want of a cover.
+    added = pk._enforce_a_top(picks, wd, plan, rules_list)
+    if added:
+        log.warning("closet picks: nothing was left on top — added %s to %s",
+                    added[1], added[0])
+        # The top that covers the torso may be a DRESS, which covers the legs too.
+        # The one-piece check ran before this one and cannot have seen it, so the
+        # answer went out as trousers under a dress. Raised by the pre-push
+        # reviewer, 2026-08-29.
+        #
+        # Struck from the PROSE as well, the way _enforce_onepiece does out of
+        # retries: this runs after the last chance to regenerate, so the bullet
+        # recommending those trousers would otherwise stand over an outfit that no
+        # longer contains them.
+        dropped = wd.by_item.get(picks.get("bottoms")) if picks.get("bottoms") else None
+        if pk._onepiece_conflicts(picks, wd.by_group):
+            covered = covered | {"bottoms"}
+            if dropped:
+                banned = [*banned, dropped]
 
     # LAST, because every repair above can take away the layer that was covering the
     # undershirt — a base cleared for breaking a rule, or an outer cleared for being
@@ -264,7 +289,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # warmth repair then removed the outer, and the bare undershirt was returned as
     # valid. The one check whose subject other repairs can create.
     note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
-    return note, banned, covered, unsuitable
+    return note, banned, covered, unsuitable, added
 
 
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
@@ -338,22 +363,44 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                     "slot, use null. "
                 )
                 continue
+            moved = pk._relocate_mismatches(picks, wrong, wd.by_roles)
+            for c, to in moved:
+                log.info("closet picks: %s moved to %s — the role it can play", c, to)
+            relocated = {frm for frm, _ in moved}
             for c in wrong:
-                log.warning("closet picks: %s held an item allowed only as %s, cleared",
-                            c, wd.by_roles.get(picks[c]))
-                picks[c] = None
+                if c not in relocated:
+                    log.warning("closet picks: %s held an item with nowhere to go, cleared", c)
+            # A slot a garment was MOVED OUT OF is a filing correction, not a slot
+            # the wardrobe could not fill. Left in the snapshot it read as the
+            # latter: moving a mid-only hoodie out of `base` produced a good outfit
+            # and reported a base gap, which the shopping list would answer by
+            # recommending another shirt. A slot the model genuinely could not fill
+            # still reaches `missing` by its own claim. Raised by the pre-push
+            # reviewer, 2026-08-29.
+            #
+            # The TARGET joins it, because a relocation is also the model believing
+            # that slot filled. Subtracting only the source hid a real gap: a thin
+            # jacket moved into `outer` and then cleared by the warmth check was a
+            # casualty of validation like any other, but the slot was no longer in
+            # the snapshot for _missing_slots to notice.
+            filled_before = (filled_before - relocated) | {to for _, to in moved}
 
-        note, banned_labels, covered, unsuitable = _hold_to_the_rules(
+        note, banned_labels, covered, unsuitable, added = _hold_to_the_rules(
             picks, w, prefs, wd, unsuitable, attempt)
         if note:
             error_note = note
             continue
 
         def can_fill(slot: str, _p=picks) -> bool:
-            return pk._has_suitable_alternative(slot, _p, wd.by_item, wd.by_roles,
-                                                _plan_temp(w), list(prefs.rules))
+            return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
+                                                list(prefs.rules))
 
-        text = pk._assemble_text(out, banned_labels, prefs, picks, wd.by_item)
+        text = prose._assemble_text(out, banned_labels, prefs.closet_only, picks,
+                                    wd.by_item)
+        # A garment in the picture and not in the text reads as a bug in the app,
+        # and this one is there precisely because the model did not put it there.
+        if text and added:
+            text = f"• {pk._added_top_line(added, wd.by_item)}\n{text}"
         if not text:
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
@@ -361,6 +408,11 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         return {"picks": picks, "text": text,
                 "missing": pk._missing_slots(out.get("missing"), picks, filled_before,
                                           covered, can_fill, unsuitable)}
-    log.warning("closet_outfit gave up after %s attempts — falling back to generic advice", 2)
+    # WITH the reason. Giving up costs the user their own clothes — under
+    # closetOnly it empties the screen — and the line said only that it happened.
+    # On 2026-08-29 a 15-item closet fell through here and there was nothing in the
+    # journal to say which check had refused it.
+    log.warning("closet_outfit gave up after %s attempts — %s — falling back to "
+                "generic advice", 2, (error_note or "no reason recorded").strip()[:200])
     return None
 

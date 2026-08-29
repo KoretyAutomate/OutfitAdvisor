@@ -4,19 +4,21 @@ Split out of closet.py on 2026-08-27, when it crossed the 600-line ceiling. The
 division is the one the module already had: closet.py builds the prompt and runs
 the conversation, and everything here judges the ANSWER — which items may sit in
 which slots, whether the outer layer is warm enough, whether the wearer's own bans
-are kept, whether the prose says the same thing the picks do, and which empty slots
-mean the wardrobe is genuinely short of a garment.
+are kept, whether anybody is dressed at the end of it, and which empty slots mean
+the wardrobe is genuinely short of a garment.
+
+The WORDS moved to prose.py on 2026-08-29, at the same ceiling and on the same
+division: here the garments, there the sentences that describe them.
 
 The through-line, from the PPK week onwards: a model is asked, and then checked.
 """
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import rules
 from llm import log
-from vocab import CATEGORIES, TYPE_LABEL
+from vocab import CATEGORIES
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,42 @@ def _slot_mismatches(picks: dict, by_roles: dict) -> list[str]:
     ]
 
 
+def _relocate_mismatches(picks: dict, wrong: list, by_roles: dict) -> list:
+    """Move a misfiled garment to a slot it CAN play, rather than dropping it.
+
+    The model files a garment one slot off — a hoodie whose only role is `mid` put
+    into `base` — and the old repair cleared the slot. That threw away a top the
+    wearer owns and had been given: on 2026-08-29 a 15-item closet came back with
+    the joggers and nothing above the waist, because the one top the model chose was
+    filed as `base`, cleared for it, and never reconsidered. The user saw an outfit
+    with no shirt (reported the same morning).
+
+    Clearing is right for an item that cannot go anywhere — a bottom in a top slot
+    with `bottoms` already filled. It is wrong for one that has an empty slot of its
+    own waiting, which is the common case, because the mistake is a filing error and
+    not a judgement about the garment.
+
+    Every misfiled slot is emptied BEFORE any target is chosen, because the slots
+    they belong in are often each other's: a mid-only hoodie in `base` and a
+    base-only shirt in `mid` is one swap, and choosing targets as we went made the
+    first garment see an occupied slot and be dropped for it — a real outfit lost to
+    iteration order. Raised by the pre-push reviewer, 2026-08-29.
+
+    Returns the moves made, for the log. Anything unplaceable is cleared as before.
+    """
+    misfiled = {c: picks[c] for c in wrong}
+    for c in wrong:
+        picks[c] = None
+    moved = []
+    for c, item in misfiled.items():
+        target = next((r for r in (by_roles.get(item) or ())
+                       if r in CATEGORIES and not picks.get(r)), None)
+        if target:
+            picks[target] = item
+            moved.append((c, target))
+    return moved
+
+
 def _inner_left_bare(picks: dict, by_group: dict) -> bool:
     """Is the undershirt the outermost thing on the torso?
 
@@ -140,82 +178,6 @@ def _dedupe_picks(picks: dict, by_cat: dict) -> dict:
                 out[c] = None
         log.warning("closet picks: %s was in %s, kept only %s", item_id, slots, keep)
     return out
-
-
-def _ban_terms(item: dict) -> list[list[str]]:
-    """Ways the prose might name this garment. Each entry is a set of words that
-    must ALL appear for a bullet to be about it.
-
-    The label alone is not enough. A user labels an item "Airism" and the model
-    writes "your white V-neck undershirt" — same garment, no shared word, and the
-    line survives to recommend what was just banned. So the garment's own validated
-    attributes are used as well: colour plus type is a description of the thing
-    rather than a name for it, and it is what a model reaches for when the label is
-    a brand.
-
-    Requiring BOTH words keeps it honest — "white" alone would delete a bullet about
-    white trainers, and an outfit missing lines it should have kept is its own bug.
-    """
-    terms: list[list[str]] = []
-    label = str(item.get("label") or "").strip().lower()
-    if len(label) >= 3:
-        terms.append([label])
-    kind = str(item.get("type") or "").strip().lower()
-    words = [w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()) if len(w) > 2]
-    colors = [str(c).strip().lower() for c in (item.get("colors") or []) if str(c).strip()]
-    for word in words[:2]:
-        for c in colors[:3]:
-            terms.append([c, word])
-    if terms:
-        return terms
-    # Nothing above fired: a label too short to be distinctive ("PJ") on an item
-    # with no colours recorded. Falling through with an EMPTY list would leave the
-    # prose free to recommend the very garment just cleared, which is the one thing
-    # this function exists to prevent — so the garment's kind is used on its own.
-    # Broader than the paired test, and deliberately: with the slot cleared nothing
-    # of that kind is being worn, so a line naming one is about the item that went.
-    fallback = words[:1] or [w for w in re.split(r"[^a-z]+",
-                                                 str(item.get("group") or "").lower())
-                             if len(w) > 2][:1]
-    # Last resort, when a garment has no usable label, type or group left: match the
-    # short label as a whole WORD, so "PJ" cannot fire inside "PJs are fine" by
-    # accident of spelling while still catching the standalone mention.
-    return [fallback] if fallback else ([[label]] if label else [])
-
-
-def _term_hit(term: list[str], low: str) -> bool:
-    """Every word in the term must appear. Short ones must appear as whole words."""
-    return all(
-        (re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low) is not None)
-        if len(w) < 3 else (w in low)
-        for w in term
-    )
-
-
-def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
-    """Remove lines that still recommend a garment we had to clear.
-
-    The bullets are what the user actually reads — in the app and in the morning
-    notification. Nulling the structured pick and leaving the prose saying "the
-    white undershirt under your white tee" would keep the ban's promise in the data
-    and break it on screen, which is the half that matters.
-
-    A bullet is free text, not keyed to a slot, so a line is judged by whether it
-    NAMES the garment — see _ban_terms. Where that leaves the advice shorter, a line
-    explains the gap rather than letting it look like an oversight.
-    """
-    if not banned:
-        return bullets
-    kept = [b for b in bullets if not _names_banned(b, banned)]
-    if len(kept) != len(bullets):
-        kept.append("Left a layer out — it broke one of your own rules.")
-    return kept
-
-
-def _names_banned(line: str, banned: list[dict]) -> bool:
-    """Does this line recommend one of the garments we had to clear?"""
-    low = line.lower()
-    return any(_term_hit(t, low) for item in banned for t in _ban_terms(item))
 
 
 def _enforce_underwear(picks: dict, by_item: dict, banned: list[dict],
@@ -323,108 +285,76 @@ def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str
 # Words that name a garment, from the taxonomy the app already has. A bullet that
 # uses one of these is recommending a THING to put on, as opposed to giving advice
 # about the weather.
-_GARMENT_WORDS = frozenset(
-    w for label in TYPE_LABEL.values()
-    for w in re.split(r"[^a-z]+", label.lower()) if len(w) > 3
-) | {"coat", "jacket", "shirt", "layer", "shoes", "boots", "trousers", "pants",
-     "sweater", "knit", "vest", "gilet", "parka", "anorak", "mac"}
+def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
+                  plan_temp: float, user_rules: list[dict]) -> str | None:
+    """The first owned garment that could legitimately fill this slot, or None.
 
+    The search _has_suitable_alternative always did; it only ever reported whether
+    one existed, and _enforce_a_top needs the garment itself.
 
-def _names_something_unowned(line: str, owned: list[tuple[str, bool]]) -> bool:
-    """Does this line recommend a garment that is not in the wardrobe?
-
-    Only asked when the wearer has declared their closet COMPLETE. Then a bullet
-    naming a garment none of whose words match anything they own is, by their own
-    statement, a recommendation to put on something that does not exist. The
-    structured picks already say the slot is empty; leaving the prose saying "add a
-    light shell" keeps the promise in the data and breaks it in the words — and the
-    words are what the notification shows.
-
-    A line that names no garment at all ("the wind will bite this morning") is
-    advice, not a recommendation, and is kept.
-
-    The test errs towards dropping. "Layer up as it warms" is advice and goes, and
-    that is the right way round to be wrong: a lost hint costs a sentence, while a
-    kept one costs the promise the tickbox makes. Whatever is dropped, the reader is
-    told the advice is shorter and why.
+    The trial outfit is the one that would actually be WORN, which for a one-piece
+    means without the trousers it replaces. Judging a dress against the bottoms
+    still in the slot let a rule banning that pairing reject the dress — and if it
+    was the only top, the wearer was left with none, on account of a garment that
+    would have been taken off. Raised by the pre-push reviewer, 2026-08-29.
     """
-    low = line.lower()
-    # What the line says about garments they DO own is struck out first, and the
-    # question is asked of what is left.
-    #
-    # Asking whether an owned label appears anywhere let one mention exempt the
-    # whole sentence: "Add a wool overcoat over your white t-shirt" contains an
-    # owned t-shirt, so the overcoat rode along — the one recommendation the tickbox
-    # exists to suppress, in the line the notification shows.
-    for phrase, is_label in sorted(owned, key=lambda o: len(o[0]), reverse=True):
-        if not phrase:
+    for iid, item in wd.by_item.items():
+        if iid in picks.values():
+            continue                              # already worn somewhere else
+        if slot not in (wd.by_roles.get(iid) or ()):
             continue
-        if is_label:
-            # The name they gave it. Unambiguous wherever it appears.
-            low = low.replace(phrase, " ")
-        else:
-            # A KIND of garment, which is only a reference to theirs when the
-            # sentence points at it: "your white undershirt" is the one they are
-            # wearing, "add a wool shirt" is a recommendation for one they are not.
-            # Removing the kind unconditionally let every "a wool shirt" through on
-            # the strength of an owned oxford.
-            low = re.sub(rf"\b(your|the|that|this)\s+(?:[\w-]+\s+){{0,2}}{re.escape(phrase)}\b",
-                         " ", low)
-    # Substring, not whole token: the taxonomy has "coat", the model writes
-    # "overcoat", and a token-exact test waved that straight through. Every word
-    # tested is four characters or more, which keeps it clear of the accidents a
-    # short one invites — "top" inside "laptop", "tie" inside "tights".
-    return any(w in low for w in _GARMENT_WORDS if len(w) >= 4)
+        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
+            continue
+        trial = {**picks, slot: iid}
+        if slot == "base" and wd.by_group.get(iid) == "onepiece":
+            trial["bottoms"] = None
+        if rules.violations(user_rules, trial, wd.by_item):
+            continue
+        return iid
+    return None
 
 
-def _assemble_text(out: dict, banned: list[dict], prefs: Prefs,
-                   picks: dict, by_item: dict) -> str:
-    """The bullets and the tip, held to the same rules as the picks.
+#: The layers that count as being dressed above the waist, in the order a missing
+#: top is filled: the ordinary top first, then a mid layer, then a coat. Reaching
+#: `outer` means the wardrobe holds nothing else — a coat over an undershirt is odd,
+#: and it is still an answer rather than no top at all.
+_TOP_SLOTS = ("base", "mid", "outer")
 
-    Prose is what the user actually reads, in the app and in the notification, so
-    every constraint enforced on `picks` has to reach it too — otherwise the outfit
-    is right and the advice is wrong.
+
+def _enforce_a_top(picks: dict, wd: "Wardrobe", plan_temp: float,
+                   user_rules: list[dict]) -> tuple | None:
+    """Nobody is dressed by their trousers alone.
+
+    The user was sent out on 2026-08-29 with joggers and nothing above the waist:
+    the model filed its one top as `base`, the role check cleared it for being a
+    `mid`, and the undershirt went with it. _relocate_mismatches fixes that
+    particular mistake; this catches the CLASS, because every repair in this module
+    can empty a slot and none of them asks what is left.
+
+    Only when the wardrobe can actually cover it. A closet with no wearable top is
+    genuinely short of one, and inventing a garment is what closetOnly exists to
+    stop — the empty slots are then reported as the gap they are.
     """
-    bullets = [str(b).strip() for b in out.get("bullets") or [] if str(b).strip()]
-    bullets = _drop_banned_bullets(bullets, banned)
-    # Every way the prose might refer to a garment they are actually wearing: the
-    # label they gave it, and the kind of thing it is. A user labels an item
-    # "Airism" and the model writes "your white undershirt" — strike out only the
-    # label and the line reads as a recommendation for something unowned.
-    # (phrase, is_label). A LABEL is the name they gave the garment and means it
-    # wherever it appears; a KIND is a common noun and only means theirs when the
-    # sentence points at it — see _names_something_unowned.
-    owned: list[tuple[str, bool]] = []
-    for iid in picks.values():
-        if not iid:
-            continue
-        item = by_item.get(iid) or {}
-        label = str(item.get("label") or "").lower().strip()
-        if label:
-            owned.append((label, True))
-        kind = str(item.get("type") or "").lower()
-        for word in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()):
-            if len(word) > 3:
-                owned.append((word, False))
-    if prefs.closet_only:
-        kept = [b for b in bullets if not _names_something_unowned(b, owned)]
-        if len(kept) != len(bullets):
-            kept.append("Left some slots empty — nothing you own suits them today.")
-        bullets = kept
-    if not bullets:
-        return ""
-    text = "\n".join(f"• {b.lstrip('•- ')}" for b in bullets)
-    # The tip is prose like the bullets and just as visible — "bring the white tee"
-    # undoes a ban as thoroughly as a bullet would. Dropped rather than rewritten: a
-    # tip is one sentence, and there is nothing left of it once the garment is out.
-    tip = str(out.get("tip") or "").strip()
-    if tip and (_names_banned(tip, banned)
-                or (prefs.closet_only and _names_something_unowned(tip, owned))):
-        tip = ""
-    return f"{text}\n\n💡 {tip}" if tip else text
+    if any(picks.get(c) for c in _TOP_SLOTS):
+        return None
+    for slot in _TOP_SLOTS:
+        iid = _suitable_for(slot, picks, wd, plan_temp, user_rules)
+        if iid:
+            picks[slot] = iid
+            return slot, iid
+    return None
 
 
-def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: dict,
+def _added_top_line(added: tuple, by_item: dict) -> str:
+    """Say so in the prose. A garment in the picture and not in the text reads as a
+    bug in the app, and this one is there precisely because the model did not put
+    it there."""
+    label = str((by_item.get(added[1]) or {}).get("label") or "").strip()
+    return (f"{label or 'A top from your closet'} — the rest of the outfit left you "
+            "with nothing above the waist.")
+
+
+def _has_suitable_alternative(slot: str, picks: dict, wd: "Wardrobe",
                               plan_temp: float, user_rules: list[dict]) -> bool:
     """Could some OTHER owned garment have filled this slot properly?
 
@@ -437,18 +367,7 @@ def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: d
     Judged by the same rules that did the clearing, so an alternative this accepts
     is one the generator could legitimately have picked.
     """
-    for iid, item in by_item.items():
-        if iid in picks.values():
-            continue                              # already worn somewhere else
-        if slot not in (by_roles.get(iid) or ()):
-            continue
-        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
-            continue
-        trial = {**picks, slot: iid}
-        if rules.violations(user_rules, trial, by_item):
-            continue
-        return True
-    return False
+    return _suitable_for(slot, picks, wd, plan_temp, user_rules) is not None
 
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,

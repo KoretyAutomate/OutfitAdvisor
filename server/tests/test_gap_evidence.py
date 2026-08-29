@@ -9,9 +9,15 @@ separates evidence from noise in the purchase suggestions.
 
 from fastapi.testclient import TestClient
 
+import prose as prose_mod
 import app as app_mod
-import closet as closet_mod
 import picks as picks_mod
+
+
+def _wd(by_item, by_roles, by_group=None):
+    """The lookups these checks read, as the one object they now take."""
+    return picks_mod.Wardrobe(frozenset(by_item), {}, by_roles,
+                              by_group or {}, by_item)
 
 BY_ITEM = {"shell": {"id": "shell", "warmth": 2, "label": "thin shell",
                      "type": "rainwear", "colors": []},
@@ -85,7 +91,7 @@ def test_junk_from_the_model_is_ignored():
 def test_a_tip_naming_something_unowned_goes_too():
     """The tip is the line the notification shows."""
     out = {"bullets": ["Blue jeans work today."], "tip": "Bring a wool overcoat."}
-    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+    text = prose_mod._assemble_text(out, [], True,
                                      {"bottoms": "i2"}, {"i2": {"label": "blue jeans"}})
     assert "overcoat" not in text
 
@@ -151,34 +157,32 @@ def test_a_warm_coat_sitting_unused_means_the_wardrobe_is_not_short():
     Recording it would eventually recommend buying the coat they already own.
     Raised by the pre-push reviewer, 2026-08-27.
     """
-    assert picks_mod._has_suitable_alternative(
-        "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, [])
+    assert picks_mod._has_suitable_alternative("outer", {"base": "tee"}, _wd(BY_ITEM, BY_ROLES), 4.0, [])
 
 
 def test_when_the_only_outer_layer_is_too_thin_it_IS_a_gap():
     by_item = {k: v for k, v in BY_ITEM.items() if k != "coat"}
     assert not picks_mod._has_suitable_alternative(
-        "outer", {"base": "tee"}, by_item, {"shell": ["outer"], "tee": ["base"]}, 4.0, [])
+        "outer", {"base": "tee"},
+        _wd(by_item, {"shell": ["outer"], "tee": ["base"]}), 4.0, [])
 
 
 def test_an_alternative_the_wearer_has_banned_does_not_count():
     """It has to be one the generator could legitimately have picked."""
     ban = [{"kind": "avoid_item", "a": {"type": "coat"}}]
-    assert not picks_mod._has_suitable_alternative(
-        "outer", {"base": "tee"}, BY_ITEM, BY_ROLES, 4.0, ban)
+    assert not picks_mod._has_suitable_alternative("outer", {"base": "tee"}, _wd(BY_ITEM, BY_ROLES), 4.0, ban)
 
 
 def test_a_garment_already_worn_elsewhere_is_not_an_alternative():
     """One garment fills one slot; it cannot rescue a second."""
     assert not picks_mod._has_suitable_alternative(
         "outer", {"base": "tee", "mid": "coat"},
-        BY_ITEM, {**BY_ROLES, "coat": ["outer", "mid"]}, 4.0, [])
+        _wd(BY_ITEM, {**BY_ROLES, "coat": ["outer", "mid"]}), 4.0, [])
 
 
 def test_warmth_only_constrains_the_outer_layer():
     """A thin base is not a gap; the warmth rule is about what is outermost."""
-    assert picks_mod._has_suitable_alternative(
-        "base", {}, BY_ITEM, BY_ROLES, 4.0, [])
+    assert picks_mod._has_suitable_alternative("base", {}, _wd(BY_ITEM, BY_ROLES), 4.0, [])
 
 
 def test_one_shirt_playing_two_roles_does_not_hide_the_second_gap():
@@ -193,12 +197,11 @@ def test_one_shirt_playing_two_roles_does_not_hide_the_second_gap():
                          "type": "shirt", "colors": []}}
     by_roles = {"shirt": ["base", "mid"]}
     # The shirt is worn in base, so nothing is left for mid.
-    assert not picks_mod._has_suitable_alternative(
-        "mid", {"base": "shirt"}, by_item, by_roles, 12.0, [])
+    assert not picks_mod._has_suitable_alternative("mid", {"base": "shirt"}, _wd(by_item, by_roles), 12.0, [])
     assert picks_mod._missing_slots(
         [], {"base": "shirt", "mid": None}, {"base", "mid"}, set(),
         lambda slot: picks_mod._has_suitable_alternative(
-            slot, {"base": "shirt", "mid": None}, by_item, by_roles, 12.0, []),
+            slot, {"base": "shirt", "mid": None}, _wd(by_item, by_roles), 12.0, []),
         set()) == ["mid"]
 
 
@@ -237,10 +240,10 @@ def test_a_warmer_coat_can_be_suggested_to_someone_who_owns_a_coat():
     thin = {"acme": {"id": "acme", "warmth": 2, "label": "Acme", "type": "coat",
                      "colors": []}}
     roles = {"acme": ["outer"]}
-    assert not picks_mod._has_suitable_alternative("outer", {}, thin, roles, 4.0, [])
+    assert not picks_mod._has_suitable_alternative("outer", {}, _wd(thin, roles), 4.0, [])
 
     warm = {"acme": {**thin["acme"], "warmth": 5}}
-    assert picks_mod._has_suitable_alternative("outer", {}, warm, roles, 4.0, [])
+    assert picks_mod._has_suitable_alternative("outer", {}, _wd(warm, roles), 4.0, [])
     # With an adequate coat there is no outer gap, so nothing is suggested for it.
     assert picks_mod._missing_slots([], {"outer": None}, {"outer"}, set(),
                                     lambda s: True, set()) == []

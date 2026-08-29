@@ -1169,6 +1169,72 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("but yesterday's is not", w9.eval(`woreLogged`) === null,
     w9.eval(`JSON.stringify(woreLogged)`));
 
+  /* Tapping "Wearing it" is the OTHER way today's outfit gets logged, and it has to
+     leave the same record. It did not, so after a restart a correction released
+     nothing: the suggestion stayed in the laundry and the corrected outfit was
+     counted beside it. Raised by the pre-push reviewer, 2026-08-29. */
+  const wA = page();
+  await wA.eval("appReady");
+  wA.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;`);
+  await wA.eval(`document.getElementById("dWear").onclick()`);
+  const kept = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (wA.localStorage.getItem(k) != null) kept[k] = wA.localStorage.getItem(k);
+  const wB = page();
+  for (const k in kept) wB.localStorage.setItem(k, kept[k]);
+  await wB.eval("appReady");
+  wB.eval(`lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"];`);
+  check("what 'Wearing it' logged survives the restart as a record",
+    wB.eval(`activeWears("itm-tee-0001")`) === 1 &&
+    (wB.eval(`woreLogged`) || {}).base === "itm-tee-0001",
+    wB.eval(`JSON.stringify(woreLogged)`));
+  wB.eval(`woreDraft={base:"itm-polo-001"};`);
+  await wB.eval(`saveWore()`);
+  check("so correcting it afterwards releases the suggestion",
+    wB.eval(`activeWears("itm-tee-0001")`) === 0);
+  check("and leaves only what was actually worn",
+    wB.eval(`activeWears("itm-polo-001")`) === 1);
+
+  /* Two taps in the time one save takes. Both reach the wear log before either sets
+     the flags, so every garment was counted twice and a two-copy item could leave
+     the rotation on the strength of a single morning. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wC = page();
+  await wC.eval("appReady");
+  wC.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await Promise.all([wC.eval(`saveWore()`), wC.eval(`saveWore()`)]);
+  check("a double-tap logs the garment once",
+    wC.eval(`activeWears("itm-polo-001")`) === 1,
+    wC.eval(`activeWears("itm-polo-001")`));
+  check("and records one swap, not two",
+    wC.eval(`swaps.length`) === 1, wC.eval(`JSON.stringify(swaps)`));
+
+  /* New advice later the same day replaces what the correction was ABOUT, so the
+     stored record has to go with it. Clearing only the memory left yesterday's
+     answer to the wrong question on disk, and the next restart restored it — the
+     sheet opened on an outfit that was no longer suggested. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wD = page();
+  await wD.eval("appReady");
+  wD.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wD.eval(`saveWore()`);
+  check("the correction is on disk", wD.localStorage.getItem("oa.woreToday") !== null);
+  wD.eval(`renderOutfit({base:"navy polo"},"",{},{picks:{base:"itm-polo-001"}},true)`);
+  await wD.eval(`Promise.resolve()`);
+  check("fresh advice forgets it in memory", wD.eval(`woreLogged`) === null);
+  check("and on disk too",
+    JSON.parse(wD.localStorage.getItem("oa.woreToday") || "null") === null,
+    wD.localStorage.getItem("oa.woreToday"));
+
   /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
      on realising they logged the wrong outfit, and reverting the wear log while the
      advisor went on learning the preference would leave the app believing something

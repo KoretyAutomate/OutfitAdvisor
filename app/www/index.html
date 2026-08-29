@@ -2604,7 +2604,7 @@ function renderWeather(w){
    contain the word — "stone-none" is not a thing, but "Nonesuch" jeans might be —
    is not read as absence. */
 const slotIsEmpty=v=>{ const t=String(v??"").trim(); return !t||/^none\b/i.test(t); };
-function renderOutfit(o,text,source,res){
+function renderOutfit(o,text,source,res,isFresh){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
@@ -2680,7 +2680,11 @@ function renderOutfit(o,text,source,res){
   const tipEl=$("outfitTip");
   tipEl.style.display=o.tip?"":"none";
   tipEl.textContent="💡 "+(o.tip||"");
-  woreLogged=null;        // a new suggestion has not been corrected yet
+  // A genuinely new suggestion has not been corrected — so both the memory and the
+  // stored record go. Re-rendering advice already on file (loadToday, at startup)
+  // is NOT new, and clearing there would throw away the correction a moment before
+  // it was restored.
+  if(isFresh){ woreLogged=null; saveWoreLogged(); }
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
 }
@@ -2999,7 +3003,7 @@ async function run(){
     if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
-    renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
+    renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res,true);
     await saveToday(res,"app");
     if($("todayFrom")) $("todayFrom").style.display="none";
     if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
@@ -3153,7 +3157,12 @@ function openWoreSheet(){
   $("woreErr").textContent="";
   $("woreWrap").classList.add("show");
 }
+let woreSaving=false;
 async function saveWore(){
+  // Both taps reach logWear before either sets the flags, so a double-tap counted
+  // every garment twice and could push a two-copy item out of the rotation on the
+  // strength of one morning.
+  if(woreSaving) return;
   if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
   // One garment is worn in ONE place. A shirt that can play base or mid appears in
   // both rows, and nothing stopped it being chosen in both — recording a preference
@@ -3166,6 +3175,8 @@ async function saveWore(){
       `at a time — pick something else for one of those rows.`;
     return;
   }
+  woreSaving=true;
+  try{
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
   // Take back whatever this outfit last put in the laundry, before adding what it
@@ -3213,6 +3224,7 @@ async function saveWore(){
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
   toast(changed?"Noted — the advisor will remember what you reach for"
                :"Logged — that is what was suggested");
+  }finally{ woreSaving=false; }
 }
 
 /* ───────── what the wardrobe could not cover (2026-08-27) ─────────
@@ -3841,7 +3853,7 @@ function rerenderLocalOutfit(){
   lastSource="local";
   lastRes={weather:lastWeather,outfit:lastOutfit,text:lastText,source:lastSource,
            picks:null,closetUsed:false,closetSent:false};
-  renderOutfit(lastOutfit,lastText,lastSource,lastRes);
+  renderOutfit(lastOutfit,lastText,lastSource,lastRes,true);
   // Kept, so reopening the app shows what is on screen rather than the LLM answer
   // this replaced.
   saveToday(lastRes,"app");
@@ -3983,6 +3995,11 @@ $("dWear").onclick=async()=>{
   if(!lastPickIds.length) return;
   if(!wornLogged){
     lastPickIds.forEach(logWear); wornLogged=true;
+    // Recorded like a correction is. Without this a restart lost the fact, and a
+    // correction afterwards released nothing — the suggestion stayed in the laundry
+    // and the corrected outfit was added beside it.
+    woreLogged={...((lastRes&&lastRes.picks)||{})};
+    await saveWoreLogged();
     $("dWear").textContent="✅ Logged — tap to undo";
     toast("Rotation updated — these go to the laundry pile");
   }else{

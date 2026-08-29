@@ -97,14 +97,21 @@ def _relocate_mismatches(picks: dict, wrong: list, by_roles: dict) -> list:
     own waiting, which is the common case, because the mistake is a filing error and
     not a judgement about the garment.
 
+    Every misfiled slot is emptied BEFORE any target is chosen, because the slots
+    they belong in are often each other's: a mid-only hoodie in `base` and a
+    base-only shirt in `mid` is one swap, and choosing targets as we went made the
+    first garment see an occupied slot and be dropped for it — a real outfit lost to
+    iteration order. Raised by the pre-push reviewer, 2026-08-29.
+
     Returns the moves made, for the log. Anything unplaceable is cleared as before.
     """
-    moved = []
+    misfiled = {c: picks[c] for c in wrong}
     for c in wrong:
-        item = picks[c]
+        picks[c] = None
+    moved = []
+    for c, item in misfiled.items():
         target = next((r for r in (by_roles.get(item) or ())
                        if r in CATEGORIES and not picks.get(r)), None)
-        picks[c] = None
         if target:
             picks[target] = item
             moved.append((c, target))

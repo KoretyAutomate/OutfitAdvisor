@@ -268,6 +268,12 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])
+        # The top that covers the torso may be a DRESS, which covers the legs too.
+        # The one-piece check ran before this one and cannot have seen it, so the
+        # answer went out as trousers under a dress. Raised by the pre-push
+        # reviewer, 2026-08-29.
+        if pk._onepiece_conflicts(picks, wd.by_group):
+            covered = covered | {"bottoms"}
 
     # LAST, because every repair above can take away the layer that was covering the
     # undershirt — a base cleared for breaking a rule, or an outer cleared for being

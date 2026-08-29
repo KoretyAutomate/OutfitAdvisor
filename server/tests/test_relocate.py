@@ -136,3 +136,47 @@ def test_the_prose_names_what_was_added():
     line = pk._added_top_line(("mid", "itm-hoodie-01"), BY_ITEM)
     assert "grey hoodie" in line
     assert pk._added_top_line(("mid", "itm-nothing"), BY_ITEM).startswith("A top")
+
+
+def test_two_garments_in_each_others_slots_both_move():
+    """A swap, not a casualty. Choosing targets as we went made the first garment
+    see an occupied slot and be dropped for it — the outfit lost a top to iteration
+    order. Raised by the pre-push reviewer, 2026-08-29."""
+    by_roles = {"itm-hoodie-01": ["mid"], "itm-tshirt-01": ["base"]}
+    picks = _empty(base="itm-hoodie-01", mid="itm-tshirt-01")
+    moved = pk._relocate_mismatches(picks, ["base", "mid"], by_roles)
+    assert picks["mid"] == "itm-hoodie-01"
+    assert picks["base"] == "itm-tshirt-01"
+    assert sorted(moved) == [("base", "mid"), ("mid", "base")]
+
+
+def test_two_garments_wanting_one_slot_keep_the_first_and_clear_the_other():
+    by_roles = {"itm-hoodie-01": ["mid"], "itm-fleece-01": ["mid"]}
+    picks = _empty(base="itm-hoodie-01", outer="itm-fleece-01")
+    moved = pk._relocate_mismatches(picks, ["base", "outer"], by_roles)
+    assert moved == [("base", "mid")]
+    assert picks["mid"] == "itm-hoodie-01"
+    assert picks["base"] is None and picks["outer"] is None
+
+
+def test_a_dress_added_as_the_top_clears_the_trousers_under_it():
+    """_enforce_a_top runs AFTER the one-piece check, which therefore cannot have
+    seen what it put on. The answer went out as trousers under a dress. Raised by
+    the pre-push reviewer, 2026-08-29."""
+    import closet as closet_mod
+    by = {"dress": {"label": "green dress", "type": "dress", "colors": [], "warmth": 2},
+          "jeans": {"label": "blue jeans", "type": "jeans", "colors": [], "warmth": 2}}
+    wd = pk.Wardrobe(frozenset(by), {"dress": "base", "jeans": "bottoms"},
+                     {"dress": ["base"], "jeans": ["bottoms"]},
+                     {"dress": "onepiece", "jeans": "bottoms"}, by)
+    mild = {"lo": 15, "hi": 24, "morning": 17, "feelsLo": 14, "feelsHi": 25,
+            "desc": "Clear", "rain": 0, "wind": 2, "midday": 23, "evening": 19,
+            "swing": 9, "isRain": False, "isSnow": False, "code": 0}
+    picks = {c: None for c in ("inner", "base", "mid", "outer",
+                               "bottoms", "footwear", "accessories")}
+    picks["bottoms"] = "jeans"
+    _, _, covered, _, added = closet_mod._hold_to_the_rules(
+        picks, mild, pk.Prefs(), wd, set(), 1)
+    assert added == ("base", "dress")
+    assert picks["bottoms"] is None, "no trousers under the dress"
+    assert "bottoms" in covered, "and that empty slot is covered, not a gap"

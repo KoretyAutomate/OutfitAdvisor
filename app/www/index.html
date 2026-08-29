@@ -297,6 +297,11 @@
         <ul class="outfit" id="outfitList"></ul>
       </details>
       <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+      <!-- The correction (user, 2026-08-29). What somebody actually reached for,
+           having read the suggestion and decided otherwise, is better evidence than
+           any rating: it names the garment AND the one it beat. -->
+      <button class="ghost" id="dWore" style="display:none;width:100%;padding:9px;margin-top:7px">
+        ✏️ I wore something else</button>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
            the LLM plan against. Never shifts the weather shown above. -->
       <div class="fb">
@@ -610,6 +615,21 @@
 </div>
 
 <!-- Place codes sheet: teach the app what your abbreviations mean, once. -->
+<!-- "I wore something else": one row per slot, prefilled with what was suggested. -->
+<div class="modal" id="woreWrap">
+  <div class="sheet">
+    <div class="shHead"><b>What did you wear?</b>
+      <button class="ghost" id="woreCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
+    <p class="note" style="margin:0 0 10px">Change the lines you swapped and leave the rest.
+      The advisor learns what you reach for, and these go to the laundry pile.</p>
+    <div id="woreList"></div>
+    <p class="note err" id="woreErr" style="margin:6px 0 0"></p>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="woreSave" style="flex:2">Save what I wore</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="plWrap">
   <div class="sheet">
     <div class="shHead"><b>My place codes</b>
@@ -1261,7 +1281,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.21";
+const WEB_BUILD="1.22";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2493,7 +2513,8 @@ async function savePushPayload(){
       onTrip:!!tripInProgress(),
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
-      closetOnly:closetComplete}));
+      closetOnly:closetComplete,
+      prefers:cl.length?swapSummary(cl):[]}));
   }catch(e){}
 }
 
@@ -2520,6 +2541,9 @@ async function getAdvice(lat,lon){
     // "only recommend what I own" off on exactly the day the user most needs a
     // straight answer. The flag describes the wardrobe, not the laundry.
     if(closetComplete) body.closetOnly=true;
+    // What they actually reach for. A preference, not a rule — see the note on
+    // `swaps` for why this is deliberately not promoted into one.
+    if(cl.length){ const sw=swapSummary(cl); if(sw.length) body.prefers=sw; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -2594,10 +2618,15 @@ function renderOutfit(o,text,source,res){
   else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
   // "Wearing it" only when the advice came from the real closet (has item IDs)
   const ids=res&&res.closetUsed&&res.picks?Object.values(res.picks).filter(Boolean):[];
-  lastPickIds=[...new Set(ids)]; wornLogged=false;
-  const wb=$("dWear");
-  wb.style.display=lastPickIds.length?"":"none";
-  wb.textContent="✅ Wearing it — update my rotation";
+  lastPickIds=[...new Set(ids)];
+  // From the record, not reset to "Wearing it". New advice does not unwear what was
+  // already worn, and a button offering to log a second outfit for the day was how
+  // the same morning got counted twice.
+  syncWearBtn();
+  // Offered whenever there is a wardrobe to correct FROM — including when the
+  // advisor suggested nothing of theirs, which is exactly a morning they dressed
+  // themselves and the app would otherwise never hear about it.
+  $("dWore").style.display=closet.length?"":"none";
   // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
   // recognises their own clothes — the photo is (user, 2026-08-16; made the
   // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
@@ -2652,6 +2681,14 @@ function renderOutfit(o,text,source,res){
   const tipEl=$("outfitTip");
   tipEl.style.display=o.tip?"":"none";
   tipEl.textContent="💡 "+(o.tip||"");
+  /* The record is NOT cleared here, for any advice, fresh or restored.
+     It answers "what is in the laundry on account of today" — a fact about
+     garments, not about a suggestion. Somebody who wore the polo this morning and
+     asks for new advice at noon has still worn the polo, and clearing the record
+     while its wears stayed in the log orphaned them: nothing could find them, undo
+     released the wrong garments, and the next save counted a second outfit on the
+     same day. Staleness is a question of the DAY, and the restore checks that.
+     Raised by the pre-push reviewer, 2026-08-29. */
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
   renderFeedback();
 }
@@ -2977,6 +3014,256 @@ async function run(){
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(e.message||"Something went wrong."); }
   finally{ btn.innerHTML=old; btn.disabled=false; }
+}
+
+/* ───────── what you actually wore (2026-08-29) ─────────
+
+   "I want to tell what I wore instead of the recommendation."
+
+   This is the best evidence the app can get. A five-point warm/cold dial says how
+   the day felt; a ban says what must never happen; but somebody who read the
+   suggestion, disagreed, and put on something else has named BOTH the garment they
+   wanted and the one it beat — a preference and its counterexample in one action.
+
+   It feeds three things, in descending order of confidence:
+     - the wear log, which is a fact: those clothes are now dirty.
+     - the advisor's prompt, as a preference. NOT a rule — the user has rules for
+       what must never happen, and quietly promoting "wore something else twice"
+       into a prohibition would take a decision they did not make.
+     - nothing else. In particular it is NOT gap evidence: choosing differently
+       from a wardrobe says nothing about what the wardrobe lacks. */
+const SWAP_KEEP_DAYS=60, SWAP_MIN=2;
+let swaps=[];   // {day, slot, wore, instead}
+async function saveSwaps(){
+  const cut=dayISO(Date.now()-SWAP_KEEP_DAYS*DAY_MS);
+  swaps=swaps.filter(x=>x.day>=cut).slice(-300);
+  await prefSet("oa.swaps", JSON.stringify(swaps));
+}
+/* What the advisor is told: a slot, the garment reached for, and how often — but
+   only where it has happened more than once. One swap is a day, not a habit, and
+   a prompt that reports every one-off would drown the pattern in noise. */
+function swapSummary(available){
+  // Only garments in the wardrobe being SENT. closetPayload() drops the laundry,
+  // and on a trip it is the suitcase — so a favourite left at home would have the
+  // prompt asking the model to prefer an id that is not in the list beneath it. If
+  // it obliged, _unknown_ids would spend the one corrective retry on a
+  // contradiction this end put there.
+  const inPlay=available?new Set(available.map(i=>i.id)):null;
+  const by=new Map();
+  for(const x of liveSwaps()){
+    const k=x.slot+"\u0000"+x.wore;
+    const e=by.get(k);
+    if(e) e.n++; else by.set(k,{slot:x.slot,id:x.wore,n:1});
+  }
+  // The ID travels with the label. Two garments can share a name — "navy polo" and
+  // "navy polo" — and a preference that names only the label cannot say which one
+  // was reached for, so the advisor could faithfully honour it with the wrong item.
+  const named=[...by.values()].filter(e=>e.n>=SWAP_MIN&&(!inPlay||inPlay.has(e.id)))
+    .map(e=>{ const it=closet.find(i=>i.id===e.id);
+      return it?{slot:e.slot,id:it.id,label:it.label,n:e.n}:null; })
+    .filter(Boolean);
+  return named.sort((a,b)=>b.n-a.n).slice(0,8);
+}
+const liveSwaps=()=>{
+  const cut=dayISO(Date.now()-SWAP_KEEP_DAYS*DAY_MS);
+  return swaps.filter(x=>x&&x.day>=cut);
+};
+
+/* ── the "what did you wear?" sheet ── */
+let woreDraft=null;    // {slot: itemId|null}, the sheet's working copy
+/* What was last LOGGED for today, if the sheet has already been saved.
+   Reopening has to show what the app currently believes, not the suggestion that
+   was overruled — and a count-one garment becomes unavailable the moment it is
+   logged, so without this it vanished from its own row and the next save silently
+   replaced a correctly recorded outfit. */
+let woreLogged=null;
+/* The day that record is about. The stored copy is stamped, but the value in memory
+   was not, and this app is left open — across midnight it went on presenting
+   yesterday's outfit as logged, refusing today's logging until the user undid a
+   record about a day that had ended. Raised by the pre-push reviewer, 2026-08-29. */
+let woreDay=null;
+const WORE_KEY="oa.woreToday";
+/* Persisted, because it describes the wear log — which is on disk. Held only in
+   memory, a restart left the app believing the suggestion had been worn while the
+   rotation still carried the correction: reopening the sheet offered the original
+   outfit, and saving it logged the suggestion ON TOP of the garment already
+   counted. Stamped with the day, like everything else here: yesterday's correction
+   is not stale, it is about a different outfit. */
+async function saveWoreLogged(){
+  woreDay=woreLogged?todayISO():null;   // stamped in memory as well as on disk
+  await prefSet(WORE_KEY, woreLogged
+    ? JSON.stringify({day:woreDay, map:woreLogged}) : "");
+}
+
+/* Today's record, or none. Everything that reads woreLogged goes through here, so a
+   day boundary retires it wherever the app happens to be. */
+function wearRecord(){
+  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; saveWoreLogged(); }
+  return woreLogged;
+}
+function openWoreSheet(){
+  if(!lastOutfit) return;
+  const suggested_=(lastRes&&lastRes.picks)||{};
+  wearRecord();                  // yesterday's is not what they wore today
+  // What the app currently believes was worn: the saved correction if there is one,
+  // otherwise the suggestion. The row must open on the former or editing it means
+  // starting again from an answer already overruled.
+  const picked=woreLogged||suggested_;
+  woreDraft={};
+  // On a trip the advice comes from the suitcase, so a garment left at home could
+  // not have been part of it. The reviewer asked for those to be removed; they are
+  // MARKED instead.
+  //
+  // This sheet exists to record what actually happened, and the user is the
+  // authority on that. Sometimes what happened is that the packing list was wrong —
+  // a shirt thrown in at the last minute, or bought on the way. Refusing to let
+  // them say so would make the one screen for telling the truth the one screen that
+  // argues back. Marking keeps an accidental tap visible, which is the real risk,
+  // without removing the deliberate one.
+  const trip=tripInProgress();
+  const packed=trip?new Set((trip.packed||[]).map(x=>x.id)):null;
+  const rows=CATS.map(slot=>{
+    woreDraft[slot]=picked[slot]||null;
+    // Only garments this slot can legitimately hold, and only ones the wearer has
+    // available — offering an item in a role it cannot play would let the correction
+    // record something the advisor could never have suggested.
+    // Packed garments first while away, so the ones actually to hand are what the
+    // thumb reaches, and anything else has to be scrolled to and is labelled.
+    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0)
+      .sort((a,b)=>packed?((packed.has(b.id)?1:0)-(packed.has(a.id)?1:0)):0);
+    // The suggested garment is always offered, even when the rotation counts it as
+    // unavailable — tapping "Wearing it" for the only copy is enough to make that
+    // happen. Left out, the row silently showed "— nothing —" while the draft still
+    // held the item, so saving an untouched sheet logged a garment the screen said
+    // was not worn.
+    // Always offered: what the advisor suggested, and what is currently logged as
+    // worn. Either can read as unavailable — logging a count-one garment is enough
+    // — and a row that cannot show what it is set to is a row that lies.
+    for(const id of [picked[slot], suggested_[slot]]){
+      if(!id||options.some(o=>o.id===id)) continue;
+      const it=closet.find(i=>i.id===id);
+      if(it) options.unshift(it);
+    }
+    if(!options.length){
+      // No row means nothing to review, so the draft must not go on holding a
+      // garment from the advice — one deleted since, with nothing left that can
+      // play the role. Saving would have logged an invisible orphan and recorded a
+      // correction the user was never shown.
+      woreDraft[slot]=null;
+      return "";
+    }
+    return `<div class="calRow" style="padding-left:0;align-items:center">
+      <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
+      <select data-wore="${slot}" style="flex:1;min-width:0">
+        <option value="">— nothing —</option>
+        ${options.map(i=>{
+          const note=i.id===suggested_[slot]?" (suggested)"
+                    :(packed&&!packed.has(i.id)?" (not packed)":"");
+          return `<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
+                 `${esc(i.label)}${note}</option>`;
+        }).join("")}
+      </select>
+    </div>`;
+  }).join("");
+  $("woreList").innerHTML=rows||`<p class="note">Photograph your clothes first — there is nothing to choose from.</p>`;
+  $("woreList").querySelectorAll("[data-wore]").forEach(sel=>{
+    // Seeded from what the row ACTUALLY shows, not from what was suggested. If the
+    // two ever disagree the screen is the truth — it is what the person read.
+    woreDraft[sel.dataset.wore]=sel.value||null;
+    sel.onchange=()=>{ woreDraft[sel.dataset.wore]=sel.value||null; $("woreErr").textContent=""; };
+  });
+  $("woreErr").textContent="";
+  $("woreWrap").classList.add("show");
+}
+/* What is in the laundry on account of today's outfit — asked of the RECORD, which
+   both ways of logging now write, rather than of a flag that only says whether it
+   happened. wornLogged resets on every launch while the wear log does not, so the
+   flag cannot answer this question after a restart. */
+function loggedIds(){
+  const rec=wearRecord();
+  if(rec) return Object.values(rec).filter(Boolean);
+  return wornLogged?lastPickIds.slice():[];
+}
+
+/* The button reports the state of today's outfit, so it has to be re-read from the
+   record at startup. Left saying "Wearing it" over an outfit already logged, the
+   next tap logged the suggestion ON TOP of the correction and overwrote the record
+   — an ordinary tap, on a screen that looked untouched. Raised by the pre-push
+   reviewer, 2026-08-29. */
+function syncWearBtn(){
+  wornLogged=!!wearRecord();
+  const wb=$("dWear");
+  // Shown when there is something to log — or a record to undo. Advice with no
+  // closet-backed picks, a generic fallback, hid the button while this morning's
+  // clothes were still in the laundry, taking the only way to get them back off
+  // the screen. Visibility lives here rather than in renderOutfit because undo
+  // changes it with no re-render in sight.
+  wb.style.display=(lastPickIds.length||wornLogged)?"":"none";
+  wb.textContent=wornLogged?"✅ Logged — tap to undo"
+                           :"✅ Wearing it — update my rotation";
+}
+
+/* One writer at a time for the day's record. Both this sheet and the button toggle
+   read the state, mutate the wear log and then write the record, with awaits in the
+   middle — so two overlapping runs interleaved. Two taps of Save counted every
+   garment twice; a log and an undo racing each other finished with the wear log
+   emptied and the record still saying logged, which the next launch restored. */
+let woreBusy=false;
+async function saveWore(){
+  if(woreBusy) return;
+  if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
+  // One garment is worn in ONE place. A shirt that can play base or mid appears in
+  // both rows, and nothing stopped it being chosen in both — recording a preference
+  // for an outfit nobody could put on, and one the server would reject outright.
+  const chosen=CATS.map(c=>woreDraft[c]).filter(Boolean);
+  const twice=[...new Set(chosen.filter((v,i)=>chosen.indexOf(v)!==i))];
+  if(twice.length){
+    const names=twice.map(id=>(closet.find(i=>i.id===id)||{}).label||id);
+    $("woreErr").textContent=`You can only wear ${names.join(" and ")} in one place `+
+      `at a time — pick something else for one of those rows.`;
+    return;
+  }
+  woreBusy=true;
+  try{
+  const picked=(lastRes&&lastRes.picks)||{};
+  const day=todayISO();
+  // Take back whatever this outfit last put in the laundry, before adding what it
+  // puts there now — including a correction restored from disk after a restart,
+  // which the flag cannot see.
+  loggedIds().forEach(unlogWearToday);
+  wornLogged=false;
+  let changed=0;
+  for(const slot of CATS){
+    const wore=woreDraft[slot]||null, was=picked[slot]||null;
+    if(wore) logWear(wore);
+    // Today's record for this slot goes FIRST, whatever happens next.
+    //
+    // One correction per slot per day, so saving twice — or a double-tap while the
+    // first save is in flight — cannot appear as two occasions and meet the
+    // two-occasion bar on a single morning.
+    //
+    // And done BEFORE the unchanged check, so changing a slot back to what was
+    // suggested actually retracts the earlier correction. Skipping straight past on
+    // equality left the old swap standing: the wear log showed the suggestion and
+    // the advisor went on learning the preference the user had just undone.
+    swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
+    if(wore===was) continue;
+    changed++;
+    // Recorded only where a garment was actually chosen. "I wore nothing there" is
+    // a correction to the outfit, but it names no preference — there is nothing the
+    // advisor could reach for next time.
+    if(wore) swaps.push({day,slot,wore,instead:was});
+  }
+  await saveSwaps();
+  await saveCloset();
+  woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
+  await saveWoreLogged();
+  $("woreWrap").classList.remove("show");
+  lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
+  syncWearBtn();   // owns the label, the visibility and wornLogged
+  toast(changed?"Noted — the advisor will remember what you reach for"
+               :"Logged — that is what was suggested");
+  }finally{ woreBusy=false; }
 }
 
 /* ───────── what the wardrobe could not cover (2026-08-27) ─────────
@@ -3563,6 +3850,7 @@ async function load(){
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
+  try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
   catch(e){ userRules=[]; }
@@ -3738,18 +4026,44 @@ $("shDel").onclick=async()=>{
   await photoDel(id);
   await saveCloset(); closeSheet(); toast("Deleted");
 };
+$("dWore").onclick=openWoreSheet;
+$("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
+$("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
+$("woreSave").onclick=()=>{ saveWore(); };
 $("dWear").onclick=async()=>{
-  if(!lastPickIds.length) return;
+  if(woreBusy) return;
+  woreBusy=true;
+  try{
   if(!wornLogged){
+    // Only the LOGGING half needs picks to log. Undo works from the record.
+    if(!lastPickIds.length) return;
     lastPickIds.forEach(logWear); wornLogged=true;
-    $("dWear").textContent="✅ Logged — tap to undo";
+    // Recorded like a correction is. Without this a restart lost the fact, and a
+    // correction afterwards released nothing — the suggestion stayed in the laundry
+    // and the corrected outfit was added beside it.
+    woreLogged={...((lastRes&&lastRes.picks)||{})};
+    await saveWoreLogged();
+    syncWearBtn();
     toast("Rotation updated — these go to the laundry pile");
   }else{
-    lastPickIds.forEach(unlogWearToday); wornLogged=false;
-    $("dWear").textContent="✅ Wearing it — update my rotation";
-    toast("Undone");
+    // The RECORD, not lastPickIds: after a correction the two are different
+    // garments, and undoing by the suggestion left the corrected outfit counted.
+    loggedIds().forEach(unlogWearToday); wornLogged=false; woreLogged=null;
+    await saveWoreLogged();
+    syncWearBtn();
+    // Undo the LESSON as well as the laundry. This button is what somebody taps on
+    // realising they logged the wrong outfit, and reverting the wear log while the
+    // advisor went on learning the preference would leave the app believing
+    // something the user had just told it was not so.
+    const day=todayISO(), before=swaps.length;
+    swaps=swaps.filter(x=>x.day!==day);
+    woreLogged=null;             // nothing is logged any more, so nothing to reopen on
+    await saveWoreLogged();
+    if(swaps.length!==before) await saveSwaps();
+    toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }
   await saveCloset();
+  }finally{ woreBusy=false; }
 };
 
 /* ── in-app update wiring ── */
@@ -3975,6 +4289,15 @@ const appReady=(async()=>{
   // Today's advice, if it is already known — from an earlier tap or from the
   // morning push. Before renderCloset, so the page is not blank while photos load.
   await loadToday();
+  // AFTER the render loadToday does, which reads woreLogged for the button state.
+  // syncWearBtn below re-runs that read once the record is back.
+  try{
+    const raw=await prefGet(WORE_KEY,"");
+    const d=raw?JSON.parse(raw):null;
+    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
+    woreDay=woreLogged?d.day:null;
+  }catch(e){ woreLogged=null; woreDay=null; }
+  syncWearBtn();
   await renderCloset();
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.

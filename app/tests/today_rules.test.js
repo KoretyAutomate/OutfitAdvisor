@@ -1004,6 +1004,495 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     /Couldn't reach the advisor/.test(w.document.getElementById("shopOut").textContent),
     w.document.getElementById("shopOut").textContent);
 
+  console.log("\n--- 15. telling it what you wore instead (2026-08-29) -----------");
+  /* The best evidence the app can collect: somebody who read the suggestion,
+     disagreed, and put on something else has named BOTH the garment they wanted and
+     the one it beat. */
+  const WTEE = {id:"itm-tee-0001", label:"white tee", category:"base", group:"tops",
+    type:"t_shirt", roles:["base"], colors:[], warmth:1, formality:["casual"],
+    waterproof:false, count:2};
+  const POLO = {id:"itm-polo-001", label:"navy polo", category:"base", group:"tops",
+    type:"polo", roles:["base"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}];
+      wearLog=[]; trips=[]; swaps=[]; userRules=[]; closetComplete=false;
+      lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const sel = w.document.querySelector('[data-wore="base"]');
+  check("the sheet offers a row for the slot", !!sel);
+  check("prefilled with what was suggested", sel.value === "itm-tee-0001", sel.value);
+  check("and only garments that can play that role",
+    [...sel.options].map(o => o.value).filter(Boolean).sort().join() ===
+      "itm-polo-001,itm-tee-0001",
+    [...sel.options].map(o => o.value));
+
+  sel.value = "itm-polo-001"; sel.onchange();
+  await ev(`saveWore()`);
+  check("the swap is recorded with what it beat",
+    ev(`swaps[0].wore`) === "itm-polo-001" && ev(`swaps[0].instead`) === "itm-tee-0001",
+    ev(`JSON.stringify(swaps)`));
+  /* The laundry follows the garment actually put on, not the one proposed. */
+  check("the garment worn goes to the laundry pile",
+    ev(`activeWears("itm-polo-001")`) === 1);
+  check("and the one that was only suggested does not",
+    ev(`activeWears("itm-tee-0001")`) === 0);
+
+  /* An unavailable SUGGESTION is still offered. Tapping "Wearing it" for the only
+     copy is enough to make the rotation call it unavailable — and left out of the
+     options, the row silently showed "— nothing —" while the draft still held the
+     item, so saving an untouched sheet logged a garment the screen said was not
+     worn. Raised by the pre-push reviewer, 2026-08-29. */
+  ev(`closet=[${JSON.stringify({...WTEE, count: 1})}];
+      wearLog=[{itemId:"itm-tee-0001",wornAt:Date.now()}]; woreLogged=null;
+      lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"]; wornLogged=true;`);
+  ev(`openWoreSheet()`);
+  const unavail = w.document.querySelector('[data-wore="base"]');
+  check("a suggestion the rotation calls unavailable is still offered",
+    [...unavail.options].some(o => o.value === "itm-tee-0001"),
+    [...unavail.options].map(o => o.value));
+  check("the row shows it, and the draft agrees with the row",
+    unavail.value === "itm-tee-0001" && ev(`woreDraft.base`) === "itm-tee-0001",
+    { shown: unavail.value, draft: ev(`woreDraft.base`) });
+
+  /* One garment is worn in ONE place. A shirt that plays base or mid appears in
+     both rows, and nothing stopped it being chosen twice — recording a preference
+     for an outfit nobody could put on, and one the server rejects outright. */
+  const OXFORD = {id:"itm-shirt-01", label:"oxford", category:"base", group:"tops",
+    type:"shirt", roles:["base","mid"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  ev(`closet=[${JSON.stringify(OXFORD)}]; wearLog=[]; swaps=[]; woreLogged=null;
+      lastOutfit={base:"oxford"}; lastRes={picks:{base:"itm-shirt-01"}};
+      lastPickIds=["itm-shirt-01"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const midSel = w.document.querySelector('[data-wore="mid"]');
+  midSel.value = "itm-shirt-01"; midSel.onchange();
+  await ev(`saveWore()`);
+  check("wearing one garment in two places is refused",
+    /one place at a time/.test(w.document.getElementById("woreErr").textContent),
+    w.document.getElementById("woreErr").textContent);
+  check("and nothing is recorded from it", ev(`swaps.length`) === 0, ev(`swaps`));
+  midSel.value = ""; midSel.onchange();
+  await ev(`saveWore()`);
+  check("correcting the clash lets it save",
+    !w.document.getElementById("woreWrap").classList.contains("show"));
+
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];`);
+
+  /* Saving twice — or a double-tap while the first save is in flight — appended
+     the same morning again, and swapSummary counts RECORDS: one day would have met
+     the two-occasion bar on its own and been reported as a habit. Raised by the
+     pre-push reviewer, 2026-08-29. */
+  ev(`swaps=[]; lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];
+      wornLogged=false; woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  ev(`woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("saving the same morning twice records it once",
+    ev(`swaps.length`) === 1, ev(`JSON.stringify(swaps)`));
+  check("so one day cannot pass for a habit",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  /* Reopening shows what the app CURRENTLY believes, not the suggestion that was
+     overruled. A count-one garment becomes unavailable the moment it is logged, so
+     without this it vanished from its own row, the sheet reseeded from the original
+     picks, and the next save silently replaced a correctly recorded outfit. Raised
+     by the pre-push reviewer, 2026-08-29. */
+  ev(`closet=[${JSON.stringify({...WTEE, count: 1})},${JSON.stringify({...POLO, count: 1})}];
+      wearLog=[]; swaps=[]; trips=[]; woreLogged=null;
+      lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const reSel = () => w.document.querySelector('[data-wore="base"]');
+  reSel().value = "itm-polo-001"; reSel().onchange();
+  await ev(`saveWore()`);
+  check("the corrected garment is now unavailable — that is what logging means",
+    ev(`avail(closet[1])`) === 0);
+  ev(`openWoreSheet()`);
+  check("reopening shows what was logged, not what was suggested",
+    reSel().value === "itm-polo-001", reSel().value);
+  check("and it is still offered despite being unavailable",
+    [...reSel().options].some(o => o.value === "itm-polo-001"),
+    [...reSel().options].map(o => o.textContent));
+  check("the original suggestion is still there too, and still labelled",
+    [...reSel().options].some(o => /white tee \(suggested\)/.test(o.textContent)),
+    [...reSel().options].map(o => o.textContent));
+  await ev(`saveWore()`);
+  check("so saving again keeps the outfit rather than replacing it",
+    ev(`swaps.length`) === 1 && ev(`swaps[0].wore`) === "itm-polo-001",
+    ev(`JSON.stringify(swaps)`));
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      woreLogged=null;`);
+
+  /* And it survives a restart, because it describes the wear log — which is on
+     disk. Held only in memory, a restart left the app believing the suggestion had
+     been worn while the rotation still carried the correction: reopening offered
+     the original outfit, and saving it logged the suggestion ON TOP of the garment
+     already counted. Raised by the pre-push reviewer, 2026-08-29. */
+  const carried = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (w.localStorage.getItem(k) != null) carried[k] = w.localStorage.getItem(k);
+  const w8 = page();
+  for (const k in carried) w8.localStorage.setItem(k, carried[k]);
+  await w8.eval("appReady");
+  check("the correction survives a restart",
+    (w8.eval(`woreLogged`) || {}).base === "itm-polo-001",
+    w8.eval(`JSON.stringify(woreLogged)`));
+
+  /* And editing it after the restart must RELEASE what it previously logged.
+     wornLogged is false on a fresh start while the garments are still counted, so
+     relying on the flag alone left the old outfit in the rotation and added the new
+     one beside it — both in the laundry, neither correct. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const OXFORD2 = {id:"itm-oxfrd-01", label:"oxford", category:"base", group:"tops",
+    type:"shirt", roles:["base"], colors:[], warmth:2, formality:["smart"],
+    waterproof:false, count:2};
+  w8.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)},${JSON.stringify(OXFORD2)}];
+           lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"];`);
+  check("the restored correction is still in the rotation",
+    w8.eval(`activeWears("itm-polo-001")`) === 1);
+  /* And the button has to say so. Left reading "Wearing it" over an outfit already
+     logged, the next tap logged the SUGGESTION on top of the correction and
+     overwrote the record — an ordinary tap on a screen that looked untouched.
+     Raised by the pre-push reviewer, 2026-08-29. */
+  check("and the button says the outfit is logged",
+    /tap to undo/.test(w8.document.getElementById("dWear").textContent),
+    w8.document.getElementById("dWear").textContent);
+  w8.eval(`woreDraft={base:"itm-oxfrd-01"};`);
+  await w8.eval(`saveWore()`);
+  check("changing it releases the garment it replaces",
+    w8.eval(`activeWears("itm-polo-001")`) === 0);
+  check("and counts only the new one",
+    w8.eval(`activeWears("itm-oxfrd-01")`) === 1);
+
+  // Yesterday's correction is about a different outfit, not a stale version of
+  // today's, so it must not be restored.
+  const w9 = page();
+  for (const k in carried) w9.localStorage.setItem(k, carried[k]);
+  w9.localStorage.setItem("oa.woreToday", JSON.stringify(
+    { day: "2020-01-01", map: { base: "itm-polo-001" } }));
+  await w9.eval("appReady");
+  check("but yesterday's is not", w9.eval(`woreLogged`) === null,
+    w9.eval(`JSON.stringify(woreLogged)`));
+
+  /* Tapping "Wearing it" is the OTHER way today's outfit gets logged, and it has to
+     leave the same record. It did not, so after a restart a correction released
+     nothing: the suggestion stayed in the laundry and the corrected outfit was
+     counted beside it. Raised by the pre-push reviewer, 2026-08-29. */
+  const wA = page();
+  await wA.eval("appReady");
+  wA.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;`);
+  await wA.eval(`document.getElementById("dWear").onclick()`);
+  const kept = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (wA.localStorage.getItem(k) != null) kept[k] = wA.localStorage.getItem(k);
+  const wB = page();
+  for (const k in kept) wB.localStorage.setItem(k, kept[k]);
+  await wB.eval("appReady");
+  wB.eval(`lastOutfit={base:"white tee"}; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"];`);
+  check("what 'Wearing it' logged survives the restart as a record",
+    wB.eval(`activeWears("itm-tee-0001")`) === 1 &&
+    (wB.eval(`woreLogged`) || {}).base === "itm-tee-0001",
+    wB.eval(`JSON.stringify(woreLogged)`));
+  wB.eval(`woreDraft={base:"itm-polo-001"};`);
+  await wB.eval(`saveWore()`);
+  check("so correcting it afterwards releases the suggestion",
+    wB.eval(`activeWears("itm-tee-0001")`) === 0);
+  check("and leaves only what was actually worn",
+    wB.eval(`activeWears("itm-polo-001")`) === 1);
+
+  /* Undo after a restart takes back what is ACTUALLY in the laundry. By the
+     suggestion, it released a garment that was never logged and left the corrected
+     outfit counted — the button said undone and the rotation disagreed. */
+  const wE = page();
+  await wE.eval("appReady");
+  wE.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wE.eval(`saveWore()`);
+  const carriedE = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (wE.localStorage.getItem(k) != null) carriedE[k] = wE.localStorage.getItem(k);
+  const wF = page();
+  for (const k in carriedE) wF.localStorage.setItem(k, carriedE[k]);
+  await wF.eval("appReady");
+  wF.eval(`lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];`);
+  await wF.eval(`document.getElementById("dWear").onclick()`);
+  check("undoing after a restart releases what was actually worn",
+    wF.eval(`activeWears("itm-polo-001")`) === 0,
+    wF.eval(`JSON.stringify(wearLog)`));
+  check("and forgets the correction rather than leaving it on disk",
+    wF.eval(`woreLogged`) === null &&
+    JSON.parse(wF.localStorage.getItem("oa.woreToday") || "null") === null,
+    wF.localStorage.getItem("oa.woreToday"));
+  check("and the swap it taught is retracted too", wF.eval(`swaps.length`) === 0,
+    wF.eval(`JSON.stringify(swaps)`));
+
+  /* Two taps in the time one save takes. Both reach the wear log before either sets
+     the flags, so every garment was counted twice and a two-copy item could leave
+     the rotation on the strength of a single morning. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wC = page();
+  await wC.eval("appReady");
+  wC.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await Promise.all([wC.eval(`saveWore()`), wC.eval(`saveWore()`)]);
+  check("a double-tap logs the garment once",
+    wC.eval(`activeWears("itm-polo-001")`) === 1,
+    wC.eval(`activeWears("itm-polo-001")`));
+  check("and records one swap, not two",
+    wC.eval(`swaps.length`) === 1, wC.eval(`JSON.stringify(swaps)`));
+
+  /* The button toggle is the same shape of race, between two DIFFERENT branches:
+     the first tap logs and awaits its write while the second enters the undo. The
+     writes finished out of order, leaving the wear log emptied and the record still
+     saying logged — which the next launch restored. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wH = page();
+  await wH.eval("appReady");
+  wH.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={closetUsed:true,picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;`);
+  const tap = () => wH.eval(`document.getElementById("dWear").onclick()`);
+  await Promise.all([tap(), tap()]);
+  check("a double-tap of the button logs once",
+    wH.eval(`activeWears("itm-tee-0001")`) === 1,
+    wH.eval(`JSON.stringify(wearLog)`));
+  check("and the record agrees with the wear log",
+    (wH.eval(`woreLogged`) || {}).base === "itm-tee-0001" &&
+    JSON.parse(wH.localStorage.getItem("oa.woreToday") || "null").map.base
+      === "itm-tee-0001",
+    wH.localStorage.getItem("oa.woreToday"));
+  await Promise.all([tap(), tap()]);
+  check("and undoing twice undoes once",
+    wH.eval(`activeWears("itm-tee-0001")`) === 0 && wH.eval(`woreLogged`) === null,
+    wH.eval(`JSON.stringify(wearLog)`));
+  check("leaving nothing on disk for the next launch to restore",
+    JSON.parse(wH.localStorage.getItem("oa.woreToday") || "null") === null,
+    wH.localStorage.getItem("oa.woreToday"));
+
+  /* New advice later the same day does NOT unwear what was already worn. Clearing
+     the record while its entries stayed in the wear log orphaned them: nothing could
+     find them, undo released the wrong garments, and saving the next outfit counted
+     a second one on the same morning. Raised by the pre-push reviewer, 2026-08-29. */
+  const wD = page();
+  await wD.eval("appReady");
+  wD.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wD.eval(`saveWore()`);
+  wD.eval(`renderOutfit({base:"white tee"},"",{},
+    {closetUsed:true,picks:{base:"itm-tee-0001"}})`);
+  check("fresh advice leaves this morning's clothes in the laundry",
+    wD.eval(`activeWears("itm-polo-001")`) === 1);
+  check("and keeps the record that can find them",
+    (wD.eval(`woreLogged`) || {}).base === "itm-polo-001",
+    wD.eval(`JSON.stringify(woreLogged)`));
+  check("so the button still offers to undo, not to log a second outfit",
+    /tap to undo/.test(wD.document.getElementById("dWear").textContent),
+    wD.document.getElementById("dWear").textContent);
+  wD.eval(`woreDraft={base:"itm-tee-0001"};`);
+  await wD.eval(`saveWore()`);
+  check("and correcting against the new advice counts one outfit, not two",
+    wD.eval(`activeWears("itm-polo-001")`) === 0 &&
+    wD.eval(`activeWears("itm-tee-0001")`) === 1,
+    wD.eval(`JSON.stringify(wearLog)`));
+
+  /* Even when the later advice has nothing of theirs in it. Hiding the button on
+     empty picks took the only way to undo off the screen while the clothes were
+     still in the laundry. Raised by the pre-push reviewer, 2026-08-29. */
+  wD.eval(`renderOutfit({base:"any dark shirt"},"",{},{closetUsed:false,picks:{}})`);
+  check("generic advice still offers to undo this morning's record",
+    wD.document.getElementById("dWear").style.display !== "none" &&
+    /tap to undo/.test(wD.document.getElementById("dWear").textContent),
+    wD.document.getElementById("dWear").style.display);
+  await wD.eval(`document.getElementById("dWear").onclick()`);
+  check("and undo works with no picks to go on",
+    wD.eval(`activeWears("itm-tee-0001")`) === 0 && wD.eval(`woreLogged`) === null,
+    wD.eval(`JSON.stringify(wearLog)`));
+  check("then it hides, there being nothing left to log or undo",
+    wD.document.getElementById("dWear").style.display === "none");
+
+  /* Left open across midnight, the record in memory was still yesterday's — the
+     stored copy is day-stamped, the variable was not. The button went on saying
+     today's outfit was logged and refused to log it. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wG = page();
+  await wG.eval("appReady");
+  wG.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={closetUsed:true,picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wG.eval(`saveWore()`);
+  // Midnight passes with the app still open: yesterday's wear is a day old, and the
+  // record in memory is about a day that has ended.
+  wG.eval(`wearLog=wearLog.map(x=>({...x,wornAt:x.wornAt-25*3600*1000}));
+           woreDay="2020-01-01";`);
+  wG.eval(`syncWearBtn()`);
+  check("a record from yesterday retires itself",
+    wG.eval(`woreLogged`) === null && wG.eval(`wornLogged`) === false,
+    wG.eval(`JSON.stringify(woreLogged)`));
+  check("so today's outfit can be logged normally",
+    /update my rotation/.test(wG.document.getElementById("dWear").textContent),
+    wG.document.getElementById("dWear").textContent);
+  wG.eval(`lastOutfit={base:"white tee"};
+    renderOutfit(lastOutfit,"",{},{closetUsed:true,picks:{base:"itm-tee-0001"}})`);
+  await wG.eval(`document.getElementById("dWear").onclick()`);
+  check("and logging counts today's clothes",
+    wG.eval(`wearLog.filter(x=>x.itemId==="itm-tee-0001").length`) === 1,
+    wG.eval(`JSON.stringify(wearLog)`));
+  check("without disturbing what was worn yesterday",
+    wG.eval(`wearLog.filter(x=>x.itemId==="itm-polo-001").length`) === 1);
+  wG.eval(`openWoreSheet()`);
+  check("and the sheet opens on today's outfit, not on yesterday's",
+    (wG.eval(`woreDraft`) || {}).base === "itm-tee-0001",
+    wG.eval(`JSON.stringify(woreDraft)`));
+
+  /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
+     on realising they logged the wrong outfit, and reverting the wear log while the
+     advisor went on learning the preference would leave the app believing something
+     the user had just told it was not so. Raised by the pre-push reviewer,
+     2026-08-29. */
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      trips=[]; lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];
+      wornLogged=false; woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("the correction is recorded and the garment logged",
+    ev(`swaps.length`) === 1 && ev(`activeWears("itm-polo-001")`) === 1);
+  await ev(`document.getElementById("dWear").onclick()`);
+  check("undo takes back the laundry", ev(`activeWears("itm-polo-001")`) === 0);
+  check("and the correction with it", ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
+
+  /* Changing a slot BACK to what was suggested retracts the correction. Skipping
+     straight past on equality left the old swap standing: the wear log showed the
+     suggestion and the advisor went on learning the preference the user had just
+     undone. Raised by the pre-push reviewer, 2026-08-29. */
+  ev(`swaps=[]; wearLog=[]; lastRes={picks:{base:"itm-tee-0001"}};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;
+      woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("the correction is recorded", ev(`swaps.length`) === 1, ev(`swaps`));
+  ev(`woreDraft={base:"itm-tee-0001"};`);
+  await ev(`saveWore()`);
+  check("and changing back to the suggestion retracts it",
+    ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
+
+  /* On a trip the advice comes from the suitcase, so a garment left at home could
+     not have been part of it. The reviewer asked for those to be removed; they are
+     MARKED instead — this sheet exists to record what actually happened, and
+     sometimes what happened is that the packing list was wrong. Refusing to let the
+     user say so would make the one screen for telling the truth the one screen that
+     argues back. Marking keeps an accidental tap visible without removing the
+     deliberate one. Rejected in part, 2026-08-29. */
+  const dISO = (o) => { const x = new Date(Date.now() + o * 86400000);
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; };
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      trips=[{id:"t",start:"${dISO(-1)}",end:"${dISO(2)}",packed:[{id:"itm-tee-0001",qty:1}]}];
+      lastRes={picks:{base:"itm-tee-0001"}}; lastOutfit={base:"white tee"};
+      lastPickIds=["itm-tee-0001"]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  const away = [...w.document.querySelector('[data-wore="base"]').options]
+    .map(o => o.textContent);
+  check("a garment left at home is still offered",
+    away.some(t => /navy polo/.test(t)), away);
+  check("but marked, so choosing it is deliberate",
+    away.some(t => /navy polo \(not packed\)/.test(t)), away);
+  check("and what IS packed comes first",
+    away.indexOf("white tee (suggested)") < away.findIndex(t => /not packed/.test(t)),
+    away);
+  ev(`trips=[];`);
+
+  /* A preference may only name a garment in the wardrobe being SENT.
+     closetPayload() drops the laundry, and on a trip it is the suitcase — so a
+     favourite left at home would have the prompt asking the model to prefer an id
+     that is not in the list beneath it, and obliging would spend the one corrective
+     retry on a contradiction this end put there. Raised by the pre-push reviewer,
+     2026-08-29. */
+  ev(`closet=[${JSON.stringify(POLO)}]; trips=[]; wearLog=[];
+      swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:null},
+             {day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:null}];`);
+  check("a wearable favourite is offered",
+    ev(`swapSummary(closetPayload())`).length === 1, ev(`swapSummary(closetPayload())`));
+  ev(`wearLog=[{itemId:"itm-polo-001",wornAt:Date.now()},
+                {itemId:"itm-polo-001",wornAt:Date.now()-1000}];`);
+  check("one in the wash is not — it is not in the wardrobe being sent",
+    ev(`closetPayload().length`) === 0 && ev(`swapSummary(closetPayload())`).length === 0,
+    { sent: ev(`closetPayload().length`), prefers: ev(`swapSummary(closetPayload())`) });
+  ev(`wearLog=[];`);
+
+  /* The habits have to reach the 06:45 push — the advice the user mostly reads. */
+  check("the worker forwards what they reach for",
+    /body\.put\("prefers", prefers\)/.test(kt),
+    "preferences are stored but never sent with the morning request");
+
+  console.log("\n--- 16. one swap is a day; two is a habit ----------------------");
+  ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];`);
+  check("a single correction is not reported as a preference",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+  ev(`swaps.push({day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"});`);
+  const sum2 = ev(`swapSummary()`);
+  check("twice is", sum2.length === 1 && sum2[0].label === "navy polo", sum2);
+  check("with the slot and the count", sum2[0].slot === "base" && sum2[0].n === 2, sum2[0]);
+  /* And the ID. Two garments can share a name, and a preference naming only the
+     label cannot say which was reached for — the advisor could honour it faithfully
+     with the wrong item. Raised by the pre-push reviewer, 2026-08-29. */
+  check("and the id, so two garments of one name stay distinct",
+    sum2[0].id === "itm-polo-001", sum2[0]);
+
+  /* A slot with no row to review must not keep a garment in the draft. One deleted
+     since the advice, with nothing left that can play the role, would otherwise be
+     logged invisibly on save. */
+  ev(`closet=[${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      lastRes={picks:{outer:"itm-gone-001", base:"itm-polo-001"}};
+      lastOutfit={base:"navy polo"}; lastPickIds=[]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  check("a slot with nothing to show holds nothing in the draft",
+    ev(`woreDraft.outer`) === null, ev(`JSON.stringify(woreDraft)`));
+  await ev(`saveWore()`);
+  check("so nothing invisible is logged",
+    ev(`activeWears("itm-gone-001")`) === 0 &&
+    !ev(`swaps`).some(x => x.wore === "itm-gone-001"), ev(`JSON.stringify(swaps)`));
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];`);
+
+  // Old habits fade rather than standing for ever.
+  ev(`swaps=[{day:"2020-01-01",slot:"base",wore:"itm-polo-001",instead:null},
+             {day:"2020-01-02",slot:"base",wore:"itm-polo-001",instead:null}];`);
+  check("corrections past the keep-window stop counting",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  // A garment since removed from the closet cannot be a preference.
+  ev(`swaps=[{day:todayISO(),slot:"base",wore:"gone-0001",instead:null},
+             {day:dayISO(Date.now()-86400000),slot:"base",wore:"gone-0001",instead:null}];`);
+  check("a garment no longer owned is not offered back",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
+  console.log("\n--- 17. the advisor is told, as a preference --------------------");
+  ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"},
+             {day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];
+      __sent=null;
+      fetch = async (u,o) => { __sent=JSON.parse(o.body);
+        return {ok:true, json: async () => ({weather:${JSON.stringify(WX)},
+          outfit:{base:"navy polo"}, outfit_text:"x", source:"llm"})}; };`);
+  await ev(`getAdvice(40.3,-74.6)`);
+  check("the request carries what they reach for",
+    (ev(`__sent.prefers`) || []).length === 1 && ev(`__sent.prefers[0].label`) === "navy polo",
+    ev(`__sent.prefers`));
+  await ev(`savePushPayload()`);
+  check("and the morning push is told too",
+    (JSON.parse(w.localStorage.getItem("oa.pushPayload")).prefers || []).length === 1);
+
+  // Choosing differently says nothing about what the wardrobe LACKS.
+  ev(`gaps=[];`);
+  check("a correction is never mistaken for a wardrobe gap", ev(`gaps.length`) === 0);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -2514,7 +2514,7 @@ async function savePushPayload(){
       closet:cl,
       rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
       closetOnly:closetComplete,
-      prefers:cl.length?swapSummary():[]}));
+      prefers:cl.length?swapSummary(cl):[]}));
   }catch(e){}
 }
 
@@ -2543,7 +2543,7 @@ async function getAdvice(lat,lon){
     if(closetComplete) body.closetOnly=true;
     // What they actually reach for. A preference, not a rule — see the note on
     // `swaps` for why this is deliberately not promoted into one.
-    if(cl.length){ const sw=swapSummary(); if(sw.length) body.prefers=sw; }
+    if(cl.length){ const sw=swapSummary(cl); if(sw.length) body.prefers=sw; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -3033,7 +3033,13 @@ async function saveSwaps(){
 /* What the advisor is told: a slot, the garment reached for, and how often — but
    only where it has happened more than once. One swap is a day, not a habit, and
    a prompt that reports every one-off would drown the pattern in noise. */
-function swapSummary(){
+function swapSummary(available){
+  // Only garments in the wardrobe being SENT. closetPayload() drops the laundry,
+  // and on a trip it is the suitcase — so a favourite left at home would have the
+  // prompt asking the model to prefer an id that is not in the list beneath it. If
+  // it obliged, _unknown_ids would spend the one corrective retry on a
+  // contradiction this end put there.
+  const inPlay=available?new Set(available.map(i=>i.id)):null;
   const by=new Map();
   for(const x of liveSwaps()){
     const k=x.slot+"\u0000"+x.wore;
@@ -3043,7 +3049,7 @@ function swapSummary(){
   // The ID travels with the label. Two garments can share a name — "navy polo" and
   // "navy polo" — and a preference that names only the label cannot say which one
   // was reached for, so the advisor could faithfully honour it with the wrong item.
-  const named=[...by.values()].filter(e=>e.n>=SWAP_MIN)
+  const named=[...by.values()].filter(e=>e.n>=SWAP_MIN&&(!inPlay||inPlay.has(e.id)))
     .map(e=>{ const it=closet.find(i=>i.id===e.id);
       return it?{slot:e.slot,id:it.id,label:it.label,n:e.n}:null; })
     .filter(Boolean);

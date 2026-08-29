@@ -1107,6 +1107,24 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and changing back to the suggestion retracts it",
     ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
 
+  /* A preference may only name a garment in the wardrobe being SENT.
+     closetPayload() drops the laundry, and on a trip it is the suitcase — so a
+     favourite left at home would have the prompt asking the model to prefer an id
+     that is not in the list beneath it, and obliging would spend the one corrective
+     retry on a contradiction this end put there. Raised by the pre-push reviewer,
+     2026-08-29. */
+  ev(`closet=[${JSON.stringify(POLO)}]; trips=[]; wearLog=[];
+      swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:null},
+             {day:"2026-08-21",slot:"base",wore:"itm-polo-001",instead:null}];`);
+  check("a wearable favourite is offered",
+    ev(`swapSummary(closetPayload())`).length === 1, ev(`swapSummary(closetPayload())`));
+  ev(`wearLog=[{itemId:"itm-polo-001",wornAt:Date.now()},
+                {itemId:"itm-polo-001",wornAt:Date.now()-1000}];`);
+  check("one in the wash is not — it is not in the wardrobe being sent",
+    ev(`closetPayload().length`) === 0 && ev(`swapSummary(closetPayload())`).length === 0,
+    { sent: ev(`closetPayload().length`), prefers: ev(`swapSummary(closetPayload())`) });
+  ev(`wearLog=[];`);
+
   /* The habits have to reach the 06:45 push — the advice the user mostly reads. */
   check("the worker forwards what they reach for",
     /body\.put\("prefers", prefers\)/.test(kt),

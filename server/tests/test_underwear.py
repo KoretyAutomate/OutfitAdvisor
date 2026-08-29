@@ -7,6 +7,7 @@ the temperature rises — one fewer garment, and the undershirt is the lightest 
 in the wardrobe. Which is exactly the shape of mistake this project keeps deciding
 to catch in code rather than hope about in prose.
 """
+import prose as prose_mod
 import picks as pk
 
 
@@ -48,7 +49,7 @@ def test_out_of_retries_the_undershirt_is_cleared():
     # And the prose that named it goes too — an empty slot with a bullet still
     # recommending the undershirt keeps the promise in the data and breaks it on
     # screen, which is the half the user reads.
-    assert pk._names_banned("Start with your grey undershirt.", banned)
+    assert prose_mod._names_banned("Start with your grey undershirt.", banned)
 
 
 def test_the_prompt_says_it_as_well():

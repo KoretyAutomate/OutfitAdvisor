@@ -12,6 +12,7 @@ Verified live on 2026-08-24 against the real 122B: with the banned pair as the o
 all-white option, it was served 3 times out of 3 without the rule and 0 times out
 of 3 with it.
 """
+import prose as prose_mod
 import pytest
 
 import rules
@@ -133,7 +134,7 @@ def test_a_brand_named_garment_is_still_removed_from_the_prose():
     """
     item = {"label": "Airism", "type": "undershirt", "colors": ["white"],
             "group": "underwear"}
-    kept = picks_mod._drop_banned_bullets(
+    kept = prose_mod._drop_banned_bullets(
         ["Start with your white V-neck undershirt.", "Navy chinos work today."], [item])
     assert not any("undershirt" in b for b in kept)
     assert "Navy chinos work today." in kept
@@ -142,7 +143,7 @@ def test_a_brand_named_garment_is_still_removed_from_the_prose():
 def test_a_colour_alone_does_not_delete_unrelated_advice():
     """Both words must appear. An outfit missing lines it should keep is its own bug."""
     item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
-    kept = picks_mod._drop_banned_bullets(["White trainers finish it."], [item])
+    kept = prose_mod._drop_banned_bullets(["White trainers finish it."], [item])
     assert "White trainers finish it." in kept
 
 
@@ -158,7 +159,7 @@ def test_a_cleared_garment_is_dropped_from_the_prose_too():
         "Navy chinos work today.",
         "Trainers are fine in this.",
     ]
-    kept = picks_mod._drop_banned_bullets(
+    kept = prose_mod._drop_banned_bullets(
         bullets, [{"label": "white v-neck undershirt", "type": "undershirt",
                    "colors": ["white"]}])
     assert not any("undershirt" in b for b in kept)
@@ -169,12 +170,12 @@ def test_a_cleared_garment_is_dropped_from_the_prose_too():
 
 def test_nothing_cleared_leaves_the_prose_untouched():
     bullets = ["Navy chinos work today."]
-    assert picks_mod._drop_banned_bullets(bullets, []) == bullets
+    assert prose_mod._drop_banned_bullets(bullets, []) == bullets
 
 
 def test_the_label_test_is_case_insensitive():
     """The classifier writes "White V-neck", the bullet says "white v-neck"."""
-    kept = picks_mod._drop_banned_bullets(
+    kept = prose_mod._drop_banned_bullets(
         ["Wear the White V-Neck Undershirt."],
         [{"label": "white v-neck undershirt", "type": "undershirt", "colors": ["white"]}])
     assert not any("Undershirt" in b for b in kept)
@@ -310,8 +311,8 @@ def test_the_tip_is_held_to_the_rules_too():
     the line the notification shows. Raised by the pre-push reviewer, 2026-08-24.
     """
     item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
-    assert picks_mod._names_banned("Bring the white undershirt.", [item])
-    assert not picks_mod._names_banned("Take a brolly, rain later.", [item])
+    assert prose_mod._names_banned("Bring the white undershirt.", [item])
+    assert not prose_mod._names_banned("Take a brolly, rain later.", [item])
 
 
 # ── every cleared garment must be recognisable in the prose ────────────────────
@@ -325,19 +326,19 @@ def test_an_item_with_a_tiny_label_and_no_colours_is_still_recognised():
     Raised by the pre-push reviewer, 2026-08-24.
     """
     item = {"label": "PJ", "type": "sleepwear", "colors": [], "group": "underwear"}
-    assert picks_mod._ban_terms(item), "no way to recognise this garment in prose"
-    assert picks_mod._names_banned("Your pyjamas are the warm option.", [item])
+    assert prose_mod._ban_terms(item), "no way to recognise this garment in prose"
+    assert prose_mod._names_banned("Your pyjamas are the warm option.", [item])
 
 
 def test_a_garment_with_nothing_but_a_short_label_falls_back_to_it():
     item = {"label": "PJ", "type": None, "colors": [], "group": None}
-    assert picks_mod._names_banned("Take the PJ with you.", [item])
+    assert prose_mod._names_banned("Take the PJ with you.", [item])
 
 
 def test_a_short_label_matches_as_a_WORD_not_a_substring():
     """"PJ" must not fire inside an unrelated word by accident of spelling."""
     item = {"label": "PJ", "type": None, "colors": [], "group": None}
-    assert not picks_mod._names_banned("Projections look fine today.", [item])
+    assert not prose_mod._names_banned("Projections look fine today.", [item])
 
 
 def test_every_valid_closet_item_yields_at_least_one_term():
@@ -348,7 +349,7 @@ def test_every_valid_closet_item_yields_at_least_one_term():
         {"label": "navy merino crew-neck", "type": None, "colors": []},
         {"label": "x", "type": None, "colors": [], "group": None},
     ):
-        assert picks_mod._ban_terms(item), item
+        assert prose_mod._ban_terms(item), item
 
 
 # ── trousers under a dress, when the retry has already been spent ──────────────
@@ -384,7 +385,7 @@ def test_the_first_attempt_retries_and_the_last_one_bans_the_prose():
         {"base": "d1", "bottoms": "b1"}, {"d1": "onepiece", "b1": "bottoms"},
         by_item, [], 1)
     assert not note
-    assert picks_mod._names_banned("Navy chinos work today.", banned)
+    assert prose_mod._names_banned("Navy chinos work today.", banned)
 
 
 def test_no_conflict_changes_nothing():

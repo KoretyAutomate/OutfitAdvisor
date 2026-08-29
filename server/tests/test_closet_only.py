@@ -6,6 +6,7 @@ the generation fails — the last being where a broken promise is hardest to not
 since every other signal still looks normal.
 """
 
+import prose as prose_mod
 import asyncio
 
 import pytest
@@ -14,7 +15,6 @@ from fastapi.testclient import TestClient
 
 import app as app_mod
 import closet as closet_mod
-import picks as picks_mod
 
 client = TestClient(app_mod.app)
 
@@ -154,7 +154,7 @@ def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
     breaks it in the words — and the words are what the notification shows. Raised
     by the pre-push reviewer, 2026-08-27.
     """
-    assert picks_mod._names_something_unowned(line, OWNED)
+    assert prose_mod._names_something_unowned(line, OWNED)
 
 
 @pytest.mark.parametrize("line", [
@@ -166,7 +166,7 @@ def test_prose_naming_a_garment_they_do_not_own_is_dropped(line):
     "Stop by the shop first.",
 ])
 def test_prose_that_is_fine_is_kept(line):
-    assert not picks_mod._names_something_unowned(line, OWNED)
+    assert not prose_mod._names_something_unowned(line, OWNED)
 
 
 @pytest.mark.parametrize("line,dropped", [
@@ -186,14 +186,14 @@ def test_a_kind_of_garment_only_means_THEIRS_when_pointed_at(line, dropped):
     pre-push reviewer, 2026-08-27.
     """
     owned = [("oxford", True), ("shirt", False)]
-    assert picks_mod._names_something_unowned(line, owned) is dropped
+    assert prose_mod._names_something_unowned(line, owned) is dropped
 
 
 def test_the_reader_is_told_the_advice_is_shorter():
     """A gap in the advice must explain itself rather than look like an oversight."""
     out = {"bullets": ["Start with your white t-shirt.", "Add a light shell."],
            "tip": "Take a brolly."}
-    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+    text = prose_mod._assemble_text(out, [], True,
                                      {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
     assert "light shell" not in text
     assert "white t-shirt" in text
@@ -203,7 +203,7 @@ def test_the_reader_is_told_the_advice_is_shorter():
 def test_without_the_tickbox_the_prose_is_left_alone():
     """A half-registered wardrobe still wants the hint."""
     out = {"bullets": ["Add a light shell."], "tip": ""}
-    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(),
+    text = prose_mod._assemble_text(out, [], False,
                                      {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
     assert "light shell" in text
 

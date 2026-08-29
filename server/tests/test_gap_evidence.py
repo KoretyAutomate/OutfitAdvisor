@@ -9,8 +9,8 @@ separates evidence from noise in the purchase suggestions.
 
 from fastapi.testclient import TestClient
 
+import prose as prose_mod
 import app as app_mod
-import closet as closet_mod
 import picks as picks_mod
 
 
@@ -91,7 +91,7 @@ def test_junk_from_the_model_is_ignored():
 def test_a_tip_naming_something_unowned_goes_too():
     """The tip is the line the notification shows."""
     out = {"bullets": ["Blue jeans work today."], "tip": "Bring a wool overcoat."}
-    text = picks_mod._assemble_text(out, [], closet_mod.Prefs(closet_only=True),
+    text = prose_mod._assemble_text(out, [], True,
                                      {"bottoms": "i2"}, {"i2": {"label": "blue jeans"}})
     assert "overcoat" not in text
 

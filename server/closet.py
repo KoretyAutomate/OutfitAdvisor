@@ -20,6 +20,7 @@ import this, so there is no cycle.
 """
 
 import picks as pk
+import prose
 import rules
 from llm import _chat, _fenced, _parse_json, _plan_temp, _weather_flags, log
 from picks import Prefs
@@ -394,7 +395,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
                                                 list(prefs.rules))
 
-        text = pk._assemble_text(out, banned_labels, prefs, picks, wd.by_item)
+        text = prose._assemble_text(out, banned_labels, prefs.closet_only, picks,
+                                    wd.by_item)
         # A garment in the picture and not in the text reads as a bug in the app,
         # and this one is there precisely because the model did not put it there.
         if text and added:

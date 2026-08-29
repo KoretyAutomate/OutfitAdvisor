@@ -15,6 +15,11 @@ BY_ROLES = {
 }
 
 
+def _wd(by_item, by_roles, by_group=None):
+    """The lookups these checks read, as the one object they now take."""
+    return pk.Wardrobe(frozenset(by_item), {}, by_roles, by_group or {}, by_item)
+
+
 def _empty(**kw):
     p = {c: None for c in ("inner", "base", "mid", "outer",
                            "bottoms", "footwear", "accessories")}
@@ -85,7 +90,7 @@ BY_ITEM = {
 
 def test_a_repair_that_strips_every_top_puts_one_back():
     picks = _empty(bottoms="itm-jeans-001")
-    added = pk._enforce_a_top(picks, BY_ITEM, BY_ROLES, 22.0, [])
+    added = pk._enforce_a_top(picks, _wd(BY_ITEM, BY_ROLES), 22.0, [])
     assert added == ("mid", "itm-hoodie-01")
     assert picks["mid"] == "itm-hoodie-01"
 
@@ -93,15 +98,15 @@ def test_a_repair_that_strips_every_top_puts_one_back():
 def test_an_outfit_that_already_has_a_top_is_left_alone():
     for slot in ("base", "mid", "outer"):
         picks = _empty(bottoms="itm-jeans-001", **{slot: "itm-oxford-01"})
-        assert pk._enforce_a_top(picks, BY_ITEM, BY_ROLES, 22.0, []) is None
+        assert pk._enforce_a_top(picks, _wd(BY_ITEM, BY_ROLES), 22.0, []) is None
 
 
 def test_base_is_preferred_over_a_coat():
     by_item = {"itm-coat-0001": {"label": "wool coat", "warmth": 4},
                "itm-oxford-01": {"label": "oxford", "warmth": 2}}   # coat listed first
     picks = _empty()
-    added = pk._enforce_a_top(picks, by_item, {"itm-oxford-01": ["base"],
-                                               "itm-coat-0001": ["outer"]}, 22.0, [])
+    added = pk._enforce_a_top(picks, _wd(by_item, {"itm-oxford-01": ["base"],
+                                               "itm-coat-0001": ["outer"]}), 22.0, [])
     assert added == ("base", "itm-oxford-01")
     assert picks["outer"] is None
 
@@ -110,8 +115,9 @@ def test_a_wardrobe_with_no_top_is_left_empty_rather_than_invented():
     """closetOnly exists to stop a garment being suggested that they do not own;
     the empty slots are then reported as the gap they are."""
     picks = _empty(bottoms="itm-jeans-001")
-    assert pk._enforce_a_top(picks, {"itm-jeans-001": BY_ITEM["itm-jeans-001"]},
-                             {"itm-jeans-001": ["bottoms"]}, 22.0, []) is None
+    only_jeans = _wd({"itm-jeans-001": BY_ITEM["itm-jeans-001"]},
+                     {"itm-jeans-001": ["bottoms"]})
+    assert pk._enforce_a_top(picks, only_jeans, 22.0, []) is None
     assert not any(picks[c] for c in ("base", "mid", "outer"))
 
 
@@ -120,7 +126,7 @@ def test_a_banned_garment_is_not_what_gets_put_on():
     by_item = {"itm-hoodie-01": {"label": "grey hoodie", "type": "hoodie", "warmth": 3},
                "itm-oxford-01": {"label": "oxford", "type": "shirt", "warmth": 2}}
     picks = _empty()
-    added = pk._enforce_a_top(picks, by_item, BY_ROLES, 22.0, ban)
+    added = pk._enforce_a_top(picks, _wd(by_item, BY_ROLES), 22.0, ban)
     assert added == ("base", "itm-oxford-01")
 
 
@@ -128,8 +134,8 @@ def test_a_coat_too_thin_for_the_cold_is_not_the_answer_either():
     """The last resort still respects the warmth floor it would be cleared by."""
     by_roles = {"itm-shell-001": ["outer"]}
     picks = _empty()
-    assert pk._enforce_a_top(picks, BY_ITEM, by_roles, 2.0, []) is None
-    assert pk._enforce_a_top(picks, BY_ITEM, by_roles, 25.0, []) == ("outer", "itm-shell-001")
+    assert pk._enforce_a_top(picks, _wd(BY_ITEM, by_roles), 2.0, []) is None
+    assert pk._enforce_a_top(picks, _wd(BY_ITEM, by_roles), 25.0, []) == ("outer", "itm-shell-001")
 
 
 def test_the_prose_names_what_was_added():
@@ -180,3 +186,33 @@ def test_a_dress_added_as_the_top_clears_the_trousers_under_it():
     assert added == ("base", "dress")
     assert picks["bottoms"] is None, "no trousers under the dress"
     assert "bottoms" in covered, "and that empty slot is covered, not a gap"
+
+
+def test_a_dress_is_judged_without_the_trousers_it_replaces():
+    """A rule banning dress-with-jeans rejected the dress while the jeans were
+    still in the slot — and if the dress is the only top, the wearer was left with
+    none, on account of a garment that would have been taken off. Raised by the
+    pre-push reviewer, 2026-08-29."""
+    by_item = {"dress": {"label": "green dress", "type": "dress", "colors": ["green"]},
+               "jeans": {"label": "blue jeans", "type": "jeans", "colors": ["blue"]}}
+    ban = [{"kind": "avoid_pair", "a": {"type": "dress"}, "b": {"type": "jeans"}}]
+    picks = _empty(bottoms="jeans")
+    wd = _wd(by_item, {"dress": ["base"], "jeans": ["bottoms"]},
+             {"dress": "onepiece", "jeans": "bottoms"})
+    added = pk._enforce_a_top(picks, wd, 20.0, ban)
+    assert added == ("base", "dress")
+    # The trousers are still there for _onepiece_conflicts to clear — that is its
+    # job, and doing it here would hide the removal from `covered`.
+    assert picks["bottoms"] == "jeans"
+
+
+def test_without_the_one_piece_index_the_ban_still_stands():
+    """The exemption is for a garment that REPLACES the bottoms. A shirt banned
+    with those jeans is simply banned."""
+    by_item = {"shirt": {"label": "red shirt", "type": "shirt", "colors": ["red"]},
+               "jeans": {"label": "blue jeans", "type": "jeans", "colors": ["blue"]}}
+    ban = [{"kind": "avoid_pair", "a": {"type": "shirt"}, "b": {"type": "jeans"}}]
+    picks = _empty(bottoms="jeans")
+    wd = _wd(by_item, {"shirt": ["base"], "jeans": ["bottoms"]},
+             {"shirt": "tops", "jeans": "bottoms"})
+    assert pk._enforce_a_top(picks, wd, 20.0, ban) is None

@@ -227,7 +227,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # sitting there unused, in which case the choice was wrong, not the wardrobe.
     unsuitable = unsuitable | {
         c for c in before_rules if not picks.get(c)
-        and not pk._has_suitable_alternative(c, picks, wd.by_item, wd.by_roles, plan, rules_list)
+        and not pk._has_suitable_alternative(c, picks, wd, plan, rules_list)
     }
     if note:
         return note, banned, set(), unsuitable, None
@@ -256,15 +256,14 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
             picks[c] = None
             # A judgement about the GARMENT — but only a gap if the wardrobe has no
             # warm enough, legal alternative.
-            if not pk._has_suitable_alternative(c, picks, wd.by_item, wd.by_roles,
-                                                plan, rules_list):
+            if not pk._has_suitable_alternative(c, picks, wd, plan, rules_list):
                 unsuitable = unsuitable | {c}
 
     # BEFORE the underwear check, and after everything that can empty a slot: an
     # outfit of trousers alone is not an outfit, and every repair above can leave
     # one. Dressing the torso here also lets the undershirt stay where it belongs,
     # under something, instead of being cleared for want of a cover.
-    added = pk._enforce_a_top(picks, wd.by_item, wd.by_roles, plan, rules_list)
+    added = pk._enforce_a_top(picks, wd, plan, rules_list)
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])
@@ -369,8 +368,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             continue
 
         def can_fill(slot: str, _p=picks) -> bool:
-            return pk._has_suitable_alternative(slot, _p, wd.by_item, wd.by_roles,
-                                                _plan_temp(w), list(prefs.rules))
+            return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
+                                                list(prefs.rules))
 
         text = pk._assemble_text(out, banned_labels, prefs, picks, wd.by_item)
         # A garment in the picture and not in the text reads as a bug in the app,

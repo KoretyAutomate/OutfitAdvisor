@@ -460,22 +460,30 @@ def _assemble_text(out: dict, banned: list[dict], prefs: Prefs,
     return f"{text}\n\n💡 {tip}" if tip else text
 
 
-def _suitable_for(slot: str, picks: dict, by_item: dict, by_roles: dict,
+def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
                   plan_temp: float, user_rules: list[dict]) -> str | None:
     """The first owned garment that could legitimately fill this slot, or None.
 
     The search _has_suitable_alternative always did; it only ever reported whether
     one existed, and _enforce_a_top needs the garment itself.
+
+    The trial outfit is the one that would actually be WORN, which for a one-piece
+    means without the trousers it replaces. Judging a dress against the bottoms
+    still in the slot let a rule banning that pairing reject the dress — and if it
+    was the only top, the wearer was left with none, on account of a garment that
+    would have been taken off. Raised by the pre-push reviewer, 2026-08-29.
     """
-    for iid, item in by_item.items():
+    for iid, item in wd.by_item.items():
         if iid in picks.values():
             continue                              # already worn somewhere else
-        if slot not in (by_roles.get(iid) or ()):
+        if slot not in (wd.by_roles.get(iid) or ()):
             continue
         if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
             continue
         trial = {**picks, slot: iid}
-        if rules.violations(user_rules, trial, by_item):
+        if slot == "base" and wd.by_group.get(iid) == "onepiece":
+            trial["bottoms"] = None
+        if rules.violations(user_rules, trial, wd.by_item):
             continue
         return iid
     return None
@@ -488,8 +496,8 @@ def _suitable_for(slot: str, picks: dict, by_item: dict, by_roles: dict,
 _TOP_SLOTS = ("base", "mid", "outer")
 
 
-def _enforce_a_top(picks: dict, by_item: dict, by_roles: dict,
-                   plan_temp: float, user_rules: list[dict]) -> tuple | None:
+def _enforce_a_top(picks: dict, wd: "Wardrobe", plan_temp: float,
+                   user_rules: list[dict]) -> tuple | None:
     """Nobody is dressed by their trousers alone.
 
     The user was sent out on 2026-08-29 with joggers and nothing above the waist:
@@ -505,7 +513,7 @@ def _enforce_a_top(picks: dict, by_item: dict, by_roles: dict,
     if any(picks.get(c) for c in _TOP_SLOTS):
         return None
     for slot in _TOP_SLOTS:
-        iid = _suitable_for(slot, picks, by_item, by_roles, plan_temp, user_rules)
+        iid = _suitable_for(slot, picks, wd, plan_temp, user_rules)
         if iid:
             picks[slot] = iid
             return slot, iid
@@ -521,7 +529,7 @@ def _added_top_line(added: tuple, by_item: dict) -> str:
             "with nothing above the waist.")
 
 
-def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: dict,
+def _has_suitable_alternative(slot: str, picks: dict, wd: "Wardrobe",
                               plan_temp: float, user_rules: list[dict]) -> bool:
     """Could some OTHER owned garment have filled this slot properly?
 
@@ -534,8 +542,7 @@ def _has_suitable_alternative(slot: str, picks: dict, by_item: dict, by_roles: d
     Judged by the same rules that did the clearing, so an alternative this accepts
     is one the generator could legitimately have picked.
     """
-    return _suitable_for(slot, picks, by_item, by_roles, plan_temp,
-                         user_rules) is not None
+    return _suitable_for(slot, picks, wd, plan_temp, user_rules) is not None
 
 
 def _missing_slots(claimed: object, picks: dict, filled_before: set,

@@ -1093,6 +1093,21 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("so one day cannot pass for a habit",
     ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
 
+  /* Undo takes back the LESSON as well as the laundry. This is what somebody taps
+     on realising they logged the wrong outfit, and reverting the wear log while the
+     advisor went on learning the preference would leave the app believing something
+     the user had just told it was not so. Raised by the pre-push reviewer,
+     2026-08-29. */
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      trips=[]; lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];
+      wornLogged=false; woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("the correction is recorded and the garment logged",
+    ev(`swaps.length`) === 1 && ev(`activeWears("itm-polo-001")`) === 1);
+  await ev(`document.getElementById("dWear").onclick()`);
+  check("undo takes back the laundry", ev(`activeWears("itm-polo-001")`) === 0);
+  check("and the correction with it", ev(`swaps.length`) === 0, ev(`JSON.stringify(swaps)`));
+
   /* Changing a slot BACK to what was suggested retracts the correction. Skipping
      straight past on equality left the old swap standing: the wear log showed the
      suggestion and the advisor went on learning the preference the user had just

@@ -3948,7 +3948,14 @@ $("dWear").onclick=async()=>{
   }else{
     lastPickIds.forEach(unlogWearToday); wornLogged=false;
     $("dWear").textContent="✅ Wearing it — update my rotation";
-    toast("Undone");
+    // Undo the LESSON as well as the laundry. This button is what somebody taps on
+    // realising they logged the wrong outfit, and reverting the wear log while the
+    // advisor went on learning the preference would leave the app believing
+    // something the user had just told it was not so.
+    const day=todayISO(), before=swaps.length;
+    swaps=swaps.filter(x=>x.day!==day);
+    if(swaps.length!==before) await saveSwaps();
+    toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }
   await saveCloset();
 };

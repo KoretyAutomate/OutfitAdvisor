@@ -1250,6 +1250,34 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and records one swap, not two",
     wC.eval(`swaps.length`) === 1, wC.eval(`JSON.stringify(swaps)`));
 
+  /* The button toggle is the same shape of race, between two DIFFERENT branches:
+     the first tap logs and awaits its write while the second enters the undo. The
+     writes finished out of order, leaving the wear log emptied and the record still
+     saying logged — which the next launch restored. Raised by the pre-push
+     reviewer, 2026-08-29. */
+  const wH = page();
+  await wH.eval("appReady");
+  wH.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={closetUsed:true,picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;`);
+  const tap = () => wH.eval(`document.getElementById("dWear").onclick()`);
+  await Promise.all([tap(), tap()]);
+  check("a double-tap of the button logs once",
+    wH.eval(`activeWears("itm-tee-0001")`) === 1,
+    wH.eval(`JSON.stringify(wearLog)`));
+  check("and the record agrees with the wear log",
+    (wH.eval(`woreLogged`) || {}).base === "itm-tee-0001" &&
+    JSON.parse(wH.localStorage.getItem("oa.woreToday") || "null").map.base
+      === "itm-tee-0001",
+    wH.localStorage.getItem("oa.woreToday"));
+  await Promise.all([tap(), tap()]);
+  check("and undoing twice undoes once",
+    wH.eval(`activeWears("itm-tee-0001")`) === 0 && wH.eval(`woreLogged`) === null,
+    wH.eval(`JSON.stringify(wearLog)`));
+  check("leaving nothing on disk for the next launch to restore",
+    JSON.parse(wH.localStorage.getItem("oa.woreToday") || "null") === null,
+    wH.localStorage.getItem("oa.woreToday"));
+
   /* New advice later the same day does NOT unwear what was already worn. Clearing
      the record while its entries stayed in the wear log orphaned them: nothing could
      find them, undo released the wrong garments, and saving the next outfit counted

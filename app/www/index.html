@@ -3203,12 +3203,14 @@ function syncWearBtn(){
                            :"✅ Wearing it — update my rotation";
 }
 
-let woreSaving=false;
+/* One writer at a time for the day's record. Both this sheet and the button toggle
+   read the state, mutate the wear log and then write the record, with awaits in the
+   middle — so two overlapping runs interleaved. Two taps of Save counted every
+   garment twice; a log and an undo racing each other finished with the wear log
+   emptied and the record still saying logged, which the next launch restored. */
+let woreBusy=false;
 async function saveWore(){
-  // Both taps reach logWear before either sets the flags, so a double-tap counted
-  // every garment twice and could push a two-copy item out of the rotation on the
-  // strength of one morning.
-  if(woreSaving) return;
+  if(woreBusy) return;
   if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
   // One garment is worn in ONE place. A shirt that can play base or mid appears in
   // both rows, and nothing stopped it being chosen in both — recording a preference
@@ -3221,7 +3223,7 @@ async function saveWore(){
       `at a time — pick something else for one of those rows.`;
     return;
   }
-  woreSaving=true;
+  woreBusy=true;
   try{
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
@@ -3261,7 +3263,7 @@ async function saveWore(){
   syncWearBtn();   // owns the label, the visibility and wornLogged
   toast(changed?"Noted — the advisor will remember what you reach for"
                :"Logged — that is what was suggested");
-  }finally{ woreSaving=false; }
+  }finally{ woreBusy=false; }
 }
 
 /* ───────── what the wardrobe could not cover (2026-08-27) ─────────
@@ -4029,6 +4031,9 @@ $("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
 $("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
 $("woreSave").onclick=()=>{ saveWore(); };
 $("dWear").onclick=async()=>{
+  if(woreBusy) return;
+  woreBusy=true;
+  try{
   if(!wornLogged){
     // Only the LOGGING half needs picks to log. Undo works from the record.
     if(!lastPickIds.length) return;
@@ -4058,6 +4063,7 @@ $("dWear").onclick=async()=>{
     toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }
   await saveCloset();
+  }finally{ woreBusy=false; }
 };
 
 /* ── in-app update wiring ── */

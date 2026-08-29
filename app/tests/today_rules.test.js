@@ -1152,6 +1152,13 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
            lastPickIds=["itm-tee-0001"];`);
   check("the restored correction is still in the rotation",
     w8.eval(`activeWears("itm-polo-001")`) === 1);
+  /* And the button has to say so. Left reading "Wearing it" over an outfit already
+     logged, the next tap logged the SUGGESTION on top of the correction and
+     overwrote the record — an ordinary tap on a screen that looked untouched.
+     Raised by the pre-push reviewer, 2026-08-29. */
+  check("and the button says the outfit is logged",
+    /tap to undo/.test(w8.document.getElementById("dWear").textContent),
+    w8.document.getElementById("dWear").textContent);
   w8.eval(`woreDraft={base:"itm-oxfrd-01"};`);
   await w8.eval(`saveWore()`);
   check("changing it releases the garment it replaces",
@@ -1197,6 +1204,34 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     wB.eval(`activeWears("itm-tee-0001")`) === 0);
   check("and leaves only what was actually worn",
     wB.eval(`activeWears("itm-polo-001")`) === 1);
+
+  /* Undo after a restart takes back what is ACTUALLY in the laundry. By the
+     suggestion, it released a garment that was never logged and left the corrected
+     outfit counted — the button said undone and the rotation disagreed. */
+  const wE = page();
+  await wE.eval("appReady");
+  wE.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[];
+           swaps=[]; trips=[]; lastRes={picks:{base:"itm-tee-0001"}};
+           lastPickIds=["itm-tee-0001"]; wornLogged=false; woreLogged=null;
+           woreDraft={base:"itm-polo-001"};`);
+  await wE.eval(`saveWore()`);
+  const carriedE = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps"])
+    if (wE.localStorage.getItem(k) != null) carriedE[k] = wE.localStorage.getItem(k);
+  const wF = page();
+  for (const k in carriedE) wF.localStorage.setItem(k, carriedE[k]);
+  await wF.eval("appReady");
+  wF.eval(`lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];`);
+  await wF.eval(`document.getElementById("dWear").onclick()`);
+  check("undoing after a restart releases what was actually worn",
+    wF.eval(`activeWears("itm-polo-001")`) === 0,
+    wF.eval(`JSON.stringify(wearLog)`));
+  check("and forgets the correction rather than leaving it on disk",
+    wF.eval(`woreLogged`) === null &&
+    JSON.parse(wF.localStorage.getItem("oa.woreToday") || "null") === null,
+    wF.localStorage.getItem("oa.woreToday"));
+  check("and the swap it taught is retracted too", wF.eval(`swaps.length`) === 0,
+    wF.eval(`JSON.stringify(swaps)`));
 
   /* Two taps in the time one save takes. Both reach the wear log before either sets
      the flags, so every garment was counted twice and a two-copy item could leave

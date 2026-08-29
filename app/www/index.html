@@ -3157,6 +3157,26 @@ function openWoreSheet(){
   $("woreErr").textContent="";
   $("woreWrap").classList.add("show");
 }
+/* What is in the laundry on account of today's outfit — asked of the RECORD, which
+   both ways of logging now write, rather than of a flag that only says whether it
+   happened. wornLogged resets on every launch while the wear log does not, so the
+   flag cannot answer this question after a restart. */
+function loggedIds(){
+  if(woreLogged) return Object.values(woreLogged).filter(Boolean);
+  return wornLogged?lastPickIds.slice():[];
+}
+
+/* The button reports the state of today's outfit, so it has to be re-read from the
+   record at startup. Left saying "Wearing it" over an outfit already logged, the
+   next tap logged the suggestion ON TOP of the correction and overwrote the record
+   — an ordinary tap, on a screen that looked untouched. Raised by the pre-push
+   reviewer, 2026-08-29. */
+function syncWearBtn(){
+  wornLogged=!!woreLogged;
+  $("dWear").textContent=wornLogged?"✅ Logged — tap to undo"
+                                   :"✅ Wearing it — update my rotation";
+}
+
 let woreSaving=false;
 async function saveWore(){
   // Both taps reach logWear before either sets the flags, so a double-tap counted
@@ -3180,17 +3200,9 @@ async function saveWore(){
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
   // Take back whatever this outfit last put in the laundry, before adding what it
-  // puts there now. Two sources, because either can be the record of it:
-  //   woreLogged — a correction already saved today, INCLUDING one restored from
-  //                disk after a restart, when wornLogged is false but the garments
-  //                are still counted. Relying on the flag alone left the previous
-  //                outfit in the rotation and added the new one beside it.
-  //   lastPickIds — the suggestion, if "Wearing it" was tapped.
-  const already=new Set([
-    ...Object.values(woreLogged||{}).filter(Boolean),
-    ...(wornLogged?lastPickIds:[]),
-  ]);
-  already.forEach(unlogWearToday);
+  // puts there now — including a correction restored from disk after a restart,
+  // which the flag cannot see.
+  loggedIds().forEach(unlogWearToday);
   wornLogged=false;
   let changed=0;
   for(const slot of CATS){
@@ -3222,6 +3234,7 @@ async function saveWore(){
   $("dWear").textContent="✅ Logged — tap to undo";
   wornLogged=true;
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
+  syncWearBtn();
   toast(changed?"Noted — the advisor will remember what you reach for"
                :"Logged — that is what was suggested");
   }finally{ woreSaving=false; }
@@ -4003,7 +4016,10 @@ $("dWear").onclick=async()=>{
     $("dWear").textContent="✅ Logged — tap to undo";
     toast("Rotation updated — these go to the laundry pile");
   }else{
-    lastPickIds.forEach(unlogWearToday); wornLogged=false;
+    // The RECORD, not lastPickIds: after a correction the two are different
+    // garments, and undoing by the suggestion left the corrected outfit counted.
+    loggedIds().forEach(unlogWearToday); wornLogged=false; woreLogged=null;
+    await saveWoreLogged();
     $("dWear").textContent="✅ Wearing it — update my rotation";
     // Undo the LESSON as well as the laundry. This button is what somebody taps on
     // realising they logged the wrong outfit, and reverting the wear log while the
@@ -4250,6 +4266,7 @@ const appReady=(async()=>{
     const d=raw?JSON.parse(raw):null;
     woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
   }catch(e){ woreLogged=null; }
+  syncWearBtn();
   await renderCloset();
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.

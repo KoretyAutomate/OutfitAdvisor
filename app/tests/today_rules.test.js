@@ -1101,6 +1101,26 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   const sum2 = ev(`swapSummary()`);
   check("twice is", sum2.length === 1 && sum2[0].label === "navy polo", sum2);
   check("with the slot and the count", sum2[0].slot === "base" && sum2[0].n === 2, sum2[0]);
+  /* And the ID. Two garments can share a name, and a preference naming only the
+     label cannot say which was reached for — the advisor could honour it faithfully
+     with the wrong item. Raised by the pre-push reviewer, 2026-08-29. */
+  check("and the id, so two garments of one name stay distinct",
+    sum2[0].id === "itm-polo-001", sum2[0]);
+
+  /* A slot with no row to review must not keep a garment in the draft. One deleted
+     since the advice, with nothing left that can play the role, would otherwise be
+     logged invisibly on save. */
+  ev(`closet=[${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];
+      lastRes={picks:{outer:"itm-gone-001", base:"itm-polo-001"}};
+      lastOutfit={base:"navy polo"}; lastPickIds=[]; wornLogged=false;`);
+  ev(`openWoreSheet()`);
+  check("a slot with nothing to show holds nothing in the draft",
+    ev(`woreDraft.outer`) === null, ev(`JSON.stringify(woreDraft)`));
+  await ev(`saveWore()`);
+  check("so nothing invisible is logged",
+    ev(`activeWears("itm-gone-001")`) === 0 &&
+    !ev(`swaps`).some(x => x.wore === "itm-gone-001"), ev(`JSON.stringify(swaps)`));
+  ev(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)}]; wearLog=[]; swaps=[];`);
 
   // Old habits fade rather than standing for ever.
   ev(`swaps=[{day:"2020-01-01",slot:"base",wore:"itm-polo-001",instead:null},

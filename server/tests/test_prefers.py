@@ -65,3 +65,23 @@ def test_the_preference_reaches_the_generator():
 def test_without_any_the_prompt_is_unchanged():
     assert "REACH FOR" not in closet_mod._closet_prompt(
         WARM, "man", "casual", [TEE], pk.Prefs())
+
+
+def test_the_garment_id_travels_with_the_label():
+    """Two garments can share a name.
+
+    A preference naming only "navy polo" cannot say WHICH navy polo was reached
+    for, so the advisor could honour it faithfully with the wrong item. The id
+    matches the one at the head of each wardrobe line. Raised by the pre-push
+    reviewer, 2026-08-29.
+    """
+    block = closet_mod._prefers_block(
+        ({"slot": "base", "id": "itm-polo-001", "label": "navy polo", "n": 4},))
+    assert "itm-polo-001" in block
+    assert "navy polo" in block
+
+
+def test_a_preference_with_no_id_still_reads():
+    """Records written before the id was carried must not break the prompt."""
+    block = closet_mod._prefers_block(({"slot": "base", "label": "navy polo", "n": 2},))
+    assert "navy polo" in block and "[" not in block

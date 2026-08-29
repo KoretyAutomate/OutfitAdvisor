@@ -56,6 +56,9 @@ def _prefers_block(prefers: tuple) -> str:
     """
     lines = [
         f"- {p['slot']}: they usually pick {_fenced(p.get('label'), 60)}"
+        # The id, so a wardrobe holding two garments of the same name is not a
+        # coin toss. It matches the id at the head of each wardrobe line.
+        f"{' [' + str(p['id']) + ']' if p.get('id') else ''}"
         f" ({int(p.get('n') or 1)} times)"
         for p in prefers[:8] if _fenced(p.get("label"), 60)
     ]

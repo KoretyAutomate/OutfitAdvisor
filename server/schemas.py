@@ -116,6 +116,10 @@ class Prefer(BaseModel):
     """One garment the wearer keeps choosing for a slot, and how often."""
 
     slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    # The id as well as the label: two garments can share a name, and a preference
+    # that names only the label cannot say which was reached for — so the advisor
+    # could honour it faithfully with the wrong item.
+    id: str = Field("", max_length=64, pattern=r"^[A-Za-z0-9\-]*$")
     label: str = Field("", max_length=60)
     n: int = Field(1, ge=1, le=400)
 

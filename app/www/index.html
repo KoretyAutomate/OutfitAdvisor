@@ -3040,9 +3040,12 @@ function swapSummary(){
     const e=by.get(k);
     if(e) e.n++; else by.set(k,{slot:x.slot,id:x.wore,n:1});
   }
+  // The ID travels with the label. Two garments can share a name — "navy polo" and
+  // "navy polo" — and a preference that names only the label cannot say which one
+  // was reached for, so the advisor could faithfully honour it with the wrong item.
   const named=[...by.values()].filter(e=>e.n>=SWAP_MIN)
     .map(e=>{ const it=closet.find(i=>i.id===e.id);
-      return it?{slot:e.slot,label:it.label,n:e.n}:null; })
+      return it?{slot:e.slot,id:it.id,label:it.label,n:e.n}:null; })
     .filter(Boolean);
   return named.sort((a,b)=>b.n-a.n).slice(0,8);
 }
@@ -3070,7 +3073,14 @@ function openWoreSheet(){
     // was not worn.
     const suggested=picked[slot]?closet.find(i=>i.id===picked[slot]):null;
     if(suggested&&!options.some(o=>o.id===suggested.id)) options.unshift(suggested);
-    if(!options.length) return "";
+    if(!options.length){
+      // No row means nothing to review, so the draft must not go on holding a
+      // garment from the advice — one deleted since, with nothing left that can
+      // play the role. Saving would have logged an invisible orphan and recorded a
+      // correction the user was never shown.
+      woreDraft[slot]=null;
+      return "";
+    }
     return `<div class="calRow" style="padding-left:0;align-items:center">
       <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
       <select data-wore="${slot}" style="flex:1;min-width:0">

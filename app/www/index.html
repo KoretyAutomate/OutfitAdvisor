@@ -3096,7 +3096,16 @@ async function saveWore(){
     // Recorded only where a garment was actually chosen. "I wore nothing there" is
     // a correction to the outfit, but it names no preference — there is nothing the
     // advisor could reach for next time.
-    if(wore) swaps.push({day,slot,wore,instead:was});
+    // One correction per slot per DAY. Saving the sheet twice — or a double-tap
+    // while the first save is still in flight — appended the same morning again,
+    // and swapSummary counts records: one day would have met the two-occasion bar
+    // on its own and been reported as a habit.
+    if(wore){
+      swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
+      swaps.push({day,slot,wore,instead:was});
+    }else{
+      swaps=swaps.filter(x=>!(x.day===day&&x.slot===slot));
+    }
   }
   await saveSwaps();
   await saveCloset();

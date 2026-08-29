@@ -227,11 +227,6 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     if note:
         return note, banned, set(), unsuitable
 
-    # AFTER the rules, because clearing a base leaves the undershirt outermost.
-    note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
-    if note:
-        return note, banned, set(), unsuitable
-
     # Trousers under a dress. _onepiece_conflicts repairs as it tests, so the picks
     # are never a dress over trousers; the retry is what fixes the BULLETS.
     note, banned = pk._enforce_onepiece(picks, wd.by_group, wd.by_item, banned, attempt)
@@ -259,7 +254,14 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
             if not pk._has_suitable_alternative(c, picks, wd.by_item, wd.by_roles,
                                                 plan, rules_list):
                 unsuitable = unsuitable | {c}
-    return "", banned, covered, unsuitable
+
+    # LAST, because every repair above can take away the layer that was covering the
+    # undershirt — a base cleared for breaking a rule, or an outer cleared for being
+    # too thin. Checked first, an outfit of inner + an under-warm outer passed, the
+    # warmth repair then removed the outer, and the bare undershirt was returned as
+    # valid. The one check whose subject other repairs can create.
+    note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
+    return note, banned, covered, unsuitable
 
 
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],

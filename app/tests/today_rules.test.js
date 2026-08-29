@@ -1038,6 +1038,20 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("and the one that was only suggested does not",
     ev(`activeWears("itm-tee-0001")`) === 0);
 
+  /* Saving twice — or a double-tap while the first save is in flight — appended
+     the same morning again, and swapSummary counts RECORDS: one day would have met
+     the two-occasion bar on its own and been reported as a habit. Raised by the
+     pre-push reviewer, 2026-08-29. */
+  ev(`swaps=[]; lastRes={picks:{base:"itm-tee-0001"}}; lastPickIds=["itm-tee-0001"];
+      wornLogged=false; woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  ev(`woreDraft={base:"itm-polo-001"};`);
+  await ev(`saveWore()`);
+  check("saving the same morning twice records it once",
+    ev(`swaps.length`) === 1, ev(`JSON.stringify(swaps)`));
+  check("so one day cannot pass for a habit",
+    ev(`swapSummary()`).length === 0, ev(`swapSummary()`));
+
   console.log("\n--- 16. one swap is a day; two is a habit ----------------------");
   ev(`swaps=[{day:"2026-08-20",slot:"base",wore:"itm-polo-001",instead:"itm-tee-0001"}];`);
   check("a single correction is not reported as a preference",

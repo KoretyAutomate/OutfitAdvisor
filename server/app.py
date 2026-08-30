@@ -261,7 +261,12 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     # inferred from whether a closet was attached — which is how a phone running a
     # three-versions-old build went unnoticed for two days (2026-08-11).
     log.info(
-        "advice ok src=%s day=%s tz=%s lo=%s hi=%s off=%s source=%s closet=%s/%s %.2fs",
+        # closetUsed is a YES/NO. Written as `closet=1/15` it read as a count of
+        # surviving garments, and was read that way — including by a reader
+        # diagnosing this very endpoint on 2026-08-30, who took `closet=1/15` for
+        # "one item of fifteen made it through".
+        "advice ok src=%s day=%s tz=%s lo=%s hi=%s off=%s source=%s closetUsed=%s "
+        "items=%s %.2fs",
         _clean(x_oa_client, 24) or "?",
         req.day,
         w.get("timezone"),
@@ -269,7 +274,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         w["hi"],
         req.tempOffset,
         source,
-        int(closet_used),
+        "yes" if closet_used else "no",
         len(req.closet or []),
         dt,
     )
@@ -418,10 +423,10 @@ async def packing(req: PackingRequest):
     # Coarse log ONLY. No coords (as /advice). And no DATES — a real date range plus
     # a destination is itself identifying, unlike /advice's day=0|1.
     log.info(
-        "packing ok n=%s mode=%s closet=%s/%s gaps=%s %.2fs",
+        "packing ok n=%s mode=%s closetUsed=%s items=%s gaps=%s %.2fs",
         n,
         summary["mode"],
-        int(closet_used),
+        "yes" if closet_used else "no",
         len(req.closet or []),
         len(gaps),
         dt_s,

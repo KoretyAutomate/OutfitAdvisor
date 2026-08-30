@@ -1493,6 +1493,158 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   ev(`gaps=[];`);
   check("a correction is never mistaken for a wardrobe gap", ev(`gaps.length`) === 0);
 
+  console.log("\n--- 18. the pictures show TODAY'S outfit (2026-08-30) -----------");
+  /* User: "once I picked I wore something else, replace the pictures to show the
+     accurate TODAY'S OUTFIT." The card is the answer to "what am I wearing today",
+     and after a correction the suggestion is no longer that answer. */
+  const COAT18 = {id:"itm-coat-001", label:"grey overcoat", category:"outer",
+    group:"outerwear", type:"coat", roles:["outer"], colors:[], warmth:4,
+    formality:["smart"], waterproof:false, count:1};
+  const grid = (win) => [...win.document.querySelectorAll("#wearGrid .wearIt")]
+    .map(t => ({ slot: t.dataset.slot, pick: t.dataset.pick,
+                 name: t.querySelector(".nm2").textContent }));
+  const listVal = (win, slot) => {
+    const el = win.document.querySelector(`#outfitList li[data-slot="${slot}"] .val`);
+    return el ? el.textContent : null;
+  };
+  const wV = page();
+  await wV.eval("appReady");
+  const ADVICE = { base: "white tee", outer: "a light waterproof shell",
+                   bottoms: "chinos" };
+  const RES_V = { closetUsed: true, picks: { base: "itm-tee-0001" },
+                  weather: WX, outfit: ADVICE, text: "wear the tee" };
+  wV.eval(`closet=[${JSON.stringify(WTEE)},${JSON.stringify(POLO)},${JSON.stringify(COAT18)}];
+           wearLog=[]; swaps=[]; trips=[]; woreLogged=null; wornLogged=false;
+           lastWeather=${JSON.stringify(WX)}; lastText="wear the tee"; lastSource="llm";
+           lastOutfit=${JSON.stringify(ADVICE)}; lastRes=${JSON.stringify(RES_V)};`);
+  wV.eval(`renderOutfit(lastOutfit,lastText,lastSource,lastRes)`);
+  check("before any correction the pictures are the suggestion",
+    (grid(wV).find(t => t.slot === "base") || {}).name === "white tee",
+    grid(wV));
+  check("and nothing announces a correction that has not happened",
+    wV.document.getElementById("wornNote").style.display === "none");
+
+  /* The correction itself. */
+  wV.eval(`woreDraft={base:"itm-polo-001"};`);
+  await wV.eval(`saveWore()`);
+  const g1 = grid(wV);
+  check("the picture is now of what was actually worn",
+    (g1.find(t => t.slot === "base") || {}).name === "navy polo" &&
+    (g1.find(t => t.slot === "base") || {}).pick === "itm-polo-001", g1);
+  check("the item-by-item list agrees with the picture",
+    listVal(wV, "base") === "navy polo", listVal(wV, "base"));
+  check("and the card says whose outfit it is showing",
+    wV.document.getElementById("wornNote").style.display !== "none" &&
+    /actually wore/.test(wV.document.getElementById("wornNoteTxt").textContent),
+    wV.document.getElementById("wornNoteTxt").textContent);
+
+  /* The advisor suggested a shell they do not own. The record speaks only about the
+     closet, so its silence there is not a denial — that line has to stand. */
+  check("a suggestion they do not own is left alone",
+    (g1.find(t => t.slot === "outer") || {}).name === "a light waterproof shell", g1);
+  check("and so is a generic slot the closet never filled",
+    (g1.find(t => t.slot === "bottoms") || {}).name === "chinos", g1);
+
+  /* The suggestion must stay reachable — "Why this", read under pictures of
+     something else, is the reasoning for the outfit that was NOT worn. */
+  wV.eval(`document.getElementById("wornToggle").onclick()`);
+  check("one tap goes back to what was suggested",
+    (grid(wV).find(t => t.slot === "base") || {}).name === "white tee",
+    grid(wV));
+  check("and the banner offers the way back",
+    /wore something else/.test(wV.document.getElementById("wornNoteTxt").textContent) &&
+    /Show what I wore/.test(wV.document.getElementById("wornToggle").textContent),
+    wV.document.getElementById("wornToggle").textContent);
+  wV.eval(`document.getElementById("wornToggle").onclick()`);
+  check("and back again", (grid(wV).find(t => t.slot === "base") || {}).name === "navy polo");
+
+  /* "I wore nothing there" is an answer too — but only where the advice named one
+     of THEIR garments, which is the only kind of slot the sheet asks about. */
+  wV.eval(`woreDraft={base:null};`);
+  await wV.eval(`saveWore()`);
+  check("a slot they say they left empty loses its picture",
+    !grid(wV).some(t => t.slot === "base"), grid(wV));
+  check("and the list says so rather than going blank",
+    listVal(wV, "base") === "None worn", listVal(wV, "base"));
+
+  /* Undo puts the suggestion back: there is no longer a record to show instead. */
+  wV.eval(`woreDraft={base:"itm-polo-001"};`);
+  await wV.eval(`saveWore()`);
+  await wV.eval(`document.getElementById("dWear").onclick()`);
+  check("undoing the record returns the card to the advice",
+    (grid(wV).find(t => t.slot === "base") || {}).name === "white tee", grid(wV));
+  check("and the banner goes with it",
+    wV.document.getElementById("wornNote").style.display === "none");
+
+  /* "Wearing it" records the suggestion. Nothing was corrected, so nothing is
+     announced — a banner on every logged outfit is noise. */
+  await wV.eval(`document.getElementById("dWear").onclick()`);
+  check("confirming the suggestion announces no correction",
+    wV.eval(`woreLogged !== null`) &&
+    wV.document.getElementById("wornNote").style.display === "none",
+    wV.eval(`JSON.stringify(woreLogged)`));
+
+  /* Later the same day, fresh advice is a fresh answer — the morning's record does
+     not overwrite the suggestion the user just asked for. It is still kept, and one
+     tap still shows it. */
+  await wV.eval(`document.getElementById("dWear").onclick()`);   // undo
+  wV.eval(`woreDraft={base:"itm-polo-001"};`);
+  await wV.eval(`saveWore()`);
+  wV.eval(`lastOutfit={base:"white tee"}; lastText="x"; lastSource="llm";
+           lastRes={closetUsed:true,picks:{base:"itm-tee-0001"},weather:lastWeather,
+                    outfit:lastOutfit,text:"x"};
+           renderOutfit(lastOutfit,lastText,lastSource,lastRes)`);
+  check("new advice shows the new suggestion, not this morning's clothes",
+    (grid(wV).find(t => t.slot === "base") || {}).name === "white tee", grid(wV));
+  check("while the record it does not overwrite is still there to show",
+    wV.document.getElementById("wornNote").style.display !== "none" &&
+    (wV.eval(`woreLogged`) || {}).base === "itm-polo-001",
+    wV.eval(`JSON.stringify(woreLogged)`));
+  check("and this morning's clothes are still in the laundry",
+    wV.eval(`activeWears("itm-polo-001")`) === 1);
+
+  /* A relaunch has to come back to what was worn without a tap. loadToday draws the
+     advice before the record is readable, so the card is redrawn once it is. */
+  await wV.eval(`saveToday(lastRes,"app")`);
+  const carriedV = {};
+  for (const k of ["oa.woreToday", "oa.closet", "oa.wearlog", "oa.swaps", "oa.today"])
+    if (wV.localStorage.getItem(k) != null) carriedV[k] = wV.localStorage.getItem(k);
+  const wW = page();
+  for (const k in carriedV) wW.localStorage.setItem(k, carriedV[k]);
+  await wW.eval("appReady");
+  check("a relaunch shows what was worn, not what was advised",
+    (grid(wW).find(t => t.slot === "base") || {}).name === "navy polo", grid(wW));
+  check("with the banner explaining why",
+    wW.document.getElementById("wornNote").style.display !== "none" &&
+    /actually wore/.test(wW.document.getElementById("wornNoteTxt").textContent),
+    wW.document.getElementById("wornNoteTxt").textContent);
+
+  /* Renaming the garment on the card. The worn view shows the CLOSET's label, so
+     an edit that never reached the card left it captioned with the old name. */
+  await wW.eval(`openSheet(closet.find(i=>i.id==="itm-polo-001"),{isNew:false})`);
+  wW.document.getElementById("shLabel").value = "navy piqué polo";
+  await wW.eval(`document.getElementById("shSave").onclick()`);
+  check("renaming the garment renames it on the card",
+    (grid(wW).find(t => t.slot === "base") || {}).name === "navy piqué polo",
+    grid(wW));
+
+  /* A garment deleted after it was logged. Its wears are cascaded away with it, so
+     there is no name and no photo left — and putting the SUGGESTION back in that
+     slot would show a garment they said they did not wear. */
+  /* Driven through the delete BUTTON, not by calling the redraw: every write to
+     the closet goes through saveCloset, and that is where the card is kept honest.
+     Raised by the pre-push reviewer, 2026-08-30 — the first version of this test
+     called refreshOutfitView() itself and so proved only that the overlay worked,
+     not that anything would ever run it. */
+  await wW.eval(`openSheet(closet.find(i=>i.id==="itm-polo-001"),{isNew:false})`);
+  await wW.eval(`document.getElementById("shDel").onclick()`);
+  check("deleting the garment is enough to redraw the card",
+    !wW.eval(`closet.some(i=>i.id==="itm-polo-001")`), wW.eval(`closet.length`));
+  check("a deleted garment does not hand the slot back to the suggestion",
+    !grid(wW).some(t => t.name === "white tee"), grid(wW));
+  check("the slot says it cannot be shown",
+    /no longer in your closet/.test(listVal(wW, "base") || ""), listVal(wW, "base"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

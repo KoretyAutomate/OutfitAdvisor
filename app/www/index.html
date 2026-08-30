@@ -77,6 +77,8 @@
   /* "What to wear" — the pictures, first and largest (user, 2026-08-26). Wider
      tiles than the closet grid: this is four to seven garments being read at a
      glance, not a wardrobe being browsed. */
+  .wornNote{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+  .wornNote button{padding:4px 11px;font-size:.72rem;border-radius:999px}
   .wear{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
     gap:9px;margin:12px 0 0}
   .wearIt{border:1px solid var(--line);border-radius:12px;overflow:hidden;
@@ -287,6 +289,13 @@
     <!-- Outfit -->
     <div class="card" id="outfitCard" style="display:none">
       <h2>Today's outfit <span class="chip src" id="srcBadge" style="display:none"></span></h2>
+      <!-- Once you have said you wore something else, the pictures are of what you
+           WORE (user, 2026-08-30). The suggestion is one tap away: it is still the
+           answer to "why this", and it is what the correction sheet marks. -->
+      <p class="note wornNote" id="wornNote" style="display:none">
+        <span id="wornNoteTxt"></span>
+        <button class="ghost" id="wornToggle" type="button"></button>
+      </p>
       <!-- WHAT TO WEAR, in pictures (user, 2026-08-26). A name is not how anyone
            recognises their own clothes; the photo is. The reasoning moved below,
            into a fold — it is worth reading once, not every morning. -->
@@ -708,6 +717,9 @@ const state = { city:"", lat:null, lon:null, place:"", gender:"man", style:"casu
                 baseUrl:DEFAULT_BASE, pushTime:"06:45", pushEnabled:false, useGps:false };
 let lastWeather=null, lastOutfit=null, lastText="", lastSource="", lastRes=null;
 let lastPickIds=[], wornLogged=false;
+/* Is the outfit card showing what was WORN rather than what was advised? Only ever
+   true alongside a record for today — see wornOverlay. */
+let wornView=false;
 const $ = id => document.getElementById(id);
 
 /* ───────── UI helpers ───────── */
@@ -1261,6 +1273,14 @@ async function saveCloset(){
   renderCloset();
   refreshRescan();
   refreshShopping();
+  // The outfit card reads the closet too, once it is showing what was WORN: the
+  // record names ids, and the label and the photo come from here. Renaming or
+  // deleting that garment anywhere — the edit sheet, the delete button — left the
+  // card showing the old name, or one that no longer exists, until something else
+  // happened to redraw it. Every write to the closet comes through this function,
+  // which is why the redraw belongs here and not at each call site.
+  // Raised by the pre-push reviewer, 2026-08-30.
+  refreshOutfitView();
   await savePushPayload();     // the morning push reads this, not the closet itself
 }
 
@@ -1281,7 +1301,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.22";
+const WEB_BUILD="1.23";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2627,12 +2647,42 @@ function renderOutfit(o,text,source,res){
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
   $("dWore").style.display=closet.length?"":"none";
+  // A fresh render is a fresh suggestion, and the card is about THAT until the
+  // wearer says otherwise. Whoever knows better re-decides afterwards: the
+  // correction itself, and the launch that restores one.
+  wornView=false;
+  drawOutfit(o,res);
+  syncWornNote();
+  const tipEl=$("outfitTip");
+  tipEl.style.display=o.tip?"":"none";
+  tipEl.textContent="💡 "+(o.tip||"");
+  /* The record is NOT cleared here, for any advice, fresh or restored.
+     It answers "what is in the laundry on account of today" — a fact about
+     garments, not about a suggestion. Somebody who wore the polo this morning and
+     asks for new advice at noon has still worn the polo, and clearing the record
+     while its wears stayed in the log orphaned them: nothing could find them, undo
+     released the wrong garments, and the next save counted a second outfit on the
+     same day. Staleness is a question of the DAY, and the restore checks that.
+     Raised by the pre-push reviewer, 2026-08-29. */
+  ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
+  renderFeedback();
+}
+
+/* ───────── the garments the card is showing (2026-08-30) ─────────
+
+   Split out of renderOutfit because a correction has to redraw the pictures WITHOUT
+   re-rendering the card: renderOutfit clears the day's thermal rating, and telling
+   the app what you wore is not a new suggestion — one morning would have been open
+   to being rated twice. */
+function drawOutfit(o,res){
+  const advice=(res&&res.picks)?res.picks:{};
+  const view=(wornView&&wearRecord())?wornOverlay(o,advice):null;
+  const shown=view?view.outfit:o, pickOf=view?view.picks:advice;
   // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
   // recognises their own clothes — the photo is (user, 2026-08-16; made the
   // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
   // icon and a dashed border, so "mine" and "suggested" are told apart at a glance
   // without reading either.
-  const pickOf = res && res.picks ? res.picks : {};
   const SLOTS=["inner","base","mid","outer","bottoms","footwear","accessories"];
   // Empty slots are LEFT OUT of the pictures. "Mid layer — (nothing)" is a tile of
   // nothing to look at, and on a warm day half the grid would be blanks; the
@@ -2642,7 +2692,7 @@ function renderOutfit(o,text,source,res){
   // prose — "None needed", "None essential", "None — but pack a thin layer for AC
   // indoors" — so a trim() test alone gave a prominent tile to each of the things
   // the user is explicitly NOT wearing, which on a warm day is most of the grid.
-  const worn=SLOTS.filter(k=>!slotIsEmpty(o[k]));
+  const worn=SLOTS.filter(k=>!slotIsEmpty(shown[k]));
   // Each tile carries the ID of the garment it is showing. The photo arrives
   // asynchronously — a file read per item — and a second render can start before
   // the first one's reads finish (tapping refresh, or changing gender, both
@@ -2653,10 +2703,10 @@ function renderOutfit(o,text,source,res){
     `<div class="wearIt${pickOf[k]?"":" gen"}" data-slot="${k}" data-pick="${esc(pickOf[k]||"")}">
        <div class="ph" data-ph="${k}">${ICONS[k]}</div>
        <div class="who">${esc(LABELS[k])}</div>
-       <div class="nm2">${esc(o[k])}</div>
+       <div class="nm2">${esc(shown[k])}</div>
      </div>`).join("");
   $("outfitList").innerHTML=SLOTS.map(k=>
-    `<li data-slot="${k}" data-pick="${esc(pickOf[k]||"")}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(o[k]??"")}</div></div></li>`).join("");
+    `<li data-slot="${k}" data-pick="${esc(pickOf[k]||"")}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(shown[k]??"")}</div></div></li>`).join("");
   for(const k of Object.keys(pickOf)){
     const id=pickOf[k]; if(!id) continue;
     photoLoad(id).then(src=>{
@@ -2678,19 +2728,64 @@ function renderOutfit(o,text,source,res){
       }
     }).catch(()=>{});
   }
-  const tipEl=$("outfitTip");
-  tipEl.style.display=o.tip?"":"none";
-  tipEl.textContent="💡 "+(o.tip||"");
-  /* The record is NOT cleared here, for any advice, fresh or restored.
-     It answers "what is in the laundry on account of today" — a fact about
-     garments, not about a suggestion. Somebody who wore the polo this morning and
-     asks for new advice at noon has still worn the polo, and clearing the record
-     while its wears stayed in the log orphaned them: nothing could find them, undo
-     released the wrong garments, and the next save counted a second outfit on the
-     same day. Staleness is a question of the DAY, and the restore checks that.
-     Raised by the pre-push reviewer, 2026-08-29. */
-  ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
-  renderFeedback();
+}
+
+/* What the wearer actually put on, laid over the advice the card was drawn from
+   (user, 2026-08-30: "once I said I wore something else, show TODAY'S outfit").
+
+   The record only ever speaks about the CLOSET, so this only ever overrides slots
+   the closet can answer for. Returns the same {outfit, picks} shape drawOutfit
+   draws, so nothing downstream can tell the two apart. */
+function wornOverlay(o,advice){
+  const rec=wearRecord();
+  if(!rec) return null;
+  const outfit={...o}, picks={...advice};
+  for(const k of CATS){
+    const id=rec[k]||null;
+    const it=id?closet.find(i=>i.id===id):null;
+    if(it){ outfit[k]=it.label; picks[k]=it.id; continue; }
+    if(id){
+      // Recorded, then deleted from the closet. Its wears were cascaded away with
+      // it, so there is no name and no photo left to show — and putting the
+      // suggestion back in the slot would show a garment they said they did not
+      // wear. Named as absent instead, which is what the app can still stand by.
+      outfit[k]="None — no longer in your closet"; picks[k]=""; continue;
+    }
+    // Nothing recorded here. That is a denial only where the advice named one of
+    // THEIR garments: the sheet offers a row for every slot the closet can fill, so
+    // the silence was an answer. Where the advisor suggested something they do not
+    // own there was no row to answer with, and its line stands.
+    if(advice[k]){ outfit[k]="None worn"; picks[k]=""; }
+  }
+  return {outfit,picks};
+}
+
+/* Does today's record disagree with the advice on screen? "Wearing it" writes a
+   record too, and a banner announcing a correction over an outfit nobody corrected
+   is noise on every screen that has ever logged an outfit. */
+function wornDiffers(){
+  const rec=wearRecord(); if(!rec) return false;
+  const advice=(lastRes&&lastRes.picks)||{};
+  return CATS.some(k=>(rec[k]||null)!==(advice[k]||null));
+}
+/* The banner, and the one tap back. Without it the suggestion would be unreachable
+   from the card the moment it was corrected — and "Why this", read under pictures
+   of something else, is the reasoning for the outfit that was NOT worn. */
+function syncWornNote(){
+  const el=$("wornNote"); if(!el) return;
+  if(!wornDiffers()){ el.style.display="none"; return; }
+  el.style.display="";
+  $("wornNoteTxt").textContent=wornView?"👕 What you actually wore today."
+                                       :"✏️ You wore something else today.";
+  $("wornToggle").textContent=wornView?"See the suggestion":"Show what I wore";
+}
+/* Redraw the garments alone — for the paths that change what is WORN rather than
+   what was advised: saving a correction, undoing one, and the launch that restores
+   one after loadToday has already drawn the advice. */
+function refreshOutfitView(){
+  if(!lastOutfit) return;
+  drawOutfit(lastOutfit,lastRes);
+  syncWornNote();
 }
 
 /* Trips the app added BY ITSELF under rules we have since found to be wrong.
@@ -3261,6 +3356,9 @@ async function saveWore(){
   $("woreWrap").classList.remove("show");
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
   syncWearBtn();   // owns the label, the visibility and wornLogged
+  // The pictures are of today's outfit, and this is what today's outfit now is.
+  wornView=true;
+  refreshOutfitView();
   toast(changed?"Noted — the advisor will remember what you reach for"
                :"Logged — that is what was suggested");
   }finally{ woreBusy=false; }
@@ -4027,6 +4125,7 @@ $("shDel").onclick=async()=>{
   await saveCloset(); closeSheet(); toast("Deleted");
 };
 $("dWore").onclick=openWoreSheet;
+$("wornToggle").onclick=()=>{ wornView=!wornView; refreshOutfitView(); };
 $("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
 $("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
 $("woreSave").onclick=()=>{ saveWore(); };
@@ -4044,6 +4143,9 @@ $("dWear").onclick=async()=>{
     woreLogged={...((lastRes&&lastRes.picks)||{})};
     await saveWoreLogged();
     syncWearBtn();
+    // The record now exists, but it IS the advice — so the card needs no redraw,
+    // only the banner asked whether there is a correction to announce.
+    syncWornNote();
     toast("Rotation updated — these go to the laundry pile");
   }else{
     // The RECORD, not lastPickIds: after a correction the two are different
@@ -4060,6 +4162,9 @@ $("dWear").onclick=async()=>{
     woreLogged=null;             // nothing is logged any more, so nothing to reopen on
     await saveWoreLogged();
     if(swaps.length!==before) await saveSwaps();
+    // Nothing is recorded any more, so there is nothing to show instead.
+    wornView=false;
+    refreshOutfitView();
     toast(swaps.length!==before?"Undone — and I have forgotten that correction":"Undone");
   }
   await saveCloset();
@@ -4298,6 +4403,10 @@ const appReady=(async()=>{
     woreDay=woreLogged?d.day:null;
   }catch(e){ woreLogged=null; woreDay=null; }
   syncWearBtn();
+  // loadToday drew the advice before the record was readable. If today already has
+  // one, the pictures should be of what was worn — that is what the card is for.
+  wornView=!!wearRecord();
+  refreshOutfitView();
   await renderCloset();
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import closet as llm  # module split 2026-08-14
 import picks  # validation split out 2026-08-27
+import scale  # the warmth scales split out 2026-08-31
 import vocab
 
 passed = failed = 0
@@ -198,10 +199,10 @@ print("\n[7] warmth guard: a legal role is not automatically a sensible garment"
 # Live 2026-08-10: given a shirt legitimately allowed to be `outer`, the model put
 # that warmth-2 shirt outermost at 4C and left an available warmth-5 coat unused.
 # Every pick was legal; the advice was still wrong.
-check("deep cold demands a warmth-4 outer", picks._min_outer_warmth(2) == 4)
-check("cold demands warmth 3", picks._min_outer_warmth(8) == 3)
-check("cool demands warmth 2", picks._min_outer_warmth(15) == 2)
-check("mild accepts anything", picks._min_outer_warmth(25) == 1)
+check("deep cold demands a warmth-4 outer", scale.min_outer_warmth(2) == 4)
+check("cold demands warmth 3", scale.min_outer_warmth(8) == 3)
+check("cool demands warmth 2", scale.min_outer_warmth(15) == 2)
+check("mild accepts anything", scale.min_outer_warmth(25) == 1)
 ITEMS = {
     "thin": {"id": "thin", "warmth": 2},
     "coat": {"id": "coat", "warmth": 5},

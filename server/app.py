@@ -43,24 +43,26 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Literal
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
 
 import closet as closet_llm
 import engine
 import llm
 import rules
+import scale
 import shopping as shopping_llm
 import vocab
 import weather
 from schemas import (
     AdviceRequest,
+    ClassifyRequest,
+    ClimateRequest,
     ClosetItem,
+    PackingRequest,
     RuleRequest,
     ShoppingRequest,
     TriageRequest,
@@ -92,12 +94,6 @@ app.add_middleware(
     # is not subject to CORS, kept working and hid it.
     allow_headers=["content-type", "x-oa-client"],
 )
-
-
-class ClassifyRequest(BaseModel):
-    # ~3MB of raw image, base64-encoded (~4M chars). The phone downscales to
-    # ~512px first, so a real request is far smaller.
-    imageB64: str = Field(..., min_length=100, max_length=4_200_000)
 
 
 # ---- in-app update channel (2026-07-28) -------------------------------------
@@ -297,37 +293,6 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         "picks": picks,
         "tempOffset": req.tempOffset,
     }
-
-
-class PackingRequest(BaseModel):
-    """Trip packing. NOTE what is deliberately ABSENT: the calendar event's title,
-    notes, attendees, and location STRING. The phone resolves the destination to
-    coordinates at confirm time and sends only those. The server never learns where
-    the user is going by name, and cannot — that is the point (see PLAN.md Trips /
-    privacy posture)."""
-
-    lat: float = Field(..., ge=-90, le=90)
-    lon: float = Field(..., ge=-180, le=180)
-    start: dt.date
-    end: dt.date
-    type: Literal["business", "vacation"] = "vacation"
-    gender: Literal["man", "woman", "neutral"] = "neutral"
-    # A business trip is smart for meetings AND casual for evenings — one scalar
-    # cannot express that, so packing takes a SET of registers (plan amendment T-3).
-    styles: list[Literal["casual", "smart", "active"]] = Field(
-        default_factory=lambda: ["casual"], min_length=1, max_length=3
-    )
-    closet: list[ClosetItem] | None = Field(None, max_length=100)
-
-    @field_validator("end")
-    @classmethod
-    def _order(cls, v: dt.date, info) -> dt.date:
-        start = info.data.get("start")
-        if start and v < start:
-            raise ValueError("end is before start")
-        if start and (v - start).days > 30:
-            raise ValueError("trip longer than 30 days")
-        return v
 
 
 # How many of each category a trip actually needs, given its length. Only inner,
@@ -530,6 +495,32 @@ async def triage(req: TriageRequest, x_oa_client: str = Header(default="")):
     return out
 
 
+@app.post("/climate")
+async def climate(req: ClimateRequest):
+    """The three anchors the warmth scale hangs on, for a home area.
+
+    Called ONCE by the phone, when the home area is set or changed, and cached
+    there: this is the most expensive call the server makes (ten years of daily
+    archive — see weather.fetch_climate_anchors) and the answer moves on the scale
+    of decades. Stateless like the rest — the coordinates are used for the fetch
+    and kept nowhere.
+    """
+    t0 = time.monotonic()
+    try:
+        out = await weather.fetch_climate_anchors(req.lat, req.lon)
+    except ValueError as e:
+        # Not enough archive to call it a climate. A refusal, so the phone keeps the
+        # absolute scale rather than anchoring every garment it owns to noise.
+        log.warning("climate: %s (%.1fs)", e, time.monotonic() - t0)
+        raise HTTPException(status_code=503, detail=str(e)) from None
+    except httpx.HTTPError as e:
+        log.warning("climate: archive unreachable (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="climate archive unreachable") from None
+    log.info("climate: cold=%.1f avg=%.1f hot=%.1f from %d years (%.1fs)",
+             out["cold"], out["avg"], out["hot"], out["years"], time.monotonic() - t0)
+    return out
+
+
 @app.post("/classify")
 async def classify(req: ClassifyRequest):
     t0 = time.monotonic()
@@ -540,7 +531,8 @@ async def classify(req: ClassifyRequest):
     except Exception:
         raise HTTPException(status_code=422, detail="imageB64 is not valid base64") from None
 
-    raw = await llm.classify_image(b64)
+    wearers_scale = scale.from_anchors(req.climate)
+    raw = await llm.classify_image(b64, wearers_scale)
     if raw is None:
         log.warning("classify failed: LLM unavailable or non-JSON (%.2fs)", time.monotonic() - t0)
         raise HTTPException(status_code=502, detail="classification unavailable")
@@ -561,11 +553,25 @@ async def classify(req: ClassifyRequest):
     # answered nothing usable for warmth/formality, the type's defaults are a better
     # source than the bare 3/["casual"] fallbacks. FILL only — a stated value is
     # about THIS garment, and the table only knows the average one.
+    said = int(raw.get("warmth") or 0) or None
+    # USABLE, by the same test apply_type_defaults applies. `said is not None` was
+    # not that test: a model answering 99 has said something, the table then quietly
+    # replaced it, and the replacement — written in absolute units — was stamped as
+    # graded against the wearer's year. Raised by the pre-push reviewer, 2026-08-31.
+    usable = said in (1, 2, 3, 4, 5)
     warmth, formality = vocab.apply_type_defaults(
         vocab.normalize_type(raw_type, vocab.canonical_group(raw.get("group"))),
-        int(raw.get("warmth") or 0) or None,
+        said,
         [f for f in (raw.get("formality") or []) if f in vocab.STYLES],
     )
+    # Which scale that number ended up on. The model was told the wearer's degrees —
+    # but only if it ANSWERED: where it did not, TYPE_DEFAULTS filled the number, and
+    # that table is written in the absolute units it always was. Stamping those
+    # "home" would put a whole class of garments on a ruler nothing measured them
+    # with.
+    graded_on = scale.HOME if (wearers_scale and usable) else scale.ABSOLUTE
+    anchors = ([wearers_scale.cold, wearers_scale.avg, wearers_scale.hot]
+               if graded_on == scale.HOME and wearers_scale else None)
     try:
         item = ClosetItem(
             id="pending-0000",  # phone assigns the real uuid on save
@@ -578,6 +584,8 @@ async def classify(req: ClassifyRequest):
             warmth=warmth,
             formality=formality,
             waterproof=bool(raw.get("waterproof")),
+            warmthScale=graded_on,
+            warmthAnchors=anchors,
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

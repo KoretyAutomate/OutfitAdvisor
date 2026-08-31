@@ -157,10 +157,10 @@ async def fetch_range(lat: float, lon: float, start: str, end: str) -> dict:
 async def _archive_year(
     client: httpx.AsyncClient,
     sem: asyncio.Semaphore,
-    lat: float,
-    lon: float,
+    point: tuple[float, float],       # (lat, lon) — paired, like the window below
     window: tuple[dt.date, dt.date],  # (start, end) — one calendar window, always paired
     year: int,
+    daily: list[str] | None = None,
 ) -> dict[str, list] | None:
     """One year's slice of the same calendar window. None if that year is
     genuinely unusable (e.g. a Feb-29 window in a common year).
@@ -176,6 +176,7 @@ async def _archive_year(
     REFUSES to build a normal out of too few years rather than silently averaging
     two years and calling it climate.
     """
+    lat, lon = point
     start, end = window
     try:
         s = start.replace(year=year)
@@ -185,7 +186,9 @@ async def _archive_year(
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": ",".join(_COMMON_DAILY),  # NEVER precipitation_probability_max here
+        # Trap 3 again: the bill is variables x days, so a caller that needs only
+        # temperature must not pay for five. NEVER precipitation_probability_max here.
+        "daily": ",".join(daily or _COMMON_DAILY),
         "timezone": "auto",
         "wind_speed_unit": "ms",
         "start_date": s.isoformat(),
@@ -205,6 +208,73 @@ async def _archive_year(
     return None
 
 
+# The two variables a climate anchor needs, and nothing else — see _CLIMATE_COST.
+_CLIMATE_DAILY = ["temperature_2m_max", "temperature_2m_min"]
+
+
+async def fetch_climate_anchors(lat: float, lon: float) -> dict:
+    """The home climate the warmth scale is measured against (user, 2026-08-30).
+
+    Twelve monthly MIDPOINTS — the mid point of each month's average range, which
+    is the user's own definition — plus the three anchors the scale hangs on:
+
+        cold  the coldest month's midpoint   -> warmth 5, the warmest garment owned
+        avg   the mean of the twelve         -> warmth 3
+        hot   the warmest month's midpoint   -> warmth 1
+
+    Why a midpoint rather than a mean of daily means: a month is dressed for by the
+    range it spans, and the midpoint of the average low and the average high is the
+    number a person recognises as "what that month is like". It is also the only
+    definition that stays stable when a station reports lows and highs but no mean.
+
+    COST: NORMALS_YEARS whole years at two variables. Open-Meteo bills variables x
+    days (trap 3), so this is the most expensive call the server makes — which is
+    why it runs once per HOME and the phone caches the answer, rather than once per
+    morning. Fanned out per year all the same, for the 429 reason in _archive_year.
+    """
+    this_year = dt.date.today().year
+    years = range(this_year - NORMALS_YEARS, this_year)
+    window = (dt.date(2000, 1, 1), dt.date(2000, 12, 31))
+
+    sem = asyncio.Semaphore(NORMALS_CONCURRENCY)
+    async with httpx.AsyncClient(timeout=60) as client:
+        results = await asyncio.gather(
+            *[_archive_year(client, sem, (lat, lon), window, y, _CLIMATE_DAILY) for y in years]
+        )
+    usable = [d for d in results if d and d.get("time")]
+    # Same refusal as fetch_normals: two years is not a climate. A wrong anchor here
+    # is not a wrong forecast, it is a wardrobe scale that is wrong every day.
+    if len(usable) < NORMALS_MIN_YEARS:
+        raise ValueError(f"only {len(usable)}/{NORMALS_YEARS} archive years available (need {NORMALS_MIN_YEARS})")
+
+    # month -> the daily highs and lows of every year, pooled
+    his: dict[int, list[float]] = {m: [] for m in range(1, 13)}
+    los: dict[int, list[float]] = {m: [] for m in range(1, 13)}
+    for d in usable:
+        for i, day in enumerate(d["time"]):
+            m = int(day[5:7])
+            hi = d["temperature_2m_max"][i]
+            lo = d["temperature_2m_min"][i]
+            if hi is not None:
+                his[m].append(hi)
+            if lo is not None:
+                los[m].append(lo)
+    # Every month, or none. A gap would put the coldest month's anchor on whichever
+    # month happened to survive, and nothing downstream could tell.
+    if any(not his[m] or not los[m] for m in range(1, 13)):
+        missing = [m for m in range(1, 13) if not his[m] or not los[m]]
+        raise ValueError(f"archive returned no usable days for month(s) {missing}")
+
+    months = [round((statistics.mean(his[m]) + statistics.mean(los[m])) / 2, 1) for m in range(1, 13)]
+    return {
+        "months": months,
+        "cold": round(min(months), 1),
+        "avg": round(statistics.mean(months), 1),
+        "hot": round(max(months), 1),
+        "years": len(usable),
+    }
+
+
 async def fetch_normals(lat: float, lon: float, start: str, end: str) -> dict:
     """ "Typical for this window" — the same calendar days averaged over the last
     NORMALS_YEARS. For trips beyond the forecast horizon.
@@ -219,7 +289,7 @@ async def fetch_normals(lat: float, lon: float, start: str, end: str) -> dict:
 
     sem = asyncio.Semaphore(NORMALS_CONCURRENCY)
     async with httpx.AsyncClient(timeout=30) as client:
-        results = await asyncio.gather(*[_archive_year(client, sem, lat, lon, (s, e), y) for y in years])
+        results = await asyncio.gather(*[_archive_year(client, sem, (lat, lon), (s, e), y) for y in years])
     usable = [d for d in results if d and d.get("time")]
     # An average of two years is not a climate normal. Fail loudly rather than
     # dress the user for noise while the badge claims "typical for March".

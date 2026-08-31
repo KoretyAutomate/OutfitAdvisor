@@ -77,6 +77,10 @@
   /* "What to wear" — the pictures, first and largest (user, 2026-08-26). Wider
      tiles than the closet grid: this is four to seven garments being read at a
      glance, not a wardrobe being browsed. */
+  .warmSeg button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 2px}
+  .warmSeg .wn{font-size:.95rem;line-height:1}
+  .warmSeg .wt{font-size:.6rem;color:var(--muted);line-height:1;min-height:.7em}
+  .warmSeg button.on .wt{color:var(--txt)}
   .wornNote{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
   .wornNote button{padding:4px 11px;font-size:.72rem;border-radius:999px}
   .wear{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
@@ -400,6 +404,9 @@
         <div style="min-width:0">
           <label class="lbl" style="margin:0">Home area</label>
           <div class="note" id="homeLine" style="margin-top:2px">not set</div>
+          <!-- The warmth scale is measured from here (user, 2026-08-30): warmth 5
+               is the coldest month, 3 the annual average, 1 the warmest. -->
+          <div class="note" id="climateLine" style="margin-top:2px;display:none"></div>
         </div>
         <button class="ghost" id="homeBtn" style="margin-left:auto;padding:6px 11px;font-size:.72rem">Set</button>
       </div>
@@ -478,10 +485,13 @@
     <select id="shType" style="width:100%;margin-bottom:12px"></select>
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
-    <label class="lbl">Warmth (1 cool → 5 warm)</label>
-    <div class="seg" id="shWarm">
-      <button data-w="1">1</button><button data-w="2">2</button><button data-w="3">3</button>
-      <button data-w="4">4</button><button data-w="5">5</button>
+    <label class="lbl">Warmth <span class="note" id="shWarmHint" style="text-transform:none;letter-spacing:0">— 1 cool → 5 warm</span></label>
+    <div class="seg warmSeg" id="shWarm">
+      <button data-w="1"><span class="wn">1</span><span class="wt"></span></button
+      ><button data-w="2"><span class="wn">2</span><span class="wt"></span></button
+      ><button data-w="3"><span class="wn">3</span><span class="wt"></span></button
+      ><button data-w="4"><span class="wn">4</span><span class="wt"></span></button
+      ><button data-w="5"><span class="wn">5</span><span class="wt"></span></button>
     </div>
     <label class="lbl" style="margin-top:10px">Works for</label>
     <div class="seg" id="shForm">
@@ -1301,7 +1311,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.23";
+const WEB_BUILD="1.24";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1487,7 +1497,11 @@ async function classifyPhoto(b64){
   try{
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/classify",{
       method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
-      body:JSON.stringify({imageB64:b64})});
+      // The scale the number will be READ on, sent with the photo it is written
+      // from — otherwise the classifier grades on one scale and the outer-layer
+      // guard checks on another.
+      body:JSON.stringify(climateAnchors()?{imageB64:b64,climate:climateAnchors()}
+                                          :{imageB64:b64})});
     if(!r.ok) throw new Error("server "+r.status);
     return await r.json();
   }catch(e){ return null; }
@@ -1517,6 +1531,13 @@ async function addItem(source){
     category:meta?.category||"base", group:meta?.group, type:meta?.type,
     roles:meta?.roles,
     colors:meta?.colors||[], warmth:meta?.warmth||3,
+    // WHICH SCALE that number was written on, and WHOSE year. The server stamps
+    // what it actually graded on — "home" only where the model answered a warmth
+    // AND it had been told the wearer's degrees, never where the type table filled
+    // the number in its own absolute units.
+    warmthScale:meta?.warmthScale==="home"?"home":"absolute",
+    warmthAnchors:Array.isArray(meta?.warmthAnchors)&&meta.warmthAnchors.length===3
+                  ?meta.warmthAnchors.slice():null,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
     waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
   item.photo=await photoSave(item.id,b64);
@@ -1598,7 +1619,28 @@ async function rescanTypes(){
 /* ── edit sheet ── */
 let sheet=null; // {item, isNew, b64?}
 function paintSheetSegs(){
-  [...$("shWarm").children].forEach(b=>b.classList.toggle("on",+b.dataset.w===sheet.item.warmth));
+  // Each number captioned with the temperature it answers to on the wearer's own
+  // scale (user, 2026-08-30). "1 cool -> 5 warm" is the only definition of this
+  // scale anybody ever sees, and it does not say cool for WHERE — which is how the
+  // same jumper became a 4 in two cities that share no month.
+  const a=climateAnchors();
+  [...$("shWarm").children].forEach(b=>{
+    b.classList.toggle("on",+b.dataset.w===sheet.item.warmth);
+    const t=b.querySelector(".wt");
+    if(t){ const c=warmthTemp(+b.dataset.w,a); t.textContent=c==null?"":`${Math.round(c)}°`; }
+  });
+  const hint=$("shWarmHint");
+  // The captions are in the CURRENT home's degrees. A garment graded on the old
+  // absolute scale, or against a year the wearer has since moved away from, is
+  // still read in its own units — so the captions and the number below them are
+  // about different things until it is re-graded. Saying so is what makes the one
+  // tap that fixes it findable.
+  const own=gradedOn(sheet.item);
+  const here=!!(a&&own&&own.cold===a.cold&&own.avg===a.avg&&own.hot===a.hot);
+  if(hint) hint.textContent=!a ? "— 1 cool → 5 warm"
+    : here ? "— the day it is for, at home"
+    : own ? "— graded at another home · tap a number to re-grade"
+    : "— graded on the old scale · tap a number to re-grade";
   [...$("shForm").children].forEach(b=>b.classList.toggle("on",sheet.item.formality.includes(b.dataset.f)));
   $("shCount").textContent=sheet.item.count;
   paintTypes();
@@ -2074,6 +2116,103 @@ function haversineKm(a,b,c,d){
   return 2*R*Math.asin(Math.sqrt(h));
 }
 async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); }
+
+/* ───────── the warmth scale is measured from HOME (user, 2026-08-30) ─────────
+
+   "3 should be referred as the annual average temperature of the home location, 5
+   the highest, and low the lowest. We should always take the mid point of the
+   Monthly average range."
+
+   Warmth 1-5 was absolute: the classifier was asked for "1=summer-thin,
+   5=deep-winter" and the outer-layer guard fired at a fixed 5/12/18C. Both were
+   written from one climate and then shipped to everybody, so the same jumper is a
+   4 in Singapore and a 4 in Oslo, and the guard never fires in the first while it
+   saturates in the second exactly where the cold starts to matter.
+
+   Three anchors, from the twelve monthly midpoints of the home area:
+     cold  the coldest month  -> warmth 5     avg  the annual average -> warmth 3
+     hot   the warmest month  -> warmth 1
+
+   The DIRECTION is the one the numbers already had — 5 is still the wool coat — so
+   nothing in the closet has to be renumbered. TWIN of picks.Climate on the server.
+
+   Cached against the home it was measured at: this is the most expensive call the
+   server makes (ten years of daily archive), and the answer moves on the scale of
+   decades. A home that has changed invalidates it by COORDINATE, not by age. */
+const CLIMATE_KEY="oa.climate";
+let climate=null;   // {lat,lon,cold,avg,hot,months[],at} or null
+/* The anchors, but ONLY when they were measured at the home currently set. A cache
+   left over from a previous home would scale the whole wardrobe to a city the
+   wearer has moved away from, silently and for ever. */
+function climateAnchors(){
+  if(!climate||!home) return null;
+  if(climate.lat!==home.lat||climate.lon!==home.lon) return null;
+  const {cold,avg,hot}=climate;
+  // The same refusal picks.Climate.of makes: a degenerate scale costs the warmth
+  // calibration, never the advice.
+  if(![cold,avg,hot].every(Number.isFinite)) return null;
+  return (cold<avg&&avg<hot)?{cold,avg,hot}:null;
+}
+/* The temperature a warmth answers to — what the picker's labels say. Piecewise
+   through the three anchors, because the annual average is rarely halfway between
+   the extremes. TWIN of Climate.temp_for.
+   Unrounded: JS rounds a .05 tie up and Python rounds it to even, so rounding here
+   put the caption a tenth of a degree away from the server's own answer. Both round
+   once, where it is displayed. */
+function warmthTemp(w,a){
+  a=a===undefined?climateAnchors():a; if(!a) return null;
+  w=Math.max(1,Math.min(5,w));
+  return w>=3 ? a.avg+(a.cold-a.avg)*((w-3)/2)
+              : a.avg+(a.hot-a.avg)*((3-w)/2);
+}
+async function saveClimate(){
+  await prefSet(CLIMATE_KEY, climate?JSON.stringify(climate):"");
+  renderClimate(); if(sheet) paintSheetSegs();
+}
+function renderClimate(){
+  const el=$("climateLine"); if(!el) return;
+  const a=climateAnchors();
+  el.style.display=a?"":"none";
+  if(a) el.textContent=`warmth scale: 5 = ${Math.round(a.cold)}°, 3 = ${Math.round(a.avg)}°, `+
+                       `1 = ${Math.round(a.hot)}° — this area's coldest, average and warmest month`;
+}
+/* Fetched once per home. A failure is SILENT and leaves the absolute scale in
+   place: nobody should lose a morning to a busy climate archive, and there is
+   nothing here the wearer could act on if they were told. */
+let climateBusy=false;
+async function refreshClimate(){
+  if(climateBusy||!home||climateAnchors()) return;
+  climateBusy=true;
+  // The home this answer is ABOUT, captured before the wait. Ten years of archive
+  // can take a minute, and a wearer can set a new home inside it — stamping the
+  // response with whatever `home` says on the way OUT filed the first home's
+  // climate under the second's coordinates, where climateAnchors() accepts it
+  // happily and climateBusy stops anything measuring the home they actually moved
+  // to. Raised by the pre-push reviewer, 2026-08-31.
+  const lat=home.lat, lon=home.lon;
+  try{
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),60000);
+    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/climate",{
+      method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
+      body:JSON.stringify({lat,lon})});
+    clearTimeout(to);
+    if(!r.ok) return;
+    const d=await r.json();
+    if(!home||home.lat!==lat||home.lon!==lon) return;   // about somewhere they left
+    climate={lat,lon,cold:d.cold,avg:d.avg,hot:d.hot,
+             months:Array.isArray(d.months)?d.months:[],at:Date.now()};
+    // Stored only if it is usable AS a scale — refused rather than kept wrong.
+    if(!climateAnchors()){ climate=null; return; }
+    await saveClimate();
+    await savePushPayload();   // the morning push measures by the same scale
+  }catch(e){}
+  finally{
+    climateBusy=false;
+    // Retried when the home MOVED under the request, success or failure — and only
+    // then. Retrying a failure here would spin against an archive that is down.
+    if(home&&(home.lat!==lat||home.lon!==lon)) refreshClimate();
+  }
+}
 function renderHome(){
   const el=$("homeLine"); if(!el) return;
   el.textContent=home?home.label:"not set — trips can't be detected automatically";
@@ -2099,6 +2238,9 @@ async function setHomeFromHere(){
     }
     home={label,postal:named.postalCode||"",lat:roundCoarse(p.lat),lon:roundCoarse(p.lon)};
     await saveHome();
+    // The warmth scale is measured from here, so a new home needs a new one. The
+    // old anchors are already dead — climateAnchors() checks the coordinates.
+    refreshClimate();
     toast("Home set — trips will be found automatically");
   }catch(e){
     el.textContent="couldn't get your location — tap Set to try again";
@@ -2408,7 +2550,8 @@ function packPayload(trip){
   // list that cannot tell a shirt from a tee packs the wrong one for a business day.
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     type:normType(i.type,i.group),colors:i.colors,
-    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
+    warmth:i.warmth,...itemScale(i),
+    formality:i.formality,waterproof:i.waterproof,
     availableCount:packAvail(i,dep,!!trip.laundryBefore)}))
     .filter(i=>i.availableCount>=1);
 }
@@ -2459,14 +2602,16 @@ async function cancelTrip(trip){
 function closetOwned(){
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
-    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof,
+    warmth:i.warmth,...itemScale(i),
+    formality:i.formality,waterproof:i.waterproof,
     availableCount:Math.max(1,i.count||1)}));
 }
 function closetPayload(){
   const trip=tripInProgress();
   const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
-    warmth:i.warmth,formality:i.formality,waterproof:i.waterproof});
+    warmth:i.warmth,...itemScale(i),
+    formality:i.formality,waterproof:i.waterproof});
   if(trip){
     const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
     return closet.filter(i=>packedQty.has(i.id))
@@ -2551,6 +2696,10 @@ async function getAdvice(lat,lon){
     // the LLM was down (2026-08-13). Match the native worker's 90s ceiling.
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
+    // No scale on the REQUEST: each garment carries the year its own number was
+    // graded against, in closetPayload above. What has to be known at 06:45 is what
+    // each number meant when it was written, and that does not change when the
+    // wearer moves house.
     if(cl.length) body.closet=cl;
     // Only meaningful alongside a closet — a rule names garments, and generic
     // advice has none to name.
@@ -3430,7 +3579,7 @@ function ownershipGaps(missing,planTemp,sentIds){
     // the same tests the server uses, at the same planning temperature.
     if(bannedOutright(i)) continue;
     for(const r of normRoles(i.roles,i.category)){
-      if(r==="outer"&&planTemp!=null&&(i.warmth||3)<minOuterWarmth(planTemp)) continue;
+      if(r==="outer"&&planTemp!=null&&!warmEnough(i,planTemp)) continue;
       withheld.add(r);
     }
   }
@@ -3500,7 +3649,45 @@ async function recordGaps(missing,w,planTemp,day,sentIds){
    evidence and the advice disagree about the same wardrobe. today_rules.test.js
    asserts the two tables match. */
 const OUTER_MIN_WARMTH=[[5,4],[12,3],[18,2]];
-function minOuterWarmth(t){
+/* The scale a GARMENT's number was written on — TWIN of scale.graded_on. Carried by
+   the garment as three numbers rather than the word "home", because "home" alone
+   says a number was graded against somebody's year without saying whose: a jumper
+   graded in Singapore would be re-read against Oslo's anchors after a move, by a
+   climate that never saw it. Anything unusable falls back to absolute. */
+function gradedOn(item){
+  if(!item||item.warmthScale!=="home") return null;
+  const a=item.warmthAnchors;
+  if(!Array.isArray(a)||a.length!==3||!a.every(Number.isFinite)) return null;
+  return (a[0]<a[1]&&a[1]<a[2])?{cold:a[0],avg:a[1],hot:a[2]}:null;
+}
+/* What goes on the wire for one garment. Both fields or neither — a stamp without
+   its anchors is the ambiguity this pair exists to remove. */
+function itemScale(i){
+  const a=gradedOn(i);
+  return a?{warmthScale:"home",warmthAnchors:[a.cold,a.avg,a.hot]}
+          :{warmthScale:"absolute",warmthAnchors:null};
+}
+/* Is this garment warm enough to be the outermost layer today? TWIN of
+   scale.warm_enough — and it takes the ITEM, not just its number, because a "warmth
+   4" written under "1=summer-thin, 5=deep-winter" is not the same claim as a 4
+   graded against a particular year. Asking only for the number here, while the
+   server asked for the scale, is precisely the twin drift that makes the evidence
+   and the advice disagree about the same wardrobe. */
+function warmEnough(item,t){
+  return (item.warmth||3) >= minOuterWarmth(t, gradedOn(item));
+}
+function minOuterWarmth(t,a){
+  // `a` is the scale THIS GARMENT was numbered on — TWIN of Climate.warmth_for.
+  // Defaulting it to the current home's anchors is what would re-read every old
+  // number on a ruler nothing measured it with; callers pass gradedOn(item), and
+  // null means the absolute table, which is what everybody had before 2026-08-30.
+  if(a){
+    if(t<=a.cold) return 5;
+    if(t>=a.hot) return 1;
+    const w=t<=a.avg ? 3+2*(a.avg-t)/(a.avg-a.cold)
+                     : 3-2*(t-a.avg)/(a.hot-a.avg);
+    return Math.max(1,Math.min(5,Math.round(w)));
+  }
   for(const [below,need] of OUTER_MIN_WARMTH) if(t<below) return need;
   return 1;
 }
@@ -3540,7 +3727,7 @@ async function clearGapsFilledBy(item){
     // warmth thresholds on different days, so comparing against the wrong one
     // forgets gaps the server would still raise, or keeps ones it would not.
     // `lo` is the fallback for records written before planTemp was sent.
-    if(g.slot==="outer"&&(item.warmth||3)<minOuterWarmth(g.at!=null?g.at:g.lo)) return true;
+    if(g.slot==="outer"&&!warmEnough(item,g.at!=null?g.at:g.lo)) return true;
     return false;
   });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }
@@ -3944,6 +4131,7 @@ async function load(){
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
+  try{ const c=await prefGet(CLIMATE_KEY,""); climate=c?JSON.parse(c):null; }catch(e){ climate=null; }
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
   if($("closetDone")) $("closetDone").checked=closetComplete;
@@ -4042,7 +4230,22 @@ $("closetGrid").onclick=e=>{
   const t=e.target.closest(".item"); if(!t) return;
   const it=closet.find(i=>i.id===t.dataset.id); if(it) openSheet(it,{isNew:false});
 };
-$("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;sheet.item.warmth=+b.dataset.w;paintSheetSegs();};
+$("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
+  sheet.item.warmth=+b.dataset.w;
+  // Tapping a number here IS re-grading the garment: the buttons are captioned with
+  // the wearer's own degrees, so what they just chose was chosen on that scale. This
+  // is the one-tap migration for a closet numbered before the scale existed — and
+  // the only one, because nothing else can know what an old number meant.
+  const a=climateAnchors();
+  // The stamp always follows the CAPTIONS the wearer just read. With no anchors the
+  // buttons carry no degrees, so the number they chose is an absolute one — and
+  // leaving an older "home" stamp on it would have the new number judged against a
+  // year it was never chosen in, which is most likely right after a move, while
+  // /climate is still loading or has failed. Raised by the pre-push reviewer,
+  // 2026-08-31.
+  if(a){ sheet.item.warmthScale="home"; sheet.item.warmthAnchors=[a.cold,a.avg,a.hot]; }
+  else { sheet.item.warmthScale="absolute"; sheet.item.warmthAnchors=null; }
+  paintSheetSegs();};
 $("shCat").onchange=()=>{ if(!sheet) return;
   // Changing the primary layer re-suggests the folder and re-seeds the roles, so a
   // mis-classified item can be corrected in one move instead of three. The category
@@ -4411,7 +4614,10 @@ const appReady=(async()=>{
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.
   await savePushPayload();
-  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
+  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
+  // Fire-and-forget, and a no-op unless a home is set and its anchors are missing:
+  // ten years of archive is not something to make the first paint wait for.
+  refreshClimate();
   checkUpdate(); renderVersion();   // fire-and-forget: never blocks the UI, silent when the DGX is down
 })();
 </script>

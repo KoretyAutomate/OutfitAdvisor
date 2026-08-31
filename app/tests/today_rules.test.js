@@ -814,12 +814,13 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("but not one planned at 4C, where the server wants warmth 4",
     ev(`gaps.length`) === 1, ev(`JSON.stringify(gaps)`));
 
-  /* The warmth table is a TWIN of _OUTER_MIN_WARMTH in server/picks.py. If they
-     drift, the evidence and the advice disagree about the same wardrobe: the app
-     forgets a gap the server would still raise, or keeps one it would not. */
+  /* The warmth table is a TWIN of ABSOLUTE_TABLE in server/scale.py — moved there
+     from picks.py on 2026-08-31, at the 600-line ceiling. If they drift, the
+     evidence and the advice disagree about the same wardrobe: the app forgets a gap
+     the server would still raise, or keeps one it would not. */
   const serverLine = (fs.readFileSync(
-    path.join(__dirname, "..", "..", "server", "picks.py"), "utf8")
-    .split("\n").find(l => l.startsWith("_OUTER_MIN_WARMTH")) || "");
+    path.join(__dirname, "..", "..", "server", "scale.py"), "utf8")
+    .split("\n").find(l => l.startsWith("ABSOLUTE_TABLE")) || "");
   const serverPairs = [...serverLine.matchAll(/\((\d+),\s*(\d+)\)/g)]
     .map(m => [Number(m[1]), Number(m[2])]);
   check("the phone's warmth table matches the server's",

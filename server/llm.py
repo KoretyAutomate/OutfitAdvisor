@@ -16,11 +16,16 @@ caller validates (never prompt-hoped). Images are request-scoped locals only.
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 import httpx
 
 import rules
+import scale
 from vocab import CATEGORIES, GROUPS, STYLES, TYPE_LABEL, TYPES
+
+if TYPE_CHECKING:                       # only here to name the type in a signature
+    from scale import Climate
 
 # Same handler app.py configures; never log prompt or closet CONTENT here — the
 # privacy invariant is that item labels never reach the logs. Ids only.
@@ -129,7 +134,27 @@ async def outfit_text(w: dict, gender: str, style: str) -> str | None:
     )
 
 
-async def classify_image(image_b64: str) -> dict | None:
+def _warmth_line(climate: "Climate | None") -> str:
+    """What 1-5 means, in the wearer's own degrees when we know them.
+
+    "1=summer-thin, 5=deep-winter" is written from one climate and then asked of
+    every wearer: a fleece is deep-winter in Singapore and an autumn layer in Oslo,
+    and the model has no way to know which it is being asked about. Given the home
+    anchors it is told in degrees instead, so the number it writes means the same
+    thing as the number the outer-layer guard reads (2026-08-30).
+    """
+    if climate is None:
+        return '"warmth": 1-5 (1=summer-thin, 5=deep-winter), '
+    return (
+        '"warmth": 1-5 on THIS WEARER\'s scale, where 5 suits a day around '
+        f"{climate.cold:.0f}C (their coldest month), 3 a day around "
+        f"{climate.avg:.0f}C (their annual average) and 1 a day around "
+        f"{climate.hot:.0f}C (their warmest month) — judge how warm the GARMENT is, "
+        "not what season the photo looks like, "
+    )
+
+
+async def classify_image(image_b64: str, climate: "Climate | None" = None) -> dict | None:
     """Photo of a clothing item -> structured metadata, or None on failure.
 
     The image is a request-scoped local: passed to vLLM, never stored/logged.
@@ -181,8 +206,8 @@ async def classify_image(image_b64: str) -> dict | None:
         'underwear is exactly ["inner"], and nothing else may include "inner" — a '
         "visible tee is never underwear, "
         '"colors": [1-3 lowercase color words], '
-        '"warmth": 1-5 (1=summer-thin, 5=deep-winter), '
-        f'"formality": subset of {list(STYLES)} where it fits, '
+        + _warmth_line(climate)
+        + f'"formality": subset of {list(STYLES)} where it fits, '
         '"waterproof": true/false}'
     )
     out = await _chat(
@@ -224,7 +249,7 @@ def _pack_prompt(
         f"{i['id']} | {i['category']} | {i['label']}"
         + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
         + f" | colors: {','.join(i['colors'])}"
-        f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
+        f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"
         for i in closet

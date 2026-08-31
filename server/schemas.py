@@ -9,6 +9,7 @@ length-capped and character-stripped HERE, once, so no endpoint has to remember.
 Injection posture lives here too — see the note on _TEXT_OK.
 """
 
+import datetime as dt
 import re
 from typing import Literal
 
@@ -64,6 +65,38 @@ class ClosetItem(BaseModel):
                         "footwear", "accessories"]] = Field(default_factory=list, max_length=7)
     colors: list[str] = Field(default_factory=list, max_length=3)
     warmth: int = Field(3, ge=1, le=5)
+    # WHICH SCALE that number was written on (2026-08-31). "absolute" is the old
+    # "1=summer-thin, 5=deep-winter"; "home" is a wearer's own year, and then
+    # `warmthAnchors` says WHOSE. Absent means absolute, which is the only safe
+    # reading of a closet saved before this field — re-reading an old number on the
+    # new scale demotes it by about a level, and would reject garments the wearer
+    # has worn happily for months without anybody touching them. A garment migrates
+    # when it is re-graded, not when the app updates.
+    warmthScale: Literal["absolute", "home"] = "absolute"
+    # [cold, avg, hot] — the anchors this garment's number was graded against.
+    # Carried per GARMENT rather than per request, because "home" alone says a
+    # number was graded against somebody's year without saying whose: a jumper
+    # graded in Singapore would be re-read against Oslo's anchors after a move, by a
+    # climate that never saw it. Ignored unless warmthScale is "home", and anything
+    # unusable falls back to the absolute table like every other refusal here.
+    # Both raised by the pre-push reviewer, 2026-08-31.
+    warmthAnchors: list[float] | None = None
+
+    @field_validator("warmthAnchors", mode="before")
+    @classmethod
+    def _sane_anchors(cls, v):
+        """Anything unusable is DROPPED, never raised on — and `before`, so no Field
+        constraint can 422 ahead of it. A garment carrying nonsense must cost its own
+        calibration and nothing else: 422-ing here would lose the wearer their whole
+        morning because one item in a hundred had a bad triple. Same posture as
+        `type` above, for the same reason."""
+        if not isinstance(v, list) or len(v) != 3:
+            return None
+        try:
+            a = [float(x) for x in v]
+        except (TypeError, ValueError):
+            return None
+        return a if all(-90.0 <= x <= 60.0 for x in a) else None
     formality: list[Literal["casual", "smart", "active"]] = Field(default_factory=list)
     waterproof: bool = False
     availableCount: int = Field(1, ge=1, le=99)
@@ -127,6 +160,33 @@ class Prefer(BaseModel):
     @classmethod
     def _san_label(cls, v: str) -> str:
         return _clean(v, 60)
+
+
+class ClimateAnchors(BaseModel):
+    """The home climate the 1-5 warmth scale is measured against (2026-08-30).
+
+    Three numbers, not a location: the phone computes them ONCE from POST /climate
+    and caches them, so the server keeps learning nothing about where the wearer
+    lives from one morning to the next. Bounded floats, so they add no
+    prompt-injection surface — the same reasoning that shaped tempOffset.
+
+    Ordering is NOT validated here. A degenerate scale must cost the wearer their
+    warmth calibration, never their morning advice, so picks.Climate.of() reads
+    these and returns None for anything it cannot use — falling back to the
+    absolute table, which is what every wearer had before today.
+    """
+
+    cold: float = Field(..., ge=-90, le=60)   # coldest month's midpoint -> warmth 5
+    avg: float = Field(..., ge=-90, le=60)    # annual average           -> warmth 3
+    hot: float = Field(..., ge=-90, le=60)    # warmest month's midpoint -> warmth 1
+
+
+class ClimateRequest(BaseModel):
+    """Where to measure the climate from. The phone sends its COARSE home area
+    (rounded to 1dp, ~11km) — never live GPS, which is never persisted at all."""
+
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
 
 
 class AdviceRequest(BaseModel):
@@ -201,6 +261,50 @@ class ShoppingRequest(BaseModel):
     gaps: list[Gap] = Field(default_factory=list, max_length=20)
     rules: list[dict] | None = Field(None, max_length=24)
     tempOffset: float = Field(0.0, ge=-6, le=6)
+
+
+# Moved here from app.py on 2026-08-31, at the 600-line ceiling. They were the
+# last two request shapes still living in the router, and this module exists for
+# exactly that — see its docstring.
+class ClassifyRequest(BaseModel):
+    # ~3MB of raw image, base64-encoded (~4M chars). The phone downscales to
+    # ~512px first, so a real request is far smaller.
+    imageB64: str = Field(..., min_length=100, max_length=4_200_000)
+    # The wearer's warmth scale, so the number the classifier WRITES means the same
+    # thing as the number the outfit guard READS (2026-08-30). A jumper photographed
+    # in Singapore and the same jumper in Oslo were both given a 4.
+    climate: ClimateAnchors | None = None
+
+
+class PackingRequest(BaseModel):
+    """Trip packing. NOTE what is deliberately ABSENT: the calendar event's title,
+    notes, attendees, and location STRING. The phone resolves the destination to
+    coordinates at confirm time and sends only those. The server never learns where
+    the user is going by name, and cannot — that is the point (see PLAN.md Trips /
+    privacy posture)."""
+
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    start: dt.date
+    end: dt.date
+    type: Literal["business", "vacation"] = "vacation"
+    gender: Literal["man", "woman", "neutral"] = "neutral"
+    # A business trip is smart for meetings AND casual for evenings — one scalar
+    # cannot express that, so packing takes a SET of registers (plan amendment T-3).
+    styles: list[Literal["casual", "smart", "active"]] = Field(
+        default_factory=lambda: ["casual"], min_length=1, max_length=3
+    )
+    closet: list[ClosetItem] | None = Field(None, max_length=100)
+
+    @field_validator("end")
+    @classmethod
+    def _order(cls, v: dt.date, info) -> dt.date:
+        start = info.data.get("start")
+        if start and v < start:
+            raise ValueError("end is before start")
+        if start and (v - start).days > 30:
+            raise ValueError("trip longer than 30 days")
+        return v
 
 
 class RuleRequest(BaseModel):

@@ -123,6 +123,11 @@
     max-width:560px;max-height:88vh;overflow-y:auto;padding:18px 16px calc(26px + env(safe-area-inset-bottom))}
   .sheet h3{margin:0 0 12px;font-size:1rem}
   .sheet .prev{width:84px;height:84px;border-radius:12px;object-fit:cover;border:1px solid var(--line);flex-shrink:0;background:var(--bg)}
+  .sheet .prev.ph{display:flex;align-items:center;justify-content:center;font-size:1.9rem;
+    border-style:dashed;color:var(--muted)}
+  .shot{display:flex;flex-direction:column;gap:6px;align-items:center;flex-shrink:0}
+  .shotBtns{display:flex;gap:5px}
+  .shotBtns button{padding:5px 8px;font-size:.7rem;line-height:1}
   .frow{display:flex;gap:10px;margin:10px 0;align-items:center}
   .stepper{display:flex;align-items:center;gap:12px}
   .stepper button{width:42px;padding:9px 0;font-size:1.1rem}
@@ -450,7 +455,19 @@
   <div class="sheet">
     <h3 id="shTitle">New item</h3>
     <div class="frow">
-      <img class="prev" id="shImg" alt="">
+      <!-- The picture is replaceable (user, 2026-08-31): "some of my trousers
+           pictures are difficult to tell which is which as I took a picture of the
+           trousers being folded — prefer to retake and upload". A photo is how
+           anybody recognises their own clothes, so a bad one is not a cosmetic
+           problem: it is the garment becoming unidentifiable in its own wardrobe. -->
+      <div class="shot">
+        <img class="prev" id="shImg" alt="">
+        <div class="prev ph" id="shNoPic">👕</div>
+        <div class="shotBtns">
+          <button class="ghost" id="shCam" type="button">📷 Retake</button>
+          <button class="ghost" id="shGal" type="button">🖼️</button>
+        </div>
+      </div>
       <div style="flex:1">
         <label class="lbl">Name</label>
         <input type="text" id="shLabel" maxlength="60" placeholder="e.g. navy merino crew-neck" style="width:100%">
@@ -1311,7 +1328,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.24";
+const WEB_BUILD="1.25";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1455,10 +1472,47 @@ function renderFeedback(){
 }
 
 /* photos: app-private Filesystem on device, localStorage in a plain browser */
+/* Saving a picture, and saying honestly whether it will be the one read back.
+
+   photoLoad reads the FILESYSTEM first and localStorage second. That ordering is
+   harmless for a new item — there is no file to shadow the fallback — but this is
+   now also the REPLACE path, where an older file is exactly what is there. A failed
+   filesystem write that fell back to localStorage returned true while every screen
+   went on loading the old picture: the wearer retakes a photo, is told it saved, and
+   the folded trousers come straight back. Raised by the pre-push reviewer,
+   2026-08-31.
+
+   So the stale file is cleared before the fallback is used, and the answer is
+   VERIFIED by reading back through the same function every screen reads through
+   rather than assumed from a write that returned. */
 async function photoSave(id,b64){
+  let wrote=false;
   try{ if(Plugins.Filesystem){ await Plugins.Filesystem.writeFile(
-    {path:`closet/${id}.jpg`,data:b64,directory:"DATA",recursive:true}); return true; } }catch(e){}
-  try{ localStorage.setItem("oa.photo."+id,b64); return true; }catch(e){ return false; }
+    {path:`closet/${id}.jpg`,data:b64,directory:"DATA",recursive:true}); wrote=true; } }catch(e){}
+  if(!wrote){
+    // The fallback has to SUCCEED before the old file is removed. Deleting first and
+    // finding out afterwards that nothing could be stored destroys a picture the
+    // wearer may have no way to take again — a replacement that fails must cost them
+    // the new photo, never the one they already had. Raised by the pre-push
+    // reviewer, 2026-08-31.
+    try{ localStorage.setItem("oa.photo."+id,b64); }catch(e){ return false; }
+    // Only now: the stale file would otherwise shadow the copy just stored, because
+    // photoLoad reads the filesystem first. A delete that fails is caught by the
+    // read-back below rather than guessed at here.
+    try{ if(Plugins.Filesystem) await Plugins.Filesystem.deleteFile(
+      {path:`closet/${id}.jpg`,directory:"DATA"}); }catch(e){}
+  }
+  let ok=false;
+  try{ ok=(await photoLoad(id))==="data:image/jpeg;base64,"+b64; }catch(e){ ok=false; }
+  // Two stores must not be able to disagree about one garment. A picture that once
+  // fell back to localStorage and is now replaced on the filesystem would otherwise
+  // leave that older copy sitting underneath, ready to resurface the moment a
+  // filesystem read fails or the app runs without the plugin — the replacement
+  // appearing to revert, weeks later, for no reason the wearer can see. Removed
+  // only AFTER the new copy is verified, so this can never be the deletion of the
+  // only one. Raised by the pre-push reviewer, 2026-08-31.
+  if(ok&&wrote){ try{ localStorage.removeItem("oa.photo."+id); }catch(e){} }
+  return ok;
 }
 async function photoLoad(id){
   try{ if(Plugins.Filesystem){ const {data}=await Plugins.Filesystem.readFile(
@@ -1697,13 +1751,61 @@ async function openSheet(item,opts){
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
-  const img=$("shImg");
-  img.src=sheet.b64?("data:image/jpeg;base64,"+sheet.b64):((await photoLoad(sheet.item.id))||"");
-  img.style.display=img.src?"":"none";
+  // The pending photo wins over the stored one: what the sheet shows must be what
+  // Save would write, or the wearer approves one picture and keeps another.
+  paintShot(sheet.b64?("data:image/jpeg;base64,"+sheet.b64):((await photoLoad(sheet.item.id))||""));
   paintSheetSegs();
   $("sheetWrap").classList.add("show");
 }
 function closeSheet(){ $("sheetWrap").classList.remove("show"); sheet=null; }
+
+/* ── the picture, and replacing it (user, 2026-08-31) ──
+
+   "Some of my trousers pictures are difficult to tell which is which as I took a
+   picture of the trousers being folded. Prefer to retake and upload."
+
+   A name is not how anybody recognises their own clothes — the photo is, which is
+   why the outfit card leads with pictures. That makes a bad photo more than untidy:
+   the garment becomes unidentifiable in its own wardrobe, and every screen that
+   shows it inherits the problem.
+
+   Nothing is written until Save. A retake that is thought better of, or a sheet
+   dismissed by the back gesture, must leave the old picture exactly where it was —
+   the photo is the one field with no undo, because the original is gone from the
+   camera roll as often as not. */
+function paintShot(src){
+  const img=$("shImg"), ph=$("shNoPic");
+  img.src=src||"";
+  img.style.display=src?"":"none";
+  // A placeholder rather than a hole: the buttons under it are the whole point, and
+  // a collapsed column makes them look like they belong to the name field.
+  if(ph){ ph.style.display=src?"none":"flex";
+          ph.textContent=CAT_ICON[sheet?.item?.category]||"👕"; }
+}
+let shotBusy=null;   // the sheet whose capture is in flight, not a bare flag
+async function replacePhoto(source){
+  if(!sheet||shotBusy===sheet) return;
+  // The sheet this capture BELONGS to. The camera is another app: it can outlive
+  // the sheet that opened it, and a wearer who dismisses that sheet and opens a
+  // different garment gets the first garment's photograph written onto the second.
+  // Held rather than re-read, and held per sheet rather than as one flag, so a
+  // capture the user walked away from cannot wedge the button for the next one.
+  // Raised by the pre-push reviewer, 2026-08-31.
+  const mine=sheet;
+  shotBusy=mine;
+  try{
+    const dataUrl=await capture(source);
+    const b64=await downscale(dataUrl);      // same 512px cap every photo gets
+    if(sheet!==mine) return;                 // that sheet is gone; so is its photo
+    sheet.b64=b64;
+    paintShot("data:image/jpeg;base64,"+b64);
+    toast("New picture — tap Save to keep it");
+  }catch(e){
+    // Backing out of the camera is not an error, and saying so over the sheet they
+    // are still editing reads as a failure of the edit.
+    if(sheet===mine&&!/cancel/i.test(e?.message||"")) toast(e?.message||"Couldn't get the photo.");
+  }finally{ if(shotBusy===mine) shotBusy=null; }
+}
 
 /* ── closet grid ── */
 async function renderCloset(){
@@ -4303,7 +4405,18 @@ $("shSave").onclick=async()=>{
   reconcileItem(it);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
-  if(sheet.isNew && sheet.b64) it.photo=await photoSave(it.id,sheet.b64);
+  // For an EXISTING item too, since 2026-08-31 — this used to be new-items-only, so
+  // a retaken photo was captured, previewed, saved, and silently dropped. Keyed by
+  // the item id, so writing it replaces the old picture rather than orphaning it.
+  //
+  // A FAILED write leaves the flag alone. Assigning the result cleared it on a
+  // garment whose old picture is still perfectly there, which would hide that
+  // picture on every screen because a NEW one could not be stored — the one outcome
+  // worse than the retake not working. Raised by the pre-push reviewer, 2026-08-31.
+  let shotFailed=false;
+  if(sheet.b64){
+    if(await photoSave(it.id,sheet.b64)) it.photo=true; else shotFailed=true;
+  }
   const idx=closet.findIndex(x=>x.id===it.id);
   if(idx>=0) closet[idx]=it; else closet.push(it);
   // After the CORRECTIONS, not before them. addItem clears gaps from whatever
@@ -4313,8 +4426,12 @@ $("shSave").onclick=async()=>{
   // just photographed. Editing an existing item goes through here too, which is
   // the other way warmth or role changes.
   await clearGapsFilledBy(it);
-  await saveCloset(); closeSheet(); toast("Saved to your closet");
+  await saveCloset(); closeSheet();
+  toast(shotFailed?"Saved — but the new picture could not be stored"
+                  :"Saved to your closet");
 };
+$("shCam").onclick=()=>replacePhoto("CAMERA");
+$("shGal").onclick=()=>replacePhoto("PHOTOS");
 $("shWear").onclick=async()=>{
   if(!sheet) return;
   logWear(sheet.item.id); await saveCloset(); closeSheet(); toast("Wear logged");

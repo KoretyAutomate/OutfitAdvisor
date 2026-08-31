@@ -28,6 +28,11 @@ const dom = new JSDOM(fs.readFileSync(HTML, "utf8"), {
 });
 const w = dom.window;
 const ev = (code) => w.eval(code);
+/* A second, untouched page. The photo-store assertions replace photoLoad/photoSave
+   to force failures, so the read-back check below needs a copy nobody has stubbed. */
+const page2 = () => new JSDOM(fs.readFileSync(HTML, "utf8"), {
+  runScripts: "dangerously", url: "https://localhost/", pretendToBeVisual: true,
+}).window;
 const drain = () => new Promise(r => setTimeout(r, 0));
 
 console.log("\n--- 1. the vocabulary is internally consistent -------------------");
@@ -472,6 +477,233 @@ check("migrateItem is reconcileItem — one repair pass on load",
     w.document.querySelectorAll('.item[data-id="s2"]').length === 1 &&
     w.document.querySelectorAll('.item[data-id="s1"]').length === 0,
     w.document.getElementById("closetGrid").innerHTML.slice(0, 200));
+
+  console.log("\n--- replacing a garment's picture (2026-08-31) -------------------");
+  /* User: "some of my trousers pictures are difficult to tell which is which as I
+     took a picture of the trousers being folded — prefer to retake and upload."
+
+     A name is not how anybody recognises their own clothes; the photo is, which is
+     why the outfit card leads with pictures. A bad photo is therefore not untidy,
+     it is a garment gone unidentifiable in its own wardrobe. Until today the sheet
+     could change every field EXCEPT the one that matters most: photoSave ran for
+     new items only, so a retake was captured, previewed, saved — and dropped. */
+  const stub = `capture=async()=>"data:image/jpeg;base64,NEWPHOTO";
+                downscale=async(d)=>d.split(",")[1];`;
+  const TROUSERS = {id:"itm-trs-0001", label:"grey wool trousers", category:"bottoms",
+    group:"bottoms", type:"trousers", roles:["bottoms"], colors:["grey"], warmth:3,
+    formality:["smart"], waterproof:false, count:1, photo:true};
+  ev(`closet=[${JSON.stringify(TROUSERS)}]; ${stub}`);
+  w.localStorage.setItem("oa.photo.itm-trs-0001", "OLDPHOTO");
+  ev(`photoLoad=async(id)=>{ const d=localStorage.getItem("oa.photo."+id);
+        return d?"data:image/jpeg;base64,"+d:null; };
+      photoSave=async(id,b64)=>{ localStorage.setItem("oa.photo."+id,b64); return true; };`);
+
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  check("the sheet opens on the picture it has",
+    /OLDPHOTO/.test(w.document.getElementById("shImg").src),
+    w.document.getElementById("shImg").src.slice(0, 60));
+  check("and the placeholder stays out of the way",
+    w.document.getElementById("shNoPic").style.display === "none");
+
+  await ev(`replacePhoto("CAMERA")`);
+  check("retaking shows the new picture at once",
+    /NEWPHOTO/.test(w.document.getElementById("shImg").src),
+    w.document.getElementById("shImg").src.slice(0, 60));
+  /* Nothing is written until Save. The photo is the one field with no undo — the
+     original is gone from the camera roll as often as not — so a retake thought
+     better of, or a sheet dismissed by the back gesture, must leave it alone. */
+  check("but nothing is written yet",
+    w.localStorage.getItem("oa.photo.itm-trs-0001") === "OLDPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0001"));
+  ev(`closeSheet()`);
+  check("and dismissing the sheet keeps the old picture",
+    w.localStorage.getItem("oa.photo.itm-trs-0001") === "OLDPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0001"));
+
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  await ev(`replacePhoto("PHOTOS")`);
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("saving replaces the picture, under the same garment",
+    w.localStorage.getItem("oa.photo.itm-trs-0001") === "NEWPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0001"));
+  check("the garment is the same one, not a second copy",
+    ev(`closet.length`) === 1 && ev(`closet[0].id`) === "itm-trs-0001", ev(`closet.length`));
+  check("and it now says it has a photo", ev(`closet[0].photo`) === true);
+
+  /* Backing out of the camera is not an error, and must not disturb what is there. */
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  ev(`capture=async()=>{ throw new Error("User cancelled photos app"); };`);
+  await ev(`replacePhoto("CAMERA")`);
+  check("cancelling the camera leaves the picture as it was",
+    /NEWPHOTO/.test(w.document.getElementById("shImg").src) && ev(`sheet.b64`) === null,
+    w.document.getElementById("shImg").src.slice(0, 60));
+  ev(stub);
+
+  /* A garment with no picture at all — the placeholder is what makes the buttons
+     under it read as "add one" rather than as part of the name field. */
+  ev(`closet=[{...closet[0], id:"itm-trs-0002", photo:false}];`);
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  check("a garment with no picture shows a placeholder, not a hole",
+    w.document.getElementById("shNoPic").style.display === "flex" &&
+    w.document.getElementById("shImg").style.display === "none",
+    w.document.getElementById("shNoPic").style.display);
+  await ev(`replacePhoto("CAMERA")`);
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("and giving it one works the same way",
+    w.localStorage.getItem("oa.photo.itm-trs-0002") === "NEWPHOTO" &&
+    ev(`closet.find(i=>i.id==="itm-trs-0002").photo`) === true,
+    w.localStorage.getItem("oa.photo.itm-trs-0002"));
+
+  /* The camera is another app, and it can outlive the sheet that opened it. A
+     wearer who dismisses that sheet and opens a different garment must not get the
+     first garment's photograph written onto the second. Raised by the pre-push
+     reviewer, 2026-08-31. */
+  ev(`closet=[${JSON.stringify(TROUSERS)},
+              {...${JSON.stringify(TROUSERS)}, id:"itm-trs-0003", label:"black jeans"}];`);
+  w.localStorage.setItem("oa.photo.itm-trs-0001", "OLDPHOTO");
+  w.localStorage.setItem("oa.photo.itm-trs-0003", "JEANSPHOTO");
+  ev(`__release=null;
+      capture=()=>new Promise(r=>{ __release=()=>r("data:image/jpeg;base64,STRAY"); });`);
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  const inCamera = ev(`replacePhoto("CAMERA")`);        // still in the camera
+  ev(`closeSheet()`);
+  await ev(`openSheet(closet[1],{isNew:false})`);        // a different garment
+  ev(`__release()`);
+  await inCamera;
+  check("a photo from a dismissed sheet does not land on the next garment",
+    ev(`sheet.b64`) === null, ev(`String(sheet.b64).slice(0,20)`));
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("so saving that garment keeps its own picture",
+    w.localStorage.getItem("oa.photo.itm-trs-0003") === "JEANSPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0003"));
+  check("and the garment it was meant for is untouched too",
+    w.localStorage.getItem("oa.photo.itm-trs-0001") === "OLDPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0001"));
+  ev(stub);
+
+  /* A write that cannot be read back is a write that did not happen. photoLoad
+     reads the filesystem before localStorage, so on a device where the filesystem
+     write fails and the fallback succeeds, every screen would go on loading the OLD
+     picture while Save reported success. And a failed write must never clear the
+     flag on a garment whose old picture is still perfectly there. */
+  ev(`closet=[${JSON.stringify(TROUSERS)}];`);
+  w.localStorage.setItem("oa.photo.itm-trs-0001", "OLDPHOTO");
+  ev(`photoSave=async()=>false;`);          // stored nothing that can be read back
+  await ev(`openSheet(closet[0],{isNew:false})`);
+  await ev(`replacePhoto("CAMERA")`);
+  await ev(`document.getElementById("shSave").onclick()`);
+  check("a picture that cannot be stored leaves the old one in place",
+    w.localStorage.getItem("oa.photo.itm-trs-0001") === "OLDPHOTO",
+    w.localStorage.getItem("oa.photo.itm-trs-0001"));
+  check("and does NOT un-picture a garment that still has one",
+    ev(`closet[0].photo`) === true, ev(`String(closet[0].photo)`));
+  check("the wearer is told, rather than left believing it worked",
+    /could not be stored/.test(w.document.getElementById("toast").textContent),
+    w.document.getElementById("toast").textContent);
+
+  /* And the read-back itself: a stale filesystem copy shadowing the fallback is the
+     exact failure, so photoSave must answer for what photoLoad will find. Run on a
+     FRESH page, because the assertions above replaced both functions. */
+  const wP = page2();
+  await wP.eval("appReady");
+  wP.eval(`localStorage.setItem("oa.photo.itm-shadow-1","OLD");`);
+  const ep = (c) => wP.eval(c);
+  check("a write that reads back as itself is a success",
+    (await ep(`photoSave("itm-shadow-1","NEW")`)) === true &&
+    wP.localStorage.getItem("oa.photo.itm-shadow-1") === "NEW",
+    wP.localStorage.getItem("oa.photo.itm-shadow-1"));
+  /* The shadow, exactly: the write lands somewhere, and the reader finds something
+     else. Nothing about the write returning tells you that. */
+  ep(`photoLoad=async()=>"data:image/jpeg;base64,SOMETHINGELSE";`);
+  check("a write the reader would not find is reported as a failure",
+    (await ep(`photoSave("itm-shadow-1","NEWER")`)) === false);
+
+  /* The device case in full, which is the only place it can happen: the filesystem
+     write fails, the localStorage fallback succeeds — and photoLoad reads the
+     filesystem FIRST, so the file already sitting there would hand back the old
+     picture for ever while Save reported success. */
+  const wF = page2();
+  await wF.eval("appReady");
+  wF.eval(`__fs={deleted:false};
+    Plugins.Filesystem={
+      writeFile:async()=>{ throw new Error("no space left on device"); },
+      deleteFile:async()=>{ __fs.deleted=true; },
+      readFile:async()=>{ if(__fs.deleted) throw new Error("not found");
+                          return {data:"FOLDEDTROUSERS"}; } };`);
+  const stored = await wF.eval(`photoSave("itm-trs-0001","RETAKEN")`);
+  check("a failed filesystem write does not leave the old file shadowing the new one",
+    stored === true && wF.eval(`__fs.deleted`) === true &&
+    wF.localStorage.getItem("oa.photo.itm-trs-0001") === "RETAKEN",
+    { stored, deleted: wF.eval(`__fs.deleted`) });
+  /* The mirror of the shadow: the filesystem write SUCCEEDS while an older copy is
+     still sitting in localStorage. Left there, it resurfaces the moment a filesystem
+     read fails or the app runs without the plugin — the replacement appearing to
+     revert, weeks later, for no reason the wearer can see. Raised by the pre-push
+     reviewer, 2026-08-31. */
+  const wH = page2();
+  await wH.eval("appReady");
+  wH.localStorage.setItem("oa.photo.itm-trs-0001", "FOLDEDTROUSERS");
+  wH.eval(`__file=null;
+    Plugins.Filesystem={
+      writeFile:async(o)=>{ __file=o.data; },
+      deleteFile:async()=>{ __file=null; },
+      readFile:async()=>{ if(__file===null) throw new Error("not found");
+                          return {data:__file}; } };`);
+  check("a filesystem replacement reports success",
+    (await wH.eval(`photoSave("itm-trs-0001","RETAKEN")`)) === true);
+  check("and takes the older fallback copy with it",
+    wH.localStorage.getItem("oa.photo.itm-trs-0001") === null,
+    wH.localStorage.getItem("oa.photo.itm-trs-0001"));
+  wH.eval(`Plugins.Filesystem.readFile=async()=>{ throw new Error("unreadable"); };`);
+  check("so a filesystem that stops answering cannot resurrect the old picture",
+    (await wH.eval(`photoLoad("itm-trs-0001")`)) === null,
+    await wH.eval(`photoLoad("itm-trs-0001")`));
+
+  /* A write that RETURNS is not a write that landed. When the read-back cannot find
+     the new picture, the fallback underneath is the only copy there is — dropping it
+     on the strength of a write that merely did not throw would delete the last one. */
+  const wI = page2();
+  await wI.eval("appReady");
+  wI.localStorage.setItem("oa.photo.itm-trs-0001", "THEONLYCOPY");
+  wI.eval(`Plugins.Filesystem={
+      writeFile:async()=>{},                       // returns, stores nothing
+      deleteFile:async()=>{},
+      readFile:async()=>{ throw new Error("not there after all"); } };`);
+  check("a write that cannot be read back is a failure",
+    (await wI.eval(`photoSave("itm-trs-0001","RETAKEN")`)) === false);
+  check("and the copy underneath is left alone, being the only one",
+    wI.localStorage.getItem("oa.photo.itm-trs-0001") === "THEONLYCOPY",
+    wI.localStorage.getItem("oa.photo.itm-trs-0001"));
+
+  /* And when BOTH stores fail, the old picture must survive. Deleting the file
+     before discovering the fallback cannot take it destroyed a photograph the
+     wearer may have no way to take again — the failure path promises to leave it
+     intact, and that promise is the whole reason nothing is written until Save.
+     Raised by the pre-push reviewer, 2026-08-31. */
+  const wG = page2();
+  await wG.eval("appReady");
+  wG.eval(`__g={deleted:false};
+    Plugins.Filesystem={
+      writeFile:async()=>{ throw new Error("no space left on device"); },
+      deleteFile:async()=>{ __g.deleted=true; },
+      readFile:async()=>{ if(__g.deleted) throw new Error("not found");
+                          return {data:"THEONLYCOPY"}; } };`);
+  // On the PROTOTYPE: jsdom's Storage ignores an own-property override, so an
+  // assignment here would have made this test pass against a broken ordering.
+  wG.eval(`__setItem=Object.getPrototypeOf(localStorage).setItem;
+           Object.getPrototypeOf(localStorage).setItem=()=>{
+             throw new Error("QuotaExceededError"); };`);
+  const both = await wG.eval(`photoSave("itm-trs-0001","RETAKEN")`);
+  wG.eval(`Object.getPrototypeOf(localStorage).setItem=__setItem;`);
+  check("when nothing can store the new picture, the old one is not deleted",
+    both === false && wG.eval(`__g.deleted`) === false, { both, deleted: wG.eval(`__g.deleted`) });
+  check("and it is still what the reader finds",
+    (await wG.eval(`photoLoad("itm-trs-0001")`)) === "data:image/jpeg;base64,THEONLYCOPY",
+    await wG.eval(`photoLoad("itm-trs-0001")`));
+
+  check("and the reader now finds the retaken picture",
+    (await wF.eval(`photoLoad("itm-trs-0001")`)) === "data:image/jpeg;base64,RETAKEN",
+    await wF.eval(`photoLoad("itm-trs-0001")`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

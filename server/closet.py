@@ -20,6 +20,7 @@ import this, so there is no cycle.
 """
 
 import picks as pk
+import scale
 import prose
 import rules
 from llm import _chat, _fenced, _parse_json, _plan_temp, _weather_flags, log
@@ -101,7 +102,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         f" | {i['label']}"
         + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
         + f" | colors: {','.join(i['colors'])}"
-        f" | warmth {i['warmth']}/5 | fits: {','.join(i['formality'])}"
+        f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"
         for i in closet
@@ -263,7 +264,11 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     thin = pk._warmth_violations(picks, wd.by_item, plan)
     if thin:
         if attempt == 0:
-            need = pk._min_outer_warmth(plan)
+            # On the scale the FAILING garment was numbered on — telling somebody
+            # their warmth-3 jacket needs to be a 4 makes sense only in the units
+            # they wrote the 3 in.
+            worn = wd.by_item.get(picks.get("outer")) or {}
+            need = scale.min_outer_warmth(plan, scale.graded_on(worn))
             return (f"The outer layer you chose is too thin for today — at this "
                     f"temperature the outermost garment needs warmth {need}/5 or "
                     f"more. Pick a warmer one, or null if you own nothing warmer. ",

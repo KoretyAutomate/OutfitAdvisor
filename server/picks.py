@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import rules
+import scale
 from llm import log
 from vocab import CATEGORIES
 
@@ -45,23 +46,12 @@ class Prefs:
         return cls(tuple(rules_list or []), closet_only, tuple(prefers or []))
 
 
-_OUTER_MIN_WARMTH = ((5, 4), (12, 3), (18, 2))
-
-
-def _min_outer_warmth(plan_temp: float) -> int:
-    for below, need in _OUTER_MIN_WARMTH:
-        if plan_temp < below:
-            return need
-    return 1
-
-
 def _warmth_violations(picks: dict, by_item: dict, plan_temp: float) -> list[str]:
     """Slots whose pick is too thin for the cold. Currently `outer` only."""
     iid = picks.get("outer")
     if not iid:
         return []
-    item = by_item.get(iid) or {}
-    return ["outer"] if (item.get("warmth") or 3) < _min_outer_warmth(plan_temp) else []
+    return [] if scale.warm_enough(by_item.get(iid) or {}, plan_temp) else ["outer"]
 
 
 def _slot_mismatches(picks: dict, by_roles: dict) -> list[str]:
@@ -303,7 +293,7 @@ def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
             continue                              # already worn somewhere else
         if slot not in (wd.by_roles.get(iid) or ()):
             continue
-        if slot == "outer" and (item.get("warmth") or 3) < _min_outer_warmth(plan_temp):
+        if slot == "outer" and not scale.warm_enough(item, plan_temp):
             continue
         trial = {**picks, slot: iid}
         if slot == "base" and wd.by_group.get(iid) == "onepiece":

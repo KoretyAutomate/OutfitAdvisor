@@ -281,11 +281,50 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
             if not pk._has_suitable_alternative(c, picks, wd, plan, rules_list):
                 unsuitable = unsuitable | {c}
 
+    # MORE clothing than the day calls for (user, 2026-09-01: "today's highest is
+    # estimated to be 31 degrees and it's showing items marked as 3. This is
+    # horrible."). Every warmth check above this one is a FLOOR; the heat was only
+    # ever ASKED about, in a prompt flag, and a request is followed most of the time.
+    #
+    # Runs after the thin check — they cannot both fire on one garment — and BEFORE
+    # the top check, so a mid layer shed here can still be replaced by something
+    # that covers the wearer.
+    # The hottest hour the outfit has to survive. Already carries the wearer's
+    # thermal offset, like plan, because both are read off the same adjusted day.
+    hi = w.get("hi")
+    peak = max(plan, float(hi)) if hi is not None else plan
+    hot = pk._too_warm_slots(picks, wd.by_item, plan, peak)
+    if hot:
+        if attempt == 0:
+            worn = wd.by_item.get(picks.get(hot[0])) or {}
+            most = scale.min_outer_warmth(pk._heat_temp(hot[0], plan, peak),
+                                          scale.graded_on(worn)) + scale.WARM_TOLERANCE
+            return (f"Too much clothing for the heat: {', '.join(hot)} "
+                    f"{'is' if len(hot) == 1 else 'are'} warmer than today needs. At "
+                    f"this temperature nothing should be above warmth {most}/5 — pick "
+                    f"lighter garments, and use null for any layer the heat makes "
+                    f"pointless. ", banned, covered, unsuitable, None)
+        # The garments as they stand BEFORE the repair, so what is taken off can be
+        # struck from the prose: a bullet recommending the fleece we have just shed
+        # is the advice being wrong while the outfit is right, which is the half the
+        # wearer actually reads. EVERY slot, not only the offending ones — swapping
+        # a base for a dress also takes the trousers off.
+        before = {c: picks.get(c) for c in CATEGORIES}
+        for slot, alt in pk._cool_down(picks, wd, plan, rules_list, peak):
+            log.warning("closet picks: %s was too warm for the heat, %s", slot,
+                        f"swapped for {alt}" if alt else "shed")
+            gone = wd.by_item.get(before.get(slot))
+            if gone and picks.get(slot) != before.get(slot):
+                banned = banned + [gone]
+        # NOT a wardrobe gap. An empty mid layer on a hot day is the correct answer,
+        # and recording it as evidence would have the shopping list recommending a
+        # fleece to somebody who was told, correctly, not to wear one.
+
     # BEFORE the underwear check, and after everything that can empty a slot: an
     # outfit of trousers alone is not an outfit, and every repair above can leave
     # one. Dressing the torso here also lets the undershirt stay where it belongs,
     # under something, instead of being cleared for want of a cover.
-    added = pk._enforce_a_top(picks, wd, plan, rules_list)
+    added = pk._enforce_a_top(picks, wd, plan, rules_list, peak)
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])

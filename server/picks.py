@@ -16,10 +16,18 @@ The through-line, from the PPK week onwards: a model is asked, and then checked.
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import handles as _handles
 import rules
 import scale
 from llm import log
 from vocab import CATEGORIES
+
+# Re-exported: the naming moved to handles.py at the 600-line ceiling (2026-09-01),
+# and closet.py reads them through this module — one import site rather than a churn
+# of call sites for a move that changed no behaviour.
+handles_for = _handles.handles_for
+resolve_handles = _handles.resolve_handles
+_unknown_ids = _handles._unknown_ids
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,89 @@ def _warmth_violations(picks: dict, by_item: dict, plan_temp: float) -> list[str
     if not iid:
         return []
     return [] if scale.warm_enough(by_item.get(iid) or {}, plan_temp) else ["outer"]
+
+
+# Slots a hot day may legitimately leave EMPTY. Nobody is underdressed for want of
+# a mid layer in August; they are underdressed for want of trousers, which is why
+# the rest are swapped for something cooler or left alone.
+# `inner` belongs here for the same reason the prompt has always said "Inner: None
+# needed" on a hot day: an undershirt is optional. Without it, somebody whose only
+# undershirt is a thermal was told to wear it in 32C, because there was nothing
+# cooler to swap in. Raised by the pre-push reviewer, 2026-09-01.
+_SHEDDABLE = ("inner", "mid", "outer", "accessories")
+
+# What you are still wearing at three in the afternoon. The rest comes off when it
+# warms up — that is what a layer IS — so the two are judged against different hours.
+_ALL_DAY = ("inner", "base", "bottoms", "footwear")
+
+
+def _heat_temp(slot: str, plan_temp: float, peak_temp: float) -> float:
+    """Which hour decides whether this garment is too warm.
+
+    The floor is always the morning: you have to be warm enough for the coldest
+    moment you are out in. The ceiling is not the same hour. A mid layer put on at
+    23C comes off at noon and is judged by the morning it was chosen for; a pair of
+    trousers is worn through the 32C afternoon and has to be right for it.
+
+    The first draft judged everything by the morning, which on a 18C-to-32C day let
+    warmth-3 trousers through on exactly the reasoning that produced the complaint.
+    Raised by the pre-push reviewer, 2026-09-01.
+    """
+    return max(plan_temp, peak_temp) if slot in _ALL_DAY else plan_temp
+
+
+def _too_warm_slots(picks: dict, by_item: dict, plan_temp: float,
+                    peak_temp: float | None = None) -> list[str]:
+    """Every slot holding more clothing than the day calls for.
+
+    Not just `outer`, which is all the cold side has ever had to guard: the cold
+    reaches you through the outermost layer, but the heat is carried by whatever you
+    put on, and a fleece under a shell is exactly as wrong at 30C.
+    """
+    peak = plan_temp if peak_temp is None else peak_temp
+    return [c for c in CATEGORIES if picks.get(c)
+            and scale.too_warm(by_item.get(picks[c]) or {}, _heat_temp(c, plan_temp, peak))]
+
+
+def _cool_down(picks: dict, wd: "Wardrobe", plan_temp: float,
+               user_rules: list[dict], peak_temp: float | None = None) -> list[tuple]:
+    """Swap or shed what the heat makes wrong. Returns (slot, replacement or None).
+
+    Swapping is tried FIRST for every slot, because a cooler garment they own beats
+    an empty slot every time. Only where nothing cooler exists does the answer
+    depend on the slot: a mid layer can simply go, and a pair of trousers cannot —
+    somebody overdressed is uncomfortable, somebody undressed is not dressed.
+    """
+    done: list[tuple] = []
+    peak = plan_temp if peak_temp is None else peak_temp
+    for slot in _too_warm_slots(picks, wd.by_item, plan_temp, peak):
+        # The offending slots were listed BEFORE any of them was repaired, and a
+        # repair can empty another: swapping a base for a dress takes the trousers
+        # off. Re-filling that slot from a stale list would hand back the dress over
+        # trousers this very pass just prevented. Raised by the pre-push reviewer,
+        # 2026-09-01.
+        if not picks.get(slot):
+            continue
+        was = picks[slot]
+        picks[slot] = None            # so the search cannot hand the same one back
+        alt = _suitable_for(slot, picks, wd, plan_temp, user_rules,
+                            hot_temp=_heat_temp(slot, plan_temp, peak))
+        if alt:
+            picks[slot] = alt
+            # A dress covers the legs. _suitable_for clears the trousers in the trial
+            # it judges, so the swap was legal — but only the base was ever written
+            # back, and _enforce_onepiece has already run, so the answer went out as
+            # a dress over trousers. The same repair, mirrored where the pick is
+            # actually made. Raised by the pre-push reviewer, 2026-09-01.
+            if slot == "base" and wd.by_group.get(alt) == "onepiece" and picks.get("bottoms"):
+                picks["bottoms"] = None
+                done.append(("bottoms", None))
+            done.append((slot, alt))
+        elif slot in _SHEDDABLE:
+            done.append((slot, None))
+        else:
+            picks[slot] = was         # nothing cooler owned — better dressed than not
+    return done
 
 
 def _slot_mismatches(picks: dict, by_roles: dict) -> list[str]:
@@ -276,7 +367,8 @@ def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str
 # uses one of these is recommending a THING to put on, as opposed to giving advice
 # about the weather.
 def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
-                  plan_temp: float, user_rules: list[dict]) -> str | None:
+                  plan_temp: float, user_rules: list[dict],
+                  hot_temp: float | None = None) -> str | None:
     """The first owned garment that could legitimately fill this slot, or None.
 
     The search _has_suitable_alternative always did; it only ever reported whether
@@ -295,6 +387,15 @@ def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
             continue
         if slot == "outer" and not scale.warm_enough(item, plan_temp):
             continue
+        # `hot_temp` is set only when the CALLER is cooling somebody down, and it is
+        # the hour THAT SLOT is judged by — the cold stays on plan_temp above, so a
+        # replacement chosen for the afternoon still has to survive the morning.
+        #
+        # Off everywhere else, deliberately: the gap check asks whether the wardrobe
+        # owns anything legal, and a garment that is too warm is still one they own —
+        # refusing it there would report a gap for a wardrobe that has an answer.
+        if hot_temp is not None and scale.too_warm(item, hot_temp):
+            continue
         trial = {**picks, slot: iid}
         if slot == "base" and wd.by_group.get(iid) == "onepiece":
             trial["bottoms"] = None
@@ -312,7 +413,7 @@ _TOP_SLOTS = ("base", "mid", "outer")
 
 
 def _enforce_a_top(picks: dict, wd: "Wardrobe", plan_temp: float,
-                   user_rules: list[dict]) -> tuple | None:
+                   user_rules: list[dict], peak_temp: float | None = None) -> tuple | None:
     """Nobody is dressed by their trousers alone.
 
     The user was sent out on 2026-08-29 with joggers and nothing above the waist:
@@ -327,11 +428,22 @@ def _enforce_a_top(picks: dict, wd: "Wardrobe", plan_temp: float,
     """
     if any(picks.get(c) for c in _TOP_SLOTS):
         return None
-    for slot in _TOP_SLOTS:
-        iid = _suitable_for(slot, picks, wd, plan_temp, user_rules)
-        if iid:
-            picks[slot] = iid
-            return slot, iid
+    # The coolest thing that will do, before anything that will do at all. Somebody
+    # overdressed is uncomfortable and somebody undressed is not dressed, so the
+    # heat is a preference here and never a veto — but on a hot day, reaching past
+    # the fleece for the tee is free.
+    # This runs AFTER the heat pass, so it is the last thing that can put a garment
+    # into the outfit — and it must not put back what that pass would have taken
+    # out. Judged by the same hour each slot answers to: a base added here is worn
+    # through the afternoon. Raised by the pre-push reviewer, 2026-09-01.
+    peak = plan_temp if peak_temp is None else peak_temp
+    for avoid_hot in (True, False):
+        for slot in _TOP_SLOTS:
+            iid = _suitable_for(slot, picks, wd, plan_temp, user_rules,
+                                _heat_temp(slot, plan_temp, peak) if avoid_hot else None)
+            if iid:
+                picks[slot] = iid
+                return slot, iid
     return None
 
 
@@ -426,53 +538,6 @@ def _missing_slots(claimed: object, picks: dict, filled_before: set,
         candidates = {c for c in candidates if not can_fill(c)}
     return sorted(candidates | (set(unsuitable) & (set(named) | set(emptied))),
                   key=CATEGORIES.index)
-
-
-def handles_for(closet: list[dict]) -> dict:
-    """A SHORT name per wardrobe item, for the model to answer with.
-
-    The ids the phone generates are UUIDs — `itm-e27af5ac-6454-44ed-9a7e-3ddb...`.
-    Asking a model to copy one back exactly is asking it to transcribe 32 random hex
-    digits, and it gets them nearly right: on 2026-08-29 and again on 2026-08-30 the
-    same real garment came back as `...-9a7e-3ddb08307222` and `...-9a7a-5ed294a3f494`,
-    matching for 25 characters and differing after. Both were rejected as unknown
-    ids, both attempts, and the user was told their closet had nothing wearable —
-    twice, on consecutive days, with fifteen items registered.
-
-    So the prompt never shows a UUID. `i1`..`iN` in listing order, mapped back here.
-    A short handle is one token, and a model that miscopies it produces something
-    that is obviously not a handle rather than something that looks like an id.
-    """
-    return {f"i{n}": i["id"] for n, i in enumerate(closet, 1)}
-
-
-def resolve_handles(picks: dict, handles: dict, ids: frozenset | set) -> dict:
-    """Handles back to real ids, for everything downstream.
-
-    A real id is passed through untouched: the model may answer with one from the
-    prefers block or from its own memory of the conversation, and rejecting an id
-    that names the right garment would be a validation error of our own making.
-    Anything that is neither stays as it is, to be caught by _unknown_ids and
-    reported to the model in the handle vocabulary it was given.
-    """
-    out = {}
-    for slot, v in picks.items():
-        key = str(v).strip() if v else v
-        out[slot] = handles.get(key, v) if key and key not in ids else v
-    return out
-
-
-def _unknown_ids(picks: dict, valid_ids: frozenset | set) -> str:
-    """A corrective note naming ids that are not in the wardrobe, or "" if all are.
-
-    An id the model invented cannot be looked up, so every check after this one
-    would be reading an empty dict and quietly passing.
-    """
-    bad = [v for v in picks.values() if v is not None and v not in valid_ids]
-    if not bad:
-        return ""
-    return (f"Your last reply used ids not present in the wardrobe: {bad}. "
-            "Use ONLY listed ids or null. ")
 
 
 @dataclass(frozen=True)

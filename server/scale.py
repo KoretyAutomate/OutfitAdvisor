@@ -210,6 +210,34 @@ def min_outer_warmth(plan_temp: float, item_climate: Climate | None = None) -> i
     return absolute_min_warmth(plan_temp)
 
 
+# How far ABOVE what the day asks for a garment may still be. One level: a slightly
+# warm layer on a cool morning is a judgement call and the wearer's to make, two is
+# a jumper on a summer day.
+WARM_TOLERANCE = 1
+
+
+def too_warm(item: dict, plan_temp: float) -> bool:
+    """Is this more clothing than the day calls for? (user, 2026-09-01)
+
+    "Today's highest is estimated to be 31 degrees and it's showing items marked as
+    3. This is horrible."
+
+    Every warmth check in this project has been a FLOOR. min_outer_warmth says what
+    the outermost garment must be at LEAST, and the model is separately ASKED, in
+    prose, not to invent layers on a hot day. So the cold side was checked and the
+    hot side was only requested — and the request is followed most of the time,
+    which this codebase has learned twice already is not the same as followed. On a
+    day planned at 23C, a garment the wearer's own scale calls a 13C garment passed
+    every check there was.
+
+    Measured on the garment's OWN scale, like everything else here, which is what
+    makes the same rule work for a wardrobe graded in Oslo and one graded in
+    Singapore: a level is a sixth of that wearer's year, not a fixed number of
+    degrees.
+    """
+    return (item.get("warmth") or 3) > min_outer_warmth(plan_temp, graded_on(item)) + WARM_TOLERANCE
+
+
 def warm_enough(item: dict, plan_temp: float) -> bool:
     """Is this garment warm enough to be the outermost layer today?
 

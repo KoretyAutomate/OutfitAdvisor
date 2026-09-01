@@ -85,12 +85,26 @@ def _plan_temp(w: dict) -> float:
     return m if m is not None else w["lo"] + (w["hi"] - w["lo"]) / 2
 
 
+# A day this warm at its peak is a hot day, whatever the morning says.
+HOT_AFTERNOON_C = 28
+
+
 def _weather_flags(w: dict) -> list[str]:
     flags = []
-    if _plan_temp(w) >= 24:
+    plan = _plan_temp(w)
+    if plan >= 24:
         # User feedback 2026-07-15: without this the model INVENTS a jacket on a
         # 34C day because the slot list reads like a form to fill in.
         flags.append('Hot day — mid and outer should be "None needed"; do NOT invent layers the heat makes pointless.')
+    elif w["hi"] >= HOT_AFTERNOON_C:
+        # The outfit is planned around the MORNING, and on 2026-09-01 that was 23C
+        # under a 32C afternoon — so the hot-day flag never fired and the model was
+        # told, correctly, only that there was a big swing. Somebody dressing at 23C
+        # for a day that reaches 32 is dressing for the hour, not the day: the
+        # garments still have to be ones the afternoon can carry.
+        flags.append(f'Warm now, HOT later ({w["hi"]}C) — dress for the whole day. '
+                     'Nothing heavier than the afternoon can carry, and prefer '
+                     '"None needed" for mid and outer.')
     if w["swing"] >= 10:
         flags.append(f"Big {w['swing']}C swing — say when to shed/add a layer.")
     if w["rain"] >= 50 or w["isRain"]:

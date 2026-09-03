@@ -41,17 +41,33 @@ class Prefs:
     rules        prohibitions, already validated by rules.clean_rules()
     closet_only  the wardrobe is COMPLETE, so never suggest a garment they do not
                  own — an unfillable slot is a gap, not a shopping hint
+    shown        what the wearer is already looking at, and asking to move on from
+
+    `shown` is the odd one out — it is what WE told THEM, not the reverse — and it
+    lives here anyway for the reason in the paragraph above: it has to reach the
+    prompt, which asks for a different outfit, and the validation, which checks it
+    got one. Those two disagreeing is the whole bug it exists to fix.
     """
 
     rules: tuple = ()
     closet_only: bool = False
     #: garments the wearer keeps choosing for a slot — a hint, never a constraint
     prefers: tuple = ()
+    #: {slot: item id} already on screen for today; empty on the day's first ask
+    shown: tuple = ()
 
     @classmethod
     def of(cls, rules_list: list[dict] | None, closet_only: bool = False,
-           prefers: list[dict] | None = None) -> "Prefs":
-        return cls(tuple(rules_list or []), closet_only, tuple(prefers or []))
+           prefers: list[dict] | None = None,
+           shown: dict | None = None) -> "Prefs":
+        # A tuple of pairs, because Prefs is frozen and hashable and a dict is
+        # neither. `shown_map` below is what every reader actually wants.
+        return cls(tuple(rules_list or []), closet_only, tuple(prefers or []),
+                   tuple(sorted((shown or {}).items())))
+
+    @property
+    def shown_map(self) -> dict:
+        return dict(self.shown)
 
 
 def _warmth_violations(picks: dict, by_item: dict, plan_temp: float) -> list[str]:
@@ -454,6 +470,134 @@ def _added_top_line(added: tuple, by_item: dict) -> str:
     label = str((by_item.get(added[1]) or {}).get("label") or "").strip()
     return (f"{label or 'A top from your closet'} — the rest of the outfit left you "
             "with nothing above the waist.")
+
+
+def _peak_temp(w: dict, plan_temp: float) -> float:
+    """The hottest hour the outfit has to survive, already carrying the wearer's
+    thermal offset because it is read off the same adjusted day."""
+    hi = w.get("hi")
+    return max(plan_temp, float(hi)) if hi is not None else plan_temp
+
+
+def _swap_repeats(picks: dict, repeated: list[str], wd: "Wardrobe", plan_temp: float,
+                  user_rules: list[dict], peak_temp: float | None = None) -> list[tuple]:
+    """Move the slots the model was asked twice to move and would not.
+
+    Validate in code, never hope in prose — the lesson this module keeps relearning,
+    and the reason `_cool_down` and `_relocate_mismatches` exist rather than a
+    sterner paragraph in the prompt. Measured 2026-09-03: with the instruction and a
+    corrective retry, two re-rolls in four still handed back a core slot unchanged.
+    A feature that works three times in four is a feature the wearer stops trusting.
+
+    Shaped on `_cool_down` deliberately, including the one-piece mirror: the search
+    judges a trial outfit with the trousers off, so writing back only the base is how
+    a dress goes out over jeans.
+
+    A slot with nothing to swap to keeps what it has. Better the same trousers than
+    no trousers — and that case is not a failure, it is a wardrobe with one answer,
+    which `_same_again_line` then says out loud.
+    """
+    done: list[tuple] = []
+    peak = plan_temp if peak_temp is None else peak_temp
+    for slot in repeated:
+        was = picks.get(slot)
+        if not was:
+            continue
+        # The incumbent stays in `picks` while the search runs, which is what
+        # excludes it: "already worn somewhere else" is the only exclusion
+        # _suitable_for has, and emptying the slot first — as _cool_down does, where
+        # the heat check rejects the incumbent anyway — hands the same garment
+        # straight back and swaps nothing at all (found 2026-09-03). The one-piece
+        # trial is unaffected: _suitable_for judges `{**picks, slot: candidate}`, so
+        # this slot is replaced in the trial either way.
+        alt = _suitable_for(slot, picks, wd, plan_temp, user_rules,
+                            hot_temp=_heat_temp(slot, plan_temp, peak))
+        if not alt:
+            continue
+        picks[slot] = alt
+        if slot == "base" and wd.by_group.get(alt) == "onepiece" and picks.get("bottoms"):
+            picks["bottoms"] = None
+            done.append(("bottoms", None))
+        done.append((slot, alt))
+    return done
+
+
+def _swapped_top_line(swapped: list[tuple], by_item: dict) -> str:
+    """Say which garments the app changed after the advisor would not.
+
+    Same reasoning as `_added_top_line`: a garment in the picture and not in the
+    text reads as a bug, and it is there precisely because the model did not put it
+    there. The bullets naming what it replaced are struck by the caller, so without
+    this line the slot would simply have no words at all.
+    """
+    names = [str((by_item.get(iid) or {}).get("label") or "").strip()
+             for _, iid in swapped if iid]
+    names = [n for n in names if n]
+    if not names:
+        return ""
+    listed = names[0] if len(names) == 1 else (", ".join(names[:-1]) + " and " + names[-1])
+    return f"{listed} instead — you asked for something different."
+
+
+def _repeated_slots(picks: dict, shown: dict, wd: "Wardrobe", plan_temp: float,
+                    user_rules: list[dict], peak_temp: float | None = None) -> list[str]:
+    """Slots the wearer was already shown, asked to change, and got back anyway —
+    counting ONLY the ones that could have changed (2026-09-03).
+
+    A re-roll cannot promise a different garment in every slot. Somebody who owns
+    one pair of shoes is wearing those shoes, and saying "show me something else"
+    does not conjure a second pair. So a repeat is only a failure where the wardrobe
+    held an answer, and that question is `_suitable_for` — the same search the gap
+    logic uses, so a slot this calls stuck is one the generator could legitimately
+    have moved.
+
+    The distinction is the whole point. Without it the honest message ("nothing else
+    of yours suits today") and the broken one (the model ignored the instruction)
+    are the same screen, which is exactly the state this change was reported from.
+    """
+    peak = plan_temp if peak_temp is None else peak_temp
+    stuck = []
+    # In CATEGORIES order, so the note the model is retried with and the swaps below
+    # read the same way every time — a dict's order is the phone's, and a repair
+    # sequence that varies with it is one that cannot be reproduced from a log.
+    for slot in CATEGORIES:
+        iid = shown.get(slot)
+        if not iid or picks.get(slot) != iid:
+            continue
+        # The heat ceiling applies to the ALTERNATIVE too. Without it a 29C day
+        # counts a fleece as the answer for `base`, calls the slot stuck, and the
+        # repair below puts the fleece on — undoing the ceiling added on 2026-09-01
+        # in the name of variety.
+        if _suitable_for(slot, picks, wd, plan_temp, user_rules,
+                         hot_temp=_heat_temp(slot, plan_temp, peak)):
+            stuck.append(slot)
+    return stuck
+
+
+def _same_again_line(picks: dict, shown: dict) -> str | None:
+    """The top line when a re-roll came back with the outfit it was asked to
+    replace — and None when it did not, which is most of the time.
+
+    Said out loud because silence here is indistinguishable from the bug: tapping
+    "show me something else" and getting the same card back is precisely what the
+    wearer reported, and an unexplained repeat teaches them the button is broken.
+
+    But only when EVERY slot came back the same. An outfit whose top and trousers
+    changed has plainly re-rolled, and remarking on the shoes that could not is a
+    line of apology for working correctly — the wearer owns one pair, and they know.
+    A note on every re-roll is a note nobody reads by the third one.
+
+    It blames the wardrobe, and it is safe to, because by the time this is reached
+    every slot that COULD have moved has: `_swap_repeats` searches with exactly the
+    same rules that decided the slot was stuck, so a slot still holding what it held
+    is one the wardrobe has a single answer for. If those two searches are ever
+    allowed to disagree, this sentence starts telling people to buy trousers they
+    already own — see test_the_repair_can_always_move_what_it_calls_stuck.
+    """
+    worn = [(slot, iid) for slot, iid in shown.items() if iid]
+    if not worn or any(picks.get(slot) != iid for slot, iid in worn):
+        return None
+    return "Same outfit again — nothing else you own suits today."
 
 
 def _has_suitable_alternative(slot: str, picks: dict, wd: "Wardrobe",

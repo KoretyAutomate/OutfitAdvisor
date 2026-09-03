@@ -21,6 +21,10 @@ import vocab
 # and a few naming chars. Kills backticks, braces, newlines — the fence-escape
 # and JSON-confusion vectors.
 _TEXT_OK = re.compile(r"[^\w \-'&/()+.,]", flags=re.UNICODE)
+# The same shape ClosetItem.id is validated against. An id that could not have been
+# a closet id could not name a garment we sent, so it is dropped before it can reach
+# a prompt or a lookup.
+_ID_OK = re.compile(r"[A-Za-z0-9\-]{8,64}")
 
 
 def _clean(s: str, max_len: int) -> str:
@@ -222,6 +226,33 @@ class AdviceRequest(BaseModel):
     # has `rules` for what must never happen, and promoting "wore something else
     # twice" into a prohibition would take a decision they did not make.
     prefers: list[Prefer] = Field(default_factory=list, max_length=8)
+    # What is ALREADY on the wearer's screen, when they ask again for the same day
+    # (2026-09-03). {slot: item id} — the shape `picks` comes back in, so the phone
+    # echoes what it was handed rather than deriving a second thing from it.
+    #
+    # This server remembers nothing between requests, which is a privacy property
+    # and not an oversight, so it cannot know it has answered today already. Without
+    # being told, a re-tap is a byte-identical request; the model answers a peaked
+    # distribution the same way, and the wearer gets the same top and the same
+    # trousers however many times they ask. The phone is the only party that knows.
+    #
+    # Filtered rather than rejected, like `rules`: an unknown slot or a malformed id
+    # from an older build costs the re-roll, never the morning.
+    shown: dict[str, str] = Field(default_factory=dict)
+
+    # `before`, so an explicit null from a build that sends the field unset reaches
+    # this instead of pydantic's dict_type rejection. That would have been a 422 on
+    # the whole request — the entire morning lost because the re-roll field was
+    # spelled null rather than omitted, which is exactly what the note above
+    # promises cannot happen.
+    @field_validator("shown", mode="before")
+    @classmethod
+    def _clean_shown(cls, v: object) -> dict:
+        if not isinstance(v, dict):
+            return {}
+        return {k: s for k, s in v.items()
+                if k in vocab.CATEGORIES and isinstance(s, str)
+                and _ID_OK.fullmatch(s)}
 
 
 class KnownPlace(BaseModel):

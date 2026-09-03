@@ -326,7 +326,7 @@ def client(monkeypatch):
     """The real server on the real hot day, with the model insisting on the fleece."""
     seen: dict = {}
 
-    async def fake_chat(messages, max_tokens, timeout=45):
+    async def fake_chat(messages, max_tokens, timeout=45, **kw):
         content = messages[0]["content"]
         prompt = content if isinstance(content, str) else content[0]["text"]
         seen.setdefault("prompts", []).append(prompt)
@@ -381,7 +381,7 @@ def test_a_mild_morning_under_a_hot_day_reaches_the_endpoint(monkeypatch):
               "waterproof": False, "availableCount": 1, "warmthScale": "home",
               "warmthAnchors": ANCHORS}
 
-    async def picks_the_chinos(messages, max_tokens, timeout=45):
+    async def picks_the_chinos(messages, max_tokens, timeout=45, **kw):
         return ('{"picks": {"inner": null, "base": "itm-00000001", "mid": null, '
                 '"outer": null, "bottoms": "itm-00000004", "footwear": null, '
                 '"accessories": null}, "bullets": ["Bottoms: the navy chinos"], '
@@ -408,7 +408,7 @@ def test_the_top_the_SERVER_adds_is_heat_checked_too(monkeypatch):
              "warmth": 3, "formality": ["casual"], "waterproof": False,
              "availableCount": 1, "warmthScale": "home", "warmthAnchors": ANCHORS}
 
-    async def no_top(messages, max_tokens, timeout=45):
+    async def no_top(messages, max_tokens, timeout=45, **kw):
         return ('{"picks": {"inner": null, "base": null, "mid": null, "outer": null, '
                 '"bottoms": "itm-00000003", "footwear": null, "accessories": null}, '
                 '"bullets": ["Bottoms: the chino shorts"], "tip": "Warm later."}')
@@ -444,7 +444,7 @@ def test_bare_legs_under_a_dress_are_not_a_wardrobe_gap(monkeypatch):
             "waterproof": False, "availableCount": 1, "warmthScale": "home",
             "warmthAnchors": ANCHORS}
 
-    async def picks_the_flannel(messages, max_tokens, timeout=45):
+    async def picks_the_flannel(messages, max_tokens, timeout=45, **kw):
         return ('{"picks": {"inner": null, "base": "itm-00000005", "mid": null, '
                 '"outer": null, "bottoms": "itm-00000007", "footwear": null, '
                 '"accessories": null}, "bullets": ["Base: the flannel shirt", '
@@ -479,7 +479,7 @@ def test_the_prose_loses_whatever_the_repair_took_off(monkeypatch):
                "warmth": 4, "formality": ["casual"], "waterproof": False,
                "availableCount": 1, "warmthScale": "home", "warmthAnchors": ANCHORS}
 
-    async def flannel_and_shorts(messages, max_tokens, timeout=45):
+    async def flannel_and_shorts(messages, max_tokens, timeout=45, **kw):
         return ('{"picks": {"inner": null, "base": "itm-00000005", "mid": null, '
                 '"outer": null, "bottoms": "itm-00000003", "footwear": null, '
                 '"accessories": null}, "bullets": ["Base: the flannel shirt", '

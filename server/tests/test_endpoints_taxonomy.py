@@ -55,7 +55,7 @@ def client(monkeypatch):
     """The real server, with only the network edges replaced."""
     seen: dict = {}
 
-    async def fake_chat(messages, max_tokens, timeout=45):
+    async def fake_chat(messages, max_tokens, timeout=45, **kw):
         content = messages[0]["content"]
         prompt = content if isinstance(content, str) else content[0]["text"]
         seen["prompt"] = prompt

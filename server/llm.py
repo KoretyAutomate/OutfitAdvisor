@@ -36,12 +36,18 @@ MODEL = "Intel/Qwen3.5-122B-A10B-int4-AutoRound"
 
 
 
-async def _chat(messages: list, max_tokens: int, timeout: int = 45) -> str | None:
+async def _chat(messages: list, max_tokens: int, timeout: int = 45,
+                temperature: float = 0.4) -> str | None:
+    """0.4 is the house setting and what every caller should want. It is a parameter
+    only for the re-roll (see reroll.py): asked twice for the same day the model
+    returned the same outfit four times in four, so a request that says "show me
+    something else" has to sample off the peak or the sampler argues with the
+    instruction. Raised there, per request; never here."""
     payload = {
         "model": MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.4,
+        "temperature": temperature,
         "chat_template_kwargs": {"enable_thinking": False},
     }
     try:

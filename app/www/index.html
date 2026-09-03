@@ -1328,7 +1328,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.25";
+const WEB_BUILD="1.26";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2785,6 +2785,39 @@ async function savePushPayload(){
   }catch(e){}
 }
 
+/* What is on the screen right now, for a wearer asking to see something else
+   (2026-09-03).
+
+   "the recommendation doesn't change when I want to get a new advice" — and it did
+   not: four identical requests to the live server came back with the same top and
+   the same trousers every time. The server keeps nothing between requests, which is
+   the privacy property this app is built on, so it cannot know it has already
+   answered today. This phone is the only party that knows, and this is it saying so.
+
+   Only from a CLOSET answer. Generic advice has no item ids to name, and the
+   offline recommender's picks are null — there is nothing there to differ from.
+
+   Deliberately only the LAST outfit, not every one shown today. Accumulating them
+   would narrow a small wardrobe to nothing by the third tap, and the complaint is
+   that the card does not change: differing from what is on the screen is exactly
+   the promise, and the whole of it. */
+function shownNow(){
+  const p=(lastRes&&lastRes.closetUsed&&lastRes.picks)||null;
+  if(!p) return null;
+  const out={};
+  for(const k of CATS) if(p[k]) out[k]=p[k];
+  return Object.keys(out).length?out:null;
+}
+
+/* The button says which of the two things it does. Tapping "Get advice" twice and
+   being handed the same card is the complaint; a button that has already answered
+   should say what a second tap is FOR, or the feature is invisible to the person
+   who asked for it. */
+function syncGoBtn(){
+  const b=$("goBtn"); if(!b||b.disabled) return;
+  b.textContent=shownNow()?"Show me something else":"Get advice";
+}
+
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
 async function getAdvice(lat,lon){
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
@@ -2815,6 +2848,10 @@ async function getAdvice(lat,lon){
     // What they actually reach for. A preference, not a rule — see the note on
     // `swaps` for why this is deliberately not promoted into one.
     if(cl.length){ const sw=swapSummary(cl); if(sw.length) body.prefers=sw; }
+    // Ask again and you get something else. Sent only alongside a closet, for the
+    // same reason `prefers` is: the server matches these ids against the wardrobe
+    // it was handed, and there is no wardrobe here to match them against.
+    if(cl.length){ const sn=shownNow(); if(sn) body.shown=sn; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -2898,6 +2935,8 @@ function renderOutfit(o,text,source,res){
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
   $("dWore").style.display=closet.length?"":"none";
+  // There is now an outfit to differ from, so the button offers to.
+  syncGoBtn();
   // A fresh render is a fresh suggestion, and the card is about THAT until the
   // wearer says otherwise. Whoever knows better re-decides afterwards: the
   // correction itself, and the launch that restores one.
@@ -3331,7 +3370,7 @@ function renderPacking(trip,d){
 /* ───────── main flow ───────── */
 async function run(){
   err("");
-  const btn=$("goBtn"), old=btn.innerHTML; btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
+  const btn=$("goBtn"); btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
   try{
     const c=$("city").value.trim();
     // geocode when the city changed OR when coords are absent (coords are never
@@ -3359,7 +3398,11 @@ async function run(){
     if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(e.message||"Something went wrong."); }
-  finally{ btn.innerHTML=old; btn.disabled=false; }
+  // Restored from what is NOW on screen, not from the label captured before the
+  // request. The answer that just arrived is the thing the next tap differs from,
+  // and putting the old caption back would hide the re-roll behind "Get advice"
+  // for the rest of the day.
+  finally{ btn.disabled=false; syncGoBtn(); }
 }
 
 /* ───────── what you actually wore (2026-08-29) ─────────
@@ -4050,7 +4093,7 @@ async function loadToday(){
     line.style.display="";
     line.textContent=`${d.how==="push"?"From this morning's push":"Worked out"} at `+
       t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+
-      " — tap Get my outfit to refresh.";
+      " — tap Show me something else for a different outfit.";
   }
   return true;
 }

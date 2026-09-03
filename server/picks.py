@@ -41,17 +41,33 @@ class Prefs:
     rules        prohibitions, already validated by rules.clean_rules()
     closet_only  the wardrobe is COMPLETE, so never suggest a garment they do not
                  own — an unfillable slot is a gap, not a shopping hint
+    shown        what the wearer is already looking at, and asking to move on from
+
+    `shown` is the odd one out — it is what WE told THEM, not the reverse — and it
+    lives here anyway for the reason in the paragraph above: it has to reach the
+    prompt, which asks for a different outfit, and the validation, which checks it
+    got one. Those two disagreeing is the whole bug it exists to fix.
     """
 
     rules: tuple = ()
     closet_only: bool = False
     #: garments the wearer keeps choosing for a slot — a hint, never a constraint
     prefers: tuple = ()
+    #: {slot: item id} already on screen for today; empty on the day's first ask
+    shown: tuple = ()
 
     @classmethod
     def of(cls, rules_list: list[dict] | None, closet_only: bool = False,
-           prefers: list[dict] | None = None) -> "Prefs":
-        return cls(tuple(rules_list or []), closet_only, tuple(prefers or []))
+           prefers: list[dict] | None = None,
+           shown: dict | None = None) -> "Prefs":
+        # A tuple of pairs, because Prefs is frozen and hashable and a dict is
+        # neither. `shown_map` below is what every reader actually wants.
+        return cls(tuple(rules_list or []), closet_only, tuple(prefers or []),
+                   tuple(sorted((shown or {}).items())))
+
+    @property
+    def shown_map(self) -> dict:
+        return dict(self.shown)
 
 
 def _warmth_violations(picks: dict, by_item: dict, plan_temp: float) -> list[str]:

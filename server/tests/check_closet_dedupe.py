@@ -93,7 +93,7 @@ calls: list[str] = []
 def stub(sequence):
     it = iter(sequence)
 
-    async def _chat(messages, max_tokens, timeout=45):
+    async def _chat(messages, max_tokens, timeout=45, **kw):
         calls.append(messages[0]["content"])
         return next(it)
     return _chat

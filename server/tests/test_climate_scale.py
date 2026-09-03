@@ -312,7 +312,7 @@ def client(monkeypatch):
     and the climate archive."""
     seen: dict = {}
 
-    async def fake_chat(messages, max_tokens, timeout=45):
+    async def fake_chat(messages, max_tokens, timeout=45, **kw):
         content = messages[0]["content"]
         prompt = content if isinstance(content, str) else content[0]["text"]
         seen.setdefault("prompts", []).append(prompt)
@@ -433,7 +433,7 @@ def test_a_number_the_TYPE_TABLE_filled_is_never_stamped_home(client, monkeypatc
     the table quietly replaces it, and the replacement gets stamped as graded
     against a year that never saw it. Raised by the pre-push reviewer, 2026-08-31.
     """
-    async def mute(messages, max_tokens, timeout=45):
+    async def mute(messages, max_tokens, timeout=45, **kw):
         return '{"label": "wool coat", "group": "outerwear", "type": "coat", ' \
                '"category": "outer", "roles": ["outer"], "colors": [], ' \
                f'"warmth": {answered}, "formality": [], "waterproof": false}}'

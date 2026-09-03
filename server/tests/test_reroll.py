@@ -27,6 +27,7 @@ import app as srv
 import closet as closet_mod
 import llm
 import picks as pk
+import reroll
 import schemas
 
 WARM = {"date": "2026-09-03", "timezone": "America/New_York", "code": 0, "emoji": "☀",
@@ -35,9 +36,11 @@ WARM = {"date": "2026-09-03", "timezone": "America/New_York", "code": 0, "emoji"
         "isRain": False, "isSnow": False}
 
 
-def _item(iid, label, cat, roles=None, warmth=2, group="tops", kind="t_shirt"):
+def _item(iid, label, cat, warmth=2, group="tops", kind="t_shirt"):
+    # One role, its own category. Nothing here needs a garment that can play two,
+    # and the six-argument ceiling is worth more than an option no caller uses.
     return {"id": iid, "label": label, "category": cat, "group": group, "type": kind,
-            "roles": list(roles or [cat]), "colors": ["navy"], "warmth": warmth,
+            "roles": [cat], "colors": ["navy"], "warmth": warmth,
             "formality": ["casual"], "waterproof": False, "availableCount": 3}
 
 
@@ -136,26 +139,26 @@ WD = pk._index(TWO_OF_EACH)
 
 def test_a_slot_that_could_have_moved_and_did_not_is_stuck():
     picks = {"base": TEE_A["id"], "bottoms": CHINOS["id"], "footwear": SHOES["id"]}
-    stuck = pk._repeated_slots(picks, {"base": TEE_A["id"]}, WD, 22.0, [])
+    stuck = reroll.repeated_slots(picks, {"base": TEE_A["id"]}, WD, 22.0, [])
     assert stuck == ["base"]
 
 
 def test_a_slot_with_nothing_else_to_offer_is_not_stuck():
     """One pair of shoes. Repeating them is the right answer, not a failure."""
     picks = {"base": TEE_A["id"], "bottoms": CHINOS["id"], "footwear": SHOES["id"]}
-    assert pk._repeated_slots(picks, {"footwear": SHOES["id"]}, WD, 22.0, []) == []
+    assert reroll.repeated_slots(picks, {"footwear": SHOES["id"]}, WD, 22.0, []) == []
 
 
 def test_a_slot_that_did_change_is_not_stuck():
     picks = {"base": TEE_B["id"], "bottoms": JEANS["id"], "footwear": SHOES["id"]}
     shown = {"base": TEE_A["id"], "bottoms": CHINOS["id"]}
-    assert pk._repeated_slots(picks, shown, WD, 22.0, []) == []
+    assert reroll.repeated_slots(picks, shown, WD, 22.0, []) == []
 
 
 def test_the_same_again_line_fires_only_when_nothing_moved():
     picks = {"base": TEE_A["id"], "bottoms": CHINOS["id"]}
     shown = {"base": TEE_A["id"], "bottoms": CHINOS["id"]}
-    assert (pk._same_again_line(picks, shown)
+    assert (reroll.same_again_line(picks, shown)
             == "Same outfit again — nothing else you own suits today.")
 
 
@@ -164,7 +167,7 @@ def test_a_partly_changed_outfit_says_nothing_at_all():
     line of apology for working correctly, and by the third re-roll nobody reads it."""
     picks = {"base": TEE_B["id"], "bottoms": JEANS["id"], "footwear": SHOES["id"]}
     shown = {"base": TEE_A["id"], "bottoms": CHINOS["id"], "footwear": SHOES["id"]}
-    assert pk._same_again_line(picks, shown) is None
+    assert reroll.same_again_line(picks, shown) is None
 
 
 def test_the_repair_can_always_move_what_it_calls_stuck():
@@ -186,8 +189,8 @@ def test_the_repair_can_always_move_what_it_calls_stuck():
             picks = {"base": TEE_A["id"], "bottoms": CHINOS["id"],
                      "footwear": SHOES["id"]}
             shown = dict(picks)
-            stuck = pk._repeated_slots(picks, shown, wd, plan, [], peak)
-            pk._swap_repeats(picks, stuck, wd, plan, [], peak)
+            stuck = reroll.repeated_slots(picks, shown, wd, plan, [], peak)
+            reroll.swap_repeats(picks, stuck, wd, plan, [], peak)
             still = [c for c in stuck if picks.get(c) == shown.get(c)]
             assert not still, (len(closet), plan, still)
 
@@ -331,6 +334,51 @@ def test_the_prose_follows_the_swap(stubbed):
     assert text.startswith("• white tee and jeans instead")
     # The one slot that could not move keeps its line.
     assert "sneakers" in text
+
+
+DRESS = _item("itm-dress-001", "linen dress", "base", warmth=2, group="onepiece",
+              kind="dress")
+
+
+def test_a_dress_swapped_in_reports_the_legs_as_covered(stubbed):
+    """The swap runs AFTER _hold_to_the_rules has worked out what covers what, and a
+    dress in `base` takes the trousers off. If that is not carried back out, the
+    cleared slot reads to _missing_slots as a wardrobe the legs have no answer for,
+    and the shopping list answers a dress by recommending trousers. Raised by the
+    pre-push reviewer, 2026-09-03.
+
+    Asserted on the RETURNED coverage rather than on `missing`, because end to end
+    the freed trousers are themselves an answer for the slot and `can_fill` hides
+    the mistake — a test that passes whether or not the fix is present proves only
+    that it ran.
+    """
+    install, _ = stubbed
+    closet = [TEE_A, DRESS, CHINOS, JEANS, SHOES]
+    wd = pk._index(closet)
+    picks = {c: None for c in
+             ("inner", "base", "mid", "outer", "bottoms", "footwear", "accessories")}
+    picks.update(FIRST)
+    prefs = pk.Prefs.of(None, False, None, {"base": TEE_A["id"]})
+    note, swapped, _banned, covered = reroll.hold_the_reroll(
+        picks, WARM, prefs, wd, [], 1)
+    assert not note
+    assert picks["base"] == DRESS["id"], picks       # the only base left to move to
+    assert picks["bottoms"] is None
+    assert covered == {"bottoms"}, covered
+    assert ("bottoms", None) in swapped
+
+
+def test_the_dress_still_goes_out_dressed(stubbed):
+    """The end-to-end half: a swap to a one-piece is a legal outfit, not a dress
+    over jeans, and the trousers it replaced are struck from the prose."""
+    install, _ = stubbed
+    install([_reply(FIRST), _reply(FIRST)])
+    d = TestClient(srv.app).post(
+        "/advice", json={**BODY, "closet": [TEE_A, DRESS, CHINOS, JEANS, SHOES],
+                         "shown": FIRST, "gender": "woman"}).json()
+    assert d["picks"]["base"] == DRESS["id"]
+    assert d["picks"]["bottoms"] is None
+    assert "chinos" not in d["outfit_text"]
 
 
 def test_a_swap_never_dresses_you_for_the_wrong_weather(stubbed):

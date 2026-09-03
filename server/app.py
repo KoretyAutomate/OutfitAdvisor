@@ -187,16 +187,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     if req.closet:
         items = [i.model_dump() for i in req.closet]
         prefs = closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
-                                    [p.model_dump() for p in req.prefers],
-                                    # Only ids the phone actually sent this time.
-                                    # A garment shown this morning and put in the
-                                    # wash since is not in `closet`, so naming it
-                                    # would ask the model to avoid a line that is
-                                    # not in the listing — the same contradiction
-                                    # swapSummary is filtered for on the phone, and
-                                    # the one that costs the single corrective retry.
-                                    {k: v for k, v in req.shown.items()
-                                     if v in {i.id for i in req.closet}})
+                                    [p.model_dump() for p in req.prefers], req.shown)
         result = await closet_llm.closet_outfit(wc, req.gender, req.style, items, prefs)
         if result is not None:
             text = result["text"]

@@ -38,15 +38,11 @@ MODEL = "Intel/Qwen3.5-122B-A10B-int4-AutoRound"
 
 async def _chat(messages: list, max_tokens: int, timeout: int = 45,
                 temperature: float = 0.4) -> str | None:
-    """0.4 is the house setting and the one every caller should want: the morning
-    push is answered once and has to be answered well.
-
-    It is a parameter only because of the re-roll (2026-09-03). Asked twice for the
-    same day the model returned the same top and the same trousers four times out of
-    four — the distribution is that peaked — so a request that says "show me
-    something else" has to sample somewhere other than the peak, or the instruction
-    is argued with by the sampler. Raised THERE, per request; never here.
-    """
+    """0.4 is the house setting and what every caller should want. It is a parameter
+    only for the re-roll (see reroll.py): asked twice for the same day the model
+    returned the same outfit four times in four, so a request that says "show me
+    something else" has to sample off the peak or the sampler argues with the
+    instruction. Raised there, per request; never here."""
     payload = {
         "model": MODEL,
         "messages": messages,

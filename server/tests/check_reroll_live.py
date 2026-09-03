@@ -16,7 +16,8 @@ Run: python3 server/tests/check_reroll_live.py [n]
 """
 import json
 import sys
-import urllib.request
+
+import httpx
 
 BASE = "http://100.112.171.54:8787"
 SLOTS = ("inner", "base", "mid", "outer", "bottoms", "footwear", "accessories")
@@ -61,11 +62,13 @@ def ask(shown):
     body = dict(BODY)
     if shown:
         body["shown"] = shown
-    req = urllib.request.Request(
-        BASE + "/advice", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-OA-Client": "probe/reroll"})
-    with urllib.request.urlopen(req, timeout=180) as r:
-        return json.load(r)
+    # httpx, not urllib: the server already depends on it, and urlopen on a
+    # string-built URL trips the bandit scheme audit that check_packing_live.py
+    # needed a config exception for.
+    r = httpx.post(BASE + "/advice", json=body,
+                   headers={"X-OA-Client": "probe/reroll"}, timeout=180)
+    r.raise_for_status()
+    return r.json()
 
 
 def main() -> int:

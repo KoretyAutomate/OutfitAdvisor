@@ -37,9 +37,9 @@ def test_the_users_own_example():
     """The exact outfit that prompted the feature."""
     v = rules.violations([BAN], {"inner": "i1", "base": "i2"}, BY_ITEM)
     assert len(v) == 1
-    # The slot to clear is the SECOND side: the first is what the outfit is built
-    # around, so dropping the addition is the smaller change.
-    assert v[0]["slot"] == "base"
+    # The UNDERSHIRT goes, not the tee. Reversed 2026-09-05 on field evidence —
+    # see test_the_undershirt_is_what_a_pair_rule_drops below.
+    assert v[0]["slot"] == "inner"
 
 
 def test_breaking_either_half_is_allowed():
@@ -202,12 +202,18 @@ def test_avoid_item_clears_every_offending_garment():
 
 
 def test_a_pair_rule_catches_a_later_match_too():
-    """The offending partner may not be the first garment the descriptor matches."""
+    """The offending partner may not be the first garment the descriptor matches.
+
+    The navy tee in `base` breaks nothing; the white one in `mid` does, and the
+    rule has to look past the first match to find it. WHICH of the pair is then
+    dropped is a separate question — the undershirt, as everywhere else.
+    """
     by = {"i1": WHITE_INNER,
           "n": _tee("n", "navy"),
           "w": _tee("w", "white", "mid")}
     v = rules.violations([BAN], {"inner": "i1", "base": "n", "mid": "w"}, by)
-    assert [x["slot"] for x in v] == ["mid"]
+    assert [x["slot"] for x in v] == ["inner"]
+    assert "white t-shirt" in v[0]["why"]
 
 
 def test_one_violation_per_slot_however_many_ways_it_breaks():
@@ -275,10 +281,36 @@ def test_which_side_loses_is_deterministic():
     assert got == {"mid"}, got
 
 
-def test_the_users_own_example_still_blames_the_visible_layer():
-    """Asymmetric rules are unaffected: the undershirt stays, the white tee goes."""
+def test_the_undershirt_is_what_a_pair_rule_drops():
+    """Reversed 2026-09-05, on the user's report that "no inner with white
+    Crew-neck T-shirt" was being ignored.
+
+    It was not being ignored by then — it was being honoured backwards. Blaming the
+    visible layer meant the wearer got the undershirt they had just banned and a
+    DIFFERENT shirt; and where the white tee was the only top they owned, they were
+    sent out in jeans and nothing above the waist, with `base` recorded as a
+    wardrobe gap the shopping list would answer by recommending a shirt they own.
+
+    The original reasoning — the later slot is the addition, so it is the smaller
+    thing to remove — is right everywhere except here. Underwear is the most
+    optional garment in the outfit, not the one it is built on, which the rest of
+    the module already knew: `picks._SHEDDABLE` lists `inner`, and the underwear
+    rule takes it off whenever nothing covers it.
+    """
     v = rules.violations([BAN], {"inner": "i1", "base": "i2"}, BY_ITEM)
-    assert [x["slot"] for x in v] == ["base"]
+    assert [x["slot"] for x in v] == ["inner"]
+
+
+def test_but_only_the_undershirt_is_special():
+    """Everywhere else the outer of the two still loses — a scarf added over a coat
+    is the addition, and removing it is the smaller change."""
+    by = {"c": {"id": "c", "type": "coat", "group": "outerwear",
+                "category": "outer", "colors": ["black"]},
+          "s": {"id": "s", "type": "scarf", "group": "accessories",
+                "category": "accessories", "colors": ["black"]}}
+    r = {"kind": "avoid_pair", "a": {"type": "coat"}, "b": {"type": "scarf"}}
+    v = rules.violations([r], {"outer": "c", "accessories": "s"}, by)
+    assert [x["slot"] for x in v] == ["accessories"]
 
 
 def test_a_colour_that_normalises_away_is_not_a_shared_colour():

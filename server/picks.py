@@ -321,8 +321,17 @@ def _enforce_onepiece(picks: dict, by_group: dict, by_item: dict,
     return "", ([*banned, dropped] if dropped else banned)
 
 
-def _enforce_user_rules(picks: dict, by_item: dict,
-                        user_rules: list[dict] | None, attempt: int) -> tuple[str, list[dict]]:
+#: Rule kinds that forbid a COMBINATION rather than a garment. A slot cleared for
+#: one of these is not evidence of anything missing from the wardrobe: the garment
+#: is fine, and will be worn tomorrow with something else. Recording it as a gap
+#: had the shopping list recommending a second undershirt to somebody whose rule was
+#: "no inner with white Crew-neck T-shirt" — buy another one and the rule fires on
+#: that too (2026-09-05).
+_COMBINATION_KINDS = ("avoid_pair", "avoid_same_color")
+
+
+def _enforce_user_rules(picks: dict, by_item: dict, user_rules: list[dict] | None,
+                        attempt: int) -> tuple[str, list[dict], set]:
     """Hold the outfit to the wearer's own prohibitions.
 
     Checked, not merely asked for. The prompt carries the rules as prose, and prose
@@ -330,29 +339,34 @@ def _enforce_user_rules(picks: dict, by_item: dict,
     "This combination shall be banned" is a promise the user is entitled to see kept
     every morning, not most mornings (2026-08-24).
 
-    Returns a corrective note to retry with on the first attempt. On the second it
-    repairs instead, clearing the offending slot: an empty slot is a smaller wrong
-    than a forbidden one, and the bullet still reads.
+    Returns a corrective note to retry with on the first attempt, the garments whose
+    mention must be struck from the prose, and the slots emptied by a COMBINATION
+    rule — which the caller must not count as wardrobe gaps. On the second attempt
+    it repairs instead, clearing the offending slot: an empty slot is a smaller
+    wrong than a forbidden one, and the bullet still reads.
     """
     broke = rules.violations(user_rules or [], picks, by_item)
     if not broke:
-        return "", []
+        return "", [], set()
     if attempt == 0:
         detail = "; ".join(b["why"] for b in broke)
         return (
             f"Your last reply broke rules the wearer set: {detail}. "
             "These are not preferences to balance against the weather — they are "
             "prohibitions. Choose differently, or use null for that slot. "
-        ), []
+        ), [], set()
     cleared = []
+    combination: set = set()
     for b in broke:
         iid = picks.get(b["slot"])
         item = by_item.get(iid) if iid else None
         if item:
             cleared.append(item)
+        if (b.get("rule") or {}).get("kind") in _COMBINATION_KINDS:
+            combination.add(b["slot"])
         log.warning("closet picks: %s cleared — %s", b["slot"], b["why"])
         picks[b["slot"]] = None
-    return "", cleared
+    return "", cleared, combination
 
 
 def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str, dict]:

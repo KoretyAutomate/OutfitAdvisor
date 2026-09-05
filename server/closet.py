@@ -242,11 +242,18 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # as prose, and prose in a prompt is followed most of the time, which is not the
     # same as followed.
     before_rules = {c for c, v in picks.items() if v}
-    note, banned = pk._enforce_user_rules(picks, wd.by_item, rules_list, attempt)
+    note, banned, combination = pk._enforce_user_rules(picks, wd.by_item, rules_list,
+                                                       attempt)
     # Banned by the wearer: short of something LEGAL — unless something legal is
     # sitting there unused, in which case the choice was wrong, not the wardrobe.
+    #
+    # `combination` is excluded because it is neither. A pair rule says these two
+    # garments do not go together, not that either is missing: the undershirt is
+    # worn tomorrow under a different shirt. Counting it recommended buying a second
+    # undershirt to somebody whose rule was "no inner with white Crew-neck T-shirt"
+    # — and the rule would forbid that one too (2026-09-05).
     unsuitable = unsuitable | {
-        c for c in before_rules if not picks.get(c)
+        c for c in before_rules if not picks.get(c) and c not in combination
         and not pk._has_suitable_alternative(c, picks, wd, plan, rules_list)
     }
     if note:
@@ -259,6 +266,10 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # the model getting it right first time clears nothing, and keying on that
     # recorded a false bottoms gap on exactly the outfits that were correct.
     covered = {"bottoms"} if wd.by_group.get(picks.get("base")) == "onepiece" else set()
+    # Emptied because of what it was worn WITH, so not a hole in the wardrobe —
+    # `covered` is the one filter _missing_slots applies to all three of its
+    # sources, which is what this needs.
+    covered = covered | combination
     if note:
         return note, banned, covered, unsuitable, None
 

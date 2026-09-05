@@ -4020,6 +4020,11 @@ function ruleIsDead(r){
    The text is stored with every rule, so nothing has to be retyped. */
 async function refreshRule(i){
   const r=userRules[i]; if(!r||!r.text) return;
+  // The id, captured BEFORE the await. Remove stays live while /rule is in flight,
+  // so by the time the answer lands index `i` may be a different rule — or past the
+  // end, which would append and resurrect the one just removed. Raised by the
+  // pre-push reviewer, 2026-09-05.
+  const rid=r.id;
   $("rlErr").textContent="";
   try{
     const res=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
@@ -4032,8 +4037,13 @@ async function refreshRule(i){
       return;
     }
     const fresh=await res.json();
+    // Found again by id, not by the index this started with. Gone means the wearer
+    // removed it while we were asking, and their action wins — putting it back
+    // would resurrect a rule they had just deleted.
+    const at=userRules.findIndex(x=>x.id===rid);
+    if(at<0) return;
     // The id is KEPT, so anything else already pointing at this rule still does.
-    userRules[i]={...fresh,text:r.text,id:r.id,at:Date.now()};
+    userRules[at]={...fresh,text:r.text,id:rid,at:Date.now()};
     await saveRules();
     toast("Fixed — "+(fresh.restated||"the advisor will avoid that"));
   }catch(e){

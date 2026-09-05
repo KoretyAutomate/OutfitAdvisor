@@ -105,7 +105,34 @@ const REAL = {kind:"avoid_pair", a:{type:"undershirt", role:"inner"},
   check("the list stops warning about it",
     !/⚠️/.test(w.document.getElementById("rlList").children[0].textContent));
 
-  console.log("\n--- 4. a sentence that still cannot be parsed says so -----------");
+  console.log("\n--- 4. removed while the answer was in flight --------------------");
+  /* Remove stays live while /rule is being asked, so by the time the answer lands
+     the index this started with may point at a DIFFERENT rule — or past the end,
+     which appends and resurrects the one just deleted. Raised by the pre-push
+     reviewer, 2026-09-05. */
+  const wR = page();
+  await wR.eval("appReady");
+  const OTHER = {kind:"avoid_item", a:{type:"jeans"}, restated:"No jeans.",
+    text:"no jeans", id:"rl-other"};
+  await wR.eval(`userRules=[${JSON.stringify(GHOST)},${JSON.stringify(OTHER)}]; renderRules()`);
+  let release;
+  wR.fetch = async () => {
+    await new Promise(r => { release = r; });
+    return {ok:true, status:200, json: async () => ({...REAL, id:undefined})};
+  };
+  const inFlight = wR.eval(`refreshRule(0)`);
+  await new Promise(r => setTimeout(r, 10));
+  // The wearer removes the ghost themselves while the request is out.
+  await wR.eval(`userRules.splice(0,1); saveRules()`);
+  release();
+  await inFlight;
+  await new Promise(r => setTimeout(r, 20));
+  check("the rule they removed is not resurrected",
+    wR.eval("userRules.length") === 1, wR.eval("JSON.stringify(userRules)"));
+  check("and the surviving rule is untouched, not overwritten",
+    wR.eval("userRules[0].id") === "rl-other", wR.eval("JSON.stringify(userRules)"));
+
+  console.log("\n--- 5. a sentence that still cannot be parsed says so -----------");
   const w2 = page();
   await w2.eval("appReady");
   await w2.eval(`userRules=[${JSON.stringify(GHOST)}]; renderRules()`);

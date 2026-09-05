@@ -303,3 +303,50 @@ def test_the_unit_reports_only_the_slots_where_every_reason_was_a_combination():
         dict(picks_combo), by,
         [AS_MEANT, {"kind": "avoid_item", "a": {"type": "undershirt"}}], 1)
     assert mixed == set(), "one outright ban is enough to make it a real gap"
+
+
+def test_only_underwear_can_occupy_inner():
+    """What makes `_LOSES_A_PAIR` safe to key on the SLOT rather than the garment.
+
+    The pre-push reviewer read the inner-last ordering as a general change to every
+    pair involving that slot, and objected that a rule pairing "an inner-layer
+    shirt" with a scarf would now drop the shirt and leave the wearer without a
+    foundational top. That outfit cannot be built: vocab.reconcile strips the
+    `inner` role from anything that is not underwear — the 2026-08-18 "wear your tee
+    under your tee" fix — so the only garments that reach the inner slot are an
+    undershirt or a thermal, and both are exactly the optional layer the ordering
+    assumes.
+
+    Pinned here so the rejection is checkable rather than an argument, and so the
+    day somebody loosens normalize_roles this fails instead of quietly sending
+    people out without a shirt.
+    """
+    import vocab
+
+    for cat, group, roles, kind in (
+        ("inner", "tops", ["inner", "base"], "t_shirt"),
+        ("base", "tops", ["inner", "base"], "shirt"),
+        ("accessories", "accessories", ["inner"], "scarf"),
+        ("mid", "knitwear", ["inner", "mid"], "sweater"),
+    ):
+        _c, g, _k, r = vocab.reconcile(cat, group, roles, kind)
+        assert "inner" not in r, f"{kind} kept the inner role"
+        assert g != "underwear", f"{kind} was filed as underwear"
+
+    # And what legitimately can — all of it underwear, and all but two withheld
+    # from the outfit slots entirely.
+    inner_types = [t for t in vocab.TYPES["underwear"]
+                   if t not in vocab.NON_SLOT_TYPES]
+    assert inner_types == ["undershirt", "thermal"], inner_types
+    for kind in inner_types:
+        _c, g, _k, r = vocab.reconcile("inner", "underwear", ["inner"], kind)
+        assert r == ["inner"] and g == "underwear"
+
+    # The TABLE that makes all of the above true, asserted directly. reconcile's
+    # step 5 demotes a stated `inner` whenever the group does not allow it, so this
+    # single row is the whole guarantee — and the loop above passes without it,
+    # because a tee also fails the type/category checks earlier for its own reasons.
+    # Naming the load-bearing line is the difference between a test that would catch
+    # a regression here and one that merely happens to agree with the answer.
+    owns_inner = [g for g, cats in vocab.GROUP_CATEGORIES.items() if "inner" in cats]
+    assert owns_inner == ["underwear"], owns_inner

@@ -206,6 +206,14 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
 #: their only top they were sent out in jeans and no top at all, `base` reported as
 #: a wardrobe gap the shopping list would answer by recommending a shirt they own.
 #: Dropping the undershirt is both the smaller change and the thing they asked for.
+#:
+#: This is safe to key on the SLOT rather than the garment's type because the inner
+#: slot holds nothing but underwear — vocab.reconcile strips the `inner` role from
+#: anything else, which is the 2026-08-18 "wear your tee under your tee" fix, and
+#: wearable() withholds the rest of the underwear group. A shirt cannot be in
+#: `inner`, so there is no foundational top here to lose. The pre-push reviewer
+#: read it the other way on 2026-09-05; test_only_underwear_can_occupy_inner is
+#: what makes the rejection checkable, and will fail the day that stops being true.
 _LOSES_A_PAIR = ("base", "mid", "outer", "bottoms", "footwear", "accessories", "inner")
 
 

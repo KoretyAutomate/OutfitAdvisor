@@ -1328,7 +1328,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.26";
+const WEB_BUILD="1.27";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3997,17 +3997,75 @@ async function saveRules(){
   renderRules();
   await savePushPayload();     // a ban the push has not been told is not a ban
 }
+/* A stored rule that can never fire — the JS twin of rules.dead_pair (2026-09-05).
+
+   The server refuses these now, but a phone that collected them BEFORE that still
+   has them, and they look exactly like working rules in this list. That is the
+   whole complaint: "no inner with white Crew-neck T-shirt" was parsed six times
+   into a pair whose two sides both named the inner slot, stored, restated back
+   perfectly, and never once enforced. Every dead entry gets a warning and a button
+   that reads the original sentence again — the wearer should not have to work out
+   which of their own rules is a ghost. */
+function ruleIsDead(r){
+  if(!r||(r.kind!=="avoid_pair"&&r.kind!=="avoid_same_color")) return false;
+  // A pair with only one side has nothing to pair WITH.
+  if(!r.b) return true;
+  // One garment cannot be both sides of a pair, so the server's violations() skips
+  // a match where the two slots are the same — and if both sides pin that slot,
+  // there is no outfit it can ever fire on.
+  return !!(r.a&&r.a.role&&r.b.role&&r.a.role===r.b.role);
+}
+
+/* Read the wearer's original sentence again, now the parser can do it justice.
+   The text is stored with every rule, so nothing has to be retyped. */
+async function refreshRule(i){
+  const r=userRules[i]; if(!r||!r.text) return;
+  // The id, captured BEFORE the await. Remove stays live while /rule is in flight,
+  // so by the time the answer lands index `i` may be a different rule — or past the
+  // end, which would append and resurrect the one just removed. Raised by the
+  // pre-push reviewer, 2026-09-05.
+  const rid=r.id;
+  $("rlErr").textContent="";
+  try{
+    const res=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
+      method:"POST",headers:{"Content-Type":"application/json",
+        "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      body:JSON.stringify({text:r.text})});
+    if(!res.ok){
+      $("rlErr").textContent="Still couldn't turn that into a rule. Try naming the "+
+        "two garments, e.g. \"never an undershirt under a white t-shirt\".";
+      return;
+    }
+    const fresh=await res.json();
+    // Found again by id, not by the index this started with. Gone means the wearer
+    // removed it while we were asking, and their action wins — putting it back
+    // would resurrect a rule they had just deleted.
+    const at=userRules.findIndex(x=>x.id===rid);
+    if(at<0) return;
+    // The id is KEPT, so anything else already pointing at this rule still does.
+    userRules[at]={...fresh,text:r.text,id:rid,at:Date.now()};
+    await saveRules();
+    toast("Fixed — "+(fresh.restated||"the advisor will avoid that"));
+  }catch(e){
+    $("rlErr").textContent="Can't reach the advisor — check Tailscale, then try again.";
+  }
+}
+
 function renderRules(){
   const sum=$("rlSum");
   // The count on the summary, so the fold answers "is anything banned?" shut.
   if(sum) sum.textContent=userRules.length
     ? `Things to avoid (${userRules.length})` : "Things to avoid";
   const el=$("rlList"); if(!el) return;
-  el.innerHTML=userRules.length?userRules.map((r,i)=>
-    `<div class="calRow" style="padding-left:0">
-       <div style="min-width:0;flex:1">🚫 ${esc(r.restated||r.text)}</div>
+  el.innerHTML=userRules.length?userRules.map((r,i)=>{
+    const dead=ruleIsDead(r);
+    return `<div class="calRow" style="padding-left:0">
+       <div style="min-width:0;flex:1">${dead?"⚠️":"🚫"} ${esc(r.restated||r.text)}
+         ${dead?`<div class="note" style="margin:2px 0 0">This one was never being
+           applied — tap Fix to read it again.</div>`:""}</div>
+       ${dead?`<button class="ghost" data-rlfix="${i}" style="padding:4px 9px;font-size:.72rem">Fix</button>`:""}
        <button class="ghost" data-rlrm="${i}" style="padding:4px 9px;font-size:.72rem">Remove</button>
-     </div>`).join("")
+     </div>`;}).join("")
     :`<p class="note" style="margin:6px 0 0">Nothing banned yet.</p>`;
 }
 async function addRule(){
@@ -4582,7 +4640,15 @@ $("fbNote").onclick=async()=>{
 $("homeBtn").onclick=setHomeFromHere;
 $("rlAdd").onclick=addRule;
 $("rlText").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addRule(); } });
-$("rlList").onclick=async e=>{ const b=e.target.closest("[data-rlrm]"); if(!b) return;
+$("rlList").onclick=async e=>{
+  const fix=e.target.closest("[data-rlfix]");
+  if(fix){ const btn=fix, was=btn.textContent; btn.disabled=true; btn.textContent="…";
+    try{ await refreshRule(+btn.dataset.rlfix); }
+    // renderRules has replaced the row by now when it worked, so this only ever
+    // restores a button that is still there — the failure path.
+    finally{ btn.disabled=false; btn.textContent=was; }
+    return; }
+  const b=e.target.closest("[data-rlrm]"); if(!b) return;
   userRules.splice(+b.dataset.rlrm,1); await saveRules(); };
 $("placesBtn").onclick=()=>{ renderPlaces(); $("plWrap").classList.add("show"); };
 $("plDone").onclick=()=>$("plWrap").classList.remove("show");

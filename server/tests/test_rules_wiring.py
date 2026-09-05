@@ -78,8 +78,8 @@ def test_the_phone_and_the_server_agree_on_the_rule_shape():
 
 def test_a_rule_the_server_cannot_enforce_never_reaches_storage():
     """/rule validates before returning, so the phone cannot hold a dead rule."""
-    llm_src = (ROOT / "server" / "llm.py").read_text()
-    body = llm_src[llm_src.index("async def parse_rule("):]
+    src = (ROOT / "server" / "ruleparse.py").read_text()
+    body = src[src.index("async def parse_rule("):]
     body = body[:body.index("\ndef ")] if "\ndef " in body else body
     assert "rules.clean_rule(" in body, \
         "a parsed rule must be validated before it is handed back"

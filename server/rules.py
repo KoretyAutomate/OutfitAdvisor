@@ -7,7 +7,7 @@ Two ways to honour that. Put the sentence in the prompt and hope, or turn it int
 something checkable and check it. This module is the second. It is the same lesson
 the PPK/Kazakhstan week taught at length: a model is excellent at READING a
 sentence once and unreliable at REMEMBERING it on every future generation, so the
-model parses the rule exactly once (llm.parse_rule) and everything after that is a
+model parses the rule exactly once (ruleparse.parse_rule) and everything after is a
 table lookup. A rule cannot be 85% observed.
 
 The vocabulary is closed on purpose. A rule that names a type or a slot this
@@ -29,6 +29,13 @@ RULE_KINDS = ("avoid_pair", "avoid_item", "avoid_same_color")
 
 # How many rules one request may carry. A prompt that grows without limit stops
 # being a prompt, and a wardrobe with 40 prohibitions has a different problem.
+#: The kinds that forbid a COMBINATION rather than a garment. A slot cleared for one
+#: of these is not evidence of anything missing from the wardrobe: the garment is
+#: fine and gets worn tomorrow with something else. Counting it had the shopping list
+#: recommending a second undershirt to somebody whose rule was "no inner with white
+#: Crew-neck T-shirt" — and the rule would forbid that one too (2026-09-05).
+COMBINATION_KINDS = ("avoid_pair", "avoid_same_color")
+
 MAX_RULES = 24
 MAX_COLOR = 24
 
@@ -72,6 +79,14 @@ def clean_descriptor(d: object) -> dict | None:
     if t in vocab.TYPE_LABEL:
         out["type"] = t
     g = vocab.canonical_group(_norm(d.get("group")))
+    # A group its own type contradicts is dropped, not kept alongside it.
+    # _matches requires EVERY field present, so {type: t_shirt, group: underwear}
+    # describes a garment that cannot exist and the rule silently never fires. Which
+    # of the two to believe is not a guess: the type is the more specific level, and
+    # vocab.reconcile files garments by it, so a tee is `tops` however the rule was
+    # spelled (2026-09-05).
+    if g and t in vocab.TYPE_LABEL and vocab.normalize_type(t, g) is None:
+        g = None
     if g:
         out["group"] = g
     r = _norm(d.get("role"))
@@ -97,6 +112,8 @@ def clean_rule(r: object) -> dict | None:
     # A pair rule needs both sides; a colour rule needs two slots to compare.
     if kind in ("avoid_pair", "avoid_same_color") and not b:
         return None
+    if kind in ("avoid_pair", "avoid_same_color") and dead_pair(a, b):
+        return None
     out = {"kind": kind, "a": a}
     if b:
         out["b"] = b
@@ -113,6 +130,40 @@ def clean_rules(rules: object) -> list[dict]:
     if not isinstance(rules, list):
         return []
     return [c for c in (clean_rule(r) for r in rules[:MAX_RULES]) if c]
+
+
+def dead_pair(a: dict, b: dict | None) -> str:
+    """Why a two-sided rule can never fire, or "" if it can (2026-09-05).
+
+    The module opens by saying a rule that silently never fires is worse than a
+    rejected one, because the user believes the advisor was told. That guard was
+    written for the unknown-vocabulary case only, and the vocabulary is not where
+    this went wrong. The wearer asked six times for no undershirt under their white
+    crew-neck tee, and got back a rule every field of which was legal:
+
+        a: {type: t_shirt, role: inner, color: white}   b: {role: inner}
+
+    Both sides pin the same slot. `violations` skips `slot_b == slot_a`, because one
+    garment cannot be both sides of a pair — so no outfit and no wardrobe can make
+    that rule fire, and the restatement shown to the user said it would.
+
+    Refused rather than repaired. Which of the two roles was meant is exactly the
+    thing the sentence did not say clearly enough the first time, and guessing here
+    would put back the silent wrongness this exists to remove — the caller retries
+    the parse with this reason instead.
+    """
+    if not b:
+        return ""
+    ra, rb = a.get("role"), (b or {}).get("role")
+    if ra and rb and ra == rb:
+        return (f"both sides name the {ra} slot, and one garment cannot be both "
+                f"sides of a pair — put the two garments in DIFFERENT slots")
+    return ""
+
+
+def is_combination(rule: dict) -> bool:
+    """Is this rule about two garments together, rather than one garment at all?"""
+    return (rule or {}).get("kind") in COMBINATION_KINDS
 
 
 def _colors(item: dict) -> set[str]:
@@ -142,15 +193,36 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
     return not ("color" in desc and desc["color"] not in _colors(item))
 
 
-def _slot_order(slot: str) -> int:
-    """Where a slot sits in the outfit, inner outwards.
+#: `inner` sorts LAST, so a pair rule that involves the undershirt drops the
+#: undershirt (2026-09-05). Everywhere else the later slot losing is right — a
+#: scarf added over a coat is the addition, and removing it is the smaller change.
+#: For underwear that reasoning inverts: it is the most optional thing in the
+#: outfit, not the thing the outfit is built on, which is why `picks._SHEDDABLE`
+#: already lists it and why the underwear rule takes it off when nothing covers it.
+#:
+#: Read the wrong way round it does visible harm. "No inner with white Crew-neck
+#: T-shirt" blamed the TEE: with a spare top in the wardrobe the wearer got the
+#: undershirt they had just banned and a different shirt, and with the white tee as
+#: their only top they were sent out in jeans and no top at all, `base` reported as
+#: a wardrobe gap the shopping list would answer by recommending a shirt they own.
+#: Dropping the undershirt is both the smaller change and the thing they asked for.
+#:
+#: This is safe to key on the SLOT rather than the garment's type because the inner
+#: slot holds nothing but underwear — vocab.reconcile strips the `inner` role from
+#: anything else, which is the 2026-08-18 "wear your tee under your tee" fix, and
+#: wearable() withholds the rest of the underwear group. A shirt cannot be in
+#: `inner`, so there is no foundational top here to lose. The pre-push reviewer
+#: read it the other way on 2026-09-05; test_only_underwear_can_occupy_inner is
+#: what makes the rejection checkable, and will fail the day that stops being true.
+_LOSES_A_PAIR = ("base", "mid", "outer", "bottoms", "footwear", "accessories", "inner")
 
-    Used to pick WHICH of two garments to drop when a pair rule fires. The later
-    slot loses: the inner layers are what the outfit is built on, so removing the
-    addition is the smaller change — and it has to be deterministic, or the same
-    outfit repairs differently on different mornings.
+
+def _slot_order(slot: str) -> int:
+    """Which of two garments to drop when a pair rule fires — the higher loses.
+
+    Deterministic, or the same outfit repairs differently on different mornings.
     """
-    return vocab.CATEGORIES.index(slot) if slot in vocab.CATEGORIES else 99
+    return _LOSES_A_PAIR.index(slot) if slot in _LOSES_A_PAIR else 99
 
 
 def _found(desc: dict, worn: list[tuple[str, dict]]) -> list[tuple[str, dict]]:

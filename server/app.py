@@ -53,6 +53,7 @@ import closet as closet_llm
 import engine
 import llm
 import rules
+import ruleparse
 import scale
 import shopping as shopping_llm
 import vocab
@@ -460,7 +461,7 @@ async def rule(req: RuleRequest):
     wears.
     """
     t0 = time.monotonic()
-    parsed = await llm.parse_rule(req.text)
+    parsed = await ruleparse.parse_rule(req.text)
     dt = round(time.monotonic() - t0, 2)
     if not parsed:
         log.info("rule not understood %.2fs", dt)

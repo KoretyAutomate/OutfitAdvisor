@@ -29,6 +29,13 @@ RULE_KINDS = ("avoid_pair", "avoid_item", "avoid_same_color")
 
 # How many rules one request may carry. A prompt that grows without limit stops
 # being a prompt, and a wardrobe with 40 prohibitions has a different problem.
+#: The kinds that forbid a COMBINATION rather than a garment. A slot cleared for one
+#: of these is not evidence of anything missing from the wardrobe: the garment is
+#: fine and gets worn tomorrow with something else. Counting it had the shopping list
+#: recommending a second undershirt to somebody whose rule was "no inner with white
+#: Crew-neck T-shirt" — and the rule would forbid that one too (2026-09-05).
+COMBINATION_KINDS = ("avoid_pair", "avoid_same_color")
+
 MAX_RULES = 24
 MAX_COLOR = 24
 
@@ -152,6 +159,11 @@ def dead_pair(a: dict, b: dict | None) -> str:
         return (f"both sides name the {ra} slot, and one garment cannot be both "
                 f"sides of a pair — put the two garments in DIFFERENT slots")
     return ""
+
+
+def is_combination(rule: dict) -> bool:
+    """Is this rule about two garments together, rather than one garment at all?"""
+    return (rule or {}).get("kind") in COMBINATION_KINDS
 
 
 def _colors(item: dict) -> set[str]:

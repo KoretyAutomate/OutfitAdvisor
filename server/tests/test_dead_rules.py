@@ -19,6 +19,11 @@ of a pair. No outfit and no wardrobe can make it fire.
 `clean_rule` validated the VOCABULARY and never the SATISFIABILITY — every field
 in that rule is legal. These tests are the missing half.
 """
+import asyncio
+import json
+
+import closet as closet_mod
+import picks as pk
 import rules
 
 # The outfit the wearer kept being given.
@@ -155,12 +160,6 @@ def test_it_says_something_usable_in_the_prompt_too():
 # ::test_the_undershirt_is_what_a_pair_rule_drops for the unit; this is what it
 # does to an actual morning.
 
-import asyncio  # noqa: E402  (the section above is the module's subject)
-import json  # noqa: E402
-
-import closet as closet_mod  # noqa: E402
-import picks as pk  # noqa: E402
-
 WARM = {"lo": 20, "hi": 29, "feelsLo": 19, "feelsHi": 30, "desc": "Clear", "rain": 0,
         "wind": 2, "morning": 21, "midday": 28, "evening": 24, "swing": 9,
         "isRain": False, "isSnow": False, "code": 0}
@@ -254,3 +253,53 @@ def test_a_garment_banned_OUTRIGHT_is_still_a_wardrobe_gap():
     assert out is not None
     assert out["picks"]["inner"] is None
     assert "inner" in out["missing"], "an outright ban on the only one IS a gap"
+
+
+def test_an_outright_ban_wins_when_a_slot_breaks_both_kinds():
+    """A slot can break two rules at once, and only one of them excuses the gap.
+
+    "Never the grey undershirt" and "no undershirt with the white tee" both fire on
+    `inner` when that is what is worn. Reading only the combination reason hid a
+    real gap: the outright ban means no legal garment is available for that slot
+    whatever the pair rule also said. Raised by the pre-push reviewer, 2026-09-05.
+    """
+    grey = _garment("g-under-02", "grey undershirt", "inner", "undershirt",
+                    "underwear", ["grey"])
+    both = [AS_MEANT,
+            {"kind": "avoid_item", "a": {"type": "undershirt", "color": "grey"}}]
+    reply = json.dumps({"picks": {"inner": "i1", "base": "i2", "mid": None,
+                                  "outer": None, "bottoms": "i3", "footwear": "i4",
+                                  "accessories": None},
+                        "bullets": ["Inner: the grey undershirt.", "Base: the tee.",
+                                    "Bottoms: jeans.", "Footwear: sneakers."],
+                        "missing": [], "tip": "Nice day."})
+
+    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4):
+        return reply
+
+    real, closet_mod._chat = closet_mod._chat, fake_chat
+    try:
+        out = asyncio.run(closet_mod.closet_outfit(
+            WARM, "man", "casual", [grey, WHITE_TEE, JEANS, SNEAKERS],
+            pk.Prefs.of(both, False, None, None)))
+    finally:
+        closet_mod._chat = real
+    assert out is not None
+    assert out["picks"]["inner"] is None
+    # The only undershirt they own is banned outright, so they really are without
+    # one — unlike the pure-combination case above.
+    assert "inner" in out["missing"], out["missing"]
+
+
+def test_the_unit_reports_only_the_slots_where_every_reason_was_a_combination():
+    """The seam itself, so the rule above cannot be satisfied by accident."""
+    by = {"u": {"id": "u", "type": "undershirt", "group": "underwear",
+                "colors": ["grey"]},
+          "t": {"id": "t", "type": "t_shirt", "group": "tops", "colors": ["white"]}}
+    picks_combo = {"inner": "u", "base": "t"}
+    _n, _c, combo = pk._enforce_user_rules(dict(picks_combo), by, [AS_MEANT], 1)
+    assert combo == {"inner"}
+    _n, _c, mixed = pk._enforce_user_rules(
+        dict(picks_combo), by,
+        [AS_MEANT, {"kind": "avoid_item", "a": {"type": "undershirt"}}], 1)
+    assert mixed == set(), "one outright ban is enough to make it a real gap"

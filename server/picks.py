@@ -321,15 +321,6 @@ def _enforce_onepiece(picks: dict, by_group: dict, by_item: dict,
     return "", ([*banned, dropped] if dropped else banned)
 
 
-#: Rule kinds that forbid a COMBINATION rather than a garment. A slot cleared for
-#: one of these is not evidence of anything missing from the wardrobe: the garment
-#: is fine, and will be worn tomorrow with something else. Recording it as a gap
-#: had the shopping list recommending a second undershirt to somebody whose rule was
-#: "no inner with white Crew-neck T-shirt" — buy another one and the rule fires on
-#: that too (2026-09-05).
-_COMBINATION_KINDS = ("avoid_pair", "avoid_same_color")
-
-
 def _enforce_user_rules(picks: dict, by_item: dict, user_rules: list[dict] | None,
                         attempt: int) -> tuple[str, list[dict], set]:
     """Hold the outfit to the wearer's own prohibitions.
@@ -356,17 +347,24 @@ def _enforce_user_rules(picks: dict, by_item: dict, user_rules: list[dict] | Non
             "prohibitions. Choose differently, or use null for that slot. "
         ), [], set()
     cleared = []
-    combination: set = set()
+    # Per slot, whether EVERY rule that cleared it was about a combination. One
+    # outright ban is enough to make it a real gap again: a slot can break two rules
+    # at once — "never the grey undershirt" and "no undershirt with the white tee"
+    # both fire on `inner` when that is what is worn — and the outright ban means no
+    # legal garment is available, whatever the pair rule also said. Taking the
+    # combination reason alone would hide that. Raised by the pre-push reviewer,
+    # 2026-09-05.
+    only_combination: dict[str, bool] = {}
     for b in broke:
         iid = picks.get(b["slot"])
         item = by_item.get(iid) if iid else None
         if item:
             cleared.append(item)
-        if (b.get("rule") or {}).get("kind") in _COMBINATION_KINDS:
-            combination.add(b["slot"])
+        combo = rules.is_combination(b.get("rule") or {})
+        only_combination[b["slot"]] = only_combination.get(b["slot"], True) and combo
         log.warning("closet picks: %s cleared — %s", b["slot"], b["why"])
         picks[b["slot"]] = None
-    return "", cleared, combination
+    return "", cleared, {c for c, only in only_combination.items() if only}
 
 
 def _enforce_one_slot_each(picks: dict, by_cat: dict, attempt: int) -> tuple[str, dict]:

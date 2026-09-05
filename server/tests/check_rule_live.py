@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import rules  # noqa: E402  (path set above; see tests/conftest.py for the same trick)
+import rules
 
 BASE = "http://100.112.171.54:8787"
 

@@ -12,7 +12,9 @@ POST /advice {lat, lon, gender, style, day?}  -> {weather, outfit, outfit_text, 
 ```
 - `gender`: `man` | `woman` | `neutral`   `style`: `casual` | `smart` | `active`
 - `day`: `0` = today (morning-push default), `1` = tomorrow
-- `source`: `llm` (122B) or `rule-engine` (fallback when vLLM is unreachable)
+- `source`: who wrote `outfit_text` — `llm` (122B), `rule-engine` (fallback when
+  vLLM is unreachable) or `none` (closetOnly and the advisor could not answer: the
+  slots are emptied rather than filled from a catalogue)
 
 ## Run
 

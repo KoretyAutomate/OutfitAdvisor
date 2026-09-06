@@ -244,9 +244,16 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
                 "• Your closet is set to 'complete', so nothing outside it is offered.")
         log.info("advice closet-only fallback: emptied slots and prose")
 
-    source = "llm"
-    if not text:
+    # Who actually wrote the text. This used to be set to "llm" before the check
+    # below, so the closet-only refusal above — which no model wrote — went out as
+    # "llm", and so did its journal line (2026-09-06: `source=llm closetUsed=no
+    # 0.44s`, with vLLM down). README documents `source` as the vLLM-reachable
+    # indicator; it is wrong exactly when it matters unless it follows the text.
+    if text:
+        source = "llm" if closet_used else "none"
+    else:
         text = await llm.outfit_text(wc, req.gender, req.style)
+        source = "llm"
     if not text:
         text = engine.outfit_to_bullets(outfit)
         source = "rule-engine"

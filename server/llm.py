@@ -78,7 +78,10 @@ async def _chat(messages: list, max_tokens: int, timeout: int = 45,
         # the model. Includes the timeout, so a slow load is also visible.
         log.warning("vLLM unreachable (%s) — no reply", type(e).__name__)
         return None
-    except (KeyError, IndexError, TypeError, ValueError) as e:
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+        # AttributeError: well-formed JSON of the wrong shape, e.g. "message": null,
+        # which the old catch-all swallowed and this list at first did not (the
+        # pre-push reviewer, 2026-09-06).
         log.warning("vLLM reply unreadable (%s) — no reply", type(e).__name__)
         return None
     if content and content.strip():

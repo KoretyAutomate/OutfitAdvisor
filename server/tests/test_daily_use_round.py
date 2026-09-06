@@ -83,6 +83,10 @@ def _response(status, body):
     (lambda: _response(503, {"error": "loading"}), "HTTP 503"),
     (lambda: _response(200, {"choices": []}), "unreadable (IndexError)"),
     (lambda: _response(200, {"choices": [{"message": {"content": "  "}}]}), "empty content"),
+    # Well-formed JSON of the wrong shape. The pre-push reviewer's case: this
+    # escaped as an AttributeError and would have made /advice a 500.
+    (lambda: _response(200, {"choices": [{"message": None}]}), "unreadable (AttributeError)"),
+    (lambda: _response(200, ["not", "an", "object"]), "unreadable (TypeError)"),
 ])
 def test_chat_says_which_kind_of_nothing_it_got(monkeypatch, caplog, behaviour, said):
     """2026-09-06 09:18:25: vLLM still loading after a reboot, and the journal said the

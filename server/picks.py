@@ -362,11 +362,8 @@ def _enforce_user_rules(picks: dict, by_item: dict, user_rules: list[dict] | Non
             cleared.append(item)
         combo = rules.is_combination(b.get("rule") or {})
         only_combination[b["slot"]] = only_combination.get(b["slot"], True) and combo
-        # The KIND, not the sentence: `why` names the garments, and /rule promises
-        # that what a rule says never reaches the journal (found 2026-09-06 with a
-        # real rule text sitting in it).
-        log.warning("closet picks: %s cleared — %s rule", b["slot"],
-                    (b.get("rule") or {}).get("kind") or "user")
+        # The KIND, never `why`: it names the garments, and /rule promises rule text stays out of the journal.
+        log.warning("closet picks: %s cleared — %s rule", b["slot"], (b.get("rule") or {}).get("kind") or "user")
         picks[b["slot"]] = None
     return "", cleared, {c for c, only in only_combination.items() if only}
 

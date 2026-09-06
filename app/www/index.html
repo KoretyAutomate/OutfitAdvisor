@@ -756,6 +756,24 @@ function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("sho
 function esc(s){ return String(s).replace(/[&<>"']/g,
   c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function err(msg){ $("err").textContent = msg||""; }
+/* fetch with a deadline. Six calls had none (geocode, forecast, /triage,
+   /shopping, /rule) — a hung model request left "Add" showing "…" and the
+   calendar scan spinning for good, because scanCalendar awaits a triage per
+   event (found 2026-09-06). Timeout first so a call site changes only its head. */
+async function fetchT(ms,url,opts){
+  const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),ms);
+  try{ return await fetch(url,{...(opts||{}),signal:ctl.signal}); }
+  finally{ clearTimeout(to); }
+}
+/* What a person can act on. Fully offline the browser says "Failed to fetch" or
+   throws a TypeError from inside a response nobody got, and run() printed that
+   verbatim. Everything else keeps its own message. */
+function friendly(e){
+  const m=(e&&e.message)||"";
+  if(e&&(e.name==="AbortError"||e.name==="TypeError"||/failed to fetch|network ?error|load failed/i.test(m)))
+    return "No connection — check the network and try again.";
+  return m||"Something went wrong.";
+}
 function paintSeg(seg, kind){ [...seg.children].forEach(b=>
   b.classList.toggle("on", b.dataset[kind]===state[kind==="g"?"gender":"style"])); }
 
@@ -977,7 +995,7 @@ async function geocode(city){
   // typed-city path never gets WORSE than it was — it is the caller that decides
   // whether to trust it.
   const q=geoParts(city)[0]||String(city||"");
-  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${GEO_COUNT}&language=en`);
+  const r=await fetchT(15000,`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${GEO_COUNT}&language=en`);
   const d=await r.json(); if(!d.results||!d.results.length) throw new Error(`Couldn't find "${city}".`);
   const named=g=>({lat:g.latitude,lon:g.longitude,
     place:[g.name,g.admin1,g.country_code].filter(Boolean).join(", "),
@@ -1001,7 +1019,9 @@ async function fetchWeatherLocal(lat,lon){
     `&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,`+
     `precipitation_probability_max,wind_speed_10m_max,weather_code`+
     `&hourly=temperature_2m&timezone=auto&forecast_days=2&wind_speed_unit=ms`;
-  const d=await (await fetch(u)).json(); const i=0; const date=d.daily.time[i]; const code=d.daily.weather_code[i];
+  const d=await (await fetchT(15000,u)).json();
+  if(!d||!d.daily||!d.hourly) throw new Error("The weather service gave no forecast. Try again in a moment.");
+  const i=0; const date=d.daily.time[i]; const code=d.daily.weather_code[i];
   const hp=h=>{const idx=d.hourly.time.indexOf(`${date}T${String(h).padStart(2,"0")}:00`);return idx>=0?Math.round(d.hourly.temperature_2m[idx]):null;};
   const lo=Math.round(d.daily.temperature_2m_min[i]),hi=Math.round(d.daily.temperature_2m_max[i]);
   return {date,timezone:d.timezone,code,emoji:(WMO[code]||["🌡️","—"])[0],desc:(WMO[code]||["","—"])[1],lo,hi,swing:hi-lo,
@@ -2377,7 +2397,7 @@ async function triageCandidate(c){
   const kp=knownPlace(c.hint);
   let t;
   try{
-    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/triage",{
+    const r=await fetchT(60000,state.baseUrl.replace(/\/+$/,"")+"/triage",{
       method:"POST",headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
       // The table goes to the model too. A code that did not match a whole token
       // here may still be recognisable in context ("PPK-3", "at PPK"), and giving
@@ -2598,7 +2618,7 @@ async function scanCalendar(){
        skim past, and picking the wrong one packs for the wrong weather. */
 async function geocodeMany(city){
   const q=geoParts(city)[0]||String(city||"");
-  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${GEO_COUNT}&language=en`);
+  const r=await fetchT(15000,`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=${GEO_COUNT}&language=en`);
   const d=await r.json();
   // `regions` carries the geocoder's OWN fields, exactly as geocode() does, and
   // geoPlaceMatches needs them: the display string ends in the full country name,
@@ -2868,7 +2888,9 @@ async function getAdvice(lat,lon){
   }catch(e){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
-    const w=await fetchWeatherLocal(lat,lon);
+    let w;
+    try{ w=await fetchWeatherLocal(lat,lon); }
+    catch(e2){ throw new Error(friendly(e2)); }
     // The on-device recommender dresses from a catalogue and knows nothing about
     // this wardrobe. With the closet declared complete that is precisely what must
     // not happen, and an outage is where a broken promise is hardest to notice —
@@ -2922,6 +2944,13 @@ function renderOutfit(o,text,source,res){
   // outfit the on-device recommender produced credits the wrong author.
   else if(source==="local"){ b.textContent="on this phone"; b.className="chip off"; }
   else if(res&&res.closetUsed){ b.textContent="AI · your closet"; b.className="chip src"; }
+  // The server's own fallbacks. "rule-engine" is its catalogue when the model is
+  // down; "none" is the closet-only refusal, which no model wrote either. Both
+  // used to fall through to the green AI chip, so the owner could not tell from
+  // the card that the model had not answered (2026-09-06). Before the closetSent
+  // branch: "generic — closet not used" is not what a refusal is.
+  else if(source==="rule-engine"){ b.textContent="estimate — AI unavailable"; b.className="chip off"; }
+  else if(source==="none"){ b.textContent="advisor couldn't answer"; b.className="chip off"; }
   else if(res&&res.closetSent){ b.textContent="generic — closet not used"; b.className="chip off"; }
   else { b.textContent="AI · "+(source==="llm"?"122B":source); b.className="chip src"; }
   // "Wearing it" only when the advice came from the real closet (has item IDs)
@@ -3328,7 +3357,13 @@ async function openPacking(trip){
     $("pkErr").textContent="Couldn't reach the advisor. Check the connection and try again.";
     return;
   }
-  renderPacking(trip,d);
+  // Outside the try above, a body of the wrong shape was an unhandled rejection
+  // and the sheet kept its spinner for good (2026-09-06).
+  try{ renderPacking(trip,d); }
+  catch(e){
+    $("pkText").textContent="";
+    $("pkErr").textContent="The advisor's answer couldn't be read. Try again.";
+  }
 }
 function renderPacking(trip,d){
   const s=d.forecast.summary, chips=[];
@@ -3397,7 +3432,7 @@ async function run(){
     if($("todayFrom")) $("todayFrom").style.display="none";
     if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
-  }catch(e){ err(e.message||"Something went wrong."); }
+  }catch(e){ err(friendly(e)); }
   // Restored from what is NOW on screen, not from the label captured before the
   // request. The answer that just arrived is the thing the next tap differs from,
   // and putting the old caption back would hide the re-roll behind "Get advice"
@@ -3925,7 +3960,7 @@ async function askShopping(){
   btn.textContent="Reviewing your weeks…";
   $("shopOut").innerHTML="";
   try{
-    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/shopping",{
+    const r=await fetchT(90000,state.baseUrl.replace(/\/+$/,"")+"/shopping",{
       method:"POST",headers:{"Content-Type":"application/json",
         "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
       // The WHOLE wardrobe, not closetPayload(). That one answers "what can be worn
@@ -4027,7 +4062,7 @@ async function refreshRule(i){
   const rid=r.id;
   $("rlErr").textContent="";
   try{
-    const res=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
+    const res=await fetchT(30000,state.baseUrl.replace(/\/+$/,"")+"/rule",{
       method:"POST",headers:{"Content-Type":"application/json",
         "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
       body:JSON.stringify({text:r.text})});
@@ -4080,7 +4115,7 @@ async function addRule(){
   }
   const b=$("rlAdd"), old=b.textContent; b.disabled=true; b.textContent="…";
   try{
-    const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/rule",{
+    const r=await fetchT(30000,state.baseUrl.replace(/\/+$/,"")+"/rule",{
       method:"POST",headers:{"Content-Type":"application/json",
         "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
       body:JSON.stringify({text})});

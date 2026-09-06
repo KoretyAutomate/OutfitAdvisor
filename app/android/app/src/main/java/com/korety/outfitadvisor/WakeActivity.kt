@@ -9,8 +9,6 @@ import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
 import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 
 /**
@@ -35,7 +33,7 @@ import androidx.work.WorkManager
  * WorkManager input Data — that gets persisted to disk, which would break the
  * RAM-only coordinates invariant.
  *
- * Requires minSdk 30 (getCurrentLocation).
+ * Requires minSdk 30 (getCurrentLocation); the app sets 31 — see variables.gradle.
  */
 class WakeActivity : Activity() {
 
@@ -103,9 +101,7 @@ class WakeActivity : Activity() {
         WorkManager.getInstance(this).enqueueUniqueWork(
             AdviceWorker.WORK_NAME,
             ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<AdviceWorker>()
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
+            AdviceWorker.request()
         )
 
         gpsCancel?.cancel()

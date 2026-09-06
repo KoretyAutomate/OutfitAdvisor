@@ -98,6 +98,18 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
     # A SHORT handle, never the phone's UUID — see pk.handles_for. The listing order
     # is the handle order, and closet_outfit builds the same map from the same list.
     handles = {v: k for k, v in pk.handles_for(closet).items()}
+    # Which of a garment's roles the heat rules out today, decided HERE with the
+    # same too_warm/_heat_temp the validator applies afterwards. A warmth number
+    # on an unnamed scale left the model to work this out, and a third of closet
+    # answers in 30 days picked something the guard then had to swap — after a
+    # corrective retry that had already failed (2026-09-06). Stated per line, like
+    # the empty-slot line, so the model is never left to infer it.
+    plan = _plan_temp(w)
+    hi = w.get("hi")
+    peak = max(plan, float(hi)) if hi is not None else plan
+    def hot_roles(i: dict) -> list[str]:
+        return [r for r in (i.get("roles") or [i["category"]])
+                if scale.too_warm(i, pk._heat_temp(r, plan, peak))]
     lines = [
         f"{handles[i['id']]} | can be worn as: {'/'.join(i.get('roles') or [i['category']])}"
         f" | {i['label']}"
@@ -106,6 +118,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"
+        + (f" | TOO WARM today as: {','.join(hr)}" if (hr := hot_roles(i)) else "")
         for i in closet
     ]
     slots = ", ".join(f'"{c}"' for c in CATEGORIES)
@@ -165,6 +178,13 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         "item listing 'inner' may go in inner, and such an item goes nowhere else. "
         "Own nothing for a slot? Use null and give a generic suggestion in its "
         "bullet. Never use one item in two slots.\n"
+        # Per garment, because the flag line above says only that the day is hot.
+        # picks._cool_down still swaps whatever gets through; this is what stops
+        # the wrong answer being generated in the first place.
+        "HEAT RULE: a line marked 'TOO WARM today as: X' is more clothing than "
+        "today needs in role X. Do not use it as X unless nothing cooler in the "
+        "wardrobe can fill that slot; use null for any layer the heat makes "
+        "pointless.\n"
         # A dress cannot be both the top and the bottoms — picks holds one item per
         # slot and _dedupe_picks would strip the second. Saying so here saves a
         # corrective retry; _onepiece_conflicts enforces it either way.
@@ -308,15 +328,11 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     peak = max(plan, float(hi)) if hi is not None else plan
     hot = pk._too_warm_slots(picks, wd.by_item, plan, peak)
     if hot:
-        if attempt == 0:
-            worn = wd.by_item.get(picks.get(hot[0])) or {}
-            most = scale.min_outer_warmth(pk._heat_temp(hot[0], plan, peak),
-                                          scale.graded_on(worn)) + scale.WARM_TOLERANCE
-            return (f"Too much clothing for the heat: {', '.join(hot)} "
-                    f"{'is' if len(hot) == 1 else 'are'} warmer than today needs. At "
-                    f"this temperature nothing should be above warmth {most}/5 — pick "
-                    f"lighter garments, and use null for any layer the heat makes "
-                    f"pointless. ", banned, covered, unsuitable, None)
+        # No corrective retry here, unlike the checks above. The listing already
+        # marks every garment the heat rules out, per role, so the model was told
+        # BEFORE it answered; asking a second time cost a whole generation and in
+        # 30 days of journal never once changed the answer the swap then made
+        # anyway (2026-09-06). Repaired in code on every attempt.
         # The garments as they stand BEFORE the repair, so what is taken off can be
         # struck from the prose: a bullet recommending the fleece we have just shed
         # is the advice being wrong while the outfit is right, which is the half the
@@ -365,6 +381,52 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     return note, banned, covered, unsuitable, added
 
 
+_NO_REPLY = "no reply from the model"
+
+
+async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | None, str]:
+    """One generation, parsed. Returns (reply, note).
+
+    The reply is None when nothing usable came back, and the note says which kind
+    of nothing: _NO_REPLY when the model never answered — the loop stops there —
+    or a corrective sentence for the next prompt when it answered in the wrong
+    shape. The two used to be one `None`, so a vLLM still loading after a reboot
+    was logged as "reply was not the required JSON" and asked again 4 ms later
+    with a note about JSON (2026-09-06).
+    """
+    # 280 (plan estimate) truncated mid-JSON on a 6-item closet; 560 fit
+    # 6 slots. Now 7 slots + up to 8 bullets, some carrying the longer
+    # "(not in your closet yet)" generic-suggestion wording → ~650 worst
+    # case; 768 leaves headroom (2026-07-15).
+    raw = await _chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=1100,
+        # A re-roll samples away from the peak. Measured 2026-09-03: four
+        # identical requests returned the same base and the same bottoms
+        # every time at 0.4, so an instruction to differ is argued with by
+        # the sampler unless this moves too. Only the re-roll pays for it —
+        # the day's first answer, which is the morning push and the one most
+        # mornings are dressed from, is still 0.4.
+        temperature=0.9 if reroll_ else 0.4,
+    )
+    if raw is None:
+        # _chat has logged which kind of nothing. Not worth a second ask the same
+        # second, and after a 45 s timeout a retry would push the request past
+        # the phone's own 90 s ceiling.
+        log.warning("closet attempt %s: no reply from the model — not retrying",
+                    attempt + 1)
+        return None, _NO_REPLY
+    out = _parse_json(raw)
+    if out is None or not isinstance(out.get("picks"), dict) or not isinstance(out.get("bullets"), list):
+        # Logged because closet_outfit returning None is the difference between
+        # the user seeing their own clothes and seeing generic advice, and it
+        # was previously silent — a closetUsed=no line with no explanation
+        # anywhere (2026-08-19).
+        log.warning("closet attempt %s: reply was not the required JSON", attempt + 1)
+        return None, "Your last reply was not the required JSON. "
+    return out, ""
+
+
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                         prefs: "Prefs | None" = None) -> dict | None:
     """Outfit constrained to the user's items. Returns
@@ -388,31 +450,12 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
     handles = pk.handles_for(closet)
     error_note = ""
     for attempt in range(2):
-        # 280 (plan estimate) truncated mid-JSON on a 6-item closet; 560 fit
-        # 6 slots. Now 7 slots + up to 8 bullets, some carrying the longer
-        # "(not in your closet yet)" generic-suggestion wording → ~650 worst
-        # case; 768 leaves headroom (2026-07-15).
-        out = _parse_json(
-            await _chat(
-                [{"role": "user", "content": _closet_prompt(w, gender, style, closet,
-                                                            prefs, error_note)}],
-                max_tokens=1100,
-                # A re-roll samples away from the peak. Measured 2026-09-03: four
-                # identical requests returned the same base and the same bottoms
-                # every time at 0.4, so an instruction to differ is argued with by
-                # the sampler unless this moves too. Only the re-roll pays for it —
-                # the day's first answer, which is the morning push and the one most
-                # mornings are dressed from, is still 0.4.
-                temperature=0.9 if prefs.shown else 0.4,
-            )
-        )
-        if out is None or not isinstance(out.get("picks"), dict) or not isinstance(out.get("bullets"), list):
-            # Logged because closet_outfit returning None is the difference between
-            # the user seeing their own clothes and seeing generic advice, and it
-            # was previously silent — a closetUsed=no line with no explanation
-            # anywhere (2026-08-19).
-            log.warning("closet attempt %s: reply was not the required JSON", attempt + 1)
-            error_note = "Your last reply was not the required JSON. "
+        out, error_note = await _ask_model(
+            _closet_prompt(w, gender, style, closet, prefs, error_note),
+            bool(prefs.shown), attempt)
+        if out is None:
+            if error_note == _NO_REPLY:
+                break
             continue
         picks = pk.resolve_handles({c: out["picks"].get(c) for c in CATEGORIES},
                                    handles, wd.ids)

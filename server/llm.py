@@ -63,9 +63,31 @@ async def _chat(messages: list, max_tokens: int, timeout: int = 45,
             if choice.get("finish_reason") == "length":
                 log.warning("vLLM hit max_tokens=%s (%s completion tokens) — output truncated",
                             max_tokens, (body.get("usage") or {}).get("completion_tokens"))
-        return content.strip() if content and content.strip() else None
-    except Exception:
+    # Every failure used to collapse to a bare `None`, and the caller then
+    # reported it as the MODEL's fault ("reply was not the required JSON") and
+    # retried with a note asking for JSON. On 2026-09-06 both closet attempts
+    # failed 4 ms apart while vLLM was still loading after a reboot, and the
+    # journal said the model had answered badly twice. It had not answered at
+    # all. The class is logged, the URL is localhost, and the reply body is never
+    # printed — it can carry garment labels.
+    except httpx.HTTPStatusError as e:
+        log.warning("vLLM HTTP %s — no reply", e.response.status_code)
         return None
+    except httpx.HTTPError as e:
+        # ConnectError, ReadTimeout, RemoteProtocolError... — the transport, not
+        # the model. Includes the timeout, so a slow load is also visible.
+        log.warning("vLLM unreachable (%s) — no reply", type(e).__name__)
+        return None
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+        # AttributeError: well-formed JSON of the wrong shape, e.g. "message": null,
+        # which the old catch-all swallowed and this list at first did not (the
+        # pre-push reviewer, 2026-09-06).
+        log.warning("vLLM reply unreadable (%s) — no reply", type(e).__name__)
+        return None
+    if content and content.strip():
+        return content.strip()
+    log.warning("vLLM returned empty content — no reply")
+    return None
 
 
 def _parse_json(text: str | None) -> dict | None:

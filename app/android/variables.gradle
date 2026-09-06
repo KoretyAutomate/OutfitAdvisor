@@ -1,5 +1,10 @@
 ext {
-    minSdkVersion = 30    // LocationManager.getCurrentLocation (R); MVP targets a Pixel 10 Pro
+    // 31, not 30 (2026-09-06): AdviceWorker is enqueued .setExpedited(), which on
+    // API 30 needs a foreground service + getForegroundInfo() the app does not
+    // have (see the FOREGROUND_SERVICE note in AndroidManifest.xml). From 31 it
+    // is an expedited job. getCurrentLocation needs 30 anyway; MVP targets a
+    // Pixel 10 Pro.
+    minSdkVersion = 31
     compileSdkVersion = 34
     targetSdkVersion = 34
     androidxActivityVersion = '1.8.0'

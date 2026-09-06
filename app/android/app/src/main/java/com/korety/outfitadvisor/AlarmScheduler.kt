@@ -10,12 +10,16 @@ import java.util.Calendar
 /**
  * Arms a once-daily EXACT alarm at the user's local wall-clock time.
  *
- * The alarm uses the device's current timezone (Calendar default tz), so it
- * automatically follows the user across timezones — fly Tokyo→London and 07:00
- * re-fires at 07:00 London time with no extra code.
+ * The next fire is computed in the device's timezone AT ARM TIME and handed to
+ * AlarmManager as an absolute instant. That instant does not move when the zone
+ * or the clock changes, so following the user across timezones is NOT free:
+ * BootReceiver re-arms from the stored HH:MM on TIMEZONE_CHANGED and TIME_SET.
  *
  * setExactAndAllowWhileIdle fires through Doze; it is one-shot, so AlarmReceiver
- * re-arms the next day after each fire (and BootReceiver re-arms after reboot).
+ * re-arms the next day after each fire. BootReceiver re-arms after a reboot and
+ * a package update, MainActivity on every open (covers a force-stop, which
+ * clears the alarm silently). Every re-arm goes through the same PendingIntent,
+ * so it replaces rather than stacks.
  */
 object AlarmScheduler {
     private const val PREFS = "outfit_alarm"

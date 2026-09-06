@@ -27,8 +27,10 @@ Two halves, split so the phone stays dumb and the intelligence stays home:
 
 - **Exact morning alarm** via `setExactAndAllowWhileIdle` + a full-screen-intent
   wake activity — this makes the GPS read count as legitimate *foreground*
-  location, so the app needs no background-location permission and no paid
-  geolocation SDK.
+  location, with no paid geolocation SDK. The app *also* declares
+  `ACCESS_BACKGROUND_LOCATION` (since 2026-07-15, at the owner's request) so the
+  morning fix can be read without the wake screen when the user grants "Allow all
+  the time"; the foreground path still works if they do not.
 - **Offline fallback**: if the server is unreachable, an on-device rule engine
   (a JS twin of the server's `engine.py`) still produces an outfit from
   Open-Meteo directly. You always get *something*.

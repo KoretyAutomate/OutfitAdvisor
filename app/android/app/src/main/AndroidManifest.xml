@@ -56,14 +56,22 @@
             </intent-filter>
         </receiver>
 
-        <!-- Re-arm the alarm after a reboot. exported=false is safe: BOOT_COMPLETED
-             is a protected broadcast only the system can send, and the system is
-             exempt from the export restriction — other apps can't poke this. -->
+        <!-- Re-arm the alarm after a reboot, a timezone or clock change, and a
+             package update (the armed fire is an absolute instant; see
+             BootReceiver). exported=false is safe: all four are protected
+             broadcasts only the system can send, and the system is exempt from the
+             export restriction — other apps can't poke this. TIME_SET is the
+             action string of Intent.ACTION_TIME_CHANGED. TIMEZONE_CHANGED and
+             TIME_SET are on the implicit-broadcast exception list, so a manifest
+             receiver does get them; MY_PACKAGE_REPLACED is addressed to us. -->
         <receiver
             android:name=".BootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
@@ -139,11 +147,16 @@
              ACCESS_NETWORK_STATE — backs its network constraints
          One is NOT used by our path and is removed, because a library should not get
          to widen this app's permission list by default:
-             FOREGROUND_SERVICE — only needed for EXPEDITED work. PackingWorker is
-                 ordinary one-time work (a packing push days out is not time-critical),
-                 so this is dead weight. If anyone ever adds .setExpedited(), they
-                 must restore this — and on targetSdk 34 also declare a
-                 foregroundServiceType.
+             FOREGROUND_SERVICE — expedited work needs it ONLY on API < 31, where
+                 WorkManager runs expedited requests as a foreground service and
+                 throws unless the worker provides getForegroundInfo(). AdviceWorker
+                 IS expedited (AlarmReceiver, WakeActivity) and provides neither,
+                 which on API 30 was a crash at enqueue. Resolved 2026-09-06 by
+                 raising minSdk to 31 (variables.gradle): from 31 up, expedited
+                 work is an expedited JobScheduler job — no service, no permission,
+                 no foregroundServiceType on targetSdk 34. PackingWorker is ordinary
+                 one-time work. Do not lower minSdk below 31 without restoring this
+                 permission and adding getForegroundInfo() to AdviceWorker.
          Removal verified against the BUILT APK's merged manifest, not just asserted.
 
          NB: DUMP and BIND_JOB_SERVICE also appear in the merged manifest, but they

@@ -8,8 +8,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 
 /**
@@ -43,16 +41,13 @@ class AlarmReceiver : BroadcastReceiver() {
         //    so the happy path no longer needs a visible activity at all. Enqueue
         //    BEFORE posting the notification: this receiver's onReceive must return
         //    quickly, and enqueue is the part that actually matters.
+        //    REPLACE also drops a retry still pending from yesterday, so attempts
+        //    never stack across mornings. How the work is scheduled (expedited,
+        //    backoff) lives with the worker — see AdviceWorker.request().
         WorkManager.getInstance(context).enqueueUniqueWork(
             AdviceWorker.WORK_NAME,
             ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<AdviceWorker>()
-                // Expedited so it is not parked until Doze's next maintenance
-                // window — a 6am outfit delivered at 9am is worthless. On API 31+
-                // this uses the expedited job quota, no foreground service, so it
-                // does not drag FOREGROUND_SERVICE_DATA_SYNC into targetSdk 34.
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
+            AdviceWorker.request()
         )
 
         // 3. Still fire the FSI. When it IS available it gives a foreground GPS read

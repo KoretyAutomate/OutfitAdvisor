@@ -1,12 +1,20 @@
 package com.korety.outfitadvisor
 
+import android.app.NotificationManager
 import android.content.Context
+import androidx.work.BackoffPolicy
+import androidx.work.OneTimeWorkRequest
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.MalformedURLException
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /**
  * Does the slow half of the morning push: POST /advice, then notify.
@@ -38,9 +46,16 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 // nothing, so three rounds of debugging went on server logs and
                 // inference instead of the phone just reporting it (2026-08-11).
                 postFallback(
-                    if (!LocationReader.hasPermission(applicationContext))
-                        "Location permission is off — tap to fix."
-                    else "Couldn't get your location this morning — tap to retry."
+                    when {
+                        // A second attempt only ever exists because the first HAD a
+                        // fix and the network failed. If the fix is gone by now (it
+                        // aged out, or the process was recycled in between) the
+                        // cause of the missed morning is still the network.
+                        runAttemptCount > 0 -> UNREACHABLE_MSG
+                        !LocationReader.hasPermission(applicationContext) ->
+                            "Location permission is off — tap to fix."
+                        else -> "Couldn't get your location this morning — tap to retry."
+                    }
                 )
                 return Result.success()   // a missed morning is not worth a retry storm
             }
@@ -51,12 +66,36 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val style = prefs.getString("oa.style", "casual") ?: "casual"
         val offset = prefs.getString(FeedbackReceiver.KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
 
-        val advice = fetchAdvice(base, fix.first, fix.second, gender, style, offset)
-        if (advice == null) {
-            // The overwhelmingly common cause is the phone being unable to reach the
-            // DGX while asleep — Doze deferring network, or Tailscale down. Name it.
-            postFallback("Couldn't reach the advisor. Check Tailscale is connected, and Battery unrestricted in the app.")
-            return Result.success()
+        val advice = when (val r = fetchAdvice(base, fix.first, fix.second, gender, style, offset)) {
+            is Fetch.Ok -> r.advice
+            is Fetch.Transient -> {
+                if (runAttemptCount < MAX_RETRIES) {
+                    // ONE more try, RETRY_DELAY_MS out (see request()). Bounded so it
+                    // cannot become the retry storm the fallback below exists to
+                    // avoid. The fix goes back into the in-process handoff so the
+                    // retry can use it without a second GPS read; it is RAM-only and
+                    // aged out by LocationHandoff, so the privacy invariant holds. If
+                    // the process dies in between, the retry reads location itself
+                    // when background location is granted, as it always could.
+                    LocationHandoff.put(fix.first, fix.second)
+                    // Nothing is being fetched for the next two minutes, and the
+                    // retry's own outcome posts (or cancels) whatever comes next.
+                    val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    nm.cancel(AlarmReceiver.WAKE_NOTIF_ID)
+                    return Result.retry()
+                }
+                // The overwhelmingly common cause is the phone being unable to reach
+                // the DGX while asleep — Doze deferring network, or Tailscale down.
+                // Name it.
+                postFallback(UNREACHABLE_MSG)
+                return Result.success()
+            }
+            is Fetch.Failed -> {
+                // The server answered and the answer was unusable. A second try
+                // would get the same answer, so none is made.
+                postFallback(UNREACHABLE_MSG)
+                return Result.success()
+            }
         }
 
         val srcBadge = if (advice.source == "llm") "122B" else advice.source
@@ -100,7 +139,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
 
         // Either background location is missing, or the direct read failed.
         // WakeActivity is our remaining hope; give it a chance to hand one over.
-        return LocationHandoff.await(HANDOFF_GRACE_MS)
+        // Not on a retry: the wake screen ran minutes ago and nothing is coming.
+        return LocationHandoff.await(if (runAttemptCount == 0) HANDOFF_GRACE_MS else 0L)
     }
 
     /**
@@ -164,6 +204,15 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val raw: JSONObject?
     )
 
+    /** Outcome of the /advice call. Only Transient is worth a second attempt. */
+    private sealed class Fetch {
+        class Ok(val advice: Advice) : Fetch()
+        /** No answer at all: could not connect, name lookup failed, or the socket timed out. */
+        object Transient : Fetch()
+        /** An answer that was no good: non-200, or a body that did not parse. */
+        object Failed : Fetch()
+    }
+
     /**
      * Write today's advice where the web layer looks for it.
      *
@@ -215,7 +264,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     private fun fetchAdvice(
         base: String, lat: Double, lon: Double,
         gender: String, style: String, tempOffset: Double
-    ): Advice? {
+    ): Fetch {
         var conn: HttpURLConnection? = null
         return try {
             val body = JSONObject()
@@ -240,19 +289,26 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 setRequestProperty("X-OA-Client", "push/" + appVersion())
             }
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            if (conn.responseCode != 200) return null
+            if (conn.responseCode != 200) return Fetch.Failed
             val o = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val w = o.optJSONObject("weather")
-            Advice(
+            Fetch.Ok(Advice(
                 text = o.optString("outfit_text", ""),
                 source = o.optString("source", "llm"),
                 hi = w?.takeIf { it.has("hi") }?.optInt("hi"),
                 lo = w?.takeIf { it.has("lo") }?.optInt("lo"),
                 emoji = w?.optString("emoji"),
                 raw = o
-            )
+            ))
+        } catch (e: MalformedURLException) {
+            // A bad base URL is an IOException by type but not transient by nature.
+            Fetch.Failed
+        } catch (e: IOException) {
+            // Connect refused, unknown host, socket timeout: the request never got
+            // an answer. This is the only outcome a second attempt can change.
+            Fetch.Transient
         } catch (e: Exception) {
-            null
+            Fetch.Failed
         } finally {
             conn?.disconnect()
         }
@@ -397,6 +453,33 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     companion object {
         const val DEFAULT_BASE = "http://100.112.171.54:8787"
         const val WORK_NAME = "daily-advice"
+        const val UNREACHABLE_MSG =
+            "Couldn't reach the advisor. Check Tailscale is connected, and Battery unrestricted in the app."
+        /** Attempts after the first. One: a bound, not a policy. */
+        const val MAX_RETRIES = 1
+        /** Wait before that one retry. Long enough for Tailscale to come back. */
+        const val RETRY_DELAY_MS = 2 * 60 * 1000L
+
+        /**
+         * The one request both enqueuers use (AlarmReceiver, WakeActivity), so they
+         * cannot drift apart on how the work is scheduled.
+         *
+         * Expedited so it is not parked until Doze's next maintenance window — a
+         * 6am outfit delivered at 9am is worthless. On API 31+ (the minSdk) this
+         * uses the expedited job quota, no foreground service, so it does not drag
+         * FOREGROUND_SERVICE_DATA_SYNC into targetSdk 34.
+         *
+         * The backoff is what Result.retry() waits. WorkManager runs a retried
+         * expedited request as an ORDINARY job, so on a phone that is Dozing and
+         * not battery-exempt the retry lands at the next maintenance window rather
+         * than two minutes later; with the exemption the app asks for it runs on
+         * time. A late retry is still a better morning than none.
+         */
+        fun request(): OneTimeWorkRequest =
+            OneTimeWorkRequestBuilder<AdviceWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setBackoffCriteria(BackoffPolicy.LINEAR, RETRY_DELAY_MS, TimeUnit.MILLISECONDS)
+                .build()
         const val KEY_UPD_NOTIFIED = "oa.updNotified"
         /** Twin of TODAY_KEY in index.html — both sides write this one key. */
         const val KEY_TODAY = "oa.today"

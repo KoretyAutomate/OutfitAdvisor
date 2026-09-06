@@ -6,10 +6,11 @@ import android.os.Bundle
 import com.getcapacitor.BridgeActivity
 
 /**
- * Capacitor host Activity. The only customization vs the generated default is
- * registering our local plugins so `Plugins.OutfitAlarm.*` (daily morning push),
+ * Capacitor host Activity. Customizations vs the generated default: registering
+ * our local plugins so `Plugins.OutfitAlarm.*` (daily morning push),
  * `Plugins.OutfitPacking.*` (trip packing push) and `Plugins.AppUpdate.*` (in-app
- * updates) resolve in app/www/index.html.
+ * updates) resolve in app/www/index.html, one cache clear per upgrade, and a
+ * re-arm of the daily alarm on every open.
  *
  * NOTE (Phase 3 graft): `npx cap add android` generates its own MainActivity.
  * Overwrite it with this file (same package + path), OR add the
@@ -22,6 +23,12 @@ class MainActivity : BridgeActivity() {
         registerPlugin(AppUpdatePlugin::class.java)
         super.onCreate(savedInstanceState)
         clearWebCacheOnUpgrade()
+        // A force-stop (Settings, or the OS after repeated crashes) clears this
+        // app's alarms and sends no broadcast, and a stopped app receives none
+        // until it is launched — so this launch is the first chance to notice.
+        // Idempotent: no-op when the schedule is off, and otherwise the same
+        // PendingIntent, so the set replaces what is armed rather than adding.
+        AlarmScheduler.rearm(this)
     }
 
     /**

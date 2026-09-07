@@ -85,6 +85,12 @@ Drop `OA_NOTIFY=/nonexistent` to exercise the real Telegram path.
 
 `OA_IP`, `OA_PORT`, `OA_UNIT`, `OA_NOTIFY`, `OA_KEY_WARN_DAYS`,
 `OA_PHONE_HOST` (default `pixel`), `OA_PHONE_WARN_HOURS` (default `6`).
+`OA_PHONE_HOST` is a substring of the tailnet hostname, and every peer that
+matches is considered: an online one counts as online, otherwise the most
+recently seen one sets the offline hours. A replaced handset leaves the old
+one on the tailnet with the same prefix, and judging by the first match alone
+reported the phone offline for a day while its successor was calling the
+server (2026-09-07).
 
 ## What it does NOT cover
 

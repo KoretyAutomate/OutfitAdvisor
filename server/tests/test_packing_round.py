@@ -245,6 +245,21 @@ def test_fifteen_days_leave_with_five_pairs(api):
     assert not any(g["category"] == "bottoms" for g in d["gaps"]), "five owned, five packed — no shortfall"
 
 
+def test_the_prose_says_what_the_server_added(api):
+    """The model's bullets still say two pairs; the list says five. The first line
+    of the text closes that gap (live probe, 2026-09-07)."""
+    d = api.post("/packing", json=_req()).json()
+    first = d["packing_text"].splitlines()[0]
+    assert first == "• Added from your closet for 15 days: 7 more tops, 3 more pairs of bottoms."
+
+
+def test_nothing_added_means_no_line():
+    assert packing.topup_line({"bottoms": 5}, {"bottoms": 5}, 15) is None
+    assert packing.topup_line({}, {"bottoms": 2}, 6) == "Added from your closet for 6 days: 2 more pairs of bottoms."
+    assert packing.topup_line({"base": 3}, {"base": 4, "bottoms": 1}, 6) == \
+        "Added from your closet for 6 days: 1 more top, 1 more pair of bottoms."
+
+
 def test_the_plan_comes_back_with_the_travel_day_first(api):
     d = api.post("/packing", json=_req()).json()
     assert d["travel"] is True

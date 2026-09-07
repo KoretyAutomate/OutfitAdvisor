@@ -123,6 +123,35 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     return pack
 
 
+def counts(pack: list[dict]) -> dict[str, int]:
+    """Quantity packed per category."""
+    out: dict[str, int] = {}
+    for p in pack:
+        out[p["category"]] = out.get(p["category"], 0) + p["qty"]
+    return out
+
+
+NOUN = {"inner": ("undershirt", "undershirts"), "base": ("top", "tops"),
+        "bottoms": ("pair of bottoms", "pairs of bottoms")}
+
+
+def topup_line(before: dict[str, int], after: dict[str, int], n_days: int) -> str | None:
+    """One sentence saying what the server added, for the top of the prose.
+
+    The model's bullets were written before the repair and still say "two pairs";
+    the list says five. Without this line the text and the list disagree and the
+    reader trusts neither (live probe, 2026-09-07).
+    """
+    parts = []
+    for c in SCALING:
+        d = after.get(c, 0) - before.get(c, 0)
+        if d > 0:
+            parts.append(f"{d} more {NOUN[c][0] if d == 1 else NOUN[c][1]}")
+    if not parts:
+        return None
+    return f"Added from your closet for {n_days} days: " + ", ".join(parts) + "."
+
+
 def shortfall(category: str, have: int, want: int, n_days: int) -> str:
     """What to say when the wardrobe itself is short for the trip.
 

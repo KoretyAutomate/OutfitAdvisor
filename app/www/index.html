@@ -408,6 +408,10 @@
         <button class="ghost" id="rescanBtn" style="width:100%;padding:9px"><span id="rescanTxt">Identify kinds from the photos</span></button>
         <p class="note" id="rescanNote" style="margin:5px 0 0"></p>
       </div>
+      <div id="tidyRow" style="display:none;margin:10px 0 0">
+        <button class="ghost" id="tidyBtn" style="width:100%;padding:9px"><span id="tidyTxt">Tidy photos</span></button>
+        <p class="note" id="tidyNote" style="margin:5px 0 0"></p>
+      </div>
       <!-- Reviews the weeks of advice and says what is worth adding. Enabled only
            once there is evidence to argue from — see refreshShopping. -->
       <div style="margin-top:11px">
@@ -1359,7 +1363,7 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
-  refreshRescan();
+  refreshRescan(); refreshTidy();
   refreshShopping();
   // The outfit card reads the closet too, once it is showing what was WORN: the
   // record names ids, and the label and the photo come from here. Renaming or
@@ -1389,7 +1393,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.30";
+const WEB_BUILD="1.31";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1623,6 +1627,22 @@ async function classifyPhoto(b64){
   finally{ clearTimeout(to); }
 }
 
+/* The garment alone on white — background removed on the server, the picture
+   cropped, squared and levelled (user, 2026-09-07: "the functionality Indyx had").
+   Returns {ok:true,b64} | {ok:false,status} (the server answered no: nothing found,
+   or no model there) | null (unreachable). The original is never lost: the caller
+   keeps it whenever this does not say ok. */
+async function cutoutPhoto(b64){
+  try{
+    const r=await fetchT(60000,state.baseUrl.replace(/\/+$/,"")+"/cutout",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({imageB64:b64})});
+    if(!r.ok) return {ok:false,status:r.status};
+    const d=await r.json();
+    return d&&typeof d.imageB64==="string"&&d.imageB64.length>100?{ok:true,b64:d.imageB64}:{ok:false,status:200};
+  }catch(e){ return null; }
+}
+
 async function addItem(source){
   $("clErr").textContent="";
   let b64;
@@ -1634,6 +1654,11 @@ async function addItem(source){
     if(/cancel/i.test(e?.message||"")) return;                   // user backed out of the camera
     $("clErr").textContent=e?.message||"Couldn't get the photo."; return;
   }
+  // The cutout is asked for alongside classification but NOT waited for: it is
+  // optional, and a slow or unreachable /cutout must not hold the item, or its
+  // sheet, hostage for a minute (the pre-push reviewer, 2026-09-07). The original
+  // is saved now; the cutout replaces it when — if — it arrives, below.
+  const cutP=cutoutPhoto(b64);
   const meta=await classifyPhoto(b64);
   // Persist the item the instant it exists — photo to Filesystem, metadata to
   // Preferences — BEFORE opening the edit sheet. Previously a fresh item lived
@@ -1654,9 +1679,28 @@ async function addItem(source){
     warmthAnchors:Array.isArray(meta?.warmthAnchors)&&meta.warmthAnchors.length===3
                   ?meta.warmthAnchors.slice():null,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
-    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now() });
+    waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now(),
+    // Whether the saved picture is already a cutout; "Tidy photos" skips these.
+    cut:false });
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
+  // When the cutout lands, it replaces the picture — in the store, in the grid,
+  // and in the sheet if this item's sheet is still open with no newer retake.
+  // Attached only now that the item is IN the closet, so a cutout that finished
+  // first still finds it. Resolved by ID, never by object identity: the sheet
+  // edits a CLONE and Save writes that clone back, so the object created above
+  // may no longer be the one in the closet (the pre-push reviewer, 2026-09-07).
+  cutP.then(async cut=>{
+    if(!(cut&&cut.ok)) return;
+    const live=closet.find(i=>i.id===item.id);
+    if(!live) return;                                // deleted meanwhile
+    const open=sheet&&sheet.item&&sheet.item.id===item.id?sheet:null;
+    if(open&&open.b64) return;                       // a newer retake is pending; it wins
+    if(!(await photoSave(item.id,cut.b64))) return;
+    live.cut=true;
+    if(open){ open.item.cut=true; paintShot("data:image/jpeg;base64,"+cut.b64); }
+    await saveCloset();
+  }).catch(()=>{});
   // Gaps are NOT cleared here. What /classify returned is provisional — it is why
   // the edit sheet opens next — and clearing on it is irreversible: a coat read as
   // a base layer would delete the base evidence, and correcting it afterwards
@@ -1685,6 +1729,49 @@ async function addItem(source){
 
    Sequential on purpose: one vLLM serves this, and firing twenty photos at it in
    parallel makes every one of them slower. */
+/* Existing photos, made into cutouts one at a time (user, 2026-09-07). Same shape
+   as the re-scan: sequential, progress in the button, nothing else about the item
+   touched. Stops when the server cannot be reached; a photo the model finds
+   nothing in keeps its original and is not asked again this run. */
+let tidyBusy=false;
+function untidyItems(){ return closet.filter(i=>i.photo&&!i.cut); }
+function refreshTidy(){
+  const row=$("tidyRow"); if(!row) return;
+  const n=untidyItems().length;
+  row.style.display=n?"":"none";
+  if(!n||tidyBusy) return;
+  $("tidyTxt").textContent=`Tidy ${n} photo${n===1?"":"s"}`;
+  $("tidyNote").textContent=`Remove the background and put ${n===1?"it":"them"} on white, like the newer pictures.`;
+}
+async function tidyPhotos(){
+  if(tidyBusy) return;
+  const todo=untidyItems();
+  if(!todo.length){ refreshTidy(); return; }
+  tidyBusy=true;
+  const btn=$("tidyBtn"); btn.disabled=true;
+  let done=0, cut=0, unreachable=false;
+  for(const it of todo){
+    $("tidyTxt").textContent=`Tidying… ${done+1} of ${todo.length}`;
+    $("tidyNote").textContent=esc(it.label);
+    let res=null;
+    try{
+      const src=await photoLoad(it.id);
+      if(src) res=await cutoutPhoto(src.replace(/^data:[^,]*,/,""));
+    }catch(e){ res=null; }
+    done++;
+    if(res===null){ unreachable=true; break; }
+    if(res.ok&&await photoSave(it.id,res.b64)){ it.cut=true; cut++; }
+  }
+  await saveCloset();
+  tidyBusy=false; btn.disabled=false;
+  refreshTidy();
+  $("tidyNote").textContent=unreachable
+    ? `Tidied ${cut} before the advisor stopped answering — tap again later for the rest.`
+    : cut===todo.length ? `All ${cut} on white now.`
+    : `Tidied ${cut} of ${todo.length}; the rest kept their original picture — nothing to cut out was found.`;
+  toast(cut?`${cut} photo${cut===1?"":"s"} tidied`:"No photos could be tidied");
+}
+
 let rescanBusy=false;
 function untypedItems(){
   return closet.filter(i=>!i.type&&!i.typeCleared&&i.photo);
@@ -1858,9 +1945,13 @@ async function replacePhoto(source){
     const dataUrl=await capture(source);
     const b64=await downscale(dataUrl);      // same 512px cap every photo gets
     if(sheet!==mine) return;                 // that sheet is gone; so is its photo
-    sheet.b64=b64;
+    sheet.b64=b64; sheet.cut=false;
     paintShot("data:image/jpeg;base64,"+b64);
     toast("New picture — tap Save to keep it");
+    // The cutout follows when the server has it; the sheet may have moved on.
+    const cut=await cutoutPhoto(b64);
+    if(sheet!==mine||sheet.b64!==b64) return;
+    if(cut&&cut.ok){ sheet.b64=cut.b64; sheet.cut=true; paintShot("data:image/jpeg;base64,"+cut.b64); }
   }catch(e){
     // Backing out of the camera is not an error, and saying so over the sheet they
     // are still editing reads as a failure of the edit.
@@ -4518,6 +4609,7 @@ $("tabBar").onclick=e=>{ const b=e.target.closest("button"); if(b) showTab(b.dat
 $("addCamBtn").onclick=()=>addItem("CAMERA");
 $("addGalBtn").onclick=()=>addItem("PHOTOS");
 $("rescanBtn").onclick=()=>{ rescanTypes(); };
+$("tidyBtn").onclick=()=>{ tidyPhotos(); };
 $("shopBtn").onclick=()=>{ askShopping(); };
 $("closetDone").onchange=async()=>{
   closetComplete=$("closetDone").checked;
@@ -4622,7 +4714,7 @@ $("shSave").onclick=async()=>{
   // worse than the retake not working. Raised by the pre-push reviewer, 2026-08-31.
   let shotFailed=false;
   if(sheet.b64){
-    if(await photoSave(it.id,sheet.b64)) it.photo=true; else shotFailed=true;
+    if(await photoSave(it.id,sheet.b64)){ it.photo=true; it.cut=!!sheet.cut; } else shotFailed=true;
   }
   const idx=closet.findIndex(x=>x.id===it.id);
   if(idx>=0) closet[idx]=it; else closet.push(it);
@@ -4946,7 +5038,7 @@ const appReady=(async()=>{
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.
   await savePushPayload();
-  refreshRescan(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
+  refreshRescan(); refreshTidy(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
   // Fire-and-forget, and a no-op unless a home is set and its anchors are missing:
   // ten years of archive is not something to make the first paint wait for.
   refreshClimate();

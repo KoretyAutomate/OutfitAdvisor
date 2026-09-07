@@ -69,10 +69,10 @@ const REAL = {kind:"avoid_pair", a:{type:"undershirt", role:"inner"},
   await w.eval(`userRules=[${JSON.stringify(GHOST)},${JSON.stringify(REAL)}]; renderRules()`);
   const rows = [...w.document.getElementById("rlList").children];
   check("both rules are listed", rows.length === 2, rows.length);
-  check("the ghost is marked", /⚠️/.test(rows[0].textContent), rows[0].textContent);
+  check("the ghost is marked", /not applied/.test(rows[0].textContent), rows[0].textContent);
   check("and says plainly that it was never applied",
     /never being\s+applied/.test(rows[0].textContent), rows[0].textContent);
-  check("the working rule is not marked", !/⚠️/.test(rows[1].textContent));
+  check("the working rule is not marked", !/not applied/.test(rows[1].textContent));
   check("only the ghost offers a Fix",
     rows[0].querySelector("[data-rlfix]") !== null &&
     rows[1].querySelector("[data-rlfix]") === null);
@@ -103,7 +103,7 @@ const REAL = {kind:"avoid_pair", a:{type:"undershirt", role:"inner"},
     !/"role":"inner","color":"white"/.test(w.localStorage.getItem("oa.rules") || ""),
     w.localStorage.getItem("oa.rules"));
   check("the list stops warning about it",
-    !/⚠️/.test(w.document.getElementById("rlList").children[0].textContent));
+    !/not applied/.test(w.document.getElementById("rlList").children[0].textContent));
 
   console.log("\n--- 4. removed while the answer was in flight --------------------");
   /* Remove stays live while /rule is being asked, so by the time the answer lands

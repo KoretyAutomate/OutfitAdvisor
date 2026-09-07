@@ -138,7 +138,7 @@ const seed = () => ev(`closet=[
   check("a slot filled from the closet shows its photo",
     !!baseIc && !!baseIc.querySelector("img.thumb"), baseIc && baseIc.innerHTML);
   check("a generic slot keeps the category icon",
-    !!innerIc && !innerIc.querySelector("img") && innerIc.textContent.trim().length > 0,
+    !!innerIc && !innerIc.querySelector("img") && !!innerIc.querySelector("svg.gi"),
     innerIc && innerIc.innerHTML);
   check("a picked item with no photo on disk falls back to the icon",
     (() => { const e = w.document.querySelector('#outfitList li[data-slot="bottoms"] .ic');

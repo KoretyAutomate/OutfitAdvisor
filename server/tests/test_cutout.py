@@ -61,6 +61,16 @@ def test_the_garment_is_cropped_padded_and_centred_on_a_white_square():
     assert b > r and b > g
 
 
+def test_the_garments_colour_is_the_cameras_colour():
+    """A first cut ran autocontrast; the white canvas skewed the histogram and a
+    (40,70,180) blue came back (0,0,146). The cutout may frame the garment, never
+    recolour it (live probe, 2026-09-07)."""
+    rgba = matte_keeping(100, 50, 300, 250)(photo(garment=(100, 50, 300, 250, (40, 70, 180))))
+    out = cutout.compose(rgba)
+    r, g, b = out.getpixel((cutout.CANVAS // 2, cutout.CANVAS // 2))
+    assert abs(r - 40) <= 3 and abs(g - 70) <= 3 and abs(b - 180) <= 3, (r, g, b)
+
+
 def test_the_original_background_is_gone():
     """The brown bed the shirt was photographed on must not survive anywhere."""
     rgba = matte_keeping(100, 50, 300, 250)(photo(garment=(100, 50, 300, 250, (30, 60, 200))))

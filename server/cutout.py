@@ -9,8 +9,11 @@ same trip; the phone keeps owning the file.
 The matte comes from rembg (ONNX, CPU, `isnet-general-use`), loaded once, lazily,
 so a server without it still starts — /cutout then answers 503 and the phone
 keeps the original. Everything after the matte is plain Pillow: crop to the
-garment, pad, centre on a square white canvas, a mild autocontrast. Nothing that
-could make a shirt a colour it is not.
+garment, pad, centre on a square white canvas. No levels, no colour work: a first
+cut applied autocontrast and the white canvas skewed the histogram so a
+(40,70,180) blue came back (0,0,146) — a shirt a colour it is not (live probe,
+2026-09-07). The cutout and the framing ARE the "nice"; the colours stay the
+camera's.
 
 PRIVACY: the image is used and discarded. Only timings reach the journal.
 """
@@ -66,7 +69,7 @@ def _matte(img: Image.Image) -> Image.Image:
 
 
 def compose(rgba: Image.Image) -> Image.Image | None:
-    """The cutout on white: cropped to the garment, padded, square, lightly levelled.
+    """The cutout on white: cropped to the garment, padded, square. Colours untouched.
 
     None when the matte found nothing worth keeping — the phone then keeps its
     original rather than a blank white square.
@@ -92,9 +95,6 @@ def compose(rgba: Image.Image) -> Image.Image | None:
     canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
     canvas.alpha_composite(cut, ((side - cut.width) // 2, (side - cut.height) // 2))
     flat = canvas.convert("RGB")
-    # Levels only where the garment is: a white canvas would otherwise pin the
-    # histogram's top and leave a dim photo dim. Then the same levels everywhere.
-    flat = ImageOps.autocontrast(flat, cutoff=1, preserve_tone=True)
     if side != CANVAS:
         flat = flat.resize((CANVAS, CANVAS), Image.LANCZOS)
     return flat

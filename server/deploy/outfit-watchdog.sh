@@ -119,20 +119,22 @@ phone=$(printf '%s' "$ts_json" | OA_PHONE_HOST="$PHONE_HOST" python3 -c '
 import json, os, sys, datetime as dt
 want = os.environ.get("OA_PHONE_HOST", "pixel").lower()
 d = json.load(sys.stdin)
-for p in (d.get("Peer") or {}).values():
-    if want in (p.get("HostName") or "").lower():
-        if p.get("Online"):
-            print("online 0")
-        else:
-            ls = p.get("LastSeen")
-            hrs = 0
-            if ls:
-                t = dt.datetime.fromisoformat(ls.replace("Z", "+00:00"))
-                hrs = int((dt.datetime.now(dt.timezone.utc) - t).total_seconds() // 3600)
-            print("offline", hrs)
-        break
-else:
+# EVERY peer that matches, not the first. A replaced handset leaves the old one
+# on the tailnet as an offline peer with the same prefix, and taking the first
+# match reported "phone offline 36h" for a day while the new phone was online
+# and calling the server (2026-09-07). The phone that matters is the one online;
+# failing that, the one seen most recently.
+def seen(p):
+    ls = p.get("LastSeen")
+    return dt.datetime.fromisoformat(ls.replace("Z", "+00:00")) if ls else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+peers = [p for p in (d.get("Peer") or {}).values() if want in (p.get("HostName") or "").lower()]
+if not peers:
     print("absent 0")
+elif any(p.get("Online") for p in peers):
+    print("online 0")
+else:
+    hrs = int((dt.datetime.now(dt.timezone.utc) - max(seen(p) for p in peers)).total_seconds() // 3600)
+    print("offline", max(hrs, 0))
 ')
 
 set -- $phone

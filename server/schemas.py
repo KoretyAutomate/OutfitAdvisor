@@ -326,6 +326,10 @@ class PackingRequest(BaseModel):
         default_factory=lambda: ["casual"], min_length=1, max_length=3
     )
     closet: list[ClosetItem] | None = Field(None, max_length=100)
+    # How far the destination is from home, in km — a DISTANCE, not a place. From
+    # ~300 km the trip starts and ends in a cabin, and day 1 is dressed for that
+    # (2026-09-07). Optional: an older app simply gets no travel day.
+    travelKm: float | None = Field(None, ge=0, le=25000)
 
     @field_validator("end")
     @classmethod

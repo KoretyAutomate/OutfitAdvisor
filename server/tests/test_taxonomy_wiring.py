@@ -14,6 +14,7 @@ import pytest
 
 import closet as closet_mod
 import llm
+import packlist
 import vocab
 from app import ClosetItem
 import picks as picks_mod
@@ -106,7 +107,7 @@ def test_the_packing_prompt_keeps_what_the_outfit_prompt_withholds():
     wardrobe = [item(group="footwear", category="footwear", type="socks",
                      label="wool socks").model_dump()]
     days = [{"date": "2026-09-01", "lo": 8, "hi": 15, "desc": "Cloudy", "rain": 10, "wind": 3}]
-    prompt = llm._pack_prompt((days, PACK_SUMMARY), "man", ["casual"], "vacation", wardrobe)
+    prompt = packlist._pack_prompt((days, PACK_SUMMARY), packlist.Trip("man", ("casual",), "vacation"), wardrobe)
     assert "wool socks" in prompt
     assert "Socks / hosiery" in prompt
 

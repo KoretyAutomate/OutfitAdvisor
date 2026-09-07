@@ -127,7 +127,7 @@
   .item .ph{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:var(--bg)}
   .item .nm{font-size:.66rem;color:var(--txt);padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .item .cnt{position:absolute;top:4px;right:4px;background:#FFFFFFE6;border:1px solid var(--line);border-radius:6px;font-size:.62rem;padding:1px 6px;font-variant-numeric:tabular-nums}
-  .item .dirty{position:absolute;top:4px;left:4px;font-size:.72rem}
+  .item .dirty{position:absolute;top:4px;left:4px;font-size:.6rem;color:var(--muted);background:#FFFFFFE6;border:1px solid var(--line);border-radius:6px;padding:1px 5px}
   .item.out img,.item.out .ph{opacity:.35}
   .modal{position:fixed;inset:0;background:rgba(31,29,27,.35);display:none;align-items:flex-end;justify-content:center;z-index:40}
   .modal.show{display:flex}
@@ -220,6 +220,17 @@
   .updIcon{font-size:1.3rem;line-height:1.1;color:var(--txt)}
   .upd .row{display:flex;gap:8px}
   .upd .row button{flex:1}
+  /* garment outlines (see GARMENT in the script) */
+  .gi{width:58%;height:58%;fill:none;stroke:#9A948C;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+  .outfit .ic .gi{width:24px;height:24px;stroke:var(--muted)}
+  .folderHead .gi{width:18px;height:18px;stroke:var(--muted)}
+  .chip .gi{width:12px;height:12px;vertical-align:-2px;stroke:currentColor}
+  .updIcon svg{width:22px;height:22px}
+  /* The tip is the one sentence read every morning; it sits under the pictures as
+     the headline, not as a footnote. */
+  #outfitTip{font-size:1.05rem;color:var(--txt);line-height:1.4;margin-top:12px}
+  /* The weather is a line of words and numbers; the condition is already said. */
+  .wx .emoji{display:none}
 </style>
 </head>
 <body>
@@ -248,7 +259,7 @@
        place and keeps settings, closet photos and the wear-log. -->
   <div class="card upd" id="updCard" style="display:none">
     <div class="updTop">
-      <span class="updIcon">⬆</span>
+      <span class="updIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></span>
       <div>
         <b id="updTitle">Update available</b>
         <div class="note" id="updSub" style="margin-top:2px"></div>
@@ -324,12 +335,12 @@
         <p class="aitext" id="aiText"></p>
         <ul class="outfit" id="outfitList"></ul>
       </details>
-      <button class="wearBtn" id="dWear" style="display:none">✅ Wearing it — update my rotation</button>
+      <button class="wearBtn" id="dWear" style="display:none">Wearing it — update my rotation</button>
       <!-- The correction (user, 2026-08-29). What somebody actually reached for,
            having read the suggestion and decided otherwise, is better evidence than
            any rating: it names the garment AND the one it beat. -->
       <button class="ghost" id="dWore" style="display:none;width:100%;padding:9px;margin-top:7px">
-        ✏️ I wore something else</button>
+        I wore something else</button>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
            the LLM plan against. Never shifts the weather shown above. -->
       <div class="fb">
@@ -457,7 +468,7 @@
     </div>
   </section>
 
-  <footer>Weather by Open-Meteo · outfit by your local LLM on the DGX · location never stored</footer>
+  <footer>Weather by Open-Meteo · outfit written on your own server · location never stored</footer>
 </div>
 
 <!-- Closet item sheet (classify-confirm / edit) -->
@@ -472,7 +483,7 @@
            problem: it is the garment becoming unidentifiable in its own wardrobe. -->
       <div class="shot">
         <img class="prev" id="shImg" alt="">
-        <div class="prev ph" id="shNoPic">👕</div>
+        <div class="prev ph" id="shNoPic"><svg class="gi" viewBox="0 0 100 100" aria-hidden="true"><path d="M30 18 L42 12 Q50 20 58 12 L70 18 L84 30 L74 40 L70 36 L70 88 L30 88 L30 36 L26 40 L16 30 Z"></path></svg></div>
         <div class="shotBtns">
           <button class="ghost" id="shCam" type="button">Retake</button>
           <button class="ghost" id="shGal" type="button">Choose photo</button>
@@ -500,13 +511,13 @@
     </div>
     <label class="lbl">Clothing group <span class="note" style="text-transform:none;letter-spacing:0">— which folder it lives in</span></label>
     <select id="shGroup" style="width:100%;margin-bottom:12px">
-      <option value="underwear">🎽 Underwear</option>
-      <option value="tops">👕 Tops</option>
-      <option value="outerwear">🧥 Outerwear</option>
-      <option value="bottoms">👖 Bottoms</option>
-      <option value="onepiece">👗 One-piece</option>
-      <option value="footwear">👟 Footwear</option>
-      <option value="accessories">🧣 Accessories</option>
+      <option value="underwear">Underwear</option>
+      <option value="tops">Tops</option>
+      <option value="outerwear">Outerwear</option>
+      <option value="bottoms">Bottoms</option>
+      <option value="onepiece">One-piece</option>
+      <option value="footwear">Footwear</option>
+      <option value="accessories">Accessories</option>
     </select>
     <label class="lbl">Kind <span class="note" style="text-transform:none;letter-spacing:0">— a tee and a polo are both Tops, and they are not the same</span></label>
     <select id="shType" style="width:100%;margin-bottom:12px"></select>
@@ -728,7 +739,7 @@
     <ul class="outfit" id="pkList"></ul>
     <div id="pkGaps"></div>
     <div class="row" style="margin-top:14px">
-      <button class="primary" id="pkPacked" style="flex:2">🧳 Packed it — these are with me</button>
+      <button class="primary" id="pkPacked" style="flex:2">Packed it — these are with me</button>
       <button id="pkClose">Close</button>
     </div>
     <p class="note" id="pkPackedNote" style="display:none"></p>
@@ -854,7 +865,7 @@ function recommend(w,gender,style){
   return o;
 }
 function outfitToBullets(o){
-  return `• Inner: ${o.inner}\n• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\n💡 ${o.tip}`;
+  return `• Inner: ${o.inner}\n• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\nTip: ${o.tip}`;
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
@@ -1060,7 +1071,22 @@ async function getPosition(){
    inside the cooldown window, epoch-ms) must stay in lockstep with
    WakeActivity.kt — keep both trivially simple. */
 const DAY_MS=86400000, COOLDOWN_DAYS=4;
-const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+/* Garment outlines, drawn — paper & ink (2026-09-07). One path each, stroked in
+   the muted ink, used wherever a photo is missing and beside each slot's name.
+   The emoji they replace read as a template; a line drawing reads as a placeholder. */
+const gi=d=>`<svg class="gi" viewBox="0 0 100 100" aria-hidden="true"><path d="${d}"></path></svg>`;
+const GARMENT={
+  tank:gi("M34 12 Q40 30 42 40 L42 88 H58 L58 40 Q60 30 66 12 L58 12 Q54 22 50 24 Q46 22 42 12 Z"),
+  tee:gi("M30 18 L42 12 Q50 20 58 12 L70 18 L84 30 L74 40 L70 36 L70 88 L30 88 L30 36 L26 40 L16 30 Z"),
+  hoodie:gi("M30 18 L42 12 Q50 20 58 12 L70 18 L84 30 L74 40 L70 36 L70 88 L30 88 L30 36 L26 40 L16 30 Z M38 14 Q50 2 62 14"),
+  jacket:gi("M30 18 L42 12 Q50 20 58 12 L70 18 L84 30 L74 40 L70 36 L70 88 L30 88 L30 36 L26 40 L16 30 Z M50 24 V88 M42 12 L50 30 L58 12"),
+  pants:gi("M30 12 H70 L74 88 H56 L50 40 L44 88 H26 Z"),
+  shoe:gi("M14 66 L40 60 L56 40 L66 44 L70 60 L88 66 L88 76 L14 76 Z M14 76 H88 V82 H14 Z"),
+  scarf:gi("M40 12 H60 V70 L50 80 L40 70 Z M40 30 H60 M40 44 H60"),
+  dress:gi("M36 12 L42 12 Q50 20 58 12 L64 12 L70 40 L60 48 L74 88 H26 L40 48 L30 40 Z"),
+};
+const CAT_ICON={inner:GARMENT.tank,base:GARMENT.tee,mid:GARMENT.hoodie,outer:GARMENT.jacket,
+  bottoms:GARMENT.pants,footwear:GARMENT.shoe,accessories:GARMENT.scarf};
 /* Clothing GROUPS — what a garment IS, used to file the wardrobe into folders.
    Deliberately NOT the layering slots: an oxford shirt is a Top whether it is the
    outer layer in July or a base under a coat in November (user, 2026-08-10).
@@ -1070,8 +1096,8 @@ const CAT_ICON={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",
 const GROUPS=["underwear","tops","outerwear","bottoms","onepiece","footwear","accessories"];
 const GROUP_LABEL={underwear:"Underwear",tops:"Tops",outerwear:"Outerwear",
   bottoms:"Bottoms",onepiece:"One-piece",footwear:"Footwear",accessories:"Accessories"};
-const GROUP_ICON={underwear:"🎽",tops:"👕",outerwear:"🧥",
-  bottoms:"👖",onepiece:"👗",footwear:"👟",accessories:"🧣"};
+const GROUP_ICON={underwear:GARMENT.tank,tops:GARMENT.tee,outerwear:GARMENT.jacket,
+  bottoms:GARMENT.pants,onepiece:GARMENT.dress,footwear:GARMENT.shoe,accessories:GARMENT.scarf};
 /* Groups that no longer exist, and what they became (2026-08-20: knitwear dissolved
    into tops, where sweater/cardigan/hoodie/fleece live on as TYPES). Translated on
    load, never rejected — the folder moved down a level, the items did not move. */
@@ -1416,7 +1442,7 @@ async function renderVersion(){
   if(!cur.canInstall){
     // The single most likely reason an in-app update silently never happens.
     msg.style.display="block";
-    msg.innerHTML='⚠ Android is blocking installs from this app. Tap <b>Install</b> '
+    msg.innerHTML='Android is blocking installs from this app. Tap <b>Install</b> '
       +'and grant "Allow from this source", then come back and tap Install again.';
   }else if(v.notes){
     msg.style.display="block"; msg.textContent=v.notes;
@@ -1436,16 +1462,16 @@ async function doUpdate(){
       url:state.baseUrl.replace(/\/+$/,"")+"/apk",
       sha256:updInfo.sha256, size:updInfo.size});
     if(res&&res.status==="needs-permission"){
-      say('⚠ Grant "Allow from this source" on the screen that just opened, then tap Install again.');
+      say('Grant "Allow from this source" on the screen that just opened, then tap Install again.');
       toast("Allow installs, then tap Install again");
     }else{
-      say("✅ Downloaded — Android's installer should be asking you to confirm.");
+      say("Downloaded — Android's installer should be asking you to confirm.");
       toast("Opening the installer…");
     }
   }catch(e){
     // Written into the card, not a toast: the user needs to be able to read this
     // and tell me what it said.
-    say("❌ Update failed: "+esc(e&&e.message?e.message:"download error"));
+    say("Update failed: "+esc(e&&e.message?e.message:"download error"));
     toast("Update failed");
   }finally{
     updBusy=false;
@@ -1810,7 +1836,7 @@ function paintShot(src){
   // A placeholder rather than a hole: the buttons under it are the whole point, and
   // a collapsed column makes them look like they belong to the name field.
   if(ph){ ph.style.display=src?"none":"flex";
-          ph.textContent=CAT_ICON[sheet?.item?.category]||"👕"; }
+          ph.innerHTML=CAT_ICON[sheet?.item?.category]||GARMENT.tee; }
 }
 let shotBusy=null;   // the sheet whose capture is in flight, not a bare flag
 async function replacePhoto(source){
@@ -1848,9 +1874,9 @@ async function renderCloset(){
   const tile=async it=>{
     const a=avail(it), src=await photoLoad(it.id);
     return `<div class="item${a===0?" out":""}" data-id="${esc(it.id)}">
-      ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||"👕"}</div>`}
+      ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||GARMENT.tee}</div>`}
       ${it.count>1||a<it.count?`<span class="cnt">${a}/${it.count}</span>`:""}
-      ${a<it.count?`<span class="dirty" title="in the laundry">🧺</span>`:""}
+      ${a<it.count?`<span class="dirty" title="in the laundry">wash</span>`:""}
       <div class="nm">${esc(it.label)}</div></div>`;
   };
 
@@ -2032,7 +2058,7 @@ async function openCalPicker(){
       return `<div class="calAcct">
         <button class="calAcctHead" data-acct="${esc(acct)}" aria-expanded="${open}">
           <span class="tw">${open?"▾":"▸"}</span>
-          <span class="em">📧 ${esc(acct)}</span>
+          <span class="em">${esc(acct)}</span>
           <span class="n">${own?`${sel}/${own} scanned`:"none you can read"}</span></button>
         <div class="calAcctBody"${open?"":' style="display:none"'}>${rows}</div></div>`;
     }).join("");
@@ -2922,7 +2948,7 @@ async function getAdvice(lat,lon){
 }
 
 /* ───────── rendering ───────── */
-const ICONS={inner:"🎽",base:"👕",mid:"🧶",outer:"🧥",bottoms:"👖",footwear:"👟",accessories:"🧣"};
+const ICONS=CAT_ICON;
 const LABELS={inner:"Inner layer",base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
 function renderWeather(w){
   $("wxCard").style.display="block";
@@ -2935,10 +2961,10 @@ function renderWeather(w){
   $("wxEmoji").textContent=w.emoji; $("wxLo").textContent=w.lo; $("wxHi").textContent=w.hi;
   $("wxDesc").textContent=`${w.desc} · feels ${w.feelsLo}°–${w.feelsHi}°`;
   const chips=[];
-  if(w.swing>=10) chips.push(`<span class="chip warn">⚠ ${esc(w.swing)}° swing</span>`);
-  if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">🌧 rain ${esc(w.rain)}%</span>`);
-  if(w.isSnow) chips.push(`<span class="chip rain">🌨 snow</span>`);
-  if(w.wind>=8) chips.push(`<span class="chip warn">💨 ${esc(w.wind)} m/s</span>`);
+  if(w.swing>=10) chips.push(`<span class="chip warn">${esc(w.swing)}° swing</span>`);
+  if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">rain ${esc(w.rain)}%</span>`);
+  if(w.isSnow) chips.push(`<span class="chip rain">snow</span>`);
+  if(w.wind>=8) chips.push(`<span class="chip warn">wind ${esc(w.wind)} m/s</span>`);
   $("wxChips").innerHTML=chips.join("");
   $("wxTimeline").innerHTML=[["Morning",w.morning],["Midday",w.midday],["Evening",w.evening]]
     .map(([t,v])=>`<div><div class="t">${t}</div><div class="v">${v==null?"–":esc(v)+"°"}</div></div>`).join("");
@@ -2988,7 +3014,7 @@ function renderOutfit(o,text,source,res){
   syncWornNote();
   const tipEl=$("outfitTip");
   tipEl.style.display=o.tip?"":"none";
-  tipEl.textContent="💡 "+(o.tip||"");
+  tipEl.textContent=o.tip||"";
   /* The record is NOT cleared here, for any advice, fresh or restored.
      It answers "what is in the laundry on account of today" — a fact about
      garments, not about a suggestion. Somebody who wore the polo this morning and
@@ -3108,8 +3134,8 @@ function syncWornNote(){
   const el=$("wornNote"); if(!el) return;
   if(!wornDiffers()){ el.style.display="none"; return; }
   el.style.display="";
-  $("wornNoteTxt").textContent=wornView?"👕 What you actually wore today."
-                                       :"✏️ You wore something else today.";
+  $("wornNoteTxt").textContent=wornView?"What you actually wore today."
+                                       :"You wore something else today.";
   $("wornToggle").textContent=wornView?"See the suggestion":"Show what I wore";
 }
 /* Redraw the garments alone — for the paths that change what is WORN rather than
@@ -3201,25 +3227,25 @@ function renderTrips(){
     const nDays=(x.nights||nightsBetween(x.start,x.end))+1;
     return `<div class="item2" data-trip="${esc(x.id)}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
-        <b>${x.type==="business"?"💼":"🏖️"} ${esc(x.place||x.title)}</b>
+        <b>${esc(x.place||x.title)} <span style="color:var(--muted);font-weight:400;font-size:.8rem">· ${x.type==="business"?"Business":"Vacation"}</span></b>
         <span class="note" style="margin:0">${esc(when)}</span>
       </div>
       <div class="note" style="margin:2px 0 0">${esc(fmtRange(x.start,x.end))} · ${esc(nDays)} days · ${esc((x.styles||[]).join(" + "))}</div>
       ${/* A trip the app added by itself has to say so, and say what it came from.
             Without this an auto-detected trip is indistinguishable from one the
             user confirmed, which is what "unknown trips" means. */""}
-      ${x.auto?`<div class="note" style="margin:4px 0 0">🤖 found in your calendar: "${esc(x.title)}"${x.km?` · ${esc(x.km)} km from home`:""}</div>`:""}
+      ${x.auto?`<div class="note" style="margin:4px 0 0">Found in your calendar: "${esc(x.title)}"${x.km?` · ${esc(x.km)} km from home`:""}</div>`:""}
       ${/* Found under the pre-1.16 rules, where a location code could geocode to a
             city thousands of km away. The app cannot tell a corrected trip from an
             untouched guess, so it asks instead of choosing. */""}
       ${x.needsReview?`<div class="note" style="margin:6px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:9px">
-        ⚠️ Found before the location fix — is <b>${esc(x.place||x.title)}</b> right?
+        Found before the location fix — is <b>${esc(x.place||x.title)}</b> right?
         <div style="display:flex;gap:8px;margin-top:7px">
           <button class="ghost" data-keep="${esc(x.id)}" style="padding:5px 10px;font-size:.72rem">Yes, keep it</button>
           <button class="ghost" data-drop="${esc(x.id)}" style="padding:5px 10px;font-size:.72rem">Remove</button>
         </div></div>`:""}
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-        ${packed?`<span class="chip src">🧳 packed — ${x.packed.length} items with you</span>`:
+        ${packed?`<span class="chip src">packed — ${x.packed.length} items with you</span>`:
                   `<span class="chip">tap for your packing list</span>`}
         <button class="ghost" data-edit="${esc(x.id)}" style="margin-left:auto;padding:5px 10px;font-size:.72rem">Edit</button>
       </div>
@@ -3234,7 +3260,7 @@ function renderTrips(){
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
         <b>${esc(c.title)}</b><span class="note" style="margin:0">${esc(fmtRange(c.start,c.end))}</span>
       </div>
-      ${c.hint?`<div class="note" style="margin:2px 0 0">📍 ${esc(c.hint)}</div>`:""}
+      ${c.hint?`<div class="note" style="margin:2px 0 0">${esc(c.hint)}</div>`:""}
       <div class="row" style="margin-top:8px">
         <button class="primary" data-conf="${esc(c.calId)}">It's a trip →</button>
         <button class="ghost" data-dis="${esc(c.calId)}">Not a trip</button>
@@ -3345,7 +3371,7 @@ function syncCityToGeo(){
 let lastPack=null; // {trip, pack[]}
 async function openPacking(trip){
   lastPack=null;
-  $("pkTitle").textContent=`${trip.type==="business"?"💼":"🏖️"} ${trip.place}`;
+  $("pkTitle").textContent=trip.place;
   $("pkWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
   $("pkChips").innerHTML=""; $("pkDays").innerHTML=""; $("pkList").innerHTML="";
   $("pkGaps").innerHTML=""; $("pkErr").textContent="";
@@ -3381,12 +3407,12 @@ async function openPacking(trip){
 }
 function renderPacking(trip,d){
   const s=d.forecast.summary, chips=[];
-  if(s.mode==="normals") chips.push(`<span class="chip warn">⚠ typical for these dates — not a forecast (${esc(s.yearsUsed)} yrs)</span>`);
+  if(s.mode==="normals") chips.push(`<span class="chip warn">typical for these dates — not a forecast (${esc(s.yearsUsed)} yrs)</span>`);
   if(d.trip.truncated) chips.push(`<span class="chip warn">forecast only reaches part of the trip</span>`);
   if(!d.closetUsed) chips.push(`<span class="chip off">generic — your closet wasn't used</span>`);
   chips.push(`<span class="chip">${esc(s.loMin)}° – ${esc(s.hiMax)}°</span>`);
-  if(s.rainDays) chips.push(`<span class="chip rain">🌧 ${esc(s.rainDays)} of ${esc(s.nDays)} days wet</span>`);
-  if(s.isSnow) chips.push(`<span class="chip rain">🌨 snow</span>`);
+  if(s.rainDays) chips.push(`<span class="chip rain">${esc(s.rainDays)} of ${esc(s.nDays)} days wet</span>`);
+  if(s.isSnow) chips.push(`<span class="chip rain">snow</span>`);
   $("pkChips").innerHTML=chips.join("");
 
   $("pkDays").innerHTML=d.forecast.days.map(x=>{
@@ -3398,7 +3424,7 @@ function renderPacking(trip,d){
 
   $("pkText").textContent=d.packing_text||"";
   $("pkList").innerHTML=(d.pack||[]).map(p=>
-    `<li><span class="ic">${ICONS[p.category]||"👕"}</span><div>
+    `<li><span class="ic">${ICONS[p.category]||GARMENT.tee}</span><div>
       <div class="lbl2">${esc(p.qty)}× ${esc(p.label)}</div>
       <div class="val">${esc(p.why||"")}</div></div></li>`).join("");
 
@@ -3410,7 +3436,7 @@ function renderPacking(trip,d){
     lastPack={trip,pack:d.pack};
     const already=trip.packed&&trip.packed.length;
     $("pkPacked").style.display="";
-    $("pkPacked").textContent=already?"🧳 Update what's in my suitcase":"🧳 Packed it — these are with me";
+    $("pkPacked").textContent=already?"Update what's in my suitcase":"Packed it — these are with me";
     $("pkPackedNote").style.display="block";
     $("pkPackedNote").textContent="Tap this once you've packed, and the daily push will dress you from your suitcase while you're away — not from the wardrobe you left at home.";
   }
@@ -3438,7 +3464,7 @@ async function run(){
       state.lat=p.lat; state.lon=p.lon; state.place="My location";
       state.city=""; state.useGps=true; await persist();
     }
-    if(state.lat==null) throw new Error("Enter a city or tap 📍 for your location.");
+    if(state.lat==null) throw new Error("Enter a city, or use the location button.");
     const res=await getAdvice(state.lat,state.lon);
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
@@ -3637,8 +3663,8 @@ function syncWearBtn(){
   // the screen. Visibility lives here rather than in renderOutfit because undo
   // changes it with no re-render in sight.
   wb.style.display=(lastPickIds.length||wornLogged)?"":"none";
-  wb.textContent=wornLogged?"✅ Logged — tap to undo"
-                           :"✅ Wearing it — update my rotation";
+  wb.textContent=wornLogged?"Logged — tap to undo"
+                           :"Wearing it — update my rotation";
 }
 
 /* One writer at a time for the day's record. Both this sheet and the button toggle
@@ -4109,7 +4135,7 @@ function renderRules(){
   el.innerHTML=userRules.length?userRules.map((r,i)=>{
     const dead=ruleIsDead(r);
     return `<div class="calRow" style="padding-left:0">
-       <div style="min-width:0;flex:1">${dead?"⚠️":"🚫"} ${esc(r.restated||r.text)}
+       <div style="min-width:0;flex:1">${dead?'<span class="chip warn" style="margin-right:6px">not applied</span>':""}${esc(r.restated||r.text)}
          ${dead?`<div class="note" style="margin:2px 0 0">This one was never being
            applied — tap Fix to read it again.</div>`:""}</div>
        ${dead?`<button class="ghost" data-rlfix="${i}" style="padding:4px 9px;font-size:.72rem">Fix</button>`:""}
@@ -4257,15 +4283,15 @@ async function saveSchedule(){
     }}catch(e){}
   }
   if(!(Plugins.OutfitAlarm && Plugins.OutfitAlarm.arm)){
-    toast(isNative?"⚠ Alarm bridge missing — push NOT armed":"Saved (arming only works in the app)"); return;
+    toast(isNative?"Alarm bridge missing — push NOT armed":"Saved (arming only works in the app)"); return;
   }
   const [h,m]=state.pushTime.split(":").map(Number);
   try{
     const r=await Plugins.OutfitAlarm.arm({hour:h,minute:m});
-    if(warn.length) toast(`⚠ Armed for ${state.pushTime}, but ${warn[0]}`);
+    if(warn.length) toast(`Armed for ${state.pushTime}, but ${warn[0]}`);
     else if(r && r.exact===false) toast(`Push set for ${state.pushTime} (inexact — may drift a few minutes)`);
     else toast(`Daily push set for ${state.pushTime}`);
-  }catch(e){ toast("⚠ Couldn't arm the alarm — push NOT set"); }
+  }catch(e){ toast("Couldn't arm the alarm — push NOT set"); }
   refreshSchedStatus();
 }
 
@@ -4290,7 +4316,7 @@ async function refreshSchedStatus(){
        real background-location state every repaint (also fired on app resume) */
     try{ if(Plugins.OutfitAlarm.bgLocation){
       const b=await Plugins.OutfitAlarm.bgLocation();
-      if(!b.granted) bg=' · ⚠ location not "Allow all the time"';
+      if(!b.granted) bg=' · location not "Allow all the time"';
     }}catch(e){}
     el.textContent=`⏰ Armed for ${hm} daily${when}${s.exact===false?" · inexact (may drift)":""}${bg}`;
   }catch(e){ el.style.display="none"; }
@@ -4321,11 +4347,11 @@ async function refreshReadiness(){
   box.style.display="block";
   list.innerHTML=READY_ROWS.map((row,i)=>{
     const ok=!!r[row.k];
-    const icon=ok?"✅":(row.optional?"⚪":"❌");
+    const icon=ok?'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>':(row.optional?'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg>':'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"></path></svg>');
     const colour=ok?"var(--good)":(row.optional?"var(--muted)":"var(--warn)");
     const btn=(!ok&&row.fix)?`<button class="ghost" data-fix="${i}" style="padding:4px 9px;font-size:.7rem;margin-left:auto">Fix</button>`:"";
     return `<li style="display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid var(--line)">
-      <span style="color:${colour}">${icon}</span>
+      <span style="color:${colour};display:inline-flex">${icon}</span>
       <span style="color:${ok?'var(--txt)':'var(--muted)'}">${row.label}</span>${btn}
     </li>${ok?"":`<li class="note" style="margin:0 0 4px 22px">${row.why}</li>`}`;
   }).join("");

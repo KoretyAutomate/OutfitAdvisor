@@ -62,6 +62,23 @@ const check = (name, cond, detail = "") => {
   check("and a mild one is sage", doc.documentElement.style.getPropertyValue("--accent") === "#6E7F5A");
   check("the accent has somewhere to go", /\.wx \.big::after[^}]*var\(--accent\)/.test(bare));
 
+  console.log("\n--- 4. what the page BUILDS is words and drawings too ---------------");
+  const OUT = {inner:"Light cotton undershirt", base:"linen shirt", mid:"None needed", outer:"None needed",
+    bottoms:"chinos", footwear:"white sneakers", accessories:"None needed", tip:"It warms up fast."};
+  w.eval(`renderWeather(${JSON.stringify(WX)}); renderOutfit(${JSON.stringify(OUT)}, "words", "llm",
+    {closetUsed:false, closetSent:false, picks:null})`);
+  const built = ["wxChips", "wearGrid", "outfitList", "outfitTip", "srcBadge"]
+    .map(id => doc.getElementById(id)).filter(Boolean).map(e => e.textContent).join(" ");
+  check("weather chips, outfit tiles, list and tip carry no emoji", !emoji.test(built), built.slice(0, 120));
+  check("an empty slot shows a drawn garment, not a glyph",
+    !!doc.querySelector('#wearGrid .wearIt .ph svg.gi'));
+  check("the footer no longer names the owner's hardware",
+    !/DGX|Tailscale/.test(doc.querySelector("footer").textContent), doc.querySelector("footer").textContent);
+  const rest = html.match(/<body>([\s\S]*?)<script>/)[1];
+  const leaks = [...rest.matchAll(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu)].length;
+  check("the static markup keeps emoji only where CSS hides them (the five feedback faces, one weather glyph)",
+    leaks === 6, leaks);
+
   console.log(`\n# ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

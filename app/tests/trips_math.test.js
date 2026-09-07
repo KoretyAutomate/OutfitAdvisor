@@ -344,7 +344,7 @@ async function pickerChecks() {
   /* ── the list is HIERARCHICAL: account first, its calendars underneath
         (user, 2026-08-20). A flat list of "Personal", "Birthdays", "US Holidays"
         never says which sign-in each one came from. ── */
-  const heads = [...html.matchAll(/📧 ([^<]+)</g)].map(m => m[1].trim());
+  const heads = [...html.matchAll(/<span class="em">([^<]+)</g)].map(m => m[1].trim());
   check("every account the calendars belong to gets its own heading",
     JSON.stringify(heads) === '["korehito@gmail.com","feeds@partner.example"]', heads);
   check("the account with the most readable calendars leads",

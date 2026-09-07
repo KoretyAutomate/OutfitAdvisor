@@ -46,6 +46,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import closet as closet_llm
+import cutout
 import engine
 import llm
 import packing as trippack  # the route below is itself named `packing`
@@ -98,6 +99,8 @@ app.add_middleware(
 
 # The in-app update channel (/version, /apk) lives in updates.py.
 app.include_router(updates.router)
+# Garment cutouts (background removed, on white) — cutout.py, 2026-09-07.
+app.include_router(cutout.router)
 
 
 @app.get("/health")

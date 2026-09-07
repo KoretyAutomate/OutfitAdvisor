@@ -48,6 +48,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import closet as closet_llm
 import engine
 import llm
+import packing as trippack  # the route below is itself named `packing`
+import packlist
 import rules
 import ruleparse
 import scale
@@ -253,15 +255,9 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     }
 
 
-# How many of each category a trip actually needs, given its length. Only inner,
-# base and bottoms scale with duration; you re-wear a coat. Used to catch a SHORTFALL
-# the LLM would otherwise hide by silently packing fewer (plan amendment T-4).
-def _needed(category: str, n_days: int) -> int:
-    if category in ("inner", "base"):
-        return n_days + 1
-    if category == "bottoms":
-        return max(1, -(-n_days // 3))  # ceil(n/3)
-    return 1
+# How many of each category a trip needs lives in packing.py now, with the top-up
+# that makes the number true and the wording for when the closet cannot (2026-09-07).
+_needed = trippack.needed
 
 
 @app.post("/packing")
@@ -291,14 +287,28 @@ async def packing(req: PackingRequest):
 
     days, summary = wx["days"], wx["summary"]
     n = summary["nDays"]
+    # Counts are sized by the WHOLE trip, not by how far the forecast reaches: a
+    # 30-day trip starting today gets ~15 forecast days, and sizing the top-up and
+    # the wash schedule by those under-packed it (pre-push reviewer, 2026-09-07).
+    trip_days = (req.end - req.start).days + 1
 
     pack, gaps, text, closet_used = [], [], None, False
+    plan: list[dict] = []
+    travel = trippack.is_travel(req.travelKm)
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        result = await llm.packing_list(days, summary, req.gender, list(req.styles), req.type, items)
+        trip = packlist.Trip(req.gender, tuple(req.styles), req.type, travel=travel, days=trip_days)
+        result = await packlist.packing_list(days, summary, trip, items)
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
             closet_used = True
+            # The model is capped at two entries per category so its JSON stays
+            # short; the COUNT is made right here, from what the wardrobe has. A
+            # 15-day trip went out with two pairs of bottoms before this
+            # (user, 2026-09-07: "cannot be survived with 2 pants").
+            lo, hi = trippack.trip_range(summary)
+            pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
+            plan = trippack.validate_plan(result.get("plan"), days, pack, travel)
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day
@@ -309,21 +319,18 @@ async def packing(req: PackingRequest):
             # `have <= got` and stayed silent whenever the model under-packed —
             # exactly the case the check exists to catch. Caught by T1 test 4.)
             for cat in ("inner", "base", "bottoms"):
-                want = _needed(cat, n)
-                have = sum(i["availableCount"] for i in items if i["category"] == cat)
+                want = _needed(cat, trip_days)
+                # What suits THIS trip's weather, not everything owned: five pairs of
+                # shorts are no answer to a January week.
+                have = sum(i["availableCount"] for i in trippack.owned_for(items, cat, lo, hi))
                 if have < want:
-                    gaps.append(
-                        {
-                            "category": cat,
-                            # have==0 means the closet has NONE registered — a laundry
-                            # day can't produce items you don't own, so say buy/register.
-                            "need": (
-                                f"none in your closet yet — bring/buy ~{want}"
-                                if have == 0
-                                else f"only {have} of ~{want} clean — plan a laundry day"
-                            ),
-                        }
-                    )
+                    # Says how often to wash, not just that a wash is needed; the
+                    # phone shows these under "Short for the trip", not "You don't own".
+                    # REPLACES whatever the model said about this category — two
+                    # entries for one shortfall can contradict each other (the
+                    # pre-push reviewer, 2026-09-07).
+                    gaps = [g for g in gaps if g["category"] != cat]
+                    gaps.append({"category": cat, "need": trippack.shortfall(cat, have, want, trip_days)})
         # result None -> honest generic fallback below, closetUsed stays False.
 
     if not text:
@@ -356,12 +363,17 @@ async def packing(req: PackingRequest):
     )
 
     return {
-        "trip": {"nDays": n, "type": req.type, "styles": req.styles, "truncated": truncated},
+        "trip": {"nDays": trip_days, "forecastDays": n, "type": req.type, "styles": req.styles,
+                 "truncated": truncated},
         "forecast": {"mode": summary["mode"], "days": days, "summary": summary},
         "pack": pack,
         "gaps": gaps,
         "packing_text": text,
         "closetUsed": closet_used,
+        # The first mornings, decided before leaving; day 1 marked when it is a
+        # travel day. Empty when no closet was sent or the model named nothing packed.
+        "plan": plan,
+        "travel": travel,
     }
 
 

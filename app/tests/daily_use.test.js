@@ -94,6 +94,26 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"", bottoms:"chinos",
   check("the sheet ends on an error line", /couldn't be read/.test(pkErr), pkErr);
   check("and the spinner is gone", !/Working out/.test(pkText), pkText);
 
+  console.log("\n--- 5. an empty closet is SENT under closet-only, not omitted ------");
+  const w5 = page();
+  await w5.eval("appReady");
+  const WX = {lo:14, hi:25, desc:"Clear", rain:0, wind:2, code:0, emoji:"☀️", swing:11, feelsLo:13, feelsHi:26,
+    morning:16, midday:24, evening:21, isRain:false, isSnow:false, date:"2026-09-08"};
+  const sent5 = [];
+  w5.fetch = async (url, opts) => {
+    if (String(url).endsWith("/advice")) { sent5.push(JSON.parse(opts.body)); return {ok: true, status: 200, json: async () => ({
+      weather: WX, outfit: OUTFIT, outfit_text: "x", source: "none", closetUsed: false, missing: []})}; }
+    return {ok: true, status: 200, json: async () => ({})};
+  };
+  await w5.eval("closet=[]; closetComplete=true; state.lat=40.7; state.lon=-74.0; state.city=''");
+  await w5.eval("getAdvice(40.7,-74.0)");
+  check("closet-only with nothing wearable sends closet: []",
+    sent5.length === 1 && Array.isArray(sent5[0].closet) && sent5[0].closet.length === 0, sent5[0] && Object.keys(sent5[0]));
+  await w5.eval("closetComplete=false");
+  await w5.eval("getAdvice(40.7,-74.0)");
+  check("without closet-only, an empty closet is still simply omitted",
+    sent5.length === 2 && !("closet" in sent5[1]), sent5[1] && Object.keys(sent5[1]));
+
   console.log(`\n# ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

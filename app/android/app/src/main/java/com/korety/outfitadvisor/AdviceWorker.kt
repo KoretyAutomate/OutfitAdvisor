@@ -417,8 +417,12 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val validBefore = p.optString("validBefore", "")
             if (validBefore.isNotEmpty() && today() >= validBefore) return
             val closet = p.optJSONArray("closet") ?: return
-            if (closet.length() == 0) return
+            // A valid payload with NOTHING wearable is sent as an EMPTY closet, not
+            // omitted: the server tells "everything is in the wash" ([]) apart from
+            // "the phone did not send its closet" (absent) — the refusals above stay
+            // absent, and this must not read like one of them (2026-09-08).
             body.put("closet", closet)
+            if (closet.length() == 0) return
             // Remember WHICH items went. A gap only excuses itself when something
             // that could have filled the slot was held back, and the app drains this
             // queue later — by which time the laundry has moved on. Judging an old

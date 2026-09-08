@@ -1393,7 +1393,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.31";
+const WEB_BUILD="1.32";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2917,6 +2917,12 @@ function pushPayloadValidBefore(){
   const today=todayISO();
   let best=dayISO(Date.now()+7*DAY_MS);
   for(const t of trips){
+    // Only a PACKED trip changes closetPayload()'s answer — tripInProgress()
+    // requires packed items — so only a packed trip is a boundary. A trip merely
+    // planned (or made to test the feature) left the wardrobe exactly as it was,
+    // and stamping its dates here had the worker refuse a perfectly good payload
+    // on the morning of 2026-09-08: "nothing of yours is wearable today".
+    if(!(t.packed&&t.packed.length)) continue;
     for(const edge of [t.start, dayISO(isoMs(t.end)+DAY_MS)]){
       if(edge>today&&edge<best) best=edge;
     }
@@ -2987,7 +2993,10 @@ async function getAdvice(lat,lon){
     // graded against, in closetPayload above. What has to be known at 06:45 is what
     // each number meant when it was written, and that does not change when the
     // wearer moves house.
-    if(cl.length) body.closet=cl;
+    // An EMPTY list is a statement — everything is in the wash — and under
+    // closet-only the server needs it to say so rather than "your closet wasn't
+    // available" (which is what an ABSENT closet now means, 2026-09-08).
+    if(cl.length||closetComplete) body.closet=cl;
     // Only meaningful alongside a closet — a rule names garments, and generic
     // advice has none to name.
     if(cl.length&&userRules.length) body.rules=userRules.map(r=>

@@ -228,3 +228,25 @@ def test_a_slot_that_came_up_short_once_cannot_carry_a_purchase(monkeypatch):
         [], [{"slot": "outer", "n": 9, "loC": 2, "hiC": 9},
              {"slot": "accessories", "n": 1, "loC": 2, "hiC": 9}], [], {"tempOffset": 0}))
     assert [s["slot"] for s in out["suggestions"]] == ["outer"]
+
+
+def test_a_closet_that_was_not_sent_is_not_called_unwearable(monkeypatch):
+    """Push of 2026-09-08: the worker refused a boundary payload, sent closetOnly with
+    NO closet, and the reply said "nothing of yours is wearable today". The wardrobe
+    was fine. Absent and empty are different mornings and get different words."""
+    async def cold(lat, lon, day):
+        return dict(COLD)
+
+    async def none(*a, **k):
+        return None
+
+    monkeypatch.setattr(app_mod.weather, "fetch_weather", cold)
+    monkeypatch.setattr(app_mod.llm, "_chat", none)
+    monkeypatch.setattr(closet_mod, "_chat", none)
+    absent = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closetOnly": True}).json()
+    assert "wasn't available this morning" in absent["outfit"]["base"]
+    assert "open the app" in absent["outfit_text"]
+    empty = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closetOnly": True, "closet": []}).json()
+    assert "nothing of yours is wearable today" in empty["outfit"]["base"]
+    down = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closetOnly": True, "closet": [ITEM]}).json()
+    assert "couldn't answer just now" in down["outfit"]["base"]

@@ -203,10 +203,19 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(7),
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore);
 
+  ev(`trips=[{id:"t",start:"${isoIn(2)}",end:"${isoIn(5)}",place:"Osaka",packed:[{id:"itm-1",qty:1}]}];`);
+  await ev(`savePushPayload()`);
+  check("a PACKED trip starting in two days invalidates it ON the departure day",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(2),
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore);
+  /* A trip that is only planned changes nothing about which clothes are here:
+     closetPayload() keeps answering with the wardrobe until something is packed.
+     Treating its dates as a boundary made the worker refuse a good payload on the
+     morning of 2026-09-08 and the push said "nothing of yours is wearable". */
   ev(`trips=[{id:"t",start:"${isoIn(2)}",end:"${isoIn(5)}",place:"Osaka",packed:[]}];`);
   await ev(`savePushPayload()`);
-  check("a trip starting in two days invalidates it ON the departure day",
-    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(2),
+  check("an UNPACKED trip is not a boundary — the payload is good for the week",
+    JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore === isoIn(7),
     JSON.parse(w.localStorage.getItem("oa.pushPayload")).validBefore);
 
   // A trip only counts as under way once something is packed — that is what makes

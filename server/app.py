@@ -186,7 +186,14 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     # arrives as an empty list, and that is the day the promise matters most: the
     # honest answer is "nothing you own is wearable", not a catalogue.
     if req.closetOnly and not closet_used:
-        why = ("nothing of yours is wearable today" if not req.closet
+        # Three different mornings, told apart. None: the phone sent no closet at
+        # all (the worker refused a stale or boundary payload) — the wardrobe is
+        # fine, it just was not sent, and "nothing of yours is wearable" was a false
+        # statement about it (push of 2026-09-08). []: everything really is in the
+        # wash. A closet the model could not dress from: the advisor's fault.
+        why = ("your closet wasn't available this morning — open the app for your own clothes"
+               if req.closet is None
+               else "nothing of yours is wearable today" if not req.closet
                else "the advisor couldn't answer just now")
         for slot in vocab.CATEGORIES:
             outfit[slot] = f"None — {why}"

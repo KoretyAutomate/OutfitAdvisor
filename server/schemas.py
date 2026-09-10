@@ -330,6 +330,11 @@ class PackingRequest(BaseModel):
     # ~300 km the trip starts and ends in a cabin, and day 1 is dressed for that
     # (2026-09-07). Optional: an older app simply gets no travel day.
     travelKm: float | None = Field(None, ge=0, le=25000)
+    # The traveller's OWN calendar date. Once the trip is under way the phone is at
+    # the destination, and "today" there can be tomorrow here: a Tokyo morning is
+    # still yesterday evening on this server (the pre-push reviewer, 2026-09-10).
+    # Optional; a date more than two days from the server's is ignored.
+    today: dt.date | None = None
 
     @field_validator("end")
     @classmethod

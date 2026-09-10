@@ -66,6 +66,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val style = prefs.getString("oa.style", "casual") ?: "casual"
         val offset = prefs.getString(FeedbackReceiver.KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
 
+        // Stamped when the wardrobe snapshot goes out, not when the answer lands — the
+        // app compares this against the moment a suitcase was declared, and one
+        // declared while the request is in flight is NEWER than this advice
+        // (2026-09-10; the web request path stamps itself the same way).
+        val requestedAt = System.currentTimeMillis()
         val advice = when (val r = fetchAdvice(base, fix.first, fix.second, gender, style, offset)) {
             is Fetch.Ok -> r.advice
             is Fetch.Transient -> {
@@ -106,7 +111,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         }
         // Written BEFORE the notification is posted: the user can tap it immediately,
         // and the app must already have the advice when it opens.
-        persistToday(prefs, advice)
+        persistToday(prefs, advice, requestedAt)
         OutfitNotification.post(
             applicationContext, header,
             advice.text.ifBlank { "Tap to see today's outfit." },
@@ -230,12 +235,12 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
      * `place` is deliberately absent. This worker knows the coordinates and the
      * privacy rule is that they are never persisted; the app fills in its own label.
      */
-    private fun persistToday(prefs: android.content.SharedPreferences, a: Advice) {
+    private fun persistToday(prefs: android.content.SharedPreferences, a: Advice, requestedAt: Long) {
         val raw = a.raw ?: return
         try {
             val out = JSONObject()
                 .put("day", today())
-                .put("at", System.currentTimeMillis())
+                .put("at", requestedAt)
                 .put("how", "push")
                 .put("weather", raw.opt("weather"))
                 .put("outfit", raw.opt("outfit"))

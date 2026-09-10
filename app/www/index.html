@@ -326,6 +326,7 @@
       <!-- Once you have said you wore something else, the pictures are of what you
            WORE (user, 2026-08-30). The suggestion is one tap away: it is still the
            answer to "why this", and it is what the correction sheet marks. -->
+      <p class="note" id="tripNote" style="display:none"></p>
       <p class="note wornNote" id="wornNote" style="display:none">
         <span id="wornNoteTxt"></span>
         <button class="ghost" id="wornToggle" type="button"></button>
@@ -746,6 +747,7 @@
     <p class="aitext" id="pkText"></p>
     <div id="pkPlan"></div>
     <ul class="outfit" id="pkList"></ul>
+    <div id="pkMore"></div>
     <div id="pkGaps"></div>
     <div class="row" style="margin-top:14px">
       <button class="primary" id="pkPacked" style="flex:2">Packed it — these are with me</button>
@@ -1393,7 +1395,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.32";
+const WEB_BUILD="1.33";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2799,7 +2801,10 @@ function packAvail(it,departureMs,laundryBefore){
   return Math.max(0,it.count-n);
 }
 function packPayload(trip){
-  const dep=isoMs(trip.start);
+  // Availability is judged at departure — or at TODAY once the trip is under way:
+  // a wear four days ago on a week-old trip has left its cooldown, and counting it
+  // against the departure date hid clean clothes (the pre-push reviewer, 2026-09-10).
+  const dep=Math.max(isoMs(trip.start),Date.now());
   // group/type travel with the item: the packing prompt prints the type, and a trip
   // list that cannot tell a shirt from a tee packs the wrong one for a business day.
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
@@ -2814,6 +2819,29 @@ function packPayload(trip){
 function tripInProgress(){
   const t=todayISO();
   return trips.find(x=>x.packed&&x.packed.length&&x.start<=t&&t<=x.end)||null;
+}
+/* A trip whose dates cover today, packed or not. When this exists and
+   tripInProgress() does not, the advice is being drawn from the whole wardrobe
+   while the wearer is away — which reads as a bug unless the card says so
+   (user, 2026-09-10). */
+function tripCoveringToday(){
+  const t=todayISO();
+  return trips.find(x=>x.start<=t&&t<=x.end)||null;
+}
+function paintTripNote(){
+  const tn=$("tripNote"); if(!tn) return;
+  const cov=tripCoveringToday(), cur=tripInProgress();
+  if(cov&&!cur){
+    tn.style.display="";
+    tn.innerHTML=`On a trip${cov.place?" to "+esc(cov.place):""}, but nothing is marked as packed — this used your whole wardrobe. `+
+      `<button class="ghost" id="tripNoteBtn" type="button" style="padding:5px 10px;font-size:.78rem">Set my suitcase</button>`;
+    $("tripNoteBtn").onclick=()=>openPacking(cov);
+  } else if(cur&&cur.packedAt&&lastRes&&(!lastRes.at||cur.packedAt>lastRes.at)){
+    // Declared after this advice was made: the card still shows the wardrobe's
+    // answer, and hiding the note would let it pass for the suitcase's.
+    tn.style.display="";
+    tn.textContent="This advice was made before you set your suitcase — ask again for one from what is with you.";
+  } else tn.style.display="none";
 }
 
 async function saveTrips(){
@@ -2978,6 +3006,10 @@ function syncGoBtn(){
 
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
 async function getAdvice(lat,lon){
+  // Stamped when the wardrobe snapshot is taken, not when the answer lands: a
+  // suitcase declared while the request is in flight is NEWER than this advice,
+  // whatever the clock says at completion (the pre-push reviewer, 2026-09-10).
+  const at=Date.now();
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
   const cl=closetPayload();
   try{
@@ -3023,7 +3055,7 @@ async function getAdvice(lat,lon){
     // What the wardrobe could not cover today, written down for the shopping list.
     // Fire-and-forget: a failure to record evidence must never cost the advice.
     recordGaps(d.missing,d.weather,d.planTemp);
-    return {weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
+    return {at,weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
             missing:d.missing||[],planTemp:d.planTemp??null};
   }catch(e){
@@ -3041,13 +3073,13 @@ async function getAdvice(lat,lon){
       const none={};
       for(const k of CATS) none[k]="None — couldn't reach the advisor";
       none.tip="";
-      return {weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
+      return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
               closetSent:cl.length>0,missing:[],
               text:"• Nothing to suggest — couldn't reach the advisor.\n"+
                    "• Your closet is set to 'complete', so nothing outside it is offered."};
     }
     const o=recommend(applyTempOffset(w,tempOffset),state.gender,state.style);
-    return {weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
+    return {at,weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
             closetUsed:false,picks:null,closetSent:cl.length>0};
   }
 }
@@ -3105,6 +3137,7 @@ function renderOutfit(o,text,source,res){
   // already worn, and a button offering to log a second outfit for the day was how
   // the same morning got counted twice.
   syncWearBtn();
+  paintTripNote();
   // Offered whenever there is a wardrobe to correct FROM — including when the
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
@@ -3489,7 +3522,10 @@ async function openPacking(trip){
   try{
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),120000);
     const body={lat:trip.lat,lon:trip.lon,start:trip.start,end:trip.end,
-                type:trip.type,gender:state.gender,styles:trip.styles};
+                type:trip.type,gender:state.gender,styles:trip.styles,
+                // This phone's calendar date: at the destination it can be a day
+                // ahead of the server, and "the rest of the trip" starts here.
+                today:todayISO()};
     if(cl.length) body.closet=cl;
     // How far from home, so the server knows whether day 1 is spent in a cabin
     // (user, 2026-09-07: the list ignored the flight). A distance, not a place —
@@ -3500,11 +3536,20 @@ async function openPacking(trip){
       method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
       body:JSON.stringify(body)});
     clearTimeout(to);
-    if(!r.ok) throw new Error("server "+r.status);
+    if(!r.ok){
+      let detail=""; try{ detail=String((await r.json()).detail||""); }catch(e2){}
+      throw Object.assign(new Error(detail||("server "+r.status)),{status:r.status});
+    }
     d=await r.json();
   }catch(e){
     $("pkText").textContent="";
-    $("pkErr").textContent="Couldn't reach the advisor. Check the connection and try again.";
+    // The server's own sentence for a request it understood and refused; the
+    // connection line only for a request that never got there.
+    $("pkErr").textContent=e&&e.status>=400&&e.status<500
+      ? (e.message==="trip is over"?"That trip is already over.":"The advisor said: "+e.message)
+      : "Couldn't reach the advisor. Check the connection and try again.";
+    // The suitcase is still yours to declare: everything you own, unticked.
+    renderSuitcase(trip,[]);
     return;
   }
   // Outside the try above, a body of the wrong shape was an unhandled rejection
@@ -3513,6 +3558,9 @@ async function openPacking(trip){
   catch(e){
     $("pkText").textContent="";
     $("pkErr").textContent="The advisor's answer couldn't be read. Try again.";
+    // An answer of the wrong shape must not take the checklist with it: the
+    // suitcase is declared from the wardrobe, not from the answer.
+    renderSuitcase(trip,[]);
   }
 }
 function renderPacking(trip,d){
@@ -3554,23 +3602,51 @@ function renderPacking(trip,d){
       const ph=t.querySelector(".ph"); if(ph) ph.outerHTML=`<img src="${src}" alt="">`;
     }).catch(()=>{});
   });
-  $("pkList").innerHTML=(d.pack||[]).map(p=>
-    `<li><span class="ic">${ICONS[p.category]||GARMENT.tee}</span><div>
-      <div class="lbl2">${esc(p.qty)}× ${esc(p.label)}</div>
-      <div class="val">${esc(p.why||"")}</div></div></li>`).join("");
+  renderSuitcase(trip,d.pack||[]);
 
   $("pkGaps").innerHTML=(d.gaps||[]).length?
     `<p class="note" style="margin-top:10px"><b>Short for the trip:</b></p>`+
     (d.gaps.map(g=>`<div class="chip warn" style="margin:3px 3px 0 0">${ICONS[g.category]||"•"} ${esc(g.need)}</div>`).join("")):"";
 
-  if(d.closetUsed&&(d.pack||[]).length){
-    lastPack={trip,pack:d.pack};
-    const already=trip.packed&&trip.packed.length;
-    $("pkPacked").style.display="";
-    $("pkPacked").textContent=already?"Update what's in my suitcase":"Packed it — these are with me";
-    $("pkPackedNote").style.display="block";
-    $("pkPackedNote").textContent="Tap this once you've packed, and the daily push will dress you from your suitcase while you're away — not from the wardrobe you left at home.";
-  }
+}
+
+/* The suitcase is declared by ticking, not by trusting the list (user, 2026-09-10:
+   "while I'm on a trip it should only pick from the packed items" — and once away
+   there was no way to say what was). What the server listed comes ticked; the rest
+   of the wardrobe follows unticked under "Also with me"; Packed it saves the ticks.
+   Drawn even when the server could not be reached, so the suitcase never depends
+   on it. */
+function renderSuitcase(trip,pack){
+  const packedNow=new Map((trip.packed||[]).map(p=>[p.id,p.qty]));
+  const listed=new Set(pack.map(p=>p.id));
+  // How many of a multiple came along is the wearer's to say: bringing one of four
+  // tees is not bringing four (the pre-push reviewer, 2026-09-10). A number box
+  // appears only where there is more than one to choose from.
+  const row=(it,qty,checked,why)=>{
+    const max=Math.max(1,it.count||1), q=Math.min(max,Math.max(1,qty||1));
+    const qtyBox=max>1?`<input type="number" class="pkQty" min="1" max="${max}" value="${q}" aria-label="how many" `+
+      `style="width:56px;padding:6px 4px;text-align:center" onclick="event.stopPropagation()">`:"";
+    return `<li><label style="display:flex;gap:10px;align-items:center;width:100%;cursor:pointer">
+      <input type="checkbox" class="pkChk" data-id="${esc(it.id)}" data-qty="${q}"${checked?" checked":""}>
+      <span class="ic">${ICONS[it.category]||GARMENT.tee}</span><div style="flex:1;min-width:0">
+      <div class="lbl2">${max>1?"":esc(q)+"× "}${esc(it.label)}${max>1?` <span style="color:var(--muted)">of ${max}</span>`:""}</div>
+      <div class="val">${esc(why||"")}</div></div>${qtyBox}</label></li>`;
+  };
+  $("pkList").innerHTML=pack.map(p=>{
+    const it=closet.find(x=>x.id===p.id)||{id:p.id,label:p.label,category:p.category};
+    // A suitcase already declared wins over the server's fresh opinion of it.
+    const on=packedNow.size?packedNow.has(p.id):true;
+    return row(it,packedNow.get(p.id)||p.qty,on,p.why);
+  }).join("");
+  const rest=closet.filter(i=>!listed.has(i.id)&&i.count>0);
+  $("pkMore").innerHTML=rest.length?`<p class="note" style="margin:12px 0 2px"><b>Also with me</b></p><ul class="outfit">`+
+    rest.map(i=>row(i,packedNow.get(i.id)||1,packedNow.has(i.id),"")).join("")+`</ul>`:"";
+  lastPack={trip};
+  const already=trip.packed&&trip.packed.length;
+  $("pkPacked").style.display="";
+  $("pkPacked").textContent=already?"Update what's in my suitcase":"Packed it — these are with me";
+  $("pkPackedNote").style.display="block";
+  $("pkPackedNote").textContent="Tick what is with you. The daily push then dresses you from your suitcase while you're away — not from the wardrobe you left at home.";
 }
 
 /* ───────── main flow ───────── */
@@ -3597,6 +3673,7 @@ async function run(){
     }
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
     const res=await getAdvice(state.lat,state.lon);
+    res.at=res.at||Date.now();    // when it was made (request time), for the suitcase note
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
     await saveToday(res,"app");
@@ -4328,7 +4405,7 @@ async function saveToday(res,how){
   if(!res||!res.weather) return;
   try{
     await prefSet(TODAY_KEY, JSON.stringify({
-      day:todayISO(), at:Date.now(), how:how||"app", place:state.place||"",
+      day:todayISO(), at:(res&&res.at)||Date.now(), how:how||"app", place:state.place||"",
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
       missing:res.missing||[], planTemp:res.planTemp??null}));
@@ -4341,6 +4418,7 @@ async function loadToday(){
   lastWeather=d.weather; lastOutfit=d.outfit||null;
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
   lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
+           at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
            picks:d.picks||null,closetUsed:!!d.closetUsed};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and
@@ -4969,7 +5047,9 @@ $("tsSave").onclick=async()=>{
   if(!tsheet) return;
   const t=tsheet.trip;
   if(t.lat==null||t.lon==null){ $("tsErr").textContent="Find the destination city first."; return; }
-  if(isoMs(t.start)<isoMs(todayISO())){ $("tsErr").textContent="That trip has already started."; return; }
+  // A trip under way is still edited — its dates, its suitcase. Only one that is
+  // over has nothing left to say (user, 2026-09-10, from the trip itself).
+  if(isoMs(t.end)<isoMs(todayISO())){ $("tsErr").textContent="That trip is already over."; return; }
   const idx=trips.findIndex(x=>x.id===t.id);
   // Saving here makes the trip the USER'S, whatever found it. `auto` means "the app
   // put this here on its own initiative, unreviewed", and once someone has opened
@@ -5006,10 +5086,21 @@ $("packWrap").onclick=e=>{if(e.target===$("packWrap"))$("packWrap").classList.re
 $("pkPacked").onclick=async()=>{
   if(!lastPack) return;
   const t=trips.find(x=>x.id===lastPack.trip.id); if(!t) return;
-  t.packed=lastPack.pack.map(p=>({id:p.id,qty:p.qty}));
+  const ticked=[...document.querySelectorAll("#packWrap .pkChk:checked")].map(c=>{
+    const box=c.closest("label")?.querySelector(".pkQty");
+    const q=box?parseInt(box.value,10):parseInt(c.dataset.qty,10);
+    return {id:c.dataset.id,qty:Math.max(1,q||1)};
+  });
+  if(!ticked.length){ toast("Tick what is with you first"); return; }
+  t.packed=ticked;
+  t.packedAt=Date.now();          // so advice made before this can say so
   await saveTrips();
   $("packWrap").classList.remove("show");
-  toast(`🧳 ${t.packed.length} items marked as packed`);
+  toast(`${t.packed.length} items marked as packed`);
+  // The card on screen was made from the wardrobe; the NOTE says so. Only the
+  // note — a full renderOutfit here reset the rating and the worn view of advice
+  // that had not changed (the pre-push reviewer, 2026-09-10).
+  paintTripNote();
 };
 
 /* ───────── init ───────── */

@@ -274,21 +274,31 @@ _needed = trippack.needed
 async def packing(req: PackingRequest):
     t0 = time.monotonic()
     today = dt.date.today()
-    if req.start < today:
-        raise HTTPException(status_code=422, detail="trip has already started")
+    # The traveller's own date wins when it is plausible: at the destination it can
+    # be a day ahead of this server, and the remaining trip starts on THEIR today.
+    if req.today is not None and abs((req.today - today).days) <= 2:
+        today = req.today
+    # A trip already under way is the one that most needs this: the suitcase is
+    # declared from this list, and away from home there was no way to open it —
+    # the server refused with "already started" (user, 2026-09-10, from Tokyo).
+    # Only a trip already OVER is refused; a started one runs from today.
+    if req.end < today:
+        raise HTTPException(status_code=422, detail="trip is over")
+    started = req.start < today
+    start = max(req.start, today)
 
     horizon = today + dt.timedelta(days=weather.FORECAST_HORIZON_DAYS)
     truncated = False
     try:
-        if req.start > horizon:
+        if start > horizon:
             # Beyond the forecast window entirely -> honest climate normals.
-            wx = await weather.fetch_normals(req.lat, req.lon, req.start.isoformat(), req.end.isoformat())
+            wx = await weather.fetch_normals(req.lat, req.lon, start.isoformat(), req.end.isoformat())
         else:
             # Inside the window. A long trip may run PAST the horizon — clamp the
             # end and say so, rather than letting Open-Meteo 400 the whole request.
             end = min(req.end, horizon)
             truncated = end < req.end
-            wx = await weather.fetch_range(req.lat, req.lon, req.start.isoformat(), end.isoformat())
+            wx = await weather.fetch_range(req.lat, req.lon, start.isoformat(), end.isoformat())
     except Exception as e:
         # PRIVACY: the httpx error text embeds the Open-Meteo URL — lat/lon and the
         # trip dates included. Log the TYPE only, exactly as /advice does.
@@ -300,14 +310,17 @@ async def packing(req: PackingRequest):
     # Counts are sized by the WHOLE trip, not by how far the forecast reaches: a
     # 30-day trip starting today gets ~15 forecast days, and sizing the top-up and
     # the wash schedule by those under-packed it (pre-push reviewer, 2026-09-07).
-    trip_days = (req.end - req.start).days + 1
+    # From today when already under way: the days behind you need no clothes.
+    trip_days = (req.end - start).days + 1
 
     pack, gaps, text, closet_used = [], [], None, False
     plan: list[dict] = []
+    # The trip involves a cabin at all; once there, only the journey home does.
     travel = trippack.is_travel(req.travelKm)
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        trip = packlist.Trip(req.gender, tuple(req.styles), req.type, travel=travel, days=trip_days)
+        trip = packlist.Trip(req.gender, tuple(req.styles), req.type, travel=travel, started=started,
+                             days=trip_days)
         result = await packlist.packing_list(days, summary, trip, items)
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
@@ -324,7 +337,7 @@ async def packing(req: PackingRequest):
             added = trippack.topup_line(before, trippack.counts(pack), trip_days)
             if added and text:
                 text = f"• {added}\n{text}"
-            plan = trippack.validate_plan(result.get("plan"), days, pack, travel)
+            plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day
@@ -380,7 +393,7 @@ async def packing(req: PackingRequest):
 
     return {
         "trip": {"nDays": trip_days, "forecastDays": n, "type": req.type, "styles": req.styles,
-                 "truncated": truncated},
+                 "truncated": truncated, "started": started},
         "forecast": {"mode": summary["mode"], "days": days, "summary": summary},
         "pack": pack,
         "gaps": gaps,

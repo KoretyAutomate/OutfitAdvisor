@@ -22,7 +22,8 @@ class Trip:
     gender: str
     styles: tuple[str, ...]
     trip_type: str
-    travel: bool = False      # day 1 and day n spent in a cabin (≥ packing.TRAVEL_KM)
+    travel: bool = False      # the trip involves a cabin (≥ packing.TRAVEL_KM)
+    started: bool = False     # already there: only the journey HOME remains
     plan_days: int = 3        # how many first mornings the model lays out
     # The WHOLE trip's length. The forecast may reach only part of it (Open-Meteo
     # stops at ~15 days), and a list sized by the forecast under-packs a long trip
@@ -80,12 +81,18 @@ def _pack_prompt(
     reg = " and ".join(styles)
     # A flight is a cool cabin and hours of sitting, and the model was never told
     # (user, 2026-09-07). Day 1 is dressed for the journey, not the destination.
-    travel_line = (
+    # Once there, day 1 is an ordinary morning at the destination — but the flight
+    # home is still to come, and the list must not forget it (the reviewer, 2026-09-10).
+    travel_line = ("" if not (travel and days) else (
+        "TRAVEL DAY: the last day of the trip is the journey home (a flight or a long "
+        "train): a cabin around 20C and hours of sitting — keep a layer that comes "
+        "off, comfortable bottoms and easy shoes for it.\n"
+    ) if trip.started else (
         f"TRAVEL DAYS: day 1 ({days[0]['date']}) and the last day are spent in transit "
         "(a flight or a long train): a cabin around 20C and hours of sitting. Day 1 "
         "is worn, not folded — a layer that comes off, comfortable bottoms, easy "
         "shoes — and must still suit the weather on arrival.\n"
-    ) if travel and days else ""
+    ))
     k = min(plan_days, len(days))
     plan_spec = (
         f'"plan": [one object per day for the FIRST {k} days, in date order: '

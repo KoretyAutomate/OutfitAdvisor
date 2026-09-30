@@ -29,8 +29,10 @@ Split into its own module because picks.py sits at the 600-line ceiling.
 import re
 
 import picks as pk
+import reroll
 import rules
 import scale
+from llm import _plan_temp, log
 from sleeves import SLEEVE_STACK, sleeve_clashes, sleeve_of
 
 _TORSO = ("inner", "base", "mid", "outer")
@@ -154,6 +156,35 @@ def with_added(text: str, added: tuple | list, by_item: dict) -> str:
         kept = [ln for ln in kept
                 if not (ln.startswith("•") and about.search(ln) and _UNNEEDED.search(ln))]
     return "".join(f"• {added_line(a, by_item)}\n" for a in each) + "\n".join(kept)
+
+
+def hold(picks: dict, w: dict, wd, prefs, banned: list[dict],
+         added: tuple | None) -> tuple[list[dict], list | None, set]:
+    """Run tidy() on the FINAL picks and settle what it changed, for closet.py.
+
+    Returns (banned, added, cleared):
+      banned   plus every garment taken off, tagged so the prose says a layer was
+               changed rather than blaming a rule the wearer never made;
+      added    every garment put on that is still worn, plus _enforce_a_top's if it
+               is — a repair's line for a garment a later step replaced would
+               recommend something not in the outfit;
+      cleared  every slot emptied here, for the caller's `covered`: an undershirt taken off because the
+               outfit did not need it is not a hole in the wardrobe, and reporting
+               one would put an undershirt on the shopping list.
+    """
+    plan = _plan_temp(w)
+    before = dict(picks)
+    put_on: dict = {}
+    cleared: set = set()
+    for slot, alt, why in tidy(picks, wd, plan, list(prefs.rules), reroll.peak_temp(w, plan)):
+        log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
+        put_on[slot] = (slot, alt, why) if alt else None
+        if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
+            banned = banned + [{**gone, "_why": "layers"}]
+        if not picks.get(slot):
+            cleared.add(slot)
+    each = [a for a in [added, *put_on.values()] if a and picks.get(a[0]) == a[1]]
+    return banned, each or None, cleared
 
 
 def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],

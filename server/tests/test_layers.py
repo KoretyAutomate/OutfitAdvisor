@@ -292,15 +292,51 @@ def test_the_note_after_a_repair_says_changed_not_left_out(client):
     assert "Changed a layer that did not go with the rest" in r.json()["outfit_text"]
 
 
-def test_the_reroll_cannot_swap_in_a_clash():
+def test_a_reroll_swap_into_a_clash_is_repaired_by_the_final_pass():
     """A long undershirt under a long shirt is fine; asked for 'something else', the
-    re-roll must not put a short tee over it."""
+    re-roll may put a short tee over it. The layer pass runs AFTER the re-roll, so
+    what is sent has no clash either way."""
     import reroll
+    from picks import Prefs
     picks = {"inner": LONG_T["id"], "base": LS_SHIRT["id"], "bottoms": JEANS["id"]}
     w = wd(LONG_T, LS_SHIRT, {**TEE, "roles": ["base"]}, JEANS)
-    reroll.swap_repeats(picks, ["base"], w, 10, [])
-    assert picks["base"] == LS_SHIRT["id"]
+    reroll.swap_repeats(picks, ["base"], w, 18, [])
+    day = {"morning": 18, "lo": 18, "hi": 22}
+    layers.hold(picks, day, w, Prefs.of([]), [], None)
     assert layers.sleeve_clashes(picks, w.by_item) == []
+
+
+def test_a_top_is_never_refused_for_the_undershirt_it_would_clash_with(client, monkeypatch):
+    """The model leaves only a long undershirt on the torso; the tee is the only
+    top owned. The tee goes on and the undershirt comes off — never the reverse,
+    which left nothing above the waist."""
+    async def only_the_long_t(messages, max_tokens, timeout=45, **kw):
+        return json.dumps({
+            "picks": {"inner": LONG_T["id"], "base": None, "mid": None, "outer": None,
+                      "bottoms": JEANS["id"], "footwear": SNEAK["id"], "accessories": None},
+            "bullets": ["Inner: the white long-T", "Bottoms: the jeans",
+                        "Footwear: the white sneakers"], "missing": [], "tip": ""})
+    monkeypatch.setattr(closet_llm, "_chat", only_the_long_t)
+    d = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
+                                     "closet": [LONG_T, TEE, JEANS, SNEAK]}).json()
+    assert d["picks"]["base"] == TEE["id"]
+    assert d["picks"]["inner"] is None
+
+
+def test_an_undershirt_the_outfit_did_not_need_is_not_a_wardrobe_gap(client):
+    d = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
+                                     "closet": [LONG_T, TEE, CARDI, JEANS, SNEAK]}).json()
+    assert d["picks"]["inner"] is None
+    assert "inner" not in (d.get("missing") or [])
+
+
+def test_a_repair_line_is_dropped_when_a_later_step_replaced_that_garment():
+    from picks import Prefs
+    red = {**CARDI, "id": "itm-redcardi1", "label": "red cardigan", "colors": ["red"]}
+    picks = {"base": TEE["id"], "mid": red["id"]}          # the re-roll put red in
+    _, put_on, _ = layers.hold(picks, {"morning": 14, "lo": 14, "hi": 23},
+                               wd(TEE, CARDI, red), Prefs.of([]), [], ("mid", CARDI["id"]))
+    assert put_on is None
 
 
 def test_a_swap_and_a_rewarm_are_both_named(client, monkeypatch):

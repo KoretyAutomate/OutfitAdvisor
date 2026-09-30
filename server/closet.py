@@ -250,7 +250,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
 # under a proper coat is fine at any temperature.
 def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
                        unsuitable: set, attempt: int
-                       ) -> tuple[str, list[dict], set, set, tuple | list | None]:
+                       ) -> tuple[str, list[dict], set, set, tuple | None]:
     """Every check that judges the ANSWER, in the order they have to run.
 
     Returns a corrective note to retry with (empty when the outfit stands), the
@@ -357,25 +357,11 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
         # and recording it as evidence would have the shopping list recommending a
         # fleece to somebody who was told, correctly, not to wear one.
 
-    # The outfit as a STACK (layers.py): no long sleeve under a short one, and no
-    # more torso layers than the day allows. After the heat pass, which may already
-    # have shed a layer, and before the top check, which catches anything this
-    # leaves bare.
-    before = {c: picks.get(c) for c in CATEGORIES}
-    put_on: dict = {}
-    for slot, alt, why in layers.tidy(picks, wd, plan, rules_list, peak):
-        # Every garment put ON gets a line — unless a later step took that slot off.
-        put_on[slot] = (slot, alt, why) if alt else None
-        log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
-        if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
-            banned = banned + [{**gone, "_why": "layers"}]
-
     # BEFORE the underwear check, and after everything that can empty a slot: an
     # outfit of trousers alone is not an outfit, and every repair above can leave
     # one. Dressing the torso here also lets the undershirt stay where it belongs,
     # under something, instead of being cleared for want of a cover.
     added = pk._enforce_a_top(picks, wd, plan, rules_list, peak)
-    added_by_tidy = [a for a in put_on.values() if a and picks.get(a[0]) == a[1]]
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])
@@ -400,7 +386,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # warmth repair then removed the outer, and the bare undershirt was returned as
     # valid. The one check whose subject other repairs can create.
     note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
-    return note, banned, covered, unsuitable, added or added_by_tidy or None
+    return note, banned, covered, unsuitable, added
 
 
 _NO_REPLY = "no reply from the model"
@@ -546,6 +532,10 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         if note:
             error_note = note
             continue
+        # The outfit as a STACK, LAST of all the repairs (layers.py): the re-roll
+        # above can swap a short tee over a long undershirt, and every check before
+        # it judged garments one at a time. Raised by the pre-push reviewer.
+        banned_labels, put_on, cleared = layers.hold(picks, w, wd, prefs, banned_labels, added)
 
         def can_fill(slot: str, _p=picks) -> bool:
             return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
@@ -555,8 +545,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                                     wd.by_item)
         # A garment in the picture and not in the text reads as a bug in the app,
         # and this one is there precisely because the model did not put it there.
-        if text and added:
-            text = layers.with_added(text, added, wd.by_item)
+        text = layers.with_added(text, put_on, wd.by_item) if text and put_on else text
         # The bullets naming what these replaced were struck just above, so without
         # this the changed slots would have no words at all.
         if text and swapped:
@@ -581,7 +570,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.
                 "missing": pk._missing_slots(out.get("missing"), picks, filled_before,
-                                             covered | now_covered, can_fill,
+                                             covered | now_covered | cleared, can_fill,
                                              unsuitable)}
     # WITH the reason. Giving up costs the user their own clothes — under
     # closetOnly it empties the screen — and the line said only that it happened.

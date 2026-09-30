@@ -20,7 +20,6 @@ import handles as _handles
 import rules
 import scale
 from llm import log
-from sleeves import sleeve_clashes
 from vocab import CATEGORIES
 
 # Re-exported: the naming moved to handles.py at the 600-line ceiling (2026-09-01),
@@ -429,7 +428,7 @@ def _suitable_for(slot: str, picks: dict, wd: "Wardrobe",
         trial = {**picks, slot: iid}
         if slot == "base" and wd.by_group.get(iid) == "onepiece":
             trial["bottoms"] = None
-        if rules.violations(user_rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
+        if rules.violations(user_rules, trial, wd.by_item):
             continue
         return iid
     return None

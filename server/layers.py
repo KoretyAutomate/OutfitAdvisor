@@ -157,8 +157,10 @@ def with_added(text: str, added: tuple | list, by_item: dict) -> str:
         words = [w for w in (*_SLOT_WORDS.get(a[0], (a[0],)), kind) if w]
         about = re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b",
                            re.IGNORECASE)
-        kept = [ln for ln in kept
-                if not (ln.startswith("•") and about.search(ln) and _UNNEEDED.search(ln))]
+        # The tip too: "No mid-layer is needed today." under a cardigan the repair
+        # just put on is the same contradiction one line lower.
+        kept = [ln for ln in kept if not (ln.startswith(("•", "💡")) and about.search(ln)
+                                          and _UNNEEDED.search(ln))]
     return "".join(f"• {added_line(a, by_item)}\n" for a in each) + "\n".join(kept)
 
 

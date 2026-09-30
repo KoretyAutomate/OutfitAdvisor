@@ -566,7 +566,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
-        return {"picks": picks, "text": text,
+        return {"picks": picks, "text": text, "cleared": sorted(cleared),
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.

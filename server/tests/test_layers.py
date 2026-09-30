@@ -400,3 +400,18 @@ def test_a_reroll_swap_the_layer_pass_undid_is_not_described(client, monkeypatch
         "shown": {"inner": SHORT_UNDER["id"]}}).json()
     assert d["picks"]["inner"] == SHORT_UNDER["id"]
     assert "long-T" not in d["outfit_text"], d["outfit_text"]
+
+
+def test_a_cleared_undershirt_is_not_refilled_by_the_generic_engine(client):
+    """closetOnly off: null slots take the rule engine's generic suggestion — which
+    put the removed undershirt back on the card as a 'Warm inner'."""
+    d = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closetOnly": False,
+                                     "closet": [LONG_T, TEE, CARDI, JEANS, SNEAK]}).json()
+    assert d["picks"]["inner"] is None
+    assert d["outfit"]["inner"] == "None needed", d["outfit"]
+
+
+def test_a_tip_contradicting_the_added_layer_goes():
+    text = "• Base: the tee\n\n💡 No mid-layer is needed today."
+    out = layers.with_added(text, ("mid", CARDI["id"], "warmth"), {CARDI["id"]: CARDI})
+    assert "No mid-layer" not in out and out.startswith("• grey cardigan")

@@ -158,15 +158,9 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
             for slot, item_id in result["picks"].items():
                 if item_id:
                     outfit[slot] = by_id[item_id]["label"]
-                elif slot in result.get("cleared", ()):
-                    # Taken off because the OUTFIT did not want it (layers.py): a
-                    # long sleeve under a short one, or a layer too many. The
-                    # engine's generic filler here put the removed undershirt
-                    # straight back on the card as "Warm inner (Heattech-type)".
-                    # Raised by the pre-push reviewer, 2026-09-30.
-                    outfit[slot] = "None needed"
-                elif req.closetOnly:
-                    # The wardrobe is declared COMPLETE, so the engine's generic
+                elif req.closetOnly or slot in result["cleared"]:
+                    # Cleared by layers.py (filler would re-add it), or the wardrobe
+                    # is declared COMPLETE, so the engine's generic
                     # suggestion is not a helpful hint — it is a garment the user
                     # has told us they do not own and cannot put on (2026-08-27).
                     # An empty slot is an empty slot, and which KIND of empty is
@@ -592,8 +586,7 @@ async def classify(req: ClassifyRequest):
             waterproof=bool(raw.get("waterproof")),
             warmthScale=graded_on,
             warmthAnchors=anchors,
-            brand=raw.get("brand"),
-            sleeve=raw.get("sleeve"),
+            brand=raw.get("brand"), sleeve=raw.get("sleeve"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

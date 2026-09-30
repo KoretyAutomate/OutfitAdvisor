@@ -116,6 +116,18 @@ class ClosetItem(BaseModel):
     # Field max_length, for the same reason `type` has none: a constraint runs ahead
     # of the `before` validator and would 422 the whole closet over one long name.
     brand: str | None = None
+    # How far the sleeves reach (user, 2026-09-30) — for the rule that a long sleeve
+    # never goes under a short one (layers.py). None means not stated; layers then
+    # reads it off the name or the kind, and an answer it still cannot find never
+    # triggers the rule.
+    sleeve: Literal["short", "long", "none"] | None = None
+
+    @field_validator("sleeve", mode="before")
+    @classmethod
+    def _known_sleeve(cls, v):
+        """Anything else is DROPPED, not a 422 — same posture as `type`."""
+        v = v.strip().lower() if isinstance(v, str) else v
+        return {"sleeveless": "none"}.get(v, v) if v in ("short", "long", "none", "sleeveless") else None
 
     @field_validator("brand", mode="before")
     @classmethod

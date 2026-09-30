@@ -19,6 +19,7 @@ Depends one way on llm.py (transport + shared weather flags); llm.py does not
 import this, so there is no cycle.
 """
 
+import layers
 import picks as pk
 import reroll
 import scale
@@ -114,6 +115,8 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         f"{handles[i['id']]} | can be worn as: {'/'.join(i.get('roles') or [i['category']])}"
         f" | {i['label']}"
         + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
+        + (f" | {s} sleeves" if (s := layers.sleeve_of(i)) in ("short", "long") else
+           " | sleeveless" if s == "none" else "")
         + f" | colors: {','.join(i['colors'])}"
         f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
@@ -188,6 +191,11 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         # A dress cannot be both the top and the bottoms — picks holds one item per
         # slot and _dedupe_picks would strip the second. Saying so here saves a
         # corrective retry; _onepiece_conflicts enforces it either way.
+        # layers.tidy() enforces both afterwards; saying them here gets them right
+        # the first time (user, 2026-09-30: long-T under a tee under a cardigan).
+        f"LAYER RULE: today allows at most {layers.day_budget(closet, plan)} torso layers "
+        "(inner, base, mid and outer together) — fewer is fine. Never put a "
+        "long-sleeved item under a short-sleeved one.\n"
         "ONE-PIECE RULE: a dress, jumpsuit or pair of dungarees goes in base and "
         "makes bottoms unnecessary — set bottoms to null and say so in its bullet, "
         "rather than adding trousers under it.\n"
@@ -349,11 +357,24 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
         # and recording it as evidence would have the shopping list recommending a
         # fleece to somebody who was told, correctly, not to wear one.
 
+    # The outfit as a STACK (layers.py): no long sleeve under a short one, and no
+    # more torso layers than the day allows. After the heat pass, which may already
+    # have shed a layer, and before the top check, which catches anything this
+    # leaves bare.
+    before = {c: picks.get(c) for c in CATEGORIES}
+    warmed = None
+    for slot, alt, why in layers.tidy(picks, wd, plan, rules_list):
+        warmed = (slot, alt, why) if why == "warmth" else warmed
+        log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
+        if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
+            banned = banned + [{**gone, "_why": "layers"}]
+
     # BEFORE the underwear check, and after everything that can empty a slot: an
     # outfit of trousers alone is not an outfit, and every repair above can leave
     # one. Dressing the torso here also lets the undershirt stay where it belongs,
     # under something, instead of being cleared for want of a cover.
     added = pk._enforce_a_top(picks, wd, plan, rules_list, peak)
+    added_by_tidy = warmed if not added else None
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])
@@ -378,7 +399,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # warmth repair then removed the outer, and the bare undershirt was returned as
     # valid. The one check whose subject other repairs can create.
     note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
-    return note, banned, covered, unsuitable, added
+    return note, banned, covered, unsuitable, added or added_by_tidy
 
 
 _NO_REPLY = "no reply from the model"
@@ -534,7 +555,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # A garment in the picture and not in the text reads as a bug in the app,
         # and this one is there precisely because the model did not put it there.
         if text and added:
-            text = f"• {pk._added_top_line(added, wd.by_item)}\n{text}"
+            text = layers.with_added(text, added, wd.by_item)
         # The bullets naming what these replaced were struck just above, so without
         # this the changed slots would have no words at all.
         if text and swapped:

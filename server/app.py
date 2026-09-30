@@ -586,6 +586,7 @@ async def classify(req: ClassifyRequest):
             warmthScale=graded_on,
             warmthAnchors=anchors,
             brand=raw.get("brand"),
+            sleeve=raw.get("sleeve"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

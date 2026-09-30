@@ -108,6 +108,17 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   s = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("clearing a brand records no-brand, not unread", s[1].brand === "", s[1]);
 
+  // The race the pre-push reviewer reproduced: the sheet opens, the scan fills the
+  // brand underneath it, and an unrelated Save must not write the stale clone back.
+  await w.eval(`closet=[${JSON.stringify(item("r1", "navy tee"))}]; saveCloset()`);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  await w.eval(`closet[0].brand="Uniqlo"`);
+  w.document.getElementById("shLabel").value = "navy crew tee";
+  await w.document.getElementById("shSave").onclick(); await drain();
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a brand the scan found while the sheet was open survives Save",
+    s[0].brand === "Uniqlo" && s[0].label === "navy crew tee", s[0]);
+
   await w.eval(`closet=[${JSON.stringify(item("t1", "navy tee", {brand: "A.P.C. <b>x</b>"}))}]; saveCloset()`);
   await w.eval("renderCloset()"); await drain();
   const html = w.document.body.innerHTML;

@@ -1964,6 +1964,7 @@ async function openSheet(item,opts){
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
   $("shBrand").value=sheet.item.brand||"";
+  sheet.brand0=$("shBrand").value;          // what the box said on opening — see Save
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
@@ -4853,8 +4854,17 @@ $("shSave").onclick=async()=>{
   // An empty box on an item never scanned stays UNSCANNED — saving a warmth tweak
   // must not quietly take the garment out of "Read brands from the photos". Only
   // clearing a brand that was there records "no brand" as the wearer's choice.
+  //
+  // An UNTOUCHED box defers to the live item. The sheet edits a clone taken when it
+  // opened; "Read brands from the photos" may have filled the brand since, and
+  // writing the clone's stale value back would erase what it found and queue the
+  // garment to be read again. Raised by the pre-push reviewer, 2026-09-30.
   const br=$("shBrand").value.trim().slice(0,40);
-  if(br||it.brand!==undefined) it.brand=br;
+  const live=closet.find(x=>x.id===it.id);
+  if(br===(sheet.brand0||"").trim()){
+    if(live&&live.brand!==undefined) it.brand=live.brand; else if(!br) delete it.brand;
+    else it.brand=br;
+  }else if(br||it.brand!==undefined) it.brand=br;
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
   it.type=$("shType").value||null;

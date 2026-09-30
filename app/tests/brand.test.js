@@ -119,6 +119,15 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   check("a brand the scan found while the sheet was open survives Save",
     s[0].brand === "Uniqlo" && s[0].label === "navy crew tee", s[0]);
 
+  // Same race, landing DURING the awaited photo save of a retake.
+  await w.eval(`closet=[${JSON.stringify(item("r2", "grey tee"))}]; saveCloset()`);
+  await w.eval(`openSheet(closet[0],{isNew:false,b64:"${"N".repeat(200)}"})`); await drain();
+  await w.eval(`window._ps=photoSave; photoSave=async(...a)=>{ closet[0].brand="Muji"; return window._ps(...a); }`);
+  await w.document.getElementById("shSave").onclick(); await drain();
+  await w.eval(`photoSave=window._ps`);
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a brand found during the photo save survives it too", s[0].brand === "Muji", s[0]);
+
   await w.eval(`closet=[${JSON.stringify(item("t1", "navy tee", {brand: "A.P.C. <b>x</b>"}))}]; saveCloset()`);
   await w.eval("renderCloset()"); await drain();
   const html = w.document.body.innerHTML;

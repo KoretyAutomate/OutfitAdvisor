@@ -4859,12 +4859,11 @@ $("shSave").onclick=async()=>{
   // opened; "Read brands from the photos" may have filled the brand since, and
   // writing the clone's stale value back would erase what it found and queue the
   // garment to be read again. Raised by the pre-push reviewer, 2026-09-30.
+  //
+  // Read here, APPLIED just before the write-back below: the photo save between
+  // them awaits, and a scan landing during it is exactly the stale-clone case.
   const br=$("shBrand").value.trim().slice(0,40);
-  const live=closet.find(x=>x.id===it.id);
-  if(br===(sheet.brand0||"").trim()){
-    if(live&&live.brand!==undefined) it.brand=live.brand; else if(!br) delete it.brand;
-    else it.brand=br;
-  }else if(br||it.brand!==undefined) it.brand=br;
+  const brTouched=br!==(sheet.brand0||"").trim();
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
   it.type=$("shType").value||null;
@@ -4886,6 +4885,10 @@ $("shSave").onclick=async()=>{
     if(await photoSave(it.id,sheet.b64)){ it.photo=true; it.cut=!!sheet.cut; } else shotFailed=true;
   }
   const idx=closet.findIndex(x=>x.id===it.id);
+  if(brTouched){ if(br||it.brand!==undefined) it.brand=br; }
+  else if(idx>=0&&closet[idx].brand!==undefined) it.brand=closet[idx].brand;
+  else if(!br) delete it.brand;
+  else it.brand=br;
   if(idx>=0) closet[idx]=it; else closet.push(it);
   // After the CORRECTIONS, not before them. addItem clears gaps from whatever
   // /classify guessed, and the user is often here precisely because that guess was

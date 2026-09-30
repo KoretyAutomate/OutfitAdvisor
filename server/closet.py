@@ -549,7 +549,8 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # The bullets naming what these replaced were struck just above, so without
         # this the changed slots would have no words at all.
         if text and swapped:
-            line = reroll.swapped_line(swapped, wd.by_item)
+            # Only swaps that survived the layer pass above — it can undo one.
+            line = reroll.swapped_line([s for s in swapped if picks.get(s[0]) == s[1]], wd.by_item)
             if line:
                 text = f"• {line}\n{text}"
         # Asked for something else and given the same thing back. By here that is

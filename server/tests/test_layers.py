@@ -363,3 +363,40 @@ def test_a_swap_and_a_rewarm_are_both_named(client, monkeypatch):
     t = d["outfit_text"]
     assert "white undershirt as the undershirt" in t and "grey cardigan — for the morning" in t
     assert "Mid: None needed" not in t
+
+
+def test_rewarm_replaces_a_mid_layer_that_is_itself_too_thin():
+    """8C: the warm long undershirt comes off under the tee, and the linen mid layer
+    is not warm enough to be left as the answer — the owned cardigan replaces it."""
+    warm_long = {**LONG_T, "warmth": 3}
+    linen = g("itm-linenmid1", "linen overshirt", "tops", "shirt", ["mid"], 1, sleeve="long")
+    picks = {"inner": warm_long["id"], "base": TEE["id"], "mid": linen["id"]}
+    done = layers.tidy(picks, wd(warm_long, TEE, linen, CARDI), 8, [], peak_temp=10)
+    assert picks["inner"] is None and picks["mid"] == CARDI["id"], done
+
+
+def test_a_reroll_swap_the_layer_pass_undid_is_not_described(client, monkeypatch):
+    """Re-rolled: the short undershirt was shown, so the re-roll swaps in the long-T;
+    under a tee the layer pass swaps the short one back. The text must not announce
+    'white long-T instead' over an outfit that does not contain it."""
+    async def same_again(messages, max_tokens, timeout=45, **kw):
+        return json.dumps({
+            "picks": {"inner": SHORT_UNDER["id"], "base": TEE["id"], "mid": CARDI["id"],
+                      "outer": None, "bottoms": JEANS["id"], "footwear": SNEAK["id"],
+                      "accessories": None},
+            "bullets": ["Inner: the white undershirt", "Base: the tee", "Mid: the cardigan",
+                        "Bottoms: the jeans", "Footwear: the sneakers"],
+            "missing": [], "tip": ""})
+
+    async def cool(lat, lon, day):
+        return {"date": "2026-11-02", "timezone": "America/New_York", "code": 3,
+                "emoji": "⛅", "desc": "Cloudy", "lo": 8, "hi": 11, "swing": 3,
+                "feelsLo": 7, "feelsHi": 10, "rain": 0, "wind": 2, "morning": 8,
+                "midday": 11, "evening": 9, "isSnow": False, "isRain": False}
+    monkeypatch.setattr(closet_llm, "_chat", same_again)
+    monkeypatch.setattr(srv.weather, "fetch_weather", cool)
+    d = client.post("/advice", json={
+        "lat": 40.3, "lon": -74.6, "closet": [LONG_T, SHORT_UNDER, TEE, CARDI, JEANS, SNEAK],
+        "shown": {"inner": SHORT_UNDER["id"]}}).json()
+    assert d["picks"]["inner"] == SHORT_UNDER["id"]
+    assert "long-T" not in d["outfit_text"], d["outfit_text"]

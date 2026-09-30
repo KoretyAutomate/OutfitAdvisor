@@ -102,7 +102,11 @@ def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict]) -> list[t
     own, not too warm for the morning, legal in that slot, allowed by the wearer's
     rules — and one that does not start a new sleeve clash of its own."""
     for slot in ("mid", "outer"):
-        if picks.get(slot):
+        # An occupied slot is open too when what fills it is itself too thin — a
+        # linen overshirt as the mid, with the warm cardigan owned and unworn. Only
+        # skipped when its garment already does the job. Raised by the pre-push
+        # reviewer, 2026-09-30.
+        if picks.get(slot) and scale.warm_enough(wd.by_item.get(picks[slot]) or {}, plan_temp):
             continue
         for iid, item in wd.by_item.items():
             if iid in picks.values() or slot not in (wd.by_roles.get(iid) or ()):

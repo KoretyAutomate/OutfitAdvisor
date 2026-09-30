@@ -82,18 +82,18 @@ def _short_inner(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     undershirt is worn all day, so it is judged by the afternoon like the heat pass
     judges it (picks._heat_temp). Checked against the morning only, a warmth-3
     undershirt replaced a warmth-2 one on a 14-to-23C day that the heat pass had
-    just cleared. Raised by the pre-push reviewer, 2026-09-30."""
-    for iid, item in wd.by_item.items():
-        if iid in picks.values() or "inner" not in (wd.by_roles.get(iid) or ()):
-            continue
-        if sleeve_of(item) not in ("short", "none"):
-            continue
-        if scale.too_warm(item, pk._heat_temp("inner", plan_temp, peak_temp)):
-            continue
-        if rules.violations(user_rules, {**picks, "inner": iid}, wd.by_item):
-            continue
-        return iid
-    return None
+    just cleared. Raised by the pre-push reviewer, 2026-09-30.
+
+    Among those, one warm enough for the morning FIRST: the long one may have been
+    the only warm thing on, and the first legal short one found can be a thin one
+    while a warm one is owned. Raised by the pre-push reviewer, 2026-09-30."""
+    legal = [iid for iid, item in wd.by_item.items()
+             if iid not in picks.values() and "inner" in (wd.by_roles.get(iid) or ())
+             and sleeve_of(item) in ("short", "none")
+             and not scale.too_warm(item, pk._heat_temp("inner", plan_temp, peak_temp))
+             and not rules.violations(user_rules, {**picks, "inner": iid}, wd.by_item)]
+    warm = [iid for iid in legal if scale.warm_enough(wd.by_item[iid], plan_temp)]
+    return (warm or legal or [None])[0]
 
 
 def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict]) -> list[tuple]:

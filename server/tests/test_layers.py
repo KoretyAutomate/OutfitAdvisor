@@ -415,3 +415,12 @@ def test_a_tip_contradicting_the_added_layer_goes():
     text = "• Base: the tee\n\n💡 No mid-layer is needed today."
     out = layers.with_added(text, ("mid", CARDI["id"], "warmth"), {CARDI["id"]: CARDI})
     assert "No mid-layer" not in out and out.startswith("• grey cardigan")
+
+
+def test_the_replacement_undershirt_keeps_the_morning_warm_when_it_can():
+    warm_long = {**LONG_T, "warmth": 3}
+    warm_short = {**SHORT_UNDER, "id": "itm-warmshrt1", "label": "warm short thermal",
+                  "warmth": 3}
+    picks = {"inner": warm_long["id"], "base": TEE["id"]}
+    layers.tidy(picks, wd(warm_long, SHORT_UNDER, warm_short, TEE), 8, [], peak_temp=11)
+    assert picks["inner"] == warm_short["id"]

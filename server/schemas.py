@@ -27,6 +27,12 @@ _TEXT_OK = re.compile(r"[^\w \-'&/()+.,]", flags=re.UNICODE)
 _ID_OK = re.compile(r"[A-Za-z0-9\-]{8,64}")
 
 
+# What a vision model writes when it cannot read a label. Each would otherwise be
+# filed as the maker's name.
+_NO_BRAND = {"", "unknown", "none", "null", "n/a", "na", "unbranded", "generic",
+             "no brand", "not visible", "unclear", "unreadable"}
+
+
 def _clean(s: str, max_len: int) -> str:
     return _TEXT_OK.sub("", s)[:max_len].strip()
 
@@ -104,6 +110,23 @@ class ClosetItem(BaseModel):
     formality: list[Literal["casual", "smart", "active"]] = Field(default_factory=list)
     waterproof: bool = False
     availableCount: int = Field(1, ge=1, le=99)
+    # The maker, as READ off the garment — a logo or a label legible in the photo —
+    # or typed by the wearer (user, 2026-09-30). None means nobody knows, and that is
+    # the common answer: a 512 px picture of a folded tee rarely shows a tag. No
+    # Field max_length, for the same reason `type` has none: a constraint runs ahead
+    # of the `before` validator and would 422 the whole closet over one long name.
+    brand: str | None = None
+
+    @field_validator("brand", mode="before")
+    @classmethod
+    def _san_brand(cls, v):
+        """Sanitized, capped, and the model's ways of saying "can't tell" collapsed
+        to None — never raised on. "unknown" stored as a brand would be shown on the
+        tile as if somebody had read it off the label."""
+        if not isinstance(v, str):
+            return None
+        v = _clean(v, 40)
+        return None if v.lower() in _NO_BRAND else (v or None)
 
     @model_validator(mode="after")
     def _derive(self):

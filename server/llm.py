@@ -248,7 +248,14 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
         '"colors": [1-3 lowercase color words], '
         + _warmth_line(climate)
         + f'"formality": subset of {list(STYLES)} where it fits, '
-        '"waterproof": true/false}'
+        '"waterproof": true/false, '
+        # Asked LAST and with an explicit null, because a brand is the one field
+        # here the model can invent fluently: a plain navy crew-neck "looks like"
+        # Uniqlo. A made-up maker is worse than none — the wearer has no reason to
+        # doubt a name the app printed on their own garment.
+        '"brand": the maker ONLY if a logo, label or brand text is actually '
+        "legible in the photo — copy it as written. If nothing readable names the "
+        "maker, null. Never infer a brand from style, colour or cut}"
     )
     out = await _chat(
         [
@@ -260,8 +267,9 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
                 ],
             }
         ],
-        # 150 was sized before `type` joined the schema; the extra key costs ~10.
-        max_tokens=180,
+        # 150 was sized before `type` joined the schema; the extra key costs ~10,
+        # and `brand` another ~15.
+        max_tokens=200,
         timeout=60,
     )
     return _parse_json(out)

@@ -16,6 +16,7 @@ to everybody. These tests pin three things:
      is the half this project has broken three times with every unit correct.
 """
 import asyncio
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -472,16 +473,19 @@ def test_a_graded_garment_states_its_units_to_the_model(client):
     """
     # warmth 3 on this year is a garment for a ~13C day.
     graded = dict(TEE, warmth=3, warmthScale="home", warmthAnchors=[COLD, AVG, HOT])
-    client.post("/packing", json={"lat": 40.3, "lon": -74.6, "start": "2026-09-10",
-                                  "end": "2026-09-12", "closet": [graded]})
+    # Dated from today: /packing refuses a trip that has already ended, so the fixed
+    # 2026-09-10..12 this used to send turned the test red on 2026-09-13 without a
+    # line of code changing.
+    start = dt.date.today() + dt.timedelta(days=7)
+    trip = {"start": start.isoformat(), "end": (start + dt.timedelta(days=2)).isoformat()}
+    client.post("/packing", json={"lat": 40.3, "lon": -74.6, **trip, "closet": [graded]})
     packed = [p for p in client.seen["prompts"] if "warmth" in p]
     assert packed and any("for days around 13C" in p for p in packed), packed[-1][:400]
 
     # And an ungraded one keeps the bare number rather than being handed a
     # temperature nobody measured it against.
     client.seen["prompts"].clear()
-    client.post("/packing", json={"lat": 40.3, "lon": -74.6, "start": "2026-09-10",
-                                  "end": "2026-09-12", "closet": [TEE]})
+    client.post("/packing", json={"lat": 40.3, "lon": -74.6, **trip, "closet": [TEE]})
     packed = [p for p in client.seen["prompts"] if "warmth" in p]
     assert packed and not any("for days around" in p for p in packed), packed[-1][:400]
 

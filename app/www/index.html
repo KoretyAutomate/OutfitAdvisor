@@ -126,6 +126,7 @@
   .item img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
   .item .ph{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:var(--bg)}
   .item .nm{font-size:.66rem;color:var(--txt);padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .nm .br{color:var(--muted);font-weight:600}
   .item .cnt{position:absolute;top:4px;right:4px;background:#FFFFFFE6;border:1px solid var(--line);border-radius:6px;font-size:.62rem;padding:1px 6px;font-variant-numeric:tabular-nums}
   .item .dirty{position:absolute;top:4px;left:4px;font-size:.6rem;color:var(--muted);background:#FFFFFFE6;border:1px solid var(--line);border-radius:6px;padding:1px 5px}
   .item.out img,.item.out .ph{opacity:.35}
@@ -409,6 +410,10 @@
         <button class="ghost" id="rescanBtn" style="width:100%;padding:9px"><span id="rescanTxt">Identify kinds from the photos</span></button>
         <p class="note" id="rescanNote" style="margin:5px 0 0"></p>
       </div>
+      <div id="brandRow" style="display:none;margin:10px 0 0">
+        <button class="ghost" id="brandBtn" style="width:100%;padding:9px"><span id="brandTxt">Read brands from the photos</span></button>
+        <p class="note" id="brandNote" style="margin:5px 0 0"></p>
+      </div>
       <div id="tidyRow" style="display:none;margin:10px 0 0">
         <button class="ghost" id="tidyBtn" style="width:100%;padding:9px"><span id="tidyTxt">Tidy photos</span></button>
         <p class="note" id="tidyNote" style="margin:5px 0 0"></p>
@@ -501,6 +506,8 @@
       <div style="flex:1">
         <label class="lbl">Name</label>
         <input type="text" id="shLabel" maxlength="60" placeholder="e.g. navy merino crew-neck" style="width:100%">
+        <label class="lbl" style="margin-top:10px">Brand</label>
+        <input type="text" id="shBrand" maxlength="40" placeholder="e.g. Uniqlo" style="width:100%">
       </div>
     </div>
     <div class="frow">
@@ -1345,7 +1352,7 @@ function reconcileItem(it,inferFromLabel=false){
    never on the edit path: the Kind selector offers "— not specified —", and
    re-inferring on every reconcile would make that option inert. */
 function migrateItem(it){ return reconcileItem(it,true); }
-let closet=[];   // {id,label,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
+let closet=[];   // {id,label,brand?,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms)}
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
@@ -1365,7 +1372,7 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
-  refreshRescan(); refreshTidy();
+  refreshRescan(); refreshTidy(); refreshBrands();
   refreshShopping();
   // The outfit card reads the closet too, once it is showing what was WORN: the
   // record names ids, and the label and the photo come from here. Renaming or
@@ -1682,6 +1689,9 @@ async function addItem(source){
                   ?meta.warmthAnchors.slice():null,
     formality:(meta?.formality?.length?meta.formality:["casual"]),
     waterproof:!!meta?.waterproof, count:1, photo:false, addedAt:Date.now(),
+    // "" when the photo WAS read and showed no maker — the brand scan then leaves
+    // it alone. Left undefined when the advisor never saw it, so the scan asks.
+    ...(meta?{brand:typeof meta.brand==="string"?meta.brand:""}:{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
   item.photo=await photoSave(item.id,b64);
@@ -1820,6 +1830,61 @@ async function rescanTypes(){
   toast(named?`${named} item${named===1?"":"s"} identified`:"Nothing could be identified");
 }
 
+/* Brands, read off the photos already on this phone (user, 2026-09-30: "scan
+   through the pictures and fill Brand field"). Same shape as the re-scan and the
+   tidy: sequential, progress in the button, and it writes `brand` and NOTHING
+   else — label, Kind, warmth are the wearer's and may have been corrected by hand.
+
+   Every item is asked ONCE. `brand===undefined` means never read; "" means read
+   and nothing legible, which is the usual answer for a tee photographed from the
+   front, and is not asked again. The server returns null rather than a guess, so
+   an empty result here is honest, not a failure. Stops the moment the advisor
+   stops answering, leaving the rest unread for the next tap. */
+let brandBusy=false;
+function unbrandedItems(){ return closet.filter(i=>i.photo&&i.brand===undefined); }
+function refreshBrands(){
+  const row=$("brandRow"); if(!row) return;
+  const n=unbrandedItems().length;
+  row.style.display=n?"":"none";
+  if(!n||brandBusy) return;
+  $("brandTxt").textContent=`Read brands from ${n} photo${n===1?"":"s"}`;
+  $("brandNote").textContent=`Looks for a legible logo or label. Where none shows, the Brand stays empty for you to fill in.`;
+}
+async function scanBrands(){
+  if(brandBusy) return;
+  const todo=unbrandedItems();
+  if(!todo.length){ refreshBrands(); return; }
+  brandBusy=true;
+  const btn=$("brandBtn"); btn.disabled=true;
+  let done=0, found=0, unreachable=false;
+  for(const it of todo){
+    $("brandTxt").textContent=`Reading brands… ${done+1} of ${todo.length}`;
+    $("brandNote").textContent=it.label;
+    let meta=null;
+    try{
+      const src=await photoLoad(it.id);
+      if(!src){ done++; continue; }
+      meta=await classifyPhoto(src.replace(/^data:[^,]*,/,""));
+    }catch(e){ meta=null; }
+    if(meta===null){ unreachable=true; break; }
+    done++;
+    // Resolved by id: an edit sheet saved meanwhile writes a clone back.
+    const live=closet.find(i=>i.id===it.id);
+    if(!live||live.brand!==undefined) continue;      // deleted, or typed in by hand meanwhile
+    live.brand=typeof meta.brand==="string"?meta.brand.slice(0,40):"";
+    if(live.brand) found++;
+  }
+  await saveCloset();
+  brandBusy=false; btn.disabled=false;
+  refreshBrands();
+  $("brandRow").style.display="";                     // keep the result readable
+  if(!unbrandedItems().length) $("brandTxt").textContent="Brands read";
+  $("brandNote").textContent=unreachable
+    ? `Read ${done} (${found} with a brand) before the advisor stopped answering — tap again later for the rest.`
+    : `Found a brand on ${found} of ${done}. The rest showed no legible logo or label — tap a tile to type one in.`;
+  toast(found?`${found} brand${found===1?"":"s"} found`:"No brands legible in the photos");
+}
+
 /* ── edit sheet ── */
 let sheet=null; // {item, isNew, b64?}
 function paintSheetSegs(){
@@ -1898,6 +1963,7 @@ async function openSheet(item,opts){
          isNew:!!opts.isNew, b64:opts.b64||null};
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
   $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
+  $("shBrand").value=sheet.item.brand||"";
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
@@ -1975,7 +2041,7 @@ async function renderCloset(){
       ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||GARMENT.tee}</div>`}
       ${it.count>1||a<it.count?`<span class="cnt">${a}/${it.count}</span>`:""}
       ${a<it.count?`<span class="dirty" title="in the laundry">wash</span>`:""}
-      <div class="nm">${esc(it.label)}</div></div>`;
+      <div class="nm">${it.brand?`<span class="br">${esc(it.brand)}</span> · `:""}${esc(it.label)}</div></div>`;
   };
 
   /* Second level inside a folder: "Base layer ▸ Polo shirt" (user, 2026-08-20;
@@ -4697,6 +4763,7 @@ $("addCamBtn").onclick=()=>addItem("CAMERA");
 $("addGalBtn").onclick=()=>addItem("PHOTOS");
 $("rescanBtn").onclick=()=>{ rescanTypes(); };
 $("tidyBtn").onclick=()=>{ tidyPhotos(); };
+$("brandBtn").onclick=()=>{ scanBrands(); };
 $("shopBtn").onclick=()=>{ askShopping(); };
 $("closetDone").onchange=async()=>{
   closetComplete=$("closetDone").checked;
@@ -4783,6 +4850,11 @@ $("shSave").onclick=async()=>{
   const it=sheet.item;
   it.label=$("shLabel").value.trim().slice(0,60);
   if(!it.label){ toast("Give it a name first"); return; }
+  // An empty box on an item never scanned stays UNSCANNED — saving a warmth tweak
+  // must not quietly take the garment out of "Read brands from the photos". Only
+  // clearing a brand that was there records "no brand" as the wearer's choice.
+  const br=$("shBrand").value.trim().slice(0,40);
+  if(br||it.brand!==undefined) it.brand=br;
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
   it.type=$("shType").value||null;
@@ -5138,7 +5210,7 @@ const appReady=(async()=>{
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.
   await savePushPayload();
-  refreshRescan(); refreshTidy(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
+  refreshRescan(); refreshTidy(); refreshBrands(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
   // Fire-and-forget, and a no-op unless a home is set and its anchors are missing:
   // ten years of archive is not something to make the first paint wait for.
   refreshClimate();

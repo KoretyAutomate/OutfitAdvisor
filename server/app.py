@@ -585,6 +585,7 @@ async def classify(req: ClassifyRequest):
             waterproof=bool(raw.get("waterproof")),
             warmthScale=graded_on,
             warmthAnchors=anchors,
+            brand=raw.get("brand"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

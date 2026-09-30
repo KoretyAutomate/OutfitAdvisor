@@ -31,13 +31,8 @@ import re
 import picks as pk
 import rules
 import scale
+from sleeves import SLEEVE_STACK, sleeve_clashes, sleeve_of
 
-SLEEVES = ("short", "long", "none")
-
-# The torso, bottom to top. `outer` is left out of the sleeve rule: a gilet is
-# sleeveless on purpose, and a short-sleeved jacket over a long sleeve is rare
-# enough that guessing at it would cost more than it saves.
-_SLEEVE_STACK = ("inner", "base", "mid")
 _TORSO = ("inner", "base", "mid", "outer")
 
 # What is shed first when the budget is exceeded. The undershirt goes before the
@@ -45,44 +40,6 @@ _TORSO = ("inner", "base", "mid", "outer")
 # mid layer is the one that comes off by noon anyway. Never the base, never the
 # outer.
 _SHED_ORDER = ("inner", "mid")
-
-# Read off the NAME, for garments saved before the field existed. Checked long ->
-# none -> short, so "long-sleeve tee" is long and not a tee's default. English and
-# the Japanese the wearer actually writes ("ロンT" is how a long-sleeve tee is
-# sold in Japan).
-_LONG = re.compile(r"long[\s\-]*(sleeve[sd]?|t\b|tee)|longsleeve|\bl/s\b|長袖|ロン\s*[tTｔＴ]",
-                   re.IGNORECASE)
-_NONE = re.compile(r"sleeveless|\btank\b|camisole|\bcami\b|ノースリーブ|タンク", re.IGNORECASE)
-_SHORT = re.compile(r"short[\s\-]*sleeve[sd]?|\bs/s\b|半袖", re.IGNORECASE)
-
-# What a KIND implies when neither the wearer nor the name says. Only kinds where
-# the answer is near-universal: a "tee" with no qualifier is short-sleeved, a
-# cardigan is long. Shirts and thermals come both ways, so they stay unknown — and
-# an unknown sleeve never triggers the rule. Guessing wrong would take away a
-# garment the wearer chose for no reason they could see.
-TYPE_SLEEVE = {
-    "t_shirt": "short", "polo": "short", "tank": "none", "waistcoat": "none",
-    "sweater": "long", "cardigan": "long", "hoodie": "long", "fleece": "long",
-}
-
-
-def sleeve_of(item: dict) -> str | None:
-    """The garment's sleeve: stated, else read from its name, else its kind's."""
-    s = item.get("sleeve")
-    if s in SLEEVES:
-        return s
-    label = str(item.get("label") or "")
-    for pat, answer in ((_LONG, "long"), (_NONE, "none"), (_SHORT, "short")):
-        if pat.search(label):
-            return answer
-    return TYPE_SLEEVE.get(str(item.get("type") or ""))
-
-
-def sleeve_clashes(picks: dict, by_item: dict) -> list[tuple[str, str]]:
-    """(lower, upper) pairs where a long sleeve sits under a short one."""
-    worn = [(c, sleeve_of(by_item.get(picks[c]) or {})) for c in _SLEEVE_STACK if picks.get(c)]
-    return [(lo, hi) for i, (lo, s_lo) in enumerate(worn) if s_lo == "long"
-            for hi, s_hi in worn[i + 1:] if s_hi == "short"]
 
 
 def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
@@ -176,7 +133,7 @@ _UNNEEDED = re.compile(r"\b(no|none|not needed|not required|unnecessary|no need|
                        re.IGNORECASE)
 
 
-def with_added(text: str, added: tuple, by_item: dict) -> str:
+def with_added(text: str, added: tuple | list, by_item: dict) -> str:
     """The advice text with the added garment's line on top, and the model's own
     line saying that slot is not needed taken out. Live, that line was "No mid-layer
     is needed as the heat makes a cardigan too warm" directly under a cardigan the
@@ -184,12 +141,19 @@ def with_added(text: str, added: tuple, by_item: dict) -> str:
 
     A line goes when it names the slot or the added garment's kind AND says it is
     not needed. Both, so "no rain, so sneakers" survives."""
-    kind = str((by_item.get(added[1]) or {}).get("type") or "").replace("_", " ")
-    words = [w for w in (*_SLOT_WORDS.get(added[0], (added[0],)), kind) if w]
-    about = re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE)
-    kept = [ln for ln in text.split("\n")
-            if not (ln.startswith("•") and about.search(ln) and _UNNEEDED.search(ln))]
-    return f"• {added_line(added, by_item)}\n" + "\n".join(kept)
+    # One garment (a tuple, _enforce_a_top's) or several (a list, from tidy): a swap
+    # and a re-warm in the same repair each put a garment on, and each needs its line.
+    # Raised by the pre-push reviewer, 2026-09-30.
+    each = [added] if isinstance(added, tuple) else list(added)
+    kept = text.split("\n")
+    for a in each:
+        kind = str((by_item.get(a[1]) or {}).get("type") or "").replace("_", " ")
+        words = [w for w in (*_SLOT_WORDS.get(a[0], (a[0],)), kind) if w]
+        about = re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b",
+                           re.IGNORECASE)
+        kept = [ln for ln in kept
+                if not (ln.startswith("•") and about.search(ln) and _UNNEEDED.search(ln))]
+    return "".join(f"• {added_line(a, by_item)}\n" for a in each) + "\n".join(kept)
 
 
 def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],
@@ -206,7 +170,7 @@ def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     # one settles both — the stale second pair then took the replacement off too.
     # Raised by the pre-push reviewer, 2026-09-30. Bounded: each round removes or
     # shortens a layer, and there are three layers to judge.
-    for _ in range(len(_SLEEVE_STACK)):
+    for _ in range(len(SLEEVE_STACK)):
         clashes = sleeve_clashes(picks, wd.by_item)
         if not clashes:
             break

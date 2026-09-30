@@ -290,3 +290,40 @@ def test_the_note_after_a_repair_says_changed_not_left_out(client):
     r = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
                                      "closet": [LONG_T, TEE, CARDI, JEANS, SNEAK]})
     assert "Changed a layer that did not go with the rest" in r.json()["outfit_text"]
+
+
+def test_the_reroll_cannot_swap_in_a_clash():
+    """A long undershirt under a long shirt is fine; asked for 'something else', the
+    re-roll must not put a short tee over it."""
+    import reroll
+    picks = {"inner": LONG_T["id"], "base": LS_SHIRT["id"], "bottoms": JEANS["id"]}
+    w = wd(LONG_T, LS_SHIRT, {**TEE, "roles": ["base"]}, JEANS)
+    reroll.swap_repeats(picks, ["base"], w, 10, [])
+    assert picks["base"] == LS_SHIRT["id"]
+    assert layers.sleeve_clashes(picks, w.by_item) == []
+
+
+def test_a_swap_and_a_rewarm_are_both_named(client, monkeypatch):
+    warm_long = {**LONG_T, "warmth": 3}
+
+    async def cool_morning(lat, lon, day):
+        return {"date": "2026-11-02", "timezone": "America/New_York", "code": 3,
+                "emoji": "⛅", "desc": "Cloudy", "lo": 8, "hi": 11, "swing": 3,
+                "feelsLo": 7, "feelsHi": 10, "rain": 0, "wind": 2, "morning": 8,
+                "midday": 11, "evening": 9, "isSnow": False, "isRain": False}
+
+    async def long_and_tee(messages, max_tokens, timeout=45, **kw):
+        return json.dumps({
+            "picks": {"inner": warm_long["id"], "base": TEE["id"], "mid": None, "outer": None,
+                      "bottoms": JEANS["id"], "footwear": SNEAK["id"], "accessories": None},
+            "bullets": ["Inner: the white long-T", "Base: the white crew-neck T-shirt",
+                        "Mid: None needed", "Bottoms: the jeans", "Footwear: the white sneakers"],
+            "missing": [], "tip": ""})
+    monkeypatch.setattr(srv.weather, "fetch_weather", cool_morning)
+    monkeypatch.setattr(closet_llm, "_chat", long_and_tee)
+    d = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closet": [
+        warm_long, SHORT_UNDER, TEE, CARDI, JEANS, SNEAK]}).json()
+    assert d["picks"]["inner"] == SHORT_UNDER["id"] and d["picks"]["mid"] == CARDI["id"]
+    t = d["outfit_text"]
+    assert "white undershirt as the undershirt" in t and "grey cardigan — for the morning" in t
+    assert "Mid: None needed" not in t

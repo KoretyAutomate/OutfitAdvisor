@@ -250,7 +250,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
 # under a proper coat is fine at any temperature.
 def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
                        unsuitable: set, attempt: int
-                       ) -> tuple[str, list[dict], set, set, tuple | None]:
+                       ) -> tuple[str, list[dict], set, set, tuple | list | None]:
     """Every check that judges the ANSWER, in the order they have to run.
 
     Returns a corrective note to retry with (empty when the outfit stands), the
@@ -362,10 +362,10 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # have shed a layer, and before the top check, which catches anything this
     # leaves bare.
     before = {c: picks.get(c) for c in CATEGORIES}
-    warmed = None
+    put_on: dict = {}
     for slot, alt, why in layers.tidy(picks, wd, plan, rules_list, peak):
-        # A garment put ON gets a line — unless a later step took that slot off again.
-        warmed = (slot, alt, why) if alt else (None if warmed and warmed[0] == slot else warmed)
+        # Every garment put ON gets a line — unless a later step took that slot off.
+        put_on[slot] = (slot, alt, why) if alt else None
         log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
         if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
             banned = banned + [{**gone, "_why": "layers"}]
@@ -375,7 +375,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # one. Dressing the torso here also lets the undershirt stay where it belongs,
     # under something, instead of being cleared for want of a cover.
     added = pk._enforce_a_top(picks, wd, plan, rules_list, peak)
-    added_by_tidy = warmed if not added else None
+    added_by_tidy = [a for a in put_on.values() if a and picks.get(a[0]) == a[1]]
     if added:
         log.warning("closet picks: nothing was left on top — added %s to %s",
                     added[1], added[0])
@@ -400,7 +400,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # warmth repair then removed the outer, and the bare undershirt was returned as
     # valid. The one check whose subject other repairs can create.
     note, banned = pk._enforce_underwear(picks, wd.by_item, banned, attempt)
-    return note, banned, covered, unsuitable, added or added_by_tidy
+    return note, banned, covered, unsuitable, added or added_by_tidy or None
 
 
 _NO_REPLY = "no reply from the model"

@@ -363,8 +363,9 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # leaves bare.
     before = {c: picks.get(c) for c in CATEGORIES}
     warmed = None
-    for slot, alt, why in layers.tidy(picks, wd, plan, rules_list):
-        warmed = (slot, alt, why) if why == "warmth" else warmed
+    for slot, alt, why in layers.tidy(picks, wd, plan, rules_list, peak):
+        # A garment put ON gets a line — unless a later step took that slot off again.
+        warmed = (slot, alt, why) if alt else (None if warmed and warmed[0] == slot else warmed)
         log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
         if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
             banned = banned + [{**gone, "_why": "layers"}]

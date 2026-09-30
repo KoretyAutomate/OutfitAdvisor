@@ -248,3 +248,45 @@ def test_the_line_calling_the_added_slot_unneeded_goes(line, gone):
                              {CARDI["id"]: CARDI})
     assert (line not in text) is gone
     assert text.startswith("• grey cardigan")
+
+
+
+# ── raised by the pre-push reviewer, 2026-09-30 ─────────────────────────────────
+
+def test_a_replacement_undershirt_must_survive_the_afternoon():
+    """14C morning, 23C afternoon: a warmth-3 short undershirt is fine at 14 and too
+    warm at 23, and an undershirt is worn all day."""
+    hot_short = {**SHORT_UNDER, "id": "itm-hotshort1", "warmth": 3}
+    picks = {"inner": LONG_T["id"], "base": TEE["id"], "mid": CARDI["id"]}
+    layers.tidy(picks, wd(LONG_T, hot_short, TEE, CARDI), 14, [], peak_temp=23)
+    assert picks["inner"] != hot_short["id"]
+
+
+def test_one_swap_settles_both_clashes():
+    """Long undershirt under a short base AND a short mid, at 8C where three layers
+    fit: the short undershirt swapped in must not be taken off by the stale pair."""
+    picks = {"inner": LONG_T["id"], "base": TEE["id"], "mid": SS_CARDI["id"]}
+    done = layers.tidy(picks, wd(LONG_T, SHORT_UNDER, TEE, SS_CARDI), 8, [], peak_temp=12)
+    assert picks["inner"] == SHORT_UNDER["id"], done
+    assert done == [("inner", SHORT_UNDER["id"], "sleeve")]
+
+
+def test_a_swapped_undershirt_is_named_in_the_advice(client, monkeypatch):
+    async def cold_day(lat, lon, day):
+        return {"date": "2026-11-20", "timezone": "America/New_York", "code": 3,
+                "emoji": "⛅", "desc": "Cloudy", "lo": 6, "hi": 10, "swing": 4,
+                "feelsLo": 5, "feelsHi": 9, "rain": 0, "wind": 2, "morning": 7,
+                "midday": 10, "evening": 8, "isSnow": False, "isRain": False}
+    monkeypatch.setattr(srv.weather, "fetch_weather", cold_day)
+    r = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
+                                     "closet": [LONG_T, SHORT_UNDER, TEE, CARDI, JEANS, SNEAK]})
+    d = r.json()
+    assert d["picks"]["inner"] == SHORT_UNDER["id"]
+    assert "white undershirt as the undershirt" in d["outfit_text"]
+    assert "long-T" not in d["outfit_text"]
+
+
+def test_the_note_after_a_repair_says_changed_not_left_out(client):
+    r = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
+                                     "closet": [LONG_T, TEE, CARDI, JEANS, SNEAK]})
+    assert "Changed a layer that did not go with the rest" in r.json()["outfit_text"]

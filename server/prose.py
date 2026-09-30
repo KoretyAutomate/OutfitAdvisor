@@ -85,7 +85,7 @@ def _drop_banned_bullets(bullets: list[str], banned: list[dict]) -> list[str]:
         # app inventing a rule they never made (2026-09-30).
         hit = [i for b in bullets if b not in kept for i in banned
                if any(_term_hit(t, b.lower()) for t in _ban_terms(i))]
-        kept.append("Left a layer out — it did not go with the rest of today's outfit."
+        kept.append("Changed a layer that did not go with the rest of today's outfit."
                     if hit and all(i.get("_why") == "layers" for i in hit)
                     else "Left a layer out — it broke one of your own rules.")
     return kept

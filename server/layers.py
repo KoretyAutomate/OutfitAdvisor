@@ -115,14 +115,21 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
-def _short_inner(picks: dict, wd, plan_temp: float, user_rules: list[dict]) -> str | None:
-    """An owned undershirt that does not reach past the sleeve above it."""
+def _short_inner(picks: dict, wd, plan_temp: float, user_rules: list[dict],
+                 peak_temp: float) -> str | None:
+    """An owned undershirt that does not reach past the sleeve above it.
+
+    Warm enough for the morning is not the test that matters for heat: the
+    undershirt is worn all day, so it is judged by the afternoon like the heat pass
+    judges it (picks._heat_temp). Checked against the morning only, a warmth-3
+    undershirt replaced a warmth-2 one on a 14-to-23C day that the heat pass had
+    just cleared. Raised by the pre-push reviewer, 2026-09-30."""
     for iid, item in wd.by_item.items():
         if iid in picks.values() or "inner" not in (wd.by_roles.get(iid) or ()):
             continue
         if sleeve_of(item) not in ("short", "none"):
             continue
-        if scale.too_warm(item, plan_temp):
+        if scale.too_warm(item, pk._heat_temp("inner", plan_temp, peak_temp)):
             continue
         if rules.violations(user_rules, {**picks, "inner": iid}, wd.by_item):
             continue
@@ -157,6 +164,9 @@ def added_line(added: tuple, by_item: dict) -> str:
     if len(added) < 3:
         return pk._added_top_line(added, by_item)
     label = str((by_item.get(added[1]) or {}).get("label") or "").strip()
+    if added[2] == "sleeve":
+        return (f"{label or 'A short-sleeved undershirt'} as the undershirt — short "
+                "sleeves, so nothing shows below the ones over it.")
     return f"{label or 'A warmer layer'} — for the morning chill; take it off when it warms up."
 
 
@@ -182,17 +192,26 @@ def with_added(text: str, added: tuple, by_item: dict) -> str:
     return f"• {added_line(added, by_item)}\n" + "\n".join(kept)
 
 
-def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict]) -> list[tuple]:
+def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],
+         peak_temp: float | None = None) -> list[tuple]:
     """Apply both rules to `picks` in place. Returns (slot, replacement or None, why).
 
     Sleeves first: the budget then counts the layers that are actually left.
     """
     done: list[tuple] = []
+    peak = plan_temp if peak_temp is None else peak_temp
     warm_before = _still_warm(picks, wd.by_item, plan_temp)
-    for lower, _upper in sleeve_clashes(picks, wd.by_item):
-        if not picks.get(lower):
-            continue                     # already taken off for an earlier pair
-        alt = _short_inner(picks, wd, plan_temp, user_rules) if lower == "inner" else None
+    # Re-read after every repair, never from a list taken up front: a long undershirt
+    # under a short base AND a short mid is two pairs, and swapping it for a short
+    # one settles both — the stale second pair then took the replacement off too.
+    # Raised by the pre-push reviewer, 2026-09-30. Bounded: each round removes or
+    # shortens a layer, and there are three layers to judge.
+    for _ in range(len(_SLEEVE_STACK)):
+        clashes = sleeve_clashes(picks, wd.by_item)
+        if not clashes:
+            break
+        lower, _upper = clashes[0]
+        alt = _short_inner(picks, wd, plan_temp, user_rules, peak) if lower == "inner" else None
         if alt:
             picks["inner"] = alt
             done.append(("inner", alt, "sleeve"))

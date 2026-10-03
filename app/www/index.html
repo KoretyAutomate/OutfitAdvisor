@@ -4972,6 +4972,12 @@ $("washGo").onclick=async()=>{
         : `${names} washed — ${n} item${n>1?"s":""} back in rotation`);
 };
 $("dryHours").onchange=async()=>{
+  // Settle what has ALREADY dried under the old time first. The log is pruned only
+  // on a write, so a shirt dry two hours ago is still in it — and re-read against a
+  // longer drying time it would go back to "drying". Clothes still drying take the
+  // new time. Raised by the pre-push reviewer, 2026-10-03.
+  const now=Date.now();
+  wearLog=wearLog.filter(w=>freeAt(w)>now);
   laundry.dryHours=Math.max(0,Math.min(72,+$("dryHours").value||0));
   await prefSet("oa.laundry",JSON.stringify(laundry));
   await saveCloset();      // drying times moved: the grid and the push payload follow

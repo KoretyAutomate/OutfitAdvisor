@@ -106,6 +106,21 @@ const item = (id, label, colors, extra = {}) => ({id, label, category: "base", g
   w.document.getElementById("dryHours").value = "24";
   await w.document.getElementById("dryHours").onchange(); await drain();
 
+  // Already dry under 6 h, never pruned since: lengthening the time must not undo that.
+  w.document.getElementById("dryHours").value = "6";
+  await w.document.getElementById("dryHours").onchange(); await drain();
+  T = realNow();
+  await ev(`closet=[${JSON.stringify(item("z1", "white tee", ["white"]))},
+    ${JSON.stringify(item("z2", "white shirt", ["white"]))}]; saveCloset();
+    wearLog=[{itemId:"z1",wornAt:${T - D},washedAt:${T - 8 * H}},
+             {itemId:"z2",wornAt:${T - D},washedAt:${T - 2 * H}}]`);
+  w.document.getElementById("dryHours").value = "24";
+  await w.document.getElementById("dryHours").onchange(); await drain();
+  check("clothes already dry stay dry when the drying time is lengthened",
+    ev(`avail(closet.find(i=>i.id==="z1"))`) === 1);
+  check("clothes still drying take the new, longer time",
+    ev(`avail(closet.find(i=>i.id==="z2"))`) === 0);
+
   console.log("\n--- 5. the wear log keeps what is still drying ---------------------");
   T = realNow();
   await ev(`closet=[${JSON.stringify(item("p1", "white tee", ["white"]))}];

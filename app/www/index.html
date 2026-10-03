@@ -3161,7 +3161,10 @@ async function savePushPayload(){
       onTrip:!!tripInProgress(),
       closet:cl.map(i=>held.has(i.id)?{...i,freeAt:held.get(i.id)}:i),
       pending,
-      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
+      // With PENDING too: everything may be drying at 21:00 and dry by 05:00, and
+      // the worker restores those garments — without the rules, a banned pairing
+      // walks straight back in. Raised by the pre-push reviewer, 2026-10-03.
+      rules:cl.length||pending.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
       closetOnly:closetComplete,
       prefers:cl.length?swapSummary(cl):[]}));
   }catch(e){}

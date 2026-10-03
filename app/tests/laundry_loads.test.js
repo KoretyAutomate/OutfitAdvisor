@@ -136,6 +136,14 @@ const item = (id, label, colors, extra = {}) => ({id, label, category: "base", g
   check("pending is built from the same shape the server takes",
     q1 && q1.label === "white tee" && q1.category === "base" && Array.isArray(q1.roles));
 
+  await ev(`userRules=[{id:"r1",kind:"never",a:"q1",text:"never the white tee"}];
+    closet=[${JSON.stringify(item("q1", "white tee", ["white"]))}];
+    wearLog=[{itemId:"q1",wornAt:${T - D},washedAt:${T - H}}]; saveCloset()`);
+  const allWet = JSON.parse(await ev(`prefGet("oa.pushPayload","{}")`));
+  check("everything drying still carries the rules, for when it is dry",
+    allWet.closet.length === 0 && allWet.pending.length === 1 && allWet.rules.length === 1, allWet);
+  await ev(`userRules=[]`);
+
   console.log("\n--- 7. the load in the edit sheet ----------------------------------");
   await ev(`closet=[${JSON.stringify(item("s1", "white tee", ["white"]))}]; saveCloset()`);
   await ev(`openSheet(closet[0],{isNew:false})`); await drain();

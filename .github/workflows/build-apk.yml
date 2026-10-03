@@ -33,6 +33,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        # The action's default is "tools platform-tools". The legacy `tools` package
+        # is gone from the runner's cmdline-tools 16.0 sdkmanager ("Failed to find
+        # package 'tools'"), which failed every build from 2026-10-03 before a line
+        # of ours ran. Nothing here uses it; what the build needs is installed below.
+        with:
+          packages: 'platform-tools'
 
       - name: Install SDK packages
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"

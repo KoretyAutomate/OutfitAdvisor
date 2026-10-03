@@ -473,7 +473,19 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // What they actually reach for. Stored in the payload but never
             // forwarded, so the habits shaped the advice the user asked for by hand
             // and not the 06:45 push — the one they mostly read.
-            val prefers = p.optJSONArray("prefers")
+            // Only preferences for garments actually being sent: the app summarises
+            // over what was still drying too, and a garment that has not dried by
+            // now is not in `closet` — preferring it would ask the model for an id
+            // it was never given.
+            val sent = (0 until closet.length()).mapNotNull { closet.optJSONObject(it)?.optString("id") }.toSet()
+            val prefers = p.optJSONArray("prefers")?.let { all ->
+                JSONArray().apply {
+                    for (i in 0 until all.length()) {
+                        val o = all.optJSONObject(i) ?: continue
+                        if (o.optString("id") in sent) put(o)
+                    }
+                }
+            }
             if (prefers != null && prefers.length() > 0) body.put("prefers", prefers)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.

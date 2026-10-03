@@ -3166,7 +3166,11 @@ async function savePushPayload(){
       // walks straight back in. Raised by the pre-push reviewer, 2026-10-03.
       rules:cl.length||pending.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
       closetOnly:closetComplete,
-      prefers:cl.length?swapSummary(cl):[]}));
+      // Over the PENDING garments too — a favourite drying tonight is worn tomorrow.
+      // The worker drops whatever is still wet at fire time, so the prompt never
+      // prefers an id that is not in the list beneath it. Raised by the pre-push
+      // reviewer, 2026-10-03.
+      prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[]}));
   }catch(e){}
 }
 

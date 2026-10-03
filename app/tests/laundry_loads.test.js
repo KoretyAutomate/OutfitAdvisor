@@ -143,6 +143,12 @@ const item = (id, label, colors, extra = {}) => ({id, label, category: "base", g
   check("everything drying still carries the rules, for when it is dry",
     allWet.closet.length === 0 && allWet.pending.length === 1 && allWet.rules.length === 1, allWet);
   await ev(`userRules=[]`);
+  // A favourite drying tonight: its preference must travel with it.
+  await ev(`swaps=[{slot:"base",wore:"q1",day:todayISO()},{slot:"base",wore:"q1",day:todayISO()}];
+    savePushPayload()`); await drain();
+  const prefIds = JSON.parse(await ev(`prefGet("oa.pushPayload","{}")`)).prefers.map(p => p.id);
+  await ev("swaps=[]");
+  check("a drying favourite keeps its preference for the worker to filter", prefIds.includes("q1"), prefIds);
 
   console.log("\n--- 7. the load in the edit sheet ----------------------------------");
   await ev(`closet=[${JSON.stringify(item("s1", "white tee", ["white"]))}]; saveCloset()`);

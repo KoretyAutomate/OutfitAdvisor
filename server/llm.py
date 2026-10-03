@@ -249,6 +249,9 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
         + _warmth_line(climate)
         + f'"formality": subset of {list(STYLES)} where it fits, '
         '"waterproof": true/false, '
+        # For the rule that a long sleeve never goes under a short one (layers.py).
+        '"sleeve": "short", "long" or "none" (sleeveless) for tops, underwear and '
+        "dresses — how far the sleeves reach in the photo; null for anything else, "
         # Asked LAST and with an explicit null, because a brand is the one field
         # here the model can invent fluently: a plain navy crew-neck "looks like"
         # Uniqlo. A made-up maker is worse than none — the wearer has no reason to
@@ -268,8 +271,8 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
             }
         ],
         # 150 was sized before `type` joined the schema; the extra key costs ~10,
-        # and `brand` another ~15.
-        max_tokens=200,
+        # `brand` another ~15, `sleeve` ~6.
+        max_tokens=210,
         timeout=60,
     )
     return _parse_json(out)

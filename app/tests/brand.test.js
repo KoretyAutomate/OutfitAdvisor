@@ -35,14 +35,14 @@ const item = (id, label, extra = {}) => ({id, label, category: "base", group: "t
   photo: true, ...extra});
 const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type: "parka",
   category: "outer", roles: ["outer"], colors: ["red"], warmth: 5, formality: ["smart"],
-  waterproof: true, brand});
+  waterproof: true, brand, sleeve: "long"});
 
 (async () => {
   console.log("\n--- 1. the scan -----------------------------------------------------");
   const w = page();
   await w.eval("appReady");
   await w.eval(`closet=[${JSON.stringify(item("b1", "navy tee"))}, ${JSON.stringify(item("b2", "grey tee"))},
-    ${JSON.stringify(item("b3", "white tee", {brand: "Muji"}))},
+    ${JSON.stringify(item("b3", "white tee", {brand: "Muji", sleeve: "short"}))},
     ${JSON.stringify(item("b4", "black tee", {photo: false}))}]; saveCloset()`);
   for (const id of ["b1", "b2", "b3"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
   w.eval("refreshBrands()");
@@ -62,7 +62,9 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   const by = id => c.find(i => i.id === id);
   check("a legible brand is filled in", by("b1").brand === "Uniqlo", by("b1"));
   check("no legible brand is recorded as read-and-empty", by("b2").brand === "", by("b2"));
-  check("an existing brand is left alone and not re-asked", by("b3").brand === "Muji" && asked.length === 2, asked);
+  check("an item with brand and sleeve already known is not re-asked", by("b3").brand === "Muji" && asked.length === 2, asked);
+  check("the sleeve is filled too", by("b1").sleeve === "long" && by("b2").sleeve === "long", [by("b1"), by("b2")]);
+  check("a known sleeve is left alone", by("b3").sleeve === "short");
   check("an item without a photo is not asked", by("b4").brand === undefined);
   check("nothing but the brand is touched",
     by("b1").label === "navy tee" && by("b1").type === "t_shirt" && by("b1").warmth === 2
@@ -70,10 +72,21 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   const stored = JSON.parse(await w.eval(`prefGet("oa.closet","[]")`));
   check("it is persisted", stored.find(i => i.id === "b1")?.brand === "Uniqlo", stored);
   check("the result says how many were found",
-    /Found a brand on 1 of 2/.test(w.document.getElementById("brandNote").textContent),
+    /Found a brand on 1 of 2, and sleeves on 2/.test(w.document.getElementById("brandNote").textContent),
     w.document.getElementById("brandNote").textContent);
   await w.eval("scanBrands()");
   check("a second tap asks nothing again", asked.length === 2, asked.length);
+
+  console.log("\n--- 1b. a garment with a brand but no sleeve is read for the sleeve only");
+  await w.eval(`closet=[${JSON.stringify(item("c1", "white tee", {brand: "Muji"}))},
+    ${JSON.stringify({...item("c2", "jeans", {}), group: "bottoms", category: "bottoms", type: "jeans", roles: ["bottoms"], brand: "Levi's"})}]; saveCloset()`);
+  for (const id of ["c1", "c2"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
+  asked.length = 0;
+  w.fetch = async () => { asked.push(1); return {ok: true, status: 200, json: async () => answer("Uniqlo")}; };
+  await w.eval("scanBrands()");
+  let cc = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("only the top is asked — trousers have no sleeves to read", asked.length === 1, asked.length);
+  check("its brand is kept, its sleeve is filled", cc[0].brand === "Muji" && cc[0].sleeve === "long", cc[0]);
 
   console.log("\n--- 2. unreachable -------------------------------------------------");
   await w.eval(`closet=[${JSON.stringify(item("u1", "tee one"))}, ${JSON.stringify(item("u2", "tee two"))}]; saveCloset()`);
@@ -127,6 +140,24 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   await w.eval(`photoSave=window._ps`);
   s = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("a brand found during the photo save survives it too", s[0].brand === "Muji", s[0]);
+
+  console.log("\n--- 4. sleeves in the sheet and on the wire ----------------------------");
+  await w.eval(`closet=[${JSON.stringify(item("v1", "white long-T"))}]; saveCloset()`);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  check("an unread sleeve opens as not specified", w.document.getElementById("shSleeve").value === "");
+  await w.eval(`closet[0].sleeve="long"`);            // the scan lands under the open sheet
+  await w.document.getElementById("shSave").onclick(); await drain();
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("an untouched picker keeps what the scan found", s[0].sleeve === "long", s[0]);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  check("a known sleeve is shown", w.document.getElementById("shSleeve").value === "long");
+  w.document.getElementById("shSleeve").value = "short";
+  await w.document.getElementById("shSave").onclick(); await drain();
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a chosen sleeve is saved", s[0].sleeve === "short", s[0]);
+  const pay = JSON.parse(w.eval("JSON.stringify([closetPayload(), closetOwned()])"));
+  check("the sleeve travels with the advice and wardrobe payloads",
+    pay[0].some(i => i.sleeve === "short") && pay[1].some(i => i.sleeve === "short"), pay);
 
   await w.eval(`closet=[${JSON.stringify(item("t1", "navy tee", {brand: "A.P.C. <b>x</b>"}))}]; saveCloset()`);
   await w.eval("renderCloset()"); await drain();

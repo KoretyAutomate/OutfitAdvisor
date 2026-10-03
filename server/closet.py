@@ -19,6 +19,7 @@ Depends one way on llm.py (transport + shared weather flags); llm.py does not
 import this, so there is no cycle.
 """
 
+import layers
 import picks as pk
 import reroll
 import scale
@@ -114,6 +115,8 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         f"{handles[i['id']]} | can be worn as: {'/'.join(i.get('roles') or [i['category']])}"
         f" | {i['label']}"
         + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else "")
+        + (f" | {s} sleeves" if (s := layers.sleeve_of(i)) in ("short", "long") else
+           " | sleeveless" if s == "none" else "")
         + f" | colors: {','.join(i['colors'])}"
         f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
@@ -188,6 +191,11 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         # A dress cannot be both the top and the bottoms — picks holds one item per
         # slot and _dedupe_picks would strip the second. Saying so here saves a
         # corrective retry; _onepiece_conflicts enforces it either way.
+        # layers.tidy() enforces both afterwards; saying them here gets them right
+        # the first time (user, 2026-09-30: long-T under a tee under a cardigan).
+        f"LAYER RULE: today allows at most {layers.day_budget(closet, plan)} torso layers "
+        "(inner, base, mid and outer together) — fewer is fine. Never put a "
+        "long-sleeved item under a short-sleeved one.\n"
         "ONE-PIECE RULE: a dress, jumpsuit or pair of dungarees goes in base and "
         "makes bottoms unnecessary — set bottoms to null and say so in its bullet, "
         "rather than adding trousers under it.\n"
@@ -524,6 +532,10 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         if note:
             error_note = note
             continue
+        # The outfit as a STACK, LAST of all the repairs (layers.py): the re-roll
+        # above can swap a short tee over a long undershirt, and every check before
+        # it judged garments one at a time. Raised by the pre-push reviewer.
+        banned_labels, put_on, cleared = layers.hold(picks, w, wd, prefs, banned_labels, added)
 
         def can_fill(slot: str, _p=picks) -> bool:
             return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
@@ -533,12 +545,12 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                                     wd.by_item)
         # A garment in the picture and not in the text reads as a bug in the app,
         # and this one is there precisely because the model did not put it there.
-        if text and added:
-            text = f"• {pk._added_top_line(added, wd.by_item)}\n{text}"
+        text = layers.with_added(text, put_on, wd.by_item) if text and put_on else text
         # The bullets naming what these replaced were struck just above, so without
         # this the changed slots would have no words at all.
         if text and swapped:
-            line = reroll.swapped_line(swapped, wd.by_item)
+            # Only swaps that survived the layer pass above — it can undo one.
+            line = reroll.swapped_line([s for s in swapped if picks.get(s[0]) == s[1]], wd.by_item)
             if line:
                 text = f"• {line}\n{text}"
         # Asked for something else and given the same thing back. By here that is
@@ -554,12 +566,12 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
-        return {"picks": picks, "text": text,
+        return {"picks": picks, "text": text, "cleared": sorted(cleared),
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.
                 "missing": pk._missing_slots(out.get("missing"), picks, filled_before,
-                                             covered | now_covered, can_fill,
+                                             covered | now_covered | cleared, can_fill,
                                              unsuitable)}
     # WITH the reason. Giving up costs the user their own clothes — under
     # closetOnly it empties the screen — and the line said only that it happened.

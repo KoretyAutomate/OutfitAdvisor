@@ -116,6 +116,16 @@ const item = (id, label, colors, extra = {}) => ({id, label, category: "base", g
   check("worn six days ago, never washed: back on the passive timer, and pruned",
     ev("wearLog.length") === 0 && ev(`avail(closet[0])`) === 1);
 
+  // An expired wear still in the log (pruned only on a write) is clean already.
+  T = realNow();
+  await ev(`closet=[${JSON.stringify(item("e1", "white tee", ["white"]))},
+    ${JSON.stringify(item("e2", "white shirt", ["white"]))}]; saveCloset();
+    wearLog=[{itemId:"e1",wornAt:${T - 6 * D}},{itemId:"e2",wornAt:${T - D}}]`);
+  w.document.getElementById("laundryBtn").onclick(); await drain();
+  await w.document.getElementById("washGo").onclick(); await drain();
+  check("washing never sends a garment that was already clean back to drying",
+    ev(`avail(closet.find(i=>i.id==="e1"))`) === 1 && ev(`avail(closet.find(i=>i.id==="e2"))`) === 0);
+
   console.log("\n--- 6. the push payload says when things come free ------------------");
   T = realNow();
   await ev(`closet=[${JSON.stringify(item("q1", "white tee", ["white"]))},

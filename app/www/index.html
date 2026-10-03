@@ -4920,9 +4920,12 @@ $("closetDone").onchange=async()=>{
 /* What a wash can take: wears not yet washed, and not today's — that shirt is still
    on you. Grouped by the load each garment goes in. */
 function washable(){
-  const today=localDay(Date.now()), by={white:[],light:[],colorful:[],dark:[]};
+  const now=Date.now(), today=localDay(now), by={white:[],light:[],colorful:[],dark:[]};
   for(const w of wearLog){
-    if(w.washedAt!=null||localDay(w.wornAt)===today) continue;
+    // Expired wears too: one already back on the passive timer is clean, and the
+    // log is only pruned on a write — stamping it would put a clean garment back to
+    // drying. Raised by the pre-push reviewer, 2026-10-03.
+    if(w.washedAt!=null||localDay(w.wornAt)===today||freeAt(w)<=now) continue;
     const it=closet.find(i=>i.id===w.itemId);
     if(it) by[loadOf(it)].push(w);
   }

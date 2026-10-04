@@ -392,6 +392,36 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
      * direction, but past a few days it stops describing the wardrobe at all, and
      * generic advice is honester than confidently dressing someone from last week's.
      */
+    /**
+     * The wardrobe as of NOW, not as of when the app wrote it (laundry loads,
+     * 2026-10-03). Laundry washed at 21:00 is dry by the 05:00 push, but the count
+     * the app stamped at 21:00 still has it in the wash. So each garment carries
+     * `freeAt` — when each held unit comes free (dry, or off the passive timer) —
+     * and the ones with nothing free yet travel in `pending`. A unit whose time has
+     * passed is counted back in here; nothing else is computed, so the rules stay in
+     * one place (index.html) and this only reads the clock against them.
+     *
+     * A payload from a build without these fields has none to add, and passes
+     * through unchanged.
+     */
+    private fun freedBy(now: Long, closet: JSONArray, pending: JSONArray?): JSONArray {
+        val out = JSONArray()
+        for (src in listOfNotNull(closet, pending)) {
+            for (i in 0 until src.length()) {
+                val o = src.optJSONObject(i) ?: continue
+                val times = o.optJSONArray("freeAt")
+                var n = o.optInt("availableCount", 0)
+                if (times != null) for (k in 0 until times.length())
+                    if (times.optLong(k, Long.MAX_VALUE) <= now) n++
+                o.remove("freeAt")
+                if (n < 1) continue
+                o.put("availableCount", minOf(n, 99))
+                out.put(o)
+            }
+        }
+        return out
+    }
+
     private fun attachWardrobe(body: JSONObject) {
         try {
             val prefs = applicationContext
@@ -421,7 +451,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // last good day.
             val validBefore = p.optString("validBefore", "")
             if (validBefore.isNotEmpty() && today() >= validBefore) return
-            val closet = p.optJSONArray("closet") ?: return
+            val closet = freedBy(System.currentTimeMillis(),
+                p.optJSONArray("closet") ?: return, p.optJSONArray("pending"))
             // A valid payload with NOTHING wearable is sent as an EMPTY closet, not
             // omitted: the server tells "everything is in the wash" ([]) apart from
             // "the phone did not send its closet" (absent) — the refusals above stay
@@ -442,7 +473,19 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // What they actually reach for. Stored in the payload but never
             // forwarded, so the habits shaped the advice the user asked for by hand
             // and not the 06:45 push — the one they mostly read.
-            val prefers = p.optJSONArray("prefers")
+            // Only preferences for garments actually being sent: the app summarises
+            // over what was still drying too, and a garment that has not dried by
+            // now is not in `closet` — preferring it would ask the model for an id
+            // it was never given.
+            val sent = (0 until closet.length()).mapNotNull { closet.optJSONObject(it)?.optString("id") }.toSet()
+            val prefers = p.optJSONArray("prefers")?.let { all ->
+                JSONArray().apply {
+                    for (i in 0 until all.length()) {
+                        val o = all.optJSONObject(i) ?: continue
+                        if (o.optString("id") in sent) put(o)
+                    }
+                }
+            }
             if (prefers != null && prefers.length() > 0) body.put("prefers", prefers)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.

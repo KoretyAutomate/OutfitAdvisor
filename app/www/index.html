@@ -525,6 +525,8 @@
         <input type="text" id="shColors" placeholder="navy, white" style="width:100%">
       </div>
     </div>
+    <label class="lbl">Laundry load</label>
+    <select id="shLoad" style="width:100%;margin-bottom:12px"></select>
     <label class="lbl">Clothing group <span class="note" style="text-transform:none;letter-spacing:0">— which folder it lives in</span></label>
     <select id="shGroup" style="width:100%;margin-bottom:12px">
       <option value="underwear">Underwear</option>
@@ -681,6 +683,18 @@
       <p class="note" id="verMsg" style="display:none"></p>
       <button class="primary" id="verInstall" style="display:none;width:100%;margin-top:9px">Install update</button>
     </div>
+    <h3>Laundry</h3>
+    <p class="note" style="margin-top:0">Your household washes in four loads — Whites,
+      Light colours, Colourful and Darks. Each garment goes in the load its main colour
+      says, unless you choose one on the garment itself. "Laundry done" asks which loads
+      you washed.</p>
+    <label class="lbl">Drying time <span class="note" style="text-transform:none;letter-spacing:0">— washed clothes are back in rotation once they are dry</span></label>
+    <select id="dryHours" style="width:100%;margin-bottom:14px">
+      <option value="0">Dry straight away (tumble dryer)</option>
+      <option value="6">6 hours</option><option value="12">12 hours</option>
+      <option value="24">1 day</option><option value="36">1½ days</option>
+      <option value="48">2 days</option>
+    </select>
     <details class="det">
       <summary>Advanced — advisor server</summary>
       <div class="row" style="margin-top:10px">
@@ -694,6 +708,19 @@
 </div>
 
 <!-- Place codes sheet: teach the app what your abbreviations mean, once. -->
+<!-- Laundry done: WHICH loads were washed (user, 2026-10-03). -->
+<div class="modal" id="washWrap">
+  <div class="sheet">
+    <h3>Which loads did you wash?</h3>
+    <p class="note" id="washNote" style="margin-top:0"></p>
+    <div id="washLoads"></div>
+    <div class="row" style="gap:8px;margin-top:12px">
+      <button class="ghost" id="washCancel" style="flex:1">Cancel</button>
+      <button class="primary" id="washGo" style="flex:2" disabled>Washed</button>
+    </div>
+  </div>
+</div>
+
 <!-- "I wore something else": one row per slot, prefilled with what was suggested. -->
 <div class="modal" id="woreWrap">
   <div class="sheet">
@@ -1359,13 +1386,49 @@ function reconcileItem(it,inferFromLabel=false){
    re-inferring on every reconcile would make that option inert. */
 function migrateItem(it){ return reconcileItem(it,true); }
 let closet=[];   // {id,label,brand?,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
-let wearLog=[];  // {itemId, wornAt(epoch-ms)}
+let wearLog=[];  // {itemId, wornAt(epoch-ms), washedAt?(epoch-ms)}
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
   : [8,8,8,8].map(n=>Math.random().toString(36).slice(2,2+n)).join("-"));
 const localDay=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;};
-function activeWears(id){ const now=Date.now();
-  return wearLog.filter(w=>w.itemId===id && (now-w.wornAt)<COOLDOWN_DAYS*DAY_MS).length; }
+/* Laundry LOADS (user, 2026-10-03): "My household has split rules into 1) white
+   2) light color 3) colorful colors 4) dark color. When I click on laundry done, I
+   want to pick which split of laundry is done ... it's more realistic to assume
+   laundry done as finished washing but not yet dry."
+
+   So a wear is not cleared by "Laundry done" any more — it is stamped `washedAt`,
+   and the garment is back the moment it is DRY, `dryHours` later. A wear nobody
+   washed still comes back on the old passive timer (COOLDOWN_DAYS), the app's guess
+   that it went through the wash by then. One function says when a wear stops
+   holding its garment, and every reader asks it: the grid, the advice, the push,
+   the packing list. */
+const LOADS=["white","light","colorful","dark"];
+const LOAD_LABEL={white:"Whites",light:"Light colours",colorful:"Colourful",dark:"Darks"};
+let laundry={dryHours:24};   // Settings → Laundry; oa.laundry
+const WHITE_C=/^(white|off[- ]?white|ivory|cream|snow|ecru)$/;
+const LIGHT_C=/^(beige|light|pale|pastel|sand|stone|khaki|tan|oatmeal|camel|natural|silver|lilac|lavender|mint|sky|baby|blush|peach)\b|\b(light|pale|pastel)\b|^(pink|light ?(grey|gray|blue|green|pink|yellow))$/;
+const DARK_C=/^(black|navy|charcoal|dark|brown|chocolate|maroon|burgundy|indigo|denim|forest|olive|espresso|midnight|graphite|slate|wine|oxblood)\b|\bdark\b|^(grey|gray)$/;
+/* The load a garment goes in: the wearer's choice if made, else read off its FIRST
+   colour — the one the classifier names as the main one. Grey is a dark-wash colour
+   in most households; "light grey" says otherwise and is read as light. */
+function loadOf(it){
+  if(LOADS.includes(it.load)) return it.load;
+  const c=String((it.colors||[])[0]||"").trim().toLowerCase();
+  if(!c) return "colorful";
+  if(WHITE_C.test(c)) return "white";
+  if(LIGHT_C.test(c)) return "light";
+  if(DARK_C.test(c)) return "dark";
+  return "colorful";
+}
+function freeAt(w){
+  return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
+                          : w.wornAt+COOLDOWN_DAYS*DAY_MS;
+}
+const heldAt=(id,t)=>wearLog.filter(w=>w.itemId===id && freeAt(w)>t);
+function activeWears(id){ return heldAt(id,Date.now()).length; }
+/* Washed and not yet dry — what the grid calls "drying" rather than "wash". */
+function dryingWears(id){ const now=Date.now();
+  return wearLog.filter(w=>w.itemId===id && w.washedAt!=null && freeAt(w)>now).length; }
 function avail(it){ return Math.max(0, it.count-activeWears(it.id)); }
 function logWear(id){ const today=localDay(Date.now());          // idempotent per item per day
   if(wearLog.some(w=>w.itemId===id && localDay(w.wornAt)===today)) return;
@@ -1373,8 +1436,10 @@ function logWear(id){ const today=localDay(Date.now());          // idempotent p
 function unlogWearToday(id){ const today=localDay(Date.now());
   wearLog=wearLog.filter(w=>!(w.itemId===id && localDay(w.wornAt)===today)); }
 async function saveCloset(){
-  const cut=Date.now()-COOLDOWN_DAYS*DAY_MS;                     // prune stale wears on every write
-  wearLog=wearLog.filter(w=>w.wornAt>=cut);
+  // Prune wears that no longer hold anything, on every write. By freeAt, not by
+  // wornAt: a shirt worn five days ago and washed this morning is still drying.
+  const now=Date.now();
+  wearLog=wearLog.filter(w=>freeAt(w)>now);
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
@@ -1408,7 +1473,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.35";
+const WEB_BUILD="1.36";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1939,6 +2004,14 @@ function paintSheetSegs(){
    not independent: moving a shirt into Outerwear must not leave "Polo shirt"
    selected underneath it. "not specified" stays offered — an untyped item is a
    perfectly good wardrobe entry, and every closet saved before 2026-08-14 is one. */
+/* The load picker says what "automatic" means for THIS garment, so following the
+   colours is a visible choice rather than an unexplained default. */
+function paintLoad(){
+  const auto=loadOf({...sheet.item,load:undefined});
+  $("shLoad").innerHTML=`<option value="">Automatic — ${esc(LOAD_LABEL[auto])}, from its colour</option>`
+    +LOADS.map(l=>`<option value="${l}">${esc(LOAD_LABEL[l])}</option>`).join("");
+  $("shLoad").value=LOADS.includes(sheet.item.load)?sheet.item.load:"";
+}
 function paintTypes(){
   const g=sheet.item.group, cur=normType(sheet.item.type,g);
   sheet.item.type=cur;
@@ -1989,6 +2062,7 @@ async function openSheet(item,opts){
   sheet.sleeve0=$("shSleeve").value;
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
+  paintLoad();
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
   // Save would write, or the wearer approves one picture and keeps another.
@@ -2063,7 +2137,9 @@ async function renderCloset(){
     return `<div class="item${a===0?" out":""}" data-id="${esc(it.id)}">
       ${src?`<img src="${src}" alt="">`:`<div class="ph">${CAT_ICON[it.category]||GARMENT.tee}</div>`}
       ${it.count>1||a<it.count?`<span class="cnt">${a}/${it.count}</span>`:""}
-      ${a<it.count?`<span class="dirty" title="in the laundry">wash</span>`:""}
+      ${a<it.count?(dryingWears(it.id)
+        ?`<span class="dirty" title="washed — drying">drying</span>`
+        :`<span class="dirty" title="in the laundry">wash</span>`):""}
       <div class="nm">${it.brand?`<span class="br">${esc(it.brand)}</span> · `:""}${esc(it.label)}</div></div>`;
   };
 
@@ -2886,7 +2962,7 @@ async function geocodeMany(city){
    is not the only way clothes get clean — the "Laundry done" button exists). */
 function packAvail(it,departureMs,laundryBefore){
   if(laundryBefore) return it.count;
-  const n=wearLog.filter(w=>w.itemId===it.id&&(departureMs-w.wornAt)<COOLDOWN_DAYS*DAY_MS).length;
+  const n=heldAt(it.id,departureMs).length;      // still wet or unwashed at departure
   return Math.max(0,it.count-n);
 }
 function packPayload(trip){
@@ -2977,15 +3053,16 @@ function closetOwned(){
     formality:i.formality,waterproof:i.waterproof,...(i.sleeve?{sleeve:i.sleeve}:{}),
     availableCount:Math.max(1,i.count||1)}));
 }
-function closetPayload(){
-  const trip=tripInProgress();
-  const meta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+/* One garment as the server expects it, availability aside. */
+const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     type:normType(i.type,i.group),roles:normRoles(i.roles,i.category),colors:i.colors,
     warmth:i.warmth,...itemScale(i),
     formality:i.formality,waterproof:i.waterproof,
     // The server's sleeve rule (layers.py) reads this; absent, it falls back to
     // the name and the kind, and an unknown sleeve never triggers the rule.
     ...(i.sleeve?{sleeve:i.sleeve}:{})});
+function closetPayload(){
+  const trip=tripInProgress(), meta=itemMeta;
   if(trip){
     const packedQty=new Map(trip.packed.map(p=>[p.id,p.qty]));
     return closet.filter(i=>packedQty.has(i.id))
@@ -2995,6 +3072,28 @@ function closetPayload(){
   }
   return closet.map(i=>({...meta(i),availableCount:avail(i)}))
     .filter(i=>i.availableCount>=1);
+}
+/* What the push payload adds: every garment with units held right now, and WHEN
+   each unit comes free. The worker fires hours after this was written — laundry
+   washed at 21:00 is dry by the 05:00 push — so it counts what has come free by
+   then instead of trusting a count that was only true at 21:00. `pending` carries
+   the garments with nothing free yet, which `closet` leaves out.
+   Units are capped as closetPayload caps them (the suitcase on a trip), so a
+   garment can never come back as more than is there. */
+function heldUnits(){
+  const now=Date.now(), trip=tripInProgress();
+  const cap=trip?new Map(trip.packed.map(p=>[p.id,p.qty])):null;
+  const out=new Map();
+  for(const i of closet){
+    if(cap&&!cap.has(i.id)) continue;
+    const have=cap?Math.min(cap.get(i.id),i.count):i.count;
+    const times=heldAt(i.id,now).map(freeAt).sort((a,b)=>a-b);
+    // More wears than units (a count lowered after wearing): only the last `have`
+    // to come free can make a difference.
+    const t=times.slice(Math.max(0,times.length-have));
+    if(t.length) out.set(i.id,t);
+  }
+  return out;
 }
 
 /* What the MORNING PUSH should send.
@@ -3051,15 +3150,27 @@ function pushPayloadValidBefore(){
 }
 async function savePushPayload(){
   try{
-    const cl=closetPayload();
+    const cl=closetPayload(), held=heldUnits();
+    const sent=new Set(cl.map(i=>i.id));
+    // A garment with nothing free yet, in closetPayload's own shape at count 0.
+    const pending=closet.filter(i=>held.has(i.id)&&!sent.has(i.id))
+      .map(i=>({...itemMeta(i),availableCount:0,freeAt:held.get(i.id)}));
     await prefSet(PUSH_PAYLOAD_KEY, JSON.stringify({
       at:Date.now(),
       validBefore:pushPayloadValidBefore(),
       onTrip:!!tripInProgress(),
-      closet:cl,
-      rules:cl.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
+      closet:cl.map(i=>held.has(i.id)?{...i,freeAt:held.get(i.id)}:i),
+      pending,
+      // With PENDING too: everything may be drying at 21:00 and dry by 05:00, and
+      // the worker restores those garments — without the rules, a banned pairing
+      // walks straight back in. Raised by the pre-push reviewer, 2026-10-03.
+      rules:cl.length||pending.length?userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text})):[],
       closetOnly:closetComplete,
-      prefers:cl.length?swapSummary(cl):[]}));
+      // Over the PENDING garments too — a favourite drying tonight is worn tomorrow.
+      // The worker drops whatever is still wet at fire time, so the prompt never
+      // prefers an id that is not in the list beneath it. Raised by the pre-push
+      // reviewer, 2026-10-03.
+      prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[]}));
   }catch(e){}
 }
 
@@ -4697,6 +4808,12 @@ async function load(){
   // remembers the CHOICE (GPS vs a typed city), never the location itself
   state.useGps=(await prefGet("oa.useGps","0"))==="1";
   tab=await prefGet("oa.tab","advice");
+  // BEFORE the closet and the wear log: every prune and availability count reads
+  // the drying time, and a default standing in for the wearer's own would release
+  // clothes that are still wet.
+  try{ const l=JSON.parse(await prefGet("oa.laundry","{}"))||{};
+    laundry={dryHours:l.dryHours!=null&&Number.isFinite(+l.dryHours)?Math.max(0,Math.min(72,+l.dryHours)):24}; }
+  catch(e){ laundry={dryHours:24}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
@@ -4713,6 +4830,7 @@ async function load(){
   try{ const c=await prefGet(CLIMATE_KEY,""); climate=c?JSON.parse(c):null; }catch(e){ climate=null; }
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
+  if($("dryHours")) $("dryHours").value=String(laundry.dryHours);
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
@@ -4799,13 +4917,70 @@ $("closetDone").onchange=async()=>{
   toast(closetComplete?"Only your own clothes from now on"
                      :"Suggestions for gaps are back on");
 };
-$("laundryBtn").onclick=async()=>{
-  // washing returns everything EXCEPT what was worn today (that shirt is still on you)
-  const today=localDay(Date.now()); const before=wearLog.length;
-  wearLog=wearLog.filter(w=>localDay(w.wornAt)===today);
-  const n=before-wearLog.length;
+/* What a wash can take: wears not yet washed, and not today's — that shirt is still
+   on you. Grouped by the load each garment goes in. */
+function washable(){
+  const now=Date.now(), today=localDay(now), by={white:[],light:[],colorful:[],dark:[]};
+  for(const w of wearLog){
+    // Expired wears too: one already back on the passive timer is clean, and the
+    // log is only pruned on a write — stamping it would put a clean garment back to
+    // drying. Raised by the pre-push reviewer, 2026-10-03.
+    if(w.washedAt!=null||localDay(w.wornAt)===today||freeAt(w)<=now) continue;
+    const it=closet.find(i=>i.id===w.itemId);
+    if(it) by[loadOf(it)].push(w);
+  }
+  return by;
+}
+let washPick=new Set();
+function paintWash(){
+  const by=washable();
+  $("washLoads").innerHTML=LOADS.map(l=>{
+    const n=by[l].length;
+    return `<label class="calRow" style="padding-left:0"><input type="checkbox" data-load="${l}"
+      ${washPick.has(l)?"checked":""} ${n?"":"disabled"}><span>${LOAD_LABEL[l]}
+      <span class="note">${n?`${n} item${n===1?"":"s"} waiting`:"nothing waiting"}</span></span></label>`;
+  }).join("");
+  $("washLoads").querySelectorAll("input").forEach(c=>{ c.onchange=()=>{
+    if(c.checked) washPick.add(c.dataset.load); else washPick.delete(c.dataset.load);
+    $("washGo").disabled=!washPick.size; }; });
+  const h=laundry.dryHours;
+  $("washNote").textContent=h
+    ? `They'll be back in rotation once dry — in ${h<24?`${h} hours`:h===24?"a day":`${h/24} days`} (Settings → Laundry).`
+    : "They go straight back into rotation (Settings → Laundry).";
+  $("washGo").disabled=!washPick.size;
+}
+$("laundryBtn").onclick=()=>{
+  const by=washable();
+  if(!LOADS.some(l=>by[l].length)){ toast("Nothing was waiting on the wash"); return; }
+  // Every load with something in it starts ticked — the old one-tap "everything"
+  // is one tap more, and untick is how you say only the darks went in.
+  washPick=new Set(LOADS.filter(l=>by[l].length));
+  paintWash(); $("washWrap").classList.add("show");
+};
+$("washCancel").onclick=()=>$("washWrap").classList.remove("show");
+$("washWrap").onclick=e=>{ if(e.target===$("washWrap")) $("washWrap").classList.remove("show"); };
+$("washGo").onclick=async()=>{
+  const by=washable(), now=Date.now(); let n=0;
+  for(const l of washPick) for(const w of by[l]){ w.washedAt=now; n++; }
+  $("washWrap").classList.remove("show");
   await saveCloset();
-  toast(n?`Laundry done — ${n} wear${n>1?"s":""} back in rotation`:"Nothing was waiting on the wash");
+  const names=[...washPick].map(l=>LOAD_LABEL[l]).join(", ");
+  const h=laundry.dryHours;
+  toast(!n?"Nothing was waiting on the wash"
+    : h ? `${names} washed — ${n} item${n>1?"s":""} back once dry, ${new Date(now+h*3600000)
+            .toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"})}`
+        : `${names} washed — ${n} item${n>1?"s":""} back in rotation`);
+};
+$("dryHours").onchange=async()=>{
+  // Settle what has ALREADY dried under the old time first. The log is pruned only
+  // on a write, so a shirt dry two hours ago is still in it — and re-read against a
+  // longer drying time it would go back to "drying". Clothes still drying take the
+  // new time. Raised by the pre-push reviewer, 2026-10-03.
+  const now=Date.now();
+  wearLog=wearLog.filter(w=>freeAt(w)>now);
+  laundry.dryHours=Math.max(0,Math.min(72,+$("dryHours").value||0));
+  await prefSet("oa.laundry",JSON.stringify(laundry));
+  await saveCloset();      // drying times moved: the grid and the push payload follow
 };
 $("closetGrid").onclick=e=>{
   const t=e.target.closest(".item"); if(!t) return;
@@ -4901,6 +5076,10 @@ $("shSave").onclick=async()=>{
   reconcileItem(it);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
+  // "" = follow the colours, which is also how every garment saved before loads
+  // existed reads — so it is stored as absence, not as a value that would stop
+  // following a later colour correction.
+  if(LOADS.includes($("shLoad").value)) it.load=$("shLoad").value; else delete it.load;
   // For an EXISTING item too, since 2026-08-31 — this used to be new-items-only, so
   // a retaken photo was captured, previewed, saved, and silently dropped. Keyed by
   // the item id, so writing it replaces the old picture rather than orphaning it.

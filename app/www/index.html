@@ -394,6 +394,10 @@
         <button id="addGalBtn">Upload</button>
         <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">Laundry done</button>
       </div>
+      <!-- Undo the last wash (user, 2026-10-04): a load ticked by mistake, or a wash
+           logged before it actually ran. Shown only while undoing would change
+           something. -->
+      <button class="ghost" id="unwashBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem"></button>
       <!-- Only shown when something in the closet has no Kind. An item saved before
            2026-08-14 has none, and its folder can only file it under "Other". -->
       <!-- "That is everything I own." Until the user says so, an unfillable slot
@@ -1443,7 +1447,7 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
-  refreshRescan(); refreshTidy(); refreshBrands();
+  refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash();
   refreshShopping();
   // The outfit card reads the closet too, once it is showing what was WORN: the
   // record names ids, and the label and the photo come from here. Renaming or
@@ -1473,7 +1477,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.36";
+const WEB_BUILD="1.37";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -4816,6 +4820,9 @@ async function load(){
   catch(e){ laundry={dryHours:24}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
+  try{ const lw=JSON.parse(await prefGet("oa.lastWash","null"));
+    lastWash=lw&&Number.isFinite(lw.at)&&Array.isArray(lw.wears)&&Array.isArray(lw.loads)?lw:null; }
+  catch(e){ lastWash=null; }
   try{ trips=JSON.parse(await prefGet("oa.trips","[]"))||[]; }catch(e){ trips=[]; }
   try{ tripsDismissed=JSON.parse(await prefGet("oa.tripsDismissed","[]"))||[]; }catch(e){ tripsDismissed=[]; }
   await flagTripsFoundUnderOldRules();
@@ -4959,11 +4966,54 @@ $("laundryBtn").onclick=()=>{
 };
 $("washCancel").onclick=()=>$("washWrap").classList.remove("show");
 $("washWrap").onclick=e=>{ if(e.target===$("washWrap")) $("washWrap").classList.remove("show"); };
+/* The last wash, so it can be taken back (user, 2026-10-04). Which wears it stamped
+   is recorded by (item, worn-at) — not by reference — because a dry wear is pruned
+   from the log and the record has to outlive it. One level only: a new wash
+   replaces it, the way a new outfit replaces "Logged — tap to undo". */
+let lastWash=null;   // {at, loads:[...], wears:[{itemId,wornAt}]}  — oa.lastWash
+function unwashChanges(){
+  if(!lastWash) return 0;
+  const now=Date.now(); let n=0;
+  for(const r of lastWash.wears){
+    if(!closet.some(i=>i.id===r.itemId)) continue;           // garment deleted since
+    const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
+    if(live) { if(live.washedAt===lastWash.at) n++; }         // still drying, or dry
+    // Dried and pruned: only worth restoring while the passive timer would still be
+    // holding it — past that, it would have been back by now anyway.
+    else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now) n++;
+  }
+  return n;
+}
+function refreshUnwash(){
+  const b=$("unwashBtn"); if(!b) return;
+  const n=unwashChanges();
+  b.style.display=n?"":"none";
+  if(!n) return;
+  const when=new Date(lastWash.at).toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});
+  b.textContent=`Undo last wash — ${lastWash.loads.map(l=>LOAD_LABEL[l]).join(", ")} · ${when}`;
+}
+async function saveLastWash(){ await prefSet("oa.lastWash",JSON.stringify(lastWash)); refreshUnwash(); }
+$("unwashBtn").onclick=async()=>{
+  if(!lastWash) return;
+  const now=Date.now(); let n=0;
+  for(const r of lastWash.wears){
+    if(!closet.some(i=>i.id===r.itemId)) continue;
+    const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
+    if(live){ if(live.washedAt===lastWash.at){ delete live.washedAt; n++; } }
+    else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now){ wearLog.push({itemId:r.itemId,wornAt:r.wornAt}); n++; }
+  }
+  const names=lastWash.loads.map(l=>LOAD_LABEL[l]).join(", ");
+  lastWash=null;
+  await saveCloset(); await saveLastWash();
+  toast(n?`Wash undone — ${names}: ${n} item${n>1?"s":""} back in the laundry`:"Nothing to undo");
+};
 $("washGo").onclick=async()=>{
   const by=washable(), now=Date.now(); let n=0;
-  for(const l of washPick) for(const w of by[l]){ w.washedAt=now; n++; }
+  const stamped=[];
+  for(const l of washPick) for(const w of by[l]){ w.washedAt=now; n++; stamped.push({itemId:w.itemId,wornAt:w.wornAt}); }
   $("washWrap").classList.remove("show");
-  await saveCloset();
+  if(n){ lastWash={at:now,loads:[...washPick].filter(l=>by[l].length),wears:stamped}; }
+  await saveCloset(); await saveLastWash();
   const names=[...washPick].map(l=>LOAD_LABEL[l]).join(", ");
   const h=laundry.dryHours;
   toast(!n?"Nothing was waiting on the wash"
@@ -5433,7 +5483,7 @@ const appReady=(async()=>{
   // Re-stamped on every launch, so the push's copy is at most a day behind even if
   // nothing was edited.
   await savePushPayload();
-  refreshRescan(); refreshTidy(); refreshBrands(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
+  refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash(); refreshSchedStatus(); refreshReadiness(); renderTrips(); renderFeedback(); renderHome(); renderClimate(); renderCalSel(); renderPlaces(); renderRules(); refreshShopping();
   // Fire-and-forget, and a no-op unless a home is set and its anchors are missing:
   // ten years of archive is not something to make the first paint wait for.
   refreshClimate();

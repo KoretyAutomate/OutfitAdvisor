@@ -189,6 +189,63 @@ const item = (id, label, colors, extra = {}) => ({id, label, category: "base", g
   await w.document.getElementById("shSave").onclick(); await drain();
   check("back to automatic stores nothing", ev("closet[0].load") === undefined);
 
+  console.log("\n--- 8. undo the last wash (user, 2026-10-04) ----------------------");
+  T = realNow();
+  await ev(`closet=[${JSON.stringify(item("u1", "white tee", ["white"]))},
+    ${JSON.stringify(item("u2", "navy tee", ["navy"]))},
+    ${JSON.stringify(item("u3", "red tee", ["red"]))}];
+    wearLog=[{itemId:"u1",wornAt:${T - D}},{itemId:"u2",wornAt:${T - D}},{itemId:"u3",wornAt:${T - D}}];
+    lastWash=null; saveCloset()`);
+  const ub = () => w.document.getElementById("unwashBtn");
+  check("no undo before any wash", ub().style.display === "none");
+  w.document.getElementById("laundryBtn").onclick(); await drain();
+  const bx = l => w.document.querySelector(`#washLoads input[data-load="${l}"]`);
+  bx("colorful").checked = false; bx("colorful").onchange();
+  await w.document.getElementById("washGo").onclick(); await drain();
+  check("after a wash the undo is offered, naming the loads",
+    ub().style.display !== "none" && /Whites, Darks/.test(ub().textContent), ub().textContent);
+  const before = JSON.parse(ev("JSON.stringify(wearLog)"));
+  await ub().onclick(); await drain();
+  const after = JSON.parse(ev("JSON.stringify(wearLog)"));
+  check("undo takes the wash back: nothing is drying any more",
+    after.length === 3 && after.every(x => x.washedAt == null), after);
+  check("the wear dates are untouched", after.every(x => before.some(b => b.itemId === x.itemId && b.wornAt === x.wornAt)));
+  check("the undo is gone once used", ub().style.display === "none");
+  check("and is not remembered", JSON.parse(await ev(`prefGet("oa.lastWash","null")`)) === null);
+
+  // Dried and pruned already: restored while the 4-day timer would still hold it.
+  w.document.getElementById("dryHours").value = "0";
+  await w.document.getElementById("dryHours").onchange(); await drain();
+  w.document.getElementById("laundryBtn").onclick(); await drain();
+  await w.document.getElementById("washGo").onclick(); await drain();
+  check("a tumble-dried wash is pruned from the log", ev("wearLog.length") === 0);
+  check("…and can still be undone", ub().style.display !== "none");
+  await ub().onclick(); await drain();
+  check("undo puts the dried clothes back in the laundry", ev("wearLog.length") === 3
+    && ev(`avail(closet[0])`) === 0, JSON.parse(ev("JSON.stringify(wearLog)")));
+  w.document.getElementById("dryHours").value = "24";
+  await w.document.getElementById("dryHours").onchange(); await drain();
+
+  // Nothing to take back: old wears past their timer are not resurrected.
+  T = realNow();
+  await ev(`wearLog=[]; lastWash={at:${T - 5 * D},loads:["white"],wears:[{itemId:"u1",wornAt:${T - 6 * D}}]};
+    saveCloset()`);
+  check("an undo that would change nothing is not offered", ub().style.display === "none");
+
+  // A new wash replaces the undo with its own.
+  await ev(`wearLog=[{itemId:"u1",wornAt:${T - D}},{itemId:"u2",wornAt:${T - D}}]; lastWash=null; saveCloset()`);
+  w.document.getElementById("laundryBtn").onclick(); await drain();
+  bx("dark").checked = false; bx("dark").onchange();
+  await w.document.getElementById("washGo").onclick(); await drain();
+  w.document.getElementById("laundryBtn").onclick(); await drain();
+  await w.document.getElementById("washGo").onclick(); await drain();
+  check("only the latest wash is undone", /Darks/.test(ub().textContent) && !/Whites/.test(ub().textContent),
+    ub().textContent);
+  await ub().onclick(); await drain();
+  const l2 = JSON.parse(ev("JSON.stringify(wearLog)"));
+  check("…leaving the earlier wash in place",
+    l2.find(x => x.itemId === "u1").washedAt != null && l2.find(x => x.itemId === "u2").washedAt == null, l2);
+
   console.log(`\n# ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -171,14 +171,17 @@ class Ctx:
     rules: tuple
     shown: dict
     look: Look
+    #: rain likely today — a waterproof garment is never swapped for one that is not
+    wet: bool = False
 
 
 def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
     plan = _plan_temp(w)
     hi = w.get("hi")
     peak = max(plan, float(hi)) if hi is not None else plan
+    wet = bool(w.get("isRain") or w.get("isSnow") or (w.get("rain") or 0) >= 50)
     return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
-               getattr(prefs, "look", None) or Look())
+               getattr(prefs, "look", None) or Look(), wet)
 
 
 def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True) -> bool:
@@ -201,6 +204,10 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
         return False
     if slot == "outer" and not scale.warm_enough(item, ctx.plan):
         return False
+    # A wet day: the waterproof jacket or boots stay waterproof. A style rule is not
+    # worth getting soaked for. Raised by the pre-push reviewer, 2026-10-07.
+    if ctx.wet and (wd.by_item.get(picks[slot]) or {}).get("waterproof") and not item.get("waterproof"):
+        return False
     if scale.too_warm(item, pk._heat_temp(slot, ctx.plan, ctx.peak)):
         return False
     trial = {**picks, slot: cand}
@@ -213,9 +220,12 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
         return False                            # the layer pass would change it
     before = violations(picks, wd.by_item, ctx.look)
     after = violations(trial, wd.by_item, ctx.look)
-    if improve:
-        return len(after) < len(before) and {s for s, _ in after} <= {s for s, _ in before}
-    return len(after) <= len(before)
+    # Never a NEW problem, whatever it buys: trading three colour violations for a
+    # pairing the wearer voted down is not an improvement they would recognise.
+    # Raised by the pre-push reviewer, 2026-10-07.
+    if not set(after) <= set(before):
+        return False
+    return len(after) < len(before) if improve else True
 
 
 def repair(ctx: Ctx, picks: dict, prefer_ids: set) -> list[tuple]:

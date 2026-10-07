@@ -298,3 +298,21 @@ def test_two_patterns_are_fixed_from_whichever_side_can_change():
     picks = {"base": STRIPE_SHIRT["id"], "outer": PLAID_JACKET["id"], "bottoms": CHINOS["id"]}
     style.repair(c, picks, set())
     assert picks["base"] == plain["id"] and picks["outer"] == PLAID_JACKET["id"]
+
+
+def test_a_colour_fix_never_brings_in_a_pairing_they_voted_down():
+    c = ctx(RED_TEE, GREEN_CARDI, YELLOW_PANTS, NAVY_CARDI,
+            disliked=((RED_TEE["id"], NAVY_CARDI["id"]),))
+    picks = {"base": RED_TEE["id"], "mid": GREEN_CARDI["id"], "bottoms": YELLOW_PANTS["id"]}
+    style.repair(c, picks, set())
+    assert picks["mid"] != NAVY_CARDI["id"]
+
+
+def test_on_a_wet_day_the_waterproof_jacket_stays():
+    wet_plaid = {**PLAID_JACKET, "waterproof": True}
+    base = ctx(STRIPE_SHIRT, wet_plaid, NAVY_JACKET, CHINOS)
+    picks = {"base": STRIPE_SHIRT["id"], "outer": wet_plaid["id"], "bottoms": CHINOS["id"]}
+    style.repair(style.Ctx(base.wd, 14, 18, (), {}, base.look, True), picks, set())
+    assert picks["outer"] == wet_plaid["id"]
+    style.repair(base, picks, set())               # dry: the pattern rule may change it
+    assert picks["outer"] == NAVY_JACKET["id"]

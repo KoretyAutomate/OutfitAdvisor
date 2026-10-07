@@ -55,6 +55,7 @@ class Prefs:
     prefers: tuple = ()
     #: {slot: item id} already on screen for today; empty on the day's first ask
     shown: tuple = ()
+    look: object = None   # style.Look — register, gender, the wearer's look votes
 
     @classmethod
     def of(cls, rules_list: list[dict] | None, closet_only: bool = False,

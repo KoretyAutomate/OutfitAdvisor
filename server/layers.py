@@ -127,6 +127,8 @@ def added_line(added: tuple, by_item: dict) -> str:
     if len(added) < 3:
         return pk._added_top_line(added, by_item)
     label = str((by_item.get(added[1]) or {}).get("label") or "").strip()
+    if added[2] == "style":
+        return f"{label or 'A garment from your closet'} — {added[3] if len(added) > 3 else 'a better match'}."
     if added[2] == "sleeve":
         return (f"{label or 'A short-sleeved undershirt'} as the undershirt — short "
                 "sleeves, so nothing shows below the ones over it.")

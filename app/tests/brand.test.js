@@ -42,7 +42,7 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   const w = page();
   await w.eval("appReady");
   await w.eval(`closet=[${JSON.stringify(item("b1", "navy tee"))}, ${JSON.stringify(item("b2", "grey tee"))},
-    ${JSON.stringify(item("b3", "white tee", {brand: "Muji", sleeve: "short"}))},
+    ${JSON.stringify(item("b3", "white tee", {brand: "Muji", sleeve: "short", pattern: "solid"}))},
     ${JSON.stringify(item("b4", "black tee", {photo: false}))}]; saveCloset()`);
   for (const id of ["b1", "b2", "b3"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
   w.eval("refreshBrands()");
@@ -79,7 +79,7 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
 
   console.log("\n--- 1b. a garment with a brand but no sleeve is read for the sleeve only");
   await w.eval(`closet=[${JSON.stringify(item("c1", "white tee", {brand: "Muji"}))},
-    ${JSON.stringify({...item("c2", "jeans", {}), group: "bottoms", category: "bottoms", type: "jeans", roles: ["bottoms"], brand: "Levi's"})}]; saveCloset()`);
+    ${JSON.stringify({...item("c2", "jeans", {}), group: "bottoms", category: "bottoms", type: "jeans", roles: ["bottoms"], brand: "Levi's", pattern: "solid"})}]; saveCloset()`);
   for (const id of ["c1", "c2"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
   asked.length = 0;
   w.fetch = async () => { asked.push(1); return {ok: true, status: 200, json: async () => answer("Uniqlo")}; };

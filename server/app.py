@@ -55,6 +55,7 @@ import rules
 import ruleparse
 import scale
 import shopping as shopping_llm
+import style
 import updates
 import vocab
 import weather
@@ -142,8 +143,8 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     missing: list[str] = []
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        prefs = closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
-                                    [p.model_dump() for p in req.prefers], req.shown)
+        prefs = style.look_of(closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
+                              [p.model_dump() for p in req.prefers], req.shown), req)
         result = await closet_llm.closet_outfit(wc, req.gender, req.style, items, prefs)
         if result is not None:
             text = result["text"]
@@ -171,8 +172,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
             # IDs are already validated against the sent closet — echo them so
             # the app can wear-log the exact items (plan amendment 2).
             picks = result["picks"]
-        # result None -> honest generic fallback below, closetUsed stays False
-        # (plan amendments 3 & 9: never mislabel non-closet advice).
+        # result None -> honest generic fallback below, closetUsed stays False (plan 3 & 9)
 
     # The tickbox has to hold when things go WRONG, not only when they go right.
     # closet_outfit returns None on a malformed reply or an unreachable model, and
@@ -586,7 +586,7 @@ async def classify(req: ClassifyRequest):
             waterproof=bool(raw.get("waterproof")),
             warmthScale=graded_on,
             warmthAnchors=anchors,
-            brand=raw.get("brand"), sleeve=raw.get("sleeve"),
+            brand=raw.get("brand"), sleeve=raw.get("sleeve"), pattern=raw.get("pattern"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

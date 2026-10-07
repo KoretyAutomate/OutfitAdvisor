@@ -90,6 +90,14 @@ const JEANS = item("b1", "jeans", "bottoms"), SHOES = item("f1", "sneakers", "fo
     ev("styleSummary()") === null);
   await ev("styleVotes=[]");
 
+  const many = Array.from({length: 40}, (_, i) => `x${i}`);
+  await ev(`closet=closet.concat(${JSON.stringify(many.map(id => ({...TEE, id})))});
+    styleVotes=[{day:"${d1}",ids:${JSON.stringify(many)},v:-1},{day:"${d2}",ids:["t1","b1"],v:-1}]`);
+  sv = JSON.parse(ev(`JSON.stringify(styleSummary(["t1","b1"]))`));
+  check("pairs the request can use come before the cap",
+    sv.hint.length === 30 && sv.hint[0].join() === "b1,t1", sv.hint.slice(0, 2));
+  await ev(`closet=closet.filter(i=>!/^x\d+$/.test(i.id)); styleVotes=[]`);
+
   console.log("\n--- 3. what's off? ---------------------------------------------------");
   let posted = null, status = 422;
   w.fetch = async (url, opts) => {

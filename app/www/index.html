@@ -3212,7 +3212,7 @@ async function savePushPayload(){
       // reviewer, 2026-10-03.
       prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[],
       // How outfits looked (style.py): the worker forwards this as it stands.
-      styleVotes:cl.length||pending.length?styleSummary():null}));
+      styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null}));
   }catch(e){}
 }
 
@@ -3290,7 +3290,7 @@ async function getAdvice(lat,lon){
     // same reason `prefers` is: the server matches these ids against the wardrobe
     // it was handed, and there is no wardrobe here to match them against.
     if(cl.length){ const sn=shownNow(); if(sn) body.shown=sn; }
-    if(cl.length){ const sv=styleSummary(); if(sv) body.styleVotes=sv; }
+    if(cl.length){ const sv=styleSummary(cl.map(i=>i.id)); if(sv) body.styleVotes=sv; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -4683,8 +4683,12 @@ async function saveStyle(){
   renderLook();
   await savePushPayload();
 }
-function styleSummary(){
+function styleSummary(sentIds){
+  // `sentIds`: the wardrobe this request carries. Pairs it can use go FIRST, before
+  // the cap — truncating first let pairs about clothes in the wash crowd out the
+  // ones the server could act on. Raised by the pre-push reviewer, 2026-10-07.
   const owned=new Set(closet.map(i=>i.id)), acc=new Map();
+  const live=sentIds?new Set(sentIds):owned;
   // Expired on READ as well as on save: somebody who stops voting must not be held
   // to a two-month-old opinion forever. Raised by the pre-push reviewer, 2026-10-07.
   const cut=dayISO(Date.now()-LOOK_DAYS*DAY_MS);
@@ -4705,7 +4709,9 @@ function styleSummary(){
     else if(e.net<=-1) out.hint.push(pair);
     else if(e.net>=2) out.liked.push(pair);
   }
-  for(const k of ["liked","disliked","hint"]) out[k]=out[k].slice(0,30);
+  const usable=p=>live.has(p[0])&&live.has(p[1])?0:1;
+  for(const k of ["liked","disliked","hint"])
+    out[k]=out[k].sort((x,y)=>usable(x)-usable(y)).slice(0,30);
   return out.liked.length||out.disliked.length||out.hint.length||out.notes.length?out:null;
 }
 function renderLook(){

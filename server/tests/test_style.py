@@ -337,3 +337,11 @@ def test_with_a_complete_closet_the_stylist_reason_never_names_something_to_buy(
     d = c.post("/advice", json={"lat": 40.3, "lon": -74.6, "closet": closet,
                                 "closetOnly": True}).json()
     assert d["picks"]["bottoms"] == CHINOS["id"] and "overcoat" not in d["outfit_text"]
+
+
+def test_one_disliked_pair_is_never_traded_for_another():
+    c = ctx(RED_TEE, GREEN_CARDI, NAVY_CARDI, YELLOW_PANTS,
+            disliked=((RED_TEE["id"], GREEN_CARDI["id"]), (RED_TEE["id"], NAVY_CARDI["id"])))
+    picks = {"base": RED_TEE["id"], "mid": GREEN_CARDI["id"], "bottoms": YELLOW_PANTS["id"]}
+    assert not style.legal_swap(c, picks, "mid", NAVY_CARDI["id"])
+    assert not style.legal_swap(c, picks, "mid", NAVY_CARDI["id"], improve=False)

@@ -160,7 +160,11 @@ def violations(picks: dict, by_item: dict, look: Look,
     for a, b in look.disliked:
         if a in ids and b in ids:
             # Both sides: either one changing breaks the pairing. Easiest first.
-            out += [(c, "a pairing you did not like")
+            # WHICH pair, when judging a swap: two different disliked pairings in the
+            # same slot are different problems, and a swap trading one for another
+            # is not a fix. Raised by the pre-push reviewer, 2026-10-07.
+            why = "a pairing you did not like" + ("" if one_per_slot else f" [{a}|{b}]")
+            out += [(c, why)
                     for c in sorted((ids[a], ids[b]), key=lambda s: _SWAP_ORDER.index(s)
                                     if s in _SWAP_ORDER else 99)]
     if not one_per_slot:

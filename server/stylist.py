@@ -28,6 +28,8 @@ from llm import _fenced, _parse_json, log
 
 BUDGET_S = 50.0
 STYLIST_TIMEOUT_S = 15
+_RULE_WHYS = ("one pattern is enough", "fewer colours together", "smarter for today",
+              "a pairing you did not like")
 POOR = 2            # a score at or below this may swap; above it, the review is noted only
 
 
@@ -115,8 +117,11 @@ async def finish(picks: dict, w: dict, wd, prefs, banned: list[dict],
         log.warning("closet picks: %s swapped for %s (style)", slot, new)
         if (gone := wd.by_item.get(old)) and picks.get(slot) != old:
             banned = banned + [{**gone, "_why": "style"}]
-        # A reason that names a garment just taken off would recommend it again.
-        if prose._names_banned(why, banned):
+        # A reason that names a garment just taken off would recommend it again; and
+        # with the wardrobe declared complete, the stylist's own words may name
+        # something not owned ("add a wool overcoat") — its swap stands, its prose
+        # does not. Raised by the pre-push reviewer, 2026-10-07.
+        if prose._names_banned(why, banned) or (prefs.closet_only and why not in _RULE_WHYS):
             why = "a better match with the rest"
         lines.append((slot, new, "style", why))
     lines = [a for a in lines if a and picks.get(a[0]) == a[1]]

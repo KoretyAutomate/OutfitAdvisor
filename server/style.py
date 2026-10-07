@@ -121,8 +121,14 @@ def look_of(prefs: pk.Prefs, req) -> pk.Prefs:
     return replace(prefs, look=look)
 
 
-def violations(picks: dict, by_item: dict, look: Look) -> list[tuple[str, str]]:
-    """(slot to change, why) for every style rule the outfit breaks, worst first."""
+def violations(picks: dict, by_item: dict, look: Look,
+               one_per_slot: bool = True) -> list[tuple[str, str]]:
+    """(slot to change, why) for every style rule the outfit breaks, worst first.
+
+    One reason per slot for choosing a repair and saying why; ALL of them for
+    judging a swap, or a second problem in an already-flagged slot is invisible to
+    it — a disliked pairing hiding behind a pattern clash. Raised by the pre-push
+    reviewer, 2026-10-07."""
     out: list[tuple[str, str]] = []
     worn = {c: by_item.get(picks[c]) or {} for c in VISIBLE if picks.get(c)}
     order = [c for c in _SWAP_ORDER if c in worn]
@@ -157,6 +163,8 @@ def violations(picks: dict, by_item: dict, look: Look) -> list[tuple[str, str]]:
             out += [(c, "a pairing you did not like")
                     for c in sorted((ids[a], ids[b]), key=lambda s: _SWAP_ORDER.index(s)
                                     if s in _SWAP_ORDER else 99)]
+    if not one_per_slot:
+        return list(dict.fromkeys(out))
     first: dict[str, tuple[str, str]] = {}
     for v in out:
         first.setdefault(v[0], v)      # one reason per slot: the worst, listed first
@@ -218,8 +226,8 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
         return False
     if layers.tidy(dict(trial), wd, ctx.plan, list(ctx.rules), ctx.peak):
         return False                            # the layer pass would change it
-    before = violations(picks, wd.by_item, ctx.look)
-    after = violations(trial, wd.by_item, ctx.look)
+    before = violations(picks, wd.by_item, ctx.look, one_per_slot=False)
+    after = violations(trial, wd.by_item, ctx.look, one_per_slot=False)
     # Never a NEW problem, whatever it buys: trading three colour violations for a
     # pairing the wearer voted down is not an improvement they would recognise.
     # Raised by the pre-push reviewer, 2026-10-07.

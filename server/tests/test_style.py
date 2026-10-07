@@ -316,3 +316,24 @@ def test_on_a_wet_day_the_waterproof_jacket_stays():
     assert picks["outer"] == wet_plaid["id"]
     style.repair(base, picks, set())               # dry: the pattern rule may change it
     assert picks["outer"] == NAVY_JACKET["id"]
+
+
+def test_a_swap_cannot_hide_a_disliked_pair_behind_an_existing_clash():
+    printed = g("itm-prtjack1", "printed jacket", "outerwear", "jacket", ["outer"], 3, ["grey"],
+                pattern="print")
+    c = ctx(STRIPE_SHIRT, PLAID_JACKET, printed, CHINOS,
+            disliked=((STRIPE_SHIRT["id"], printed["id"]),))
+    picks = {"base": STRIPE_SHIRT["id"], "outer": PLAID_JACKET["id"], "bottoms": CHINOS["id"]}
+    assert not style.legal_swap(c, picks, "outer", printed["id"], improve=False)
+
+
+def test_with_a_complete_closet_the_stylist_reason_never_names_something_to_buy(monkeypatch):
+    closet = [WHITE_TEE, JOGGERS, CHINOS, SNEAK]
+    from picks import handles_for
+    h = {i: k for k, i in handles_for(closet).items()}[CHINOS["id"]]
+    c = _client(monkeypatch, {"base": WHITE_TEE["id"], "bottoms": JOGGERS["id"]},
+                stylist_reply={"score": 2, "issue": "add a wool overcoat to finish it",
+                               "swap": {"slot": "bottoms", "handle": h}}, stylist_on=True)
+    d = c.post("/advice", json={"lat": 40.3, "lon": -74.6, "closet": closet,
+                                "closetOnly": True}).json()
+    assert d["picks"]["bottoms"] == CHINOS["id"] and "overcoat" not in d["outfit_text"]

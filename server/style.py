@@ -127,9 +127,13 @@ def violations(picks: dict, by_item: dict, look: Look) -> list[tuple[str, str]]:
     worn = {c: by_item.get(picks[c]) or {} for c in VISIBLE if picks.get(c)}
     order = [c for c in _SWAP_ORDER if c in worn]
 
+    # Every busy garment is a candidate when there are two: whichever has a legal
+    # plain replacement changes, easiest first. Flagging only one side left the
+    # clash standing whenever that side had no alternative and the other did.
+    # Raised by the pre-push reviewer, 2026-10-07.
     busy = [c for c in order if pattern_of(worn[c]) not in (None, "solid")]
-    # Keep the one least willing to move; every other busy garment is a violation.
-    out += [(c, "one pattern is enough") for c in busy[:-1]]
+    if len(busy) > 1:
+        out += [(c, "one pattern is enough") for c in busy]
 
     # Every accent-coloured garment is a candidate to change, not only the third:
     # repair() tries them easiest-first and the wearer's favourites last, and any
@@ -149,10 +153,10 @@ def violations(picks: dict, by_item: dict, look: Look) -> list[tuple[str, str]]:
     ids = {i: c for c, i in picks.items() if i}
     for a, b in look.disliked:
         if a in ids and b in ids:
-            # Change whichever of the two is easier to change.
-            c = min((ids[a], ids[b]), key=lambda s: _SWAP_ORDER.index(s)
-                    if s in _SWAP_ORDER else 99)
-            out.append((c, "a pairing you did not like"))
+            # Both sides: either one changing breaks the pairing. Easiest first.
+            out += [(c, "a pairing you did not like")
+                    for c in sorted((ids[a], ids[b]), key=lambda s: _SWAP_ORDER.index(s)
+                                    if s in _SWAP_ORDER else 99)]
     first: dict[str, tuple[str, str]] = {}
     for v in out:
         first.setdefault(v[0], v)      # one reason per slot: the worst, listed first
@@ -190,6 +194,10 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
     if ctx.shown.get(slot) == cand:             # would undo "show me something else"
         return False
     if wd.by_group.get(cand) == "onepiece":     # changes the legs too: not a swap
+        return False
+    # Nor OUT of one: the trousers were cleared for the dress, and a shirt in its
+    # place would leave the legs bare. Raised by the pre-push reviewer, 2026-10-07.
+    if wd.by_group.get(picks[slot]) == "onepiece":
         return False
     if slot == "outer" and not scale.warm_enough(item, ctx.plan):
         return False

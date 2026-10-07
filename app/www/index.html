@@ -3529,6 +3529,10 @@ function refreshOutfitView(){
   if(!lastOutfit) return;
   drawOutfit(lastOutfit,lastRes);
   syncWornNote();
+  // The look buttons judge the worn record when there is one, so a correction or a
+  // restored record changes whether they can be used. Raised by the pre-push
+  // reviewer, 2026-10-07.
+  renderLook();
 }
 
 /* Trips the app added BY ITSELF under rules we have since found to be wrong.
@@ -4601,6 +4605,9 @@ function renderRules(){
    server could not make a checkable rule of it (422), "error" when unreachable.
    Shared by the "Things to avoid" box and the look feedback's "What's off?". */
 async function ruleFromText(text){
+  // The limit belongs to the shared path, so no caller can exceed what the server
+  // accepts. Raised by the pre-push reviewer, 2026-10-07.
+  if(userRules.length>=MAX_RULES) return {status:"full"};
   try{
     const r=await fetchT(30000,state.baseUrl.replace(/\/+$/,"")+"/rule",{
       method:"POST",headers:{"Content-Type":"application/json",
@@ -4678,7 +4685,11 @@ async function saveStyle(){
 }
 function styleSummary(){
   const owned=new Set(closet.map(i=>i.id)), acc=new Map();
+  // Expired on READ as well as on save: somebody who stops voting must not be held
+  // to a two-month-old opinion forever. Raised by the pre-push reviewer, 2026-10-07.
+  const cut=dayISO(Date.now()-LOOK_DAYS*DAY_MS);
   for(const x of styleVotes){
+    if(x.day<cut) continue;
     const ids=x.ids.filter(i=>owned.has(i));
     for(let a=0;a<ids.length;a++) for(let b=a+1;b<ids.length;b++){
       const k=[ids[a],ids[b]].sort().join("|");
@@ -4728,6 +4739,9 @@ $("lookSend").onclick=async()=>{
     const res=await ruleFromText(text);
     if(res.status==="ok"){
       $("lookNote").textContent="Rule added — "+(res.rule.restated||"the advisor will avoid that");
+    }else if(res.status==="full"){
+      $("lookNote").textContent=`You have the most rules the advisor can hold (${MAX_RULES}) — remove one under Things to avoid first.`;
+      return;
     }else if(res.status==="vague"){
       // Not checkable ("too many colours") — still worth saying to the advisor.
       styleNotes.push({at:Date.now(),text:text.slice(0,120)});

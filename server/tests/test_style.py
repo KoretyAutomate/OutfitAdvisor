@@ -16,7 +16,8 @@ import stylist
 from picks import Prefs, _index
 
 
-def g(iid, label, group, typ, roles, warmth, colors, **kw):
+def g(iid, label, group, typ, roles, *warmth_colors, **kw):
+    warmth, colors = warmth_colors
     return {"id": iid, "label": label, "category": roles[0], "group": group, "type": typ,
             "roles": roles, "colors": colors, "warmth": warmth,
             "formality": kw.pop("formality", ["casual"]), "waterproof": False,
@@ -270,3 +271,30 @@ def test_votes_from_an_old_phone_or_malformed_never_cost_the_morning(monkeypatch
                                 "styleVotes": {"disliked": "x", "notes": [1, None]}})
     assert r.status_code == 200, r.text
     assert Prefs().look is None
+
+
+# ── raised by the pre-push reviewer, 2026-10-07 ─────────────────────────────────
+
+def test_a_dress_is_never_swapped_for_a_top_that_leaves_the_legs_bare():
+    dress = g("itm-dress0001", "floral dress", "onepiece", "dress", ["base"], 2, ["red"])
+    c = ctx(dress, WHITE_TEE, PLAID_JACKET, NAVY_JACKET)
+    picks = {"base": dress["id"], "outer": PLAID_JACKET["id"]}
+    style.repair(c, picks, set())
+    assert picks["base"] == dress["id"]
+
+
+def test_a_disliked_pair_is_fixed_from_whichever_side_can_change():
+    """One pair of trousers, a second shirt: the shirt changes."""
+    c = ctx(WHITE_TEE, RED_TEE, JEANS, disliked=((WHITE_TEE["id"], JEANS["id"]),))
+    picks = {"base": WHITE_TEE["id"], "bottoms": JEANS["id"]}
+    style.repair(c, picks, set())
+    assert picks["base"] == RED_TEE["id"] and picks["bottoms"] == JEANS["id"]
+
+
+def test_two_patterns_are_fixed_from_whichever_side_can_change():
+    """No plain jacket owned, a plain shirt is: the shirt changes."""
+    plain = g("itm-plnshrt1", "white oxford shirt", "tops", "shirt", ["base"], 2, ["white"])
+    c = ctx(STRIPE_SHIRT, plain, PLAID_JACKET, CHINOS)
+    picks = {"base": STRIPE_SHIRT["id"], "outer": PLAID_JACKET["id"], "bottoms": CHINOS["id"]}
+    style.repair(c, picks, set())
+    assert picks["base"] == plain["id"] and picks["outer"] == PLAID_JACKET["id"]

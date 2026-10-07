@@ -84,6 +84,12 @@ const JEANS = item("b1", "jeans", "bottoms"), SHOES = item("f1", "sneakers", "fo
   check("a deleted garment drops out of what is sent", ev("styleSummary()") === null);
   await ev(`closet=${JSON.stringify([TEE, CARDI, JEANS, SHOES])}; saveCloset(); styleVotes=[]`);
 
+  const old = n => ev(`dayISO(Date.now()-${n}*DAY_MS)`);
+  await ev(`styleVotes=[{day:"${old(90)}",ids:["t1","b1"],v:-1},{day:"${old(91)}",ids:["t1","b1"],v:-1}]`);
+  check("votes older than 60 days are not used, even with no vote since",
+    ev("styleSummary()") === null);
+  await ev("styleVotes=[]");
+
   console.log("\n--- 3. what's off? ---------------------------------------------------");
   let posted = null, status = 422;
   w.fetch = async (url, opts) => {
@@ -103,6 +109,16 @@ const JEANS = item("b1", "jeans", "bottoms"), SHOES = item("f1", "sneakers", "fo
     JSON.parse(ev("JSON.stringify(userRules)")));
   check("the Things-to-avoid box still works through the same path",
     typeof ev("typeof addRule") === "string" && ev("typeof ruleFromText") === "function");
+
+  await ev(`userRules=Array.from({length:MAX_RULES},(_,i)=>({kind:"avoid_item",a:{type:"tie"},id:"r"+i,text:"x"}))`);
+  const full = JSON.parse(await ev(`ruleFromText("no hats").then(r=>JSON.stringify(r))`));
+  check("the rule limit holds on the shared path too", full.status === "full", full);
+  await ev(`userRules=[]`);
+  await ev(`lastRes={closetUsed:true,picks:{}}; lastOutfit={}; renderLook()`);
+  check("with nothing rated-able the buttons are off", btn(1).disabled);
+  await ev(`woreLogged={base:"t1",bottoms:"b1"}; woreDay=todayISO(); refreshOutfitView()`);
+  check("a correction saved afterwards switches them on", !btn(1).disabled);
+  await ev(`woreLogged=null; woreDay=null`);
 
   console.log("\n--- 4. on the wire ---------------------------------------------------");
   await ev(`styleVotes=[{day:"${d1}",ids:["t1","b1"],v:-1},{day:"${d2}",ids:["t1","b1"],v:-1}]; saveStyle()`);

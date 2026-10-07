@@ -359,6 +359,22 @@
           <button data-r="2"><span class="e">🥵</span><span class="c">Too warm</span></button>
         </div>
         <p class="note" id="fbNote"></p>
+        <!-- How it LOOKED (user, 2026-10-07: "user feedback is important"). Separate
+             from the warmth row on purpose: warmth tunes the temperatures, this tunes
+             which garments go together. -->
+        <label class="lbl" style="margin:12px 0 0">How did it look?</label>
+        <div class="row" id="lookRow" style="gap:8px;margin-top:6px">
+          <button class="ghost" data-v="1" style="flex:1">Looks good</button>
+          <button class="ghost" data-v="-1" style="flex:1">Not my style</button>
+        </div>
+        <div id="lookWhy" style="display:none;margin-top:8px">
+          <div class="row" style="gap:8px">
+            <input id="lookText" style="flex:1" maxlength="120"
+                   placeholder="What's off? (optional) e.g. too many colours">
+            <button class="ghost" id="lookSend" style="flex:0 0 auto;padding:9px 13px">Send</button>
+          </div>
+        </div>
+        <p class="note" id="lookNote" style="margin:5px 0 0"></p>
       <!-- Free-text feedback, turned into a rule the SERVER checks (2026-08-24).
            "White V-neck inner + white T — this combination shall be banned." -->
       <!-- Folded by default (user, 2026-08-26). A ban is set once and then wants
@@ -548,6 +564,13 @@
       <option value="">— not specified —</option>
       <option value="short">Short</option><option value="long">Long</option>
       <option value="none">Sleeveless</option>
+    </select>
+    <label class="lbl">Pattern <span class="note" style="text-transform:none;letter-spacing:0">— one busy piece per outfit is enough</span></label>
+    <select id="shPattern" style="width:100%;margin-bottom:12px">
+      <option value="">— not specified —</option>
+      <option value="solid">Plain</option><option value="striped">Striped</option>
+      <option value="checked">Checked / plaid</option><option value="print">Print (floral, dots…)</option>
+      <option value="graphic">Graphic / big logo</option>
     </select>
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
@@ -1477,7 +1500,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.37";
+const WEB_BUILD="1.38";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1768,6 +1791,7 @@ async function addItem(source){
     // it alone. Left undefined when the advisor never saw it, so the scan asks.
     ...(meta?{brand:typeof meta.brand==="string"?meta.brand:""}:{}),
     ...(meta&&SLEEVED.has(meta.group)?{sleeve:SLEEVES.includes(meta.sleeve)?meta.sleeve:null}:{}),
+    ...(meta&&PATTERNED.has(meta.group)?{pattern:PATTERNS.includes(meta.pattern)?meta.pattern:null}:{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
   item.photo=await photoSave(item.id,b64);
@@ -1923,14 +1947,19 @@ let brandBusy=false;
 const SLEEVES=["short","long","none"];
 const SLEEVED=new Set(["tops","underwear","onepiece"]);
 const needsSleeve=i=>i.sleeve===undefined&&SLEEVED.has(i.group);
-function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i))); }
+/* Pattern rides along too (user, 2026-10-07: style check) — the server keeps one busy
+   piece per outfit, and reads it from the name until the photo has been looked at. */
+const PATTERNS=["solid","striped","checked","print","graphic"];
+const PATTERNED=new Set(["tops","outerwear","bottoms","onepiece"]);
+const needsPattern=i=>i.pattern===undefined&&PATTERNED.has(i.group);
+function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i)||needsPattern(i))); }
 function refreshBrands(){
   const row=$("brandRow"); if(!row) return;
   const n=unbrandedItems().length;
   row.style.display=n?"":"none";
   if(!n||brandBusy) return;
-  $("brandTxt").textContent=`Read brands & sleeves from ${n} photo${n===1?"":"s"}`;
-  $("brandNote").textContent=`Looks for a legible logo or label, and how long the sleeves are. Where no brand shows, it stays empty for you to fill in.`;
+  $("brandTxt").textContent=`Read details from ${n} photo${n===1?"":"s"}`;
+  $("brandNote").textContent=`Looks for a legible logo or label, the sleeves and the pattern. Where no brand shows, it stays empty for you to fill in.`;
 }
 async function scanBrands(){
   if(brandBusy) return;
@@ -1938,7 +1967,7 @@ async function scanBrands(){
   if(!todo.length){ refreshBrands(); return; }
   brandBusy=true;
   const btn=$("brandBtn"); btn.disabled=true;
-  let done=0, found=0, sleeves=0, unreachable=false;
+  let done=0, found=0, sleeves=0, pats=0, unreachable=false;
   for(const it of todo){
     $("brandTxt").textContent=`Reading photos… ${done+1} of ${todo.length}`;
     $("brandNote").textContent=it.label;
@@ -1962,15 +1991,19 @@ async function scanBrands(){
       live.sleeve=SLEEVES.includes(meta.sleeve)?meta.sleeve:null;
       if(live.sleeve) sleeves++;
     }
+    if(needsPattern(live)){
+      live.pattern=PATTERNS.includes(meta.pattern)?meta.pattern:null;
+      if(live.pattern) pats++;
+    }
   }
   await saveCloset();
   brandBusy=false; btn.disabled=false;
   refreshBrands();
   $("brandRow").style.display="";                     // keep the result readable
-  if(!unbrandedItems().length) $("brandTxt").textContent="Brands read";
+  if(!unbrandedItems().length) $("brandTxt").textContent="Details read";
   $("brandNote").textContent=unreachable
-    ? `Read ${done} (${found} with a brand, ${sleeves} with sleeves) before the advisor stopped answering — tap again later for the rest.`
-    : `Found a brand on ${found} of ${done}, and sleeves on ${sleeves}. No brand showed on the rest — tap a tile to type one in.`;
+    ? `Read ${done} (${found} with a brand, ${sleeves} with sleeves, ${pats} with a pattern) before the advisor stopped answering — tap again later for the rest.`
+    : `Found a brand on ${found} of ${done}, and sleeves on ${sleeves}, patterns on ${pats}. No brand showed on the rest — tap a tile to type one in.`;
   toast(found?`${found} brand${found===1?"":"s"} found`:"No brands legible in the photos");
 }
 
@@ -2064,6 +2097,8 @@ async function openSheet(item,opts){
   sheet.brand0=$("shBrand").value;          // what the box said on opening — see Save
   $("shSleeve").value=SLEEVES.includes(sheet.item.sleeve)?sheet.item.sleeve:"";
   sheet.sleeve0=$("shSleeve").value;
+  $("shPattern").value=PATTERNS.includes(sheet.item.pattern)?sheet.item.pattern:"";
+  sheet.pattern0=$("shPattern").value;
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   paintLoad();
@@ -3064,7 +3099,8 @@ const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     formality:i.formality,waterproof:i.waterproof,
     // The server's sleeve rule (layers.py) reads this; absent, it falls back to
     // the name and the kind, and an unknown sleeve never triggers the rule.
-    ...(i.sleeve?{sleeve:i.sleeve}:{})});
+    ...(i.sleeve?{sleeve:i.sleeve}:{}),
+    ...(i.pattern?{pattern:i.pattern}:{})});
 function closetPayload(){
   const trip=tripInProgress(), meta=itemMeta;
   if(trip){
@@ -3174,7 +3210,9 @@ async function savePushPayload(){
       // The worker drops whatever is still wet at fire time, so the prompt never
       // prefers an id that is not in the list beneath it. Raised by the pre-push
       // reviewer, 2026-10-03.
-      prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[]}));
+      prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[],
+      // How outfits looked (style.py): the worker forwards this as it stands.
+      styleVotes:cl.length||pending.length?styleSummary():null}));
   }catch(e){}
 }
 
@@ -3252,6 +3290,7 @@ async function getAdvice(lat,lon){
     // same reason `prefers` is: the server matches these ids against the wardrobe
     // it was handed, and there is no wardrobe here to match them against.
     if(cl.length){ const sn=shownNow(); if(sn) body.shown=sn; }
+    if(cl.length){ const sv=styleSummary(); if(sv) body.styleVotes=sv; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -3369,7 +3408,7 @@ function renderOutfit(o,text,source,res){
      same day. Staleness is a question of the DAY, and the restore checks that.
      Raised by the pre-push reviewer, 2026-08-29. */
   ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
-  renderFeedback();
+  renderFeedback(); renderLook();
 }
 
 /* ───────── the garments the card is showing (2026-08-30) ─────────
@@ -4558,6 +4597,24 @@ function renderRules(){
      </div>`;}).join("")
     :`<p class="note" style="margin:6px 0 0">Nothing banned yet.</p>`;
 }
+/* One sentence → one enforced rule. "ok" with the rule saved, "vague" when the
+   server could not make a checkable rule of it (422), "error" when unreachable.
+   Shared by the "Things to avoid" box and the look feedback's "What's off?". */
+async function ruleFromText(text){
+  try{
+    const r=await fetchT(30000,state.baseUrl.replace(/\/+$/,"")+"/rule",{
+      method:"POST",headers:{"Content-Type":"application/json",
+        "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      body:JSON.stringify({text})});
+    if(r.status===422) return {status:"vague"};
+    if(!r.ok) return {status:"error"};
+    const rule=await r.json();
+    rule.text=text; rule.id="rl-"+uuid(); rule.at=Date.now();
+    userRules.push(rule);
+    await saveRules();
+    return {status:"ok",rule};
+  }catch(e){ return {status:"error"}; }
+}
 async function addRule(){
   const text=$("rlText").value.trim();
   $("rlErr").textContent="";
@@ -4570,26 +4627,119 @@ async function addRule(){
   }
   const b=$("rlAdd"), old=b.textContent; b.disabled=true; b.textContent="…";
   try{
-    const r=await fetchT(30000,state.baseUrl.replace(/\/+$/,"")+"/rule",{
-      method:"POST",headers:{"Content-Type":"application/json",
-        "X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
-      body:JSON.stringify({text})});
-    if(r.status===422){
+    const res=await ruleFromText(text);
+    if(res.status==="vague"){
       $("rlErr").textContent="Couldn't turn that into a rule. Try naming the two "+
         "garments, e.g. \"never a white undershirt under a white t-shirt\".";
       return;
     }
-    if(!r.ok) throw new Error("server "+r.status);
-    const rule=await r.json();
-    rule.text=text; rule.id="rl-"+uuid(); rule.at=Date.now();
-    userRules.push(rule);
+    if(res.status!=="ok"){
+      $("rlErr").textContent="Can't reach the advisor — check Tailscale, then try again.";
+      return;
+    }
     $("rlText").value="";
-    await saveRules();
-    toast("Rule added — "+(rule.restated||"the advisor will avoid that"));
-  }catch(e){
-    $("rlErr").textContent="Can't reach the advisor — check Tailscale, then try again.";
+    toast("Rule added — "+(res.rule.restated||"the advisor will avoid that"));
   }finally{ b.disabled=false; b.textContent=old; }
 }
+
+/* ───────── how outfits LOOKED (user, 2026-10-07) ─────────
+
+   "user feedback is important to build." A thumb on the card, about the outfit
+   as worn — the corrected record if one was logged, else what was suggested — with
+   the garments FROZEN at the tap, so a later re-roll or correction cannot change
+   which outfit was judged. One vote per day; the same thumb again takes it back.
+
+   What the advisor learns is PAIRS of garments: every two visible pieces of a voted
+   outfit get the vote. Summed over 60 days into three lists the server reads —
+     disliked  down on two different days and never up: ENFORCED (style.py swaps)
+     hint      down once: the model is told, nothing is enforced
+     liked     up at least twice: the model and the stylist are told
+   One thumbs-down never bans anything on its own: an outfit can look wrong for one
+   reason, and its other pairings should not pay for it for two months. */
+const LOOK_SLOTS=["base","mid","outer","bottoms","footwear"];
+const LOOK_DAYS=60;
+let styleVotes=[];   // [{day, ids:[...], v:+1|-1}]  — oa.styleVotes
+let styleNotes=[];   // [{at, text}]                  — oa.styleNotes, "what's off?" kept as notes
+function lookIds(){
+  const p=wearRecord()||shownNow();
+  if(!p) return null;
+  const ids=[...new Set(LOOK_SLOTS.map(s=>p[s]).filter(Boolean))];
+  return ids.length>=2?ids:null;
+}
+function todayVote(){ return styleVotes.find(x=>x.day===todayISO())||null; }
+async function saveStyle(){
+  const cut=dayISO(Date.now()-LOOK_DAYS*DAY_MS);
+  styleVotes=styleVotes.filter(x=>x.day>=cut);
+  styleNotes=styleNotes.slice(-5);
+  await prefSet("oa.styleVotes",JSON.stringify(styleVotes));
+  await prefSet("oa.styleNotes",JSON.stringify(styleNotes));
+  renderLook();
+  await savePushPayload();
+}
+function styleSummary(){
+  const owned=new Set(closet.map(i=>i.id)), acc=new Map();
+  for(const x of styleVotes){
+    const ids=x.ids.filter(i=>owned.has(i));
+    for(let a=0;a<ids.length;a++) for(let b=a+1;b<ids.length;b++){
+      const k=[ids[a],ids[b]].sort().join("|");
+      const e=acc.get(k)||{net:0,down:new Set(),up:0};
+      e.net+=x.v; if(x.v<0) e.down.add(x.day); else e.up++;
+      acc.set(k,e);
+    }
+  }
+  const out={liked:[],disliked:[],hint:[],notes:styleNotes.map(n=>n.text).slice(-5)};
+  for(const [k,e] of acc){
+    const pair=k.split("|");
+    if(e.net<=-2&&e.down.size>=2&&!e.up) out.disliked.push(pair);
+    else if(e.net<=-1) out.hint.push(pair);
+    else if(e.net>=2) out.liked.push(pair);
+  }
+  for(const k of ["liked","disliked","hint"]) out[k]=out[k].slice(0,30);
+  return out.liked.length||out.disliked.length||out.hint.length||out.notes.length?out:null;
+}
+function renderLook(){
+  const row=$("lookRow"); if(!row) return;
+  const tv=todayVote(), can=!!lookIds();
+  row.querySelectorAll("button").forEach(b=>{
+    b.classList.toggle("on",!!tv&&+b.dataset.v===tv.v); b.disabled=!can&&!tv; });
+  $("lookWhy").style.display=tv&&tv.v<0?"":"none";
+}
+$("lookRow").querySelectorAll("button").forEach(b=>{ b.onclick=async()=>{
+  const v=+b.dataset.v, tv=todayVote();
+  if(tv&&tv.v===v){                                   // same thumb again = take it back
+    styleVotes=styleVotes.filter(x=>x!==tv);
+    $("lookNote").textContent="";
+    await saveStyle(); return;
+  }
+  const ids=lookIds();
+  if(!ids){ toast("Nothing to rate yet"); return; }
+  styleVotes=styleVotes.filter(x=>x.day!==todayISO());
+  styleVotes.push({day:todayISO(),ids,v});
+  $("lookNote").textContent=v>0
+    ? "Noted — outfits like this will come up more."
+    : "Noted. Say what's off below if you like — it can become a rule.";
+  await saveStyle();
+}; });
+$("lookSend").onclick=async()=>{
+  const text=$("lookText").value.trim();
+  if(text.length<2) return;
+  const b=$("lookSend"); b.disabled=true;
+  try{
+    const res=await ruleFromText(text);
+    if(res.status==="ok"){
+      $("lookNote").textContent="Rule added — "+(res.rule.restated||"the advisor will avoid that");
+    }else if(res.status==="vague"){
+      // Not checkable ("too many colours") — still worth saying to the advisor.
+      styleNotes.push({at:Date.now(),text:text.slice(0,120)});
+      await saveStyle();
+      $("lookNote").textContent="Kept as a style note — the advisor will take it into account.";
+    }else{
+      $("lookNote").textContent="Can't reach the advisor — check Tailscale, then try again.";
+      return;
+    }
+    $("lookText").value="";
+  }finally{ b.disabled=false; }
+};
 
 /* ───────── today's advice, kept for the rest of the day (2026-08-24) ─────────
 
@@ -4820,6 +4970,12 @@ async function load(){
   catch(e){ laundry={dryHours:24}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
+  try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
+         .filter(x=>x&&typeof x.day==="string"&&Array.isArray(x.ids)&&(x.v===1||x.v===-1)); }
+  catch(e){ styleVotes=[]; }
+  try{ styleNotes=(JSON.parse(await prefGet("oa.styleNotes","[]"))||[])
+         .filter(n=>n&&typeof n.text==="string"); }
+  catch(e){ styleNotes=[]; }
   try{ const lw=JSON.parse(await prefGet("oa.lastWash","null"));
     lastWash=lw&&Number.isFinite(lw.at)&&Array.isArray(lw.wears)&&Array.isArray(lw.loads)?lw:null; }
   catch(e){ lastWash=null; }
@@ -5118,6 +5274,7 @@ $("shSave").onclick=async()=>{
   // written meanwhile. Set back to "not specified" by hand is null — a choice, and
   // not asked again — where undefined means never read.
   const sl=$("shSleeve").value, slTouched=sl!==sheet.sleeve0;
+  const pt=$("shPattern").value, ptTouched=pt!==sheet.pattern0;
   it.category=$("shCat").value;
   it.group=$("shGroup").value;
   it.type=$("shType").value||null;
@@ -5149,6 +5306,8 @@ $("shSave").onclick=async()=>{
   else it.brand=br;
   if(slTouched) it.sleeve=sl||null;
   else if(idx>=0&&closet[idx].sleeve!==undefined) it.sleeve=closet[idx].sleeve;
+  if(ptTouched) it.pattern=pt||null;
+  else if(idx>=0&&closet[idx].pattern!==undefined) it.pattern=closet[idx].pattern;
   if(idx>=0) closet[idx]=it; else closet.push(it);
   // After the CORRECTIONS, not before them. addItem clears gaps from whatever
   // /classify guessed, and the user is often here precisely because that guess was

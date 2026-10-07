@@ -487,6 +487,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 }
             }
             if (prefers != null && prefers.length() > 0) body.put("prefers", prefers)
+            // How outfits LOOKED (2026-10-07): pairs the wearer liked or voted down,
+            // and their notes. Forwarded as written — the server drops any garment it
+            // was not sent, so a pair naming something still drying costs nothing.
+            p.optJSONObject("styleVotes")?.let { body.put("styleVotes", it) }
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

@@ -121,6 +121,16 @@ class ClosetItem(BaseModel):
     # reads it off the name or the kind, and an answer it still cannot find never
     # triggers the rule.
     sleeve: Literal["short", "long", "none"] | None = None
+    # Solid or busy (user, 2026-10-07: style check). None = not stated; style.py
+    # then reads the name, and an unknown pattern never triggers the rule.
+    pattern: Literal["solid", "striped", "checked", "print", "graphic"] | None = None
+
+    @field_validator("pattern", mode="before")
+    @classmethod
+    def _known_pattern(cls, v):
+        """Anything else is DROPPED, not a 422 — same posture as `sleeve`."""
+        v = v.strip().lower() if isinstance(v, str) else v
+        return v if v in ("solid", "striped", "checked", "print", "graphic") else None
 
     @field_validator("sleeve", mode="before")
     @classmethod
@@ -228,6 +238,42 @@ class ClimateRequest(BaseModel):
     lon: float = Field(..., ge=-180, le=180)
 
 
+class StyleVotes(BaseModel):
+    """What the wearer said about how outfits LOOKED (user, 2026-10-07).
+
+    Summarised on the phone from thumbs up/down on the outfit card into garment
+    PAIRS:
+      disliked  voted down on two different days and never up — enforced
+      hint      voted down once — a hint to the model only
+      liked     voted up at least twice — a hint
+      notes     "what's off?" sentences that could not become a rule
+    Every bound is applied by DROPPING, never by a 422: a malformed vote must cost
+    the vote, not the morning.
+    """
+
+    liked: list[list[str]] = Field(default_factory=list)
+    disliked: list[list[str]] = Field(default_factory=list)
+    hint: list[list[str]] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+    @field_validator("liked", "disliked", "hint", mode="before")
+    @classmethod
+    def _pairs(cls, v: object) -> list:
+        if not isinstance(v, list):
+            return []
+        out = [[p[0], p[1]] for p in v if isinstance(p, list) and len(p) == 2
+               and all(isinstance(x, str) and _ID_OK.fullmatch(x) for x in p)
+               and p[0] != p[1]]
+        return out[:30]
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _notes(cls, v: object) -> list:
+        if not isinstance(v, list):
+            return []
+        return [n for n in (_clean(x, 120) for x in v if isinstance(x, str)) if n][:5]
+
+
 class AdviceRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
@@ -274,6 +320,7 @@ class AdviceRequest(BaseModel):
     # Filtered rather than rejected, like `rules`: an unknown slot or a malformed id
     # from an older build costs the re-roll, never the morning.
     shown: dict[str, str] = Field(default_factory=dict)
+    styleVotes: StyleVotes | None = None
 
     # `before`, so an explicit null from a build that sends the field unset reaches
     # this instead of pydantic's dict_type rejection. That would have been a 422 on

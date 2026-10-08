@@ -259,6 +259,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 // judge whether a bought garment answers this morning's gap using
                 // the server's own number rather than a second derivation of it.
                 .put("planTemp", raw.opt("planTemp"))
+                .put("peakTemp", raw.opt("peakTemp"))
             prefs.edit().putString(KEY_TODAY, out.toString()).apply()
             queueGaps(prefs, raw, out.getString("day"))
         } catch (e: Exception) {
@@ -361,6 +362,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                     .put("lo", w.opt("lo"))
                     .put("hi", w.opt("hi"))
                     .put("planTemp", raw.opt("planTemp"))
+                    .put("peakTemp", raw.opt("peakTemp"))
                     .put("sent", sentIds ?: JSONArray())
             )
             val trimmed = JSONArray()

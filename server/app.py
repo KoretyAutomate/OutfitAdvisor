@@ -54,6 +54,7 @@ import packlist
 import rules
 import ruleparse
 import scale
+import reroll
 import shopping as shopping_llm
 import style
 import updates
@@ -261,6 +262,9 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         # THIS server used rather than a reimplementation of how to derive it. One
         # fewer twin, and the one that would have been hardest to notice drifting.
         "planTemp": round(llm._plan_temp(wc), 1),
+        # The afternoon figure the same calibrated weather gives, for judging an
+        # all-day layer on the phone with the number this server used.
+        "peakTemp": round(reroll.peak_temp(wc, llm._plan_temp(wc)), 1),
         "picks": picks,
         "tempOffset": req.tempOffset,
     }

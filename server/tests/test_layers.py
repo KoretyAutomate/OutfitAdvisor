@@ -424,3 +424,86 @@ def test_the_replacement_undershirt_keeps_the_morning_warm_when_it_can():
     picks = {"inner": warm_long["id"], "base": TEE["id"]}
     layers.tidy(picks, wd(warm_long, SHORT_UNDER, warm_short, TEE), 8, [], peak_temp=11)
     assert picks["inner"] == warm_short["id"]
+
+
+# ── the cold morning with nothing warm on (user, 2026-10-08) ────────────────────
+# "T-shirt and jeans, no jacket" at 5C: every warmth guard judged a garment ALREADY
+# in the outfit, and the only re-warm ran after a sleeve repair. Nothing asked
+# whether anything warm enough was on at all.
+
+def _bare(picks):
+    return {"base": TEE["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"], **picks}
+
+
+def test_a_tee_alone_on_a_cold_morning_gets_something_warm_over_it():
+    picks = _bare({})
+    done = layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, JACKET), 5, [], peak_temp=14)
+    assert picks.get("mid") == CARDI["id"], picks
+    assert done == [("mid", CARDI["id"], "warmth")]
+
+
+def test_the_coolest_garment_that_does_the_job_is_chosen():
+    """Not the parka when the cardigan is enough."""
+    parka = g("itm-parka0001", "down parka", "outerwear", "puffer", ["outer"], 5)
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, parka, CARDI), 5, [], peak_temp=14)
+    assert picks.get("mid") == CARDI["id"] and not picks.get("outer")
+
+
+def test_on_a_wet_cold_day_the_waterproof_layer_is_preferred():
+    shell = g("itm-shell00001", "waterproof shell", "outerwear", "jacket", ["outer"], 3,
+              waterproof=True)
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, shell), 5, [], peak_temp=9, wet=True)
+    assert picks.get("outer") == shell["id"]
+
+
+def test_a_garment_that_does_not_suit_the_morning_is_not_forced_on():
+    """Nothing owned is warm enough for 4C: the outfit stands, no thin layer is
+    added for the look of it."""
+    picks = _bare({})
+    assert layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, JACKET), 4, [], peak_temp=10) == []
+    assert not picks.get("mid") and not picks.get("outer")
+
+
+def test_a_mild_day_adds_nothing():
+    picks = _bare({})
+    assert layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, JACKET), 20, [], peak_temp=24) == []
+
+
+def test_the_added_layer_obeys_the_wearers_rules_and_the_sleeve_rule():
+    long_base = {**LS_SHIRT, "roles": ["base"], "warmth": 1}
+    picks = {"base": long_base["id"], "bottoms": JEANS["id"]}
+    layers.tidy(picks, wd(long_base, JEANS, SS_CARDI), 5, [], peak_temp=14)
+    assert not picks.get("mid")                       # a short sleeve over a long: refused
+    rule = {"kind": "avoid_item", "a": {"type": "cardigan"}}
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, JACKET), 5, [rule], peak_temp=14)
+    assert picks.get("mid") != CARDI["id"] and picks.get("outer") == JACKET["id"]
+
+
+def test_the_8_oct_cold_morning_end_to_end(client, monkeypatch):
+    """The model answers tee + jeans + sneakers with 'None needed' for both layers on
+    a 5C morning. The advice puts the cardigan on and says so."""
+    async def cold(lat, lon, day):
+        return {"date": "2026-10-08", "timezone": "America/New_York", "code": 1,
+                "emoji": "🌤", "desc": "Clear", "lo": 5, "hi": 17, "swing": 12,
+                "feelsLo": 4, "feelsHi": 16, "rain": 0, "wind": 2, "morning": 5,
+                "midday": 14, "evening": 10, "isSnow": False, "isRain": False}
+
+    async def bare(messages, max_tokens, timeout=45, **kw):
+        return json.dumps({
+            "picks": {"inner": None, "base": TEE["id"], "mid": None, "outer": None,
+                      "bottoms": JEANS["id"], "footwear": SNEAK["id"], "accessories": None},
+            "bullets": ["Base: the white crew-neck T-shirt", "Mid: None needed",
+                        "Outer: None needed", "Bottoms: the jeans",
+                        "Footwear: the white sneakers"],
+            "missing": [], "tip": ""})
+    monkeypatch.setattr(srv.weather, "fetch_weather", cold)
+    monkeypatch.setattr(closet_llm, "_chat", bare)
+    d = client.post("/advice", json={"lat": 40.3, "lon": -74.6,
+                                     "closet": [TEE, JEANS, SNEAK, CARDI, JACKET]}).json()
+    assert d["picks"]["mid"] == CARDI["id"]
+    assert d["outfit"]["mid"] == "grey cardigan"
+    assert "grey cardigan — for the morning chill" in d["outfit_text"]
+    assert "Mid: None needed" not in d["outfit_text"]

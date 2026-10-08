@@ -75,7 +75,8 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
-def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict]) -> bool:
+def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict],
+                        peak_temp: float | None = None) -> bool:
     """Nothing on the torso is warm enough for the morning, after every repair has
     had its turn: the wardrobe has nothing to fix it with. Only meaningful on the
     FINISHED picks."""
@@ -84,10 +85,13 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict
     if not any(picks.get(c) for c in _TORSO) or _still_warm(picks, wd.by_item, plan_temp):
         return False
     # A warm garment owned and merely not usable together with the rest (a sleeve
-    # clash) is a styling problem, not something to buy. One the wearer's rules
-    # forbid does not count: for them the wardrobe has no such garment.
-    return not any(scale.warm_enough(item, plan_temp) and not scale.too_warm(item, plan_temp)
-                   and any(not rules.violations(user_rules, {**picks, r: iid}, wd.by_item)
+    # clash, a pairing rule) is a styling problem, not something to buy. One the
+    # wearer has banned outright does not count: for them the wardrobe has no such
+    # garment. Worn all day, a layer is judged by the afternoon for heat too.
+    peak = plan_temp if peak_temp is None else peak_temp
+    return not any(scale.warm_enough(item, plan_temp)
+                   and any(not scale.too_warm(item, pk._heat_temp(r, plan_temp, peak))
+                           and not rules.violations(user_rules, {r: iid}, wd.by_item)
                            for r in wd.by_roles.get(iid) or () if r in _TORSO)
                    for iid, item in wd.by_item.items() if iid not in picks.values())
 

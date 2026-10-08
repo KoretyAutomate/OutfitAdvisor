@@ -580,9 +580,9 @@ def test_cold_gap_is_its_own_word_not_outer():
     tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
            "colors": ["white"], "formality": ["casual"]}
     wd = cl.pk._index([tee])
-    assert cl._with_cold_gap([], {"base": "t"}, wd, 3.0, []) == ["warmth"]
-    assert cl._with_cold_gap(["outer"], {"base": "t"}, wd, 3.0, []) == ["outer", "warmth"]
-    assert cl._with_cold_gap([], {"base": "t"}, wd, 25.0, []) == []
+    assert cl._with_cold_gap([], {"base": "t"}, wd, 3.0, [], 3.0) == ["warmth"]
+    assert cl._with_cold_gap(["outer"], {"base": "t"}, wd, 3.0, [], 3.0) == ["outer", "warmth"]
+    assert cl._with_cold_gap([], {"base": "t"}, wd, 25.0, [], 25.0) == []
 
 
 def test_a_forbidden_warm_garment_does_not_hide_the_gap():
@@ -600,3 +600,15 @@ def test_a_forbidden_warm_garment_does_not_hide_the_gap():
 def test_old_app_warmth_gap_reaches_shopping_as_outer():
     from schemas import Gap
     assert Gap(slot="warmth", n=1, loC=0, hiC=5).slot == "outer"
+
+
+def test_a_pairing_ban_is_not_a_missing_garment():
+    import closet as cl
+    tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
+           "colors": ["white"], "formality": ["casual"]}
+    parka = {"id": "p", "label": "parka", "category": "outer", "roles": ["outer"], "warmth": 4,
+             "colors": ["black"], "formality": ["casual"], "type": "parka"}
+    rule = [{"kind": "avoid_item", "a": {"type": "parka"}}]
+    wd = cl.pk._index([tee, parka])
+    assert layers.too_cold_for_outfit({"base": "t"}, wd, 3.0, rule)       # banned outright
+    assert not layers.too_cold_for_outfit({"base": "t"}, wd, 3.0, [])     # merely unused

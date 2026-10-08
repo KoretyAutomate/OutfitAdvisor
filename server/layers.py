@@ -27,6 +27,7 @@ A person would reach for the cardigan, so the repair does too.
 Split into its own module because picks.py sits at the 600-line ceiling.
 """
 import re
+from dataclasses import dataclass, field
 
 import picks as pk
 import reroll
@@ -101,8 +102,17 @@ def is_wet(w: dict) -> bool:
     return bool(w.get("isRain") or w.get("isSnow") or (w.get("rain") or 0) >= 50)
 
 
+@dataclass(frozen=True)
+class Day:
+    """What about today the layer pass needs besides the temperature: whether it is
+    wet, and what the wearer asked to move on from (the re-roll's `shown`)."""
+
+    wet: bool = False
+    shown: dict = field(default_factory=dict)
+
+
 def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict],
-            wet: bool = False) -> list[tuple]:
+            day: Day | None = None) -> list[tuple]:
     """Put warmth on when nothing in the outfit is warm enough for the morning: a
     mid layer first, the one that comes off by noon, then an outer. Only a garment
     that is warm enough on its own, not too warm for the morning, legal in that
@@ -118,23 +128,34 @@ def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     and now also the answer to the plain cold morning (user, 2026-10-08): a T-shirt
     and jeans at 5C, with the jacket owned and "None needed" written beside it,
     passed every check because every check judged a garment already in the outfit."""
-    for slot in (("outer", "mid") if wet else ("mid", "outer")):
+    day = day or Day()
+    slots = ("outer", "mid") if day.wet else ("mid", "outer")
+    cands = []
+    for rank, slot in enumerate(slots):
         # An occupied slot is open too when what fills it is itself too thin — a
         # linen overshirt as the mid, with the warm cardigan owned and unworn. Only
         # skipped when its garment already does the job. Raised by the pre-push
         # reviewer, 2026-09-30.
         if picks.get(slot) and scale.warm_enough(wd.by_item.get(picks[slot]) or {}, plan_temp):
             continue
-        cands = [(iid, item) for iid, item in wd.by_item.items()
-                 if iid not in picks.values() and slot in (wd.by_roles.get(iid) or ())
-                 and scale.warm_enough(item, plan_temp) and not scale.too_warm(item, plan_temp)]
-        cands.sort(key=lambda c: (wet and not c[1].get("waterproof"), c[1].get("warmth") or 3))
-        for iid, _item in cands:
-            trial = {**picks, slot: iid}
-            if rules.violations(user_rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
-                continue
-            picks[slot] = iid
-            return [(slot, iid, "warmth")]
+        cands += [(day.wet and not item.get("waterproof"),     # rain: waterproof first
+                   day.shown.get(slot) == iid,                 # then not what they rejected
+                   rank,                                       # then the easier slot
+                   -scale.garment_temp(item),                  # then the lightest that does it
+                   slot, iid)
+                  for iid, item in wd.by_item.items()
+                  if iid not in picks.values() and slot in (wd.by_roles.get(iid) or ())
+                  and scale.warm_enough(item, plan_temp) and not scale.too_warm(item, plan_temp)]
+    # Across BOTH slots, so a rejected cardigan is passed over for a jacket before it
+    # is restored; it still comes back when nothing else does the job — a cold
+    # morning is worse than the same cardigan. Raised by the pre-push reviewer,
+    # 2026-10-08.
+    for *_key, slot, iid in sorted(cands):
+        trial = {**picks, slot: iid}
+        if rules.violations(user_rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
+            continue
+        picks[slot] = iid
+        return [(slot, iid, "warmth")]
     return []
 
 
@@ -201,8 +222,8 @@ def hold(picks: dict, w: dict, wd, prefs, banned: list[dict],
     before = dict(picks)
     put_on: dict = {}
     cleared: set = set()
-    for slot, alt, why in tidy(picks, wd, plan, list(prefs.rules), reroll.peak_temp(w, plan),
-                               is_wet(w)):
+    day = Day(is_wet(w), prefs.shown_map)
+    for slot, alt, why in tidy(picks, wd, plan, list(prefs.rules), reroll.peak_temp(w, plan), day):
         log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
         put_on[slot] = (slot, alt, why) if alt else None
         if (gone := wd.by_item.get(before.get(slot))) and picks.get(slot) != before.get(slot):
@@ -214,7 +235,7 @@ def hold(picks: dict, w: dict, wd, prefs, banned: list[dict],
 
 
 def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],
-         peak_temp: float | None = None, wet: bool = False) -> list[tuple]:
+         peak_temp: float | None = None, day: Day | None = None) -> list[tuple]:
     """Apply both rules to `picks` in place. Returns (slot, replacement or None, why).
 
     Sleeves first: the budget then counts the layers that are actually left.
@@ -245,7 +266,7 @@ def tidy(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     # Whenever nothing on is warm enough for the morning — not only after a sleeve
     # repair took it off. An outfit that never had it is the same outfit.
     if not _still_warm(picks, wd.by_item, plan_temp):
-        done += _rewarm(picks, wd, plan_temp, user_rules, wet)
+        done += _rewarm(picks, wd, plan_temp, user_rules, day)
 
     over = sum(1 for c in _TORSO if picks.get(c)) - max_layers(picks, wd.by_item, plan_temp)
     warm = _still_warm(picks, wd.by_item, plan_temp)

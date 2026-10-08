@@ -238,6 +238,24 @@ def too_warm(item: dict, plan_temp: float) -> bool:
     return (item.get("warmth") or 3) > min_outer_warmth(plan_temp, graded_on(item)) + WARM_TOLERANCE
 
 
+# The day each ABSOLUTE grade answers to, from ABSOLUTE_TABLE (5 -> 4, 12 -> 3,
+# 18 -> 2): the middle of the band a grade is the minimum for. Only used to put two
+# garments in order of warmth; nothing is judged against it.
+_ABSOLUTE_DAY = {1: 21.0, 2: 15.0, 3: 8.5, 4: 2.0, 5: -5.0}
+
+
+def garment_temp(item: dict) -> float:
+    """The day this garment's grade answers to, on the scale IT was written on.
+
+    Two garments' raw grades are not comparable across scales — a home-scale 4 can be
+    a milder garment than an absolute 3 — so any ordering of garments by warmth goes
+    through here. Higher = suits a warmer day = the lighter garment. Raised by the
+    pre-push reviewer, 2026-10-08."""
+    w = max(1, min(5, int(item.get("warmth") or 3)))
+    c = graded_on(item)
+    return c.temp_for(w) if c else _ABSOLUTE_DAY[w]
+
+
 def warm_enough(item: dict, plan_temp: float) -> bool:
     """Is this garment warm enough to be the outermost layer today?
 

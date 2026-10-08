@@ -454,7 +454,7 @@ def test_on_a_wet_cold_day_the_waterproof_layer_is_preferred():
     shell = g("itm-shell00001", "waterproof shell", "outerwear", "jacket", ["outer"], 3,
               waterproof=True)
     picks = _bare({})
-    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, shell), 5, [], peak_temp=9, wet=True)
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, shell), 5, [], peak_temp=9, day=layers.Day(wet=True))
     assert picks.get("outer") == shell["id"]
 
 
@@ -507,3 +507,40 @@ def test_the_8_oct_cold_morning_end_to_end(client, monkeypatch):
     assert d["outfit"]["mid"] == "grey cardigan"
     assert "grey cardigan — for the morning chill" in d["outfit_text"]
     assert "Mid: None needed" not in d["outfit_text"]
+
+
+def test_a_garment_the_wearer_just_rejected_is_passed_over_for_another():
+    """'Show me something else' rejected the grey cardigan. Another warm garment
+    is owned: it is the one put on."""
+    other = g("itm-cardigan2", "oatmeal cardigan", "tops", "cardigan", ["mid"], 3)
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, other), 5, [], peak_temp=14,
+                day=layers.Day(shown={"mid": CARDI["id"]}))
+    assert picks.get("mid") == other["id"]
+
+
+def test_a_rejected_garment_is_still_better_than_a_cold_morning():
+    """…but if it is the only thing that does the job, it comes back."""
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI), 5, [], peak_temp=14,
+                day=layers.Day(shown={"mid": CARDI["id"]}))
+    assert picks.get("mid") == CARDI["id"]
+
+
+def test_a_rejected_mid_is_passed_over_for_a_jacket_before_it_is_restored():
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, JACKET), 5, [], peak_temp=14,
+                day=layers.Day(shown={"mid": CARDI["id"]}))
+    assert picks.get("outer") == JACKET["id"] and not picks.get("mid")
+
+
+def test_garments_graded_on_different_climates_are_ordered_by_what_they_mean():
+    """A home-scale 4 graded on [10, 20, 30] is a 15C garment; a home-scale 3 graded
+    on [0, 12, 24] is a 12C one. The lighter is the 15C one, though its grade is higher."""
+    light = g("itm-lightcard1", "light cardigan", "tops", "cardigan", ["mid"], 4,
+              warmthScale="home", warmthAnchors=[10, 20, 30])
+    heavy = g("itm-heavycard1", "heavy cardigan", "tops", "cardigan", ["mid"], 3,
+              warmthScale="home", warmthAnchors=[0, 12, 24])
+    picks = _bare({})
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, heavy, light), 14, [], peak_temp=16)
+    assert picks.get("mid") == light["id"]

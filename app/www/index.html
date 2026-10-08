@@ -1500,7 +1500,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.38";
+const WEB_BUILD="1.39";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -4259,6 +4259,10 @@ function ownershipGaps(missing,planTemp,sentIds){
     for(const r of normRoles(i.roles,i.category)){
       if(r==="outer"&&planTemp!=null&&!warmEnough(i,planTemp)) continue;
       withheld.add(r);
+      // The server also reports `outer` when nothing it was sent was warm enough
+      // for the morning. A warm cardigan or sweater in the wash answers that just
+      // as well as a coat would have, so it excuses the gap too.
+      if(r!=="outer"&&["inner","base","mid"].includes(r)&&planTemp!=null&&warmEnough(i,planTemp)) withheld.add("outer");
     }
   }
   return missing.filter(slot=>!withheld.has(slot));

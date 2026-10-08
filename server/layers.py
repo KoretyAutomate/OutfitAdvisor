@@ -79,7 +79,9 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float) -> bool:
     """Nothing on the torso is warm enough for the morning, after every repair has
     had its turn: the wardrobe has nothing to fix it with. Only meaningful on the
     FINISHED picks."""
-    if _still_warm(picks, wd.by_item, plan_temp):
+    # Nothing on the torso at all is a missing top, not a cold morning: the gap
+    # for that is the slot's own, and on a hot day it is no reason to buy a coat.
+    if not any(picks.get(c) for c in _TORSO) or _still_warm(picks, wd.by_item, plan_temp):
         return False
     # A warm garment owned and merely not usable together with the rest (a sleeve
     # clash, a rule) is a styling problem, not something to buy.

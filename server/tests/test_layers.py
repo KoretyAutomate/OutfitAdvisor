@@ -557,3 +557,10 @@ def test_nothing_warm_owned_is_a_gap():
     wd2 = cl.pk._index([tee, parka])
     assert not layers.too_cold_for_outfit({"base": "t"}, wd2, 3.0)      # owned, so no gap
     assert not layers.too_cold_for_outfit({"base": "t"}, wd, 25.0)      # warm day
+
+
+def test_no_top_at_all_is_not_a_cold_gap():
+    import closet as cl
+    shoes = {"id": "f", "label": "sneakers", "category": "footwear", "roles": ["footwear"],
+             "warmth": 1, "colors": ["white"], "formality": ["casual"]}
+    assert not layers.too_cold_for_outfit({"footwear": "f"}, cl.pk._index([shoes]), 3.0)

@@ -191,7 +191,7 @@ def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
     plan = _plan_temp(w)
     hi = w.get("hi")
     peak = max(plan, float(hi)) if hi is not None else plan
-    wet = bool(w.get("isRain") or w.get("isSnow") or (w.get("rain") or 0) >= 50)
+    wet = layers.is_wet(w)
     return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
                getattr(prefs, "look", None) or Look(), wet)
 

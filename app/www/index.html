@@ -5036,6 +5036,8 @@ async function load(){
   if($("dryHours")) $("dryHours").value=String(laundry.dryHours);
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
+  // An app older than the cold-morning gap filed the server's "warmth" as a slot.
+  gaps=gaps.map(g=>g&&g.slot===COLD_GAP?{...g,slot:"outer",cold:true}:g);
   try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }

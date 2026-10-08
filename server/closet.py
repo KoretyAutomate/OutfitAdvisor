@@ -441,13 +441,14 @@ async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | N
 COLD_GAP = "warmth"     # not a slot: "nothing owned is warm enough", told apart from `outer`
 
 
-def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float) -> list[str]:
+def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float,
+                   user_rules: list[dict]) -> list[str]:
     """`missing`, plus COLD_GAP when layers.tidy found nothing owned to put on.
 
     Its own word rather than `outer`: the phone excuses it by a warm layer in the
     wash of ANY torso role and clears it when one is bought, which would be wrong
     for a genuine missing raincoat. The phone files it under `outer` for /shopping."""
-    if layers.too_cold_for_outfit(picks, wd, plan_temp):
+    if layers.too_cold_for_outfit(picks, wd, plan_temp, user_rules):
         return [*missing, COLD_GAP]
     return missing
 
@@ -594,7 +595,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                 "missing": _with_cold_gap(
                     pk._missing_slots(out.get("missing"), picks, filled_before,
                                       covered | now_covered | cleared, can_fill, unsuitable),
-                    picks, wd, _plan_temp(w))}
+                    picks, wd, _plan_temp(w), list(prefs.rules))}
     # WITH the reason. Giving up costs the user their own clothes — under
     # closetOnly it empties the screen — and the line said only that it happened.
     # On 2026-08-29 a 15-item closet fell through here and there was nothing in the

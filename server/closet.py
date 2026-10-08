@@ -438,6 +438,13 @@ async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | N
     return out, ""
 
 
+def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float) -> list[str]:
+    """`missing`, plus `outer` when layers.tidy found nothing owned to put on."""
+    if layers.too_cold_for_outfit(picks, wd, plan_temp) and "outer" not in missing:
+        return sorted({*missing, "outer"}, key=CATEGORIES.index)
+    return missing
+
+
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                         prefs: "Prefs | None" = None) -> dict | None:
     """Outfit constrained to the user's items. Returns
@@ -569,13 +576,18 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
+        # The cold-morning pass (layers.tidy) found nothing owned to put on: that is
+        # a hole in the wardrobe, which "None needed" beside it would hide from the
+        # shopping list. Named as `outer`, the slot a warm layer would fill; the
+        # phone still discounts it when something suitable was merely in the wash.
         return {"picks": picks, "text": text, "cleared": sorted(cleared),
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.
-                "missing": pk._missing_slots(out.get("missing"), picks, filled_before,
-                                             covered | now_covered | cleared, can_fill,
-                                             unsuitable)}
+                "missing": _with_cold_gap(
+                    pk._missing_slots(out.get("missing"), picks, filled_before,
+                                      covered | now_covered | cleared, can_fill, unsuitable),
+                    picks, wd, _plan_temp(w))}
     # WITH the reason. Giving up costs the user their own clothes — under
     # closetOnly it empties the screen — and the line said only that it happened.
     # On 2026-08-29 a 15-item closet fell through here and there was nothing in the

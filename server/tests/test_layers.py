@@ -544,3 +544,16 @@ def test_garments_graded_on_different_climates_are_ordered_by_what_they_mean():
     picks = _bare({})
     layers.tidy(picks, wd(TEE, JEANS, SNEAK, heavy, light), 14, [], peak_temp=16)
     assert picks.get("mid") == light["id"]
+
+
+def test_nothing_warm_owned_is_a_gap():
+    import closet as cl
+    tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
+           "colors": ["white"], "formality": ["casual"]}
+    parka = {"id": "p", "label": "parka", "category": "outer", "roles": ["outer"], "warmth": 4,
+             "colors": ["black"], "formality": ["casual"]}
+    wd = cl.pk._index([tee])
+    assert layers.too_cold_for_outfit({"base": "t"}, wd, 3.0)
+    wd2 = cl.pk._index([tee, parka])
+    assert not layers.too_cold_for_outfit({"base": "t"}, wd2, 3.0)      # owned, so no gap
+    assert not layers.too_cold_for_outfit({"base": "t"}, wd, 25.0)      # warm day

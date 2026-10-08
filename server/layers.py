@@ -75,6 +75,18 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
+def too_cold_for_outfit(picks: dict, wd, plan_temp: float) -> bool:
+    """Nothing on the torso is warm enough for the morning, after every repair has
+    had its turn: the wardrobe has nothing to fix it with. Only meaningful on the
+    FINISHED picks."""
+    if _still_warm(picks, wd.by_item, plan_temp):
+        return False
+    # A warm garment owned and merely not usable together with the rest (a sleeve
+    # clash, a rule) is a styling problem, not something to buy.
+    return not any(scale.warm_enough(item, plan_temp) and set(wd.by_roles.get(iid) or ()) & set(_TORSO)
+                   for iid, item in wd.by_item.items() if iid not in picks.values())
+
+
 def _short_inner(picks: dict, wd, plan_temp: float, user_rules: list[dict],
                  peak_temp: float) -> str | None:
     """An owned undershirt that does not reach past the sleeve above it.

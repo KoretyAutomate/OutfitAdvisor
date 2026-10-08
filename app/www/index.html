@@ -4312,7 +4312,7 @@ async function recordGaps(missing,w,planTemp,day,sentIds,peak){
     gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),
                // `at` is the planning temperature the server used for that morning.
                at:planTemp!=null?Math.round(planTemp):null,
-               ...(peak!=null?{pk:Math.round(peak)}:{})});
+               ...(peak!=null?{pk:peak}:{})});
     added=true;
   }
   if(added){

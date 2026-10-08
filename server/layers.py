@@ -85,7 +85,8 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float) -> bool:
         return False
     # A warm garment owned and merely not usable together with the rest (a sleeve
     # clash, a rule) is a styling problem, not something to buy.
-    return not any(scale.warm_enough(item, plan_temp) and set(wd.by_roles.get(iid) or ()) & set(_TORSO)
+    return not any(scale.warm_enough(item, plan_temp) and not scale.too_warm(item, plan_temp)
+                   and set(wd.by_roles.get(iid) or ()) & set(_TORSO)
                    for iid, item in wd.by_item.items() if iid not in picks.values())
 
 

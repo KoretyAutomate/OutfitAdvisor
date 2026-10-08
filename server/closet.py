@@ -438,10 +438,17 @@ async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | N
     return out, ""
 
 
+COLD_GAP = "warmth"     # not a slot: "nothing owned is warm enough", told apart from `outer`
+
+
 def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float) -> list[str]:
-    """`missing`, plus `outer` when layers.tidy found nothing owned to put on."""
-    if layers.too_cold_for_outfit(picks, wd, plan_temp) and "outer" not in missing:
-        return sorted({*missing, "outer"}, key=CATEGORIES.index)
+    """`missing`, plus COLD_GAP when layers.tidy found nothing owned to put on.
+
+    Its own word rather than `outer`: the phone excuses it by a warm layer in the
+    wash of ANY torso role and clears it when one is bought, which would be wrong
+    for a genuine missing raincoat. The phone files it under `outer` for /shopping."""
+    if layers.too_cold_for_outfit(picks, wd, plan_temp):
+        return [*missing, COLD_GAP]
     return missing
 
 

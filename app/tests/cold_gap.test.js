@@ -1,5 +1,7 @@
-/** cold_gap.test.js — an `outer` gap raised for a cold morning is excused by a warm
- * layer that was only in the wash. Loads the REAL app/www/index.html. Run: npm test */
+/** cold_gap.test.js — the server's "warmth" gap (nothing owned is warm enough for the
+ * morning): excused by a warm layer of any role left in the wash, filed for the
+ * shopping list under `outer`, cleared when one is bought — and nothing else about
+ * genuine `outer` gaps changes. Loads the REAL app/www/index.html. Run: npm test */
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
@@ -11,9 +13,22 @@ const it = (id, cat, warmth) => ({id, label: id, category: cat, group: "tops", t
   const w = new JSDOM(fs.readFileSync(path.join(__dirname, "..", "www", "index.html"), "utf8"),
     {runScripts: "dangerously", url: "https://localhost/", pretendToBeVisual: true}).window;
   await w.eval("appReady");
-  w.eval(`closet=${JSON.stringify([it("tee", "base", 1), it("cardi", "mid", 4)])}`);
-  const run = sent => JSON.stringify(w.eval(`ownershipGaps(["outer"],3,${JSON.stringify(sent)})`));
-  check("a warm cardigan left in the wash excuses the outer gap", run(["tee"]) === "[]", run(["tee"]));
-  check("sent and still nothing warm: the gap stands", run(["tee", "cardi"]) === '["outer"]', run(["tee", "cardi"]));
+  const ev = s => w.eval(s);
+  ev(`closet=${JSON.stringify([it("tee", "base", 1), it("cardi", "mid", 4)])}`);
+  const run = (m, sent) => JSON.stringify(ev(`ownershipGaps(${JSON.stringify(m)},3,${JSON.stringify(sent)})`));
+  check("a warm cardigan in the wash excuses the warmth gap", run(["warmth"], ["tee"]) === "[]");
+  check("sent and still nothing warm: the gap stands", run(["warmth"], ["tee", "cardi"]) === '["warmth"]');
+  check("…and a plain missing raincoat is NOT excused by that cardigan", run(["outer"], ["tee"]) === '["outer"]');
+  ev(`closetComplete=true; gaps=[]`);
+  await ev(`recordGaps(["warmth"],{lo:1,hi:6},3,"2026-10-08",["tee","cardi"])`);
+  check("it is filed under outer, marked cold",
+    ev(`gaps.length===1&&gaps[0].slot==="outer"&&gaps[0].cold===true`), ev("JSON.stringify(gaps)"));
+  await ev(`clearGapsFilledBy(${JSON.stringify(it("sw", "mid", 1))})`);
+  check("a thin layer does not clear it", ev("gaps.length") === 1);
+  await ev(`clearGapsFilledBy(${JSON.stringify(it("sw2", "mid", 4))})`);
+  check("a warm mid layer clears it", ev("gaps.length") === 0);
+  ev(`gaps=[{slot:"outer",day:"2026-10-08",lo:1,hi:6,at:3}]`);
+  await ev(`clearGapsFilledBy(${JSON.stringify(it("sw3", "mid", 4))})`);
+  check("a genuine outer gap is not cleared by a mid layer", ev("gaps.length") === 1);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

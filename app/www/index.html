@@ -4259,14 +4259,15 @@ function ownershipGaps(missing,planTemp,sentIds){
     for(const r of normRoles(i.roles,i.category)){
       if(r==="outer"&&planTemp!=null&&!warmEnough(i,planTemp)) continue;
       withheld.add(r);
-      // The server also reports `outer` when nothing it was sent was warm enough
-      // for the morning. A warm cardigan or sweater in the wash answers that just
-      // as well as a coat would have, so it excuses the gap too.
-      if(r!=="outer"&&["inner","base","mid"].includes(r)&&planTemp!=null&&warmEnough(i,planTemp)) withheld.add("outer");
     }
   }
-  return missing.filter(slot=>!withheld.has(slot));
+  // "warmth": nothing the server was sent was warm enough for the morning. A warm
+  // layer of ANY torso role left in the wash answers that as well as a coat would.
+  const warmWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)
+    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&warmEnough(i,planTemp));
+  return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:!withheld.has(slot));
 }
+const COLD_GAP="warmth";
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —
@@ -4303,9 +4304,12 @@ async function recordGaps(missing,w,planTemp,day,sentIds){
   if(!missing.length||!w||w.lo==null||w.hi==null) return;
   day=day||todayISO();
   let added=false;
-  for(const slot of missing){
-    if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;
-    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),
+  for(const raw of missing){
+    // A cold-morning gap is shopping evidence for `outer`, remembered as cold so
+    // that a warm layer of any kind can clear it (clearGapsFilledBy).
+    const cold=raw===COLD_GAP, slot=cold?"outer":raw;
+    if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;   // one morning counts once
+    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),
                // `at` is the planning temperature the server used for that morning.
                at:planTemp!=null?Math.round(planTemp):null});
     added=true;
@@ -4400,6 +4404,8 @@ async function clearGapsFilledBy(item){
   const roles=new Set(normRoles(item.roles,item.category));
   const before=gaps.length;
   gaps=gaps.filter(g=>{
+    // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
+    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&warmEnough(item,g.at!=null?g.at:g.lo));
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as

@@ -564,3 +564,22 @@ def test_no_top_at_all_is_not_a_cold_gap():
     shoes = {"id": "f", "label": "sneakers", "category": "footwear", "roles": ["footwear"],
              "warmth": 1, "colors": ["white"], "formality": ["casual"]}
     assert not layers.too_cold_for_outfit({"footwear": "f"}, cl.pk._index([shoes]), 3.0)
+
+
+def test_too_heavy_to_wear_does_not_hide_the_gap():
+    import closet as cl
+    tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
+           "colors": ["white"], "formality": ["casual"]}
+    coat = {"id": "p", "label": "parka", "category": "outer", "roles": ["outer"], "warmth": 5,
+            "colors": ["black"], "formality": ["casual"]}
+    assert layers.too_cold_for_outfit({"base": "t"}, cl.pk._index([tee, coat]), 14.0)
+
+
+def test_cold_gap_is_its_own_word_not_outer():
+    import closet as cl
+    tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
+           "colors": ["white"], "formality": ["casual"]}
+    wd = cl.pk._index([tee])
+    assert cl._with_cold_gap([], {"base": "t"}, wd, 3.0) == ["warmth"]
+    assert cl._with_cold_gap(["outer"], {"base": "t"}, wd, 3.0) == ["outer", "warmth"]
+    assert cl._with_cold_gap([], {"base": "t"}, wd, 25.0) == []

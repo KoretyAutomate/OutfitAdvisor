@@ -30,5 +30,12 @@ const it = (id, cat, warmth) => ({id, label: id, category: cat, group: "tops", t
   ev(`gaps=[{slot:"outer",day:"2026-10-08",lo:1,hi:6,at:3}]`);
   await ev(`clearGapsFilledBy(${JSON.stringify(it("sw3", "mid", 4))})`);
   check("a genuine outer gap is not cleared by a mid layer", ev("gaps.length") === 1);
+  ev(`closet=${JSON.stringify([it("tee", "base", 1), it("parka", "outer", 5)])}`);
+  const heavy = JSON.stringify(ev(`ownershipGaps(["warmth"],14,["tee"])`));
+  check("(at 14C) a warmth-5 parka in the wash does not excuse it", heavy === '["warmth"]', heavy);
+  ev(`closet=${JSON.stringify([it("tee", "base", 1)])}; closetComplete=true; gaps=[]`);
+  await ev(`recordGaps(["outer","warmth"],{lo:1,hi:6},3,"2026-10-08",["tee"])`);
+  check("a genuine outer gap and a cold one the same day are both kept", ev("gaps.length") === 2);
+  check("…but count as one short morning", ev("gapSummary()[0].n") === 1, ev("JSON.stringify(gapSummary())"));
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

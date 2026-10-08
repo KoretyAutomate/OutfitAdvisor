@@ -4264,7 +4264,7 @@ function ownershipGaps(missing,planTemp,sentIds){
   // "warmth": nothing the server was sent was warm enough for the morning. A warm
   // layer of ANY torso role left in the wash answers that as well as a coat would.
   const warmWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)
-    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&warmEnough(i,planTemp));
+    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp));
   return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:!withheld.has(slot));
 }
 const COLD_GAP="warmth";
@@ -4308,7 +4308,7 @@ async function recordGaps(missing,w,planTemp,day,sentIds){
     // A cold-morning gap is shopping evidence for `outer`, remembered as cold so
     // that a warm layer of any kind can clear it (clearGapsFilledBy).
     const cold=raw===COLD_GAP, slot=cold?"outer":raw;
-    if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;   // one morning counts once
+    if(gaps.some(g=>g.day===day&&g.slot===slot&&!!g.cold===cold)) continue;
     gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),
                // `at` is the planning temperature the server used for that morning.
                at:planTemp!=null?Math.round(planTemp):null});
@@ -4359,6 +4359,11 @@ function itemScale(i){
    graded against a particular year. Asking only for the number here, while the
    server asked for the scale, is precisely the twin drift that makes the evidence
    and the advice disagree about the same wardrobe. */
+/* TWIN of scale.too_warm / WARM_TOLERANCE: more clothing than the day calls for. */
+const WARM_TOLERANCE=1;
+function usableWarm(item,t){
+  return warmEnough(item,t)&&(item.warmth||3)<=minOuterWarmth(t,gradedOn(item))+WARM_TOLERANCE;
+}
 function warmEnough(item,t){
   return (item.warmth||3) >= minOuterWarmth(t, gradedOn(item));
 }
@@ -4405,7 +4410,7 @@ async function clearGapsFilledBy(item){
   const before=gaps.length;
   gaps=gaps.filter(g=>{
     // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
-    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&warmEnough(item,g.at!=null?g.at:g.lo));
+    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo));
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as
@@ -4425,10 +4430,15 @@ async function clearGapsFilledBy(item){
    the range of weather they happened in. */
 function gapSummary(){
   const by=new Map();
+  const days=new Set();
   for(const g of liveGaps()){
     const e=by.get(g.slot);
-    if(e){ e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
+    // A morning counts once per slot: a cold-morning gap and a plain outer gap on
+    // the same day are one short morning, not two.
+    const k=g.slot+"|"+g.day;
+    if(e){ if(!days.has(k)) e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
     else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
+    days.add(k);
   }
   return [...by.values()].sort((a,b)=>b.n-a.n).slice(0,20);
 }

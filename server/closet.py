@@ -438,16 +438,13 @@ async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | N
     return out, ""
 
 
-COLD_GAP = "warmth"     # not a slot: "nothing owned is warm enough", told apart from `outer`
+COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
 
 
 def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float,
                    user_rules: list[dict], peak_temp: float) -> list[str]:
-    """`missing`, plus COLD_GAP when layers.tidy found nothing owned to put on.
-
-    Its own word rather than `outer`: the phone excuses it by a warm layer in the
-    wash of ANY torso role and clears it when one is bought, which would be wrong
-    for a genuine missing raincoat. The phone files it under `outer` for /shopping."""
+    """`missing`, plus COLD_GAP when nothing owned is warm enough. Not `outer`: the
+    phone excuses and clears it by ANY torso layer, wrong for a missing raincoat."""
     if layers.too_cold_for_outfit(picks, wd, plan_temp, user_rules, peak_temp):
         return [*missing, COLD_GAP]
     return missing
@@ -584,10 +581,6 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             log.warning("closet attempt %s: empty bullets", attempt + 1)
             error_note = "Your last reply had empty bullets. "
             continue
-        # The cold-morning pass (layers.tidy) found nothing owned to put on: that is
-        # a hole in the wardrobe, which "None needed" beside it would hide from the
-        # shopping list. Named as `outer`, the slot a warm layer would fill; the
-        # phone still discounts it when something suitable was merely in the wash.
         return {"picks": picks, "text": text, "cleared": sorted(cleared),
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules

@@ -438,6 +438,18 @@ async def _ask_model(prompt: str, reroll_: bool, attempt: int) -> tuple[dict | N
     return out, ""
 
 
+COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
+
+
+def _with_cold_gap(missing: list[str], picks: dict, wd, plan_temp: float,
+                   user_rules: list[dict], peak_temp: float) -> list[str]:
+    """`missing`, plus COLD_GAP when nothing owned is warm enough. Not `outer`: the
+    phone excuses and clears it by ANY torso layer, wrong for a missing raincoat."""
+    if layers.too_cold_for_outfit(picks, wd, plan_temp, user_rules, peak_temp):
+        return [*missing, COLD_GAP]
+    return missing
+
+
 async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                         prefs: "Prefs | None" = None) -> dict | None:
     """Outfit constrained to the user's items. Returns
@@ -573,9 +585,11 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.
-                "missing": pk._missing_slots(out.get("missing"), picks, filled_before,
-                                             covered | now_covered | cleared, can_fill,
-                                             unsuitable)}
+                "missing": _with_cold_gap(
+                    pk._missing_slots(out.get("missing"), picks, filled_before,
+                                      covered | now_covered | cleared, can_fill, unsuitable),
+                    picks, wd, _plan_temp(w), list(prefs.rules),
+                    reroll.peak_temp(w, _plan_temp(w)))}
     # WITH the reason. Giving up costs the user their own clothes — under
     # closetOnly it empties the screen — and the line said only that it happened.
     # On 2026-08-29 a 15-item closet fell through here and there was nothing in the

@@ -360,6 +360,13 @@ class Gap(BaseModel):
     loC: int = Field(0, ge=-60, le=60)
     hiC: int = Field(0, ge=-60, le=60)
 
+    @field_validator("slot", mode="before")
+    @classmethod
+    def _cold_gap_is_outer(cls, v: object) -> object:
+        """An app that predates the cold-morning gap files the server's "warmth" word
+        as a slot of its own; for shopping it is evidence for `outer`."""
+        return "outer" if v == "warmth" else v
+
 
 class ShoppingRequest(BaseModel):
     """Ask what the wardrobe is missing, with the evidence for it.

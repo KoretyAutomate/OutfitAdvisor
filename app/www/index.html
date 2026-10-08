@@ -1500,7 +1500,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.38";
+const WEB_BUILD="1.39";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3300,10 +3300,10 @@ async function getAdvice(lat,lon){
     const d=await r.json();
     // What the wardrobe could not cover today, written down for the shopping list.
     // Fire-and-forget: a failure to record evidence must never cost the advice.
-    recordGaps(d.missing,d.weather,d.planTemp);
+    recordGaps(d.missing,d.weather,d.planTemp,undefined,undefined,d.peakTemp);
     return {at,weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
-            missing:d.missing||[],planTemp:d.planTemp??null};
+            missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null};
   }catch(e){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
@@ -4230,7 +4230,7 @@ async function saveGaps(){
    look unfillable, and a week of washing days would have the shopping list
    recommending a replacement for a coat already hanging up. The phone is the only
    party that knows the difference, so it decides here. */
-function ownershipGaps(missing,planTemp,sentIds){
+function ownershipGaps(missing,planTemp,sentIds,peak){
   if(!Array.isArray(missing)) return [];
   // Only what was WITHHELD counts as a laundry gap. The test is not "do you own
   // something for this slot" — that discards the most valuable signal there is: a
@@ -4261,8 +4261,13 @@ function ownershipGaps(missing,planTemp,sentIds){
       withheld.add(r);
     }
   }
-  return missing.filter(slot=>!withheld.has(slot));
+  // "warmth": nothing the server was sent was warm enough for the morning. A warm
+  // layer of ANY torso role left in the wash answers that as well as a coat would.
+  const warmWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)
+    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp,peak));
+  return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:!withheld.has(slot));
 }
+const COLD_GAP="warmth";
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —
@@ -4277,7 +4282,7 @@ async function drainPendingGaps(){
   const done=new Set();
   for(const e of queue){
     if(!e||!e.day) continue;
-    await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day,e.sent);
+    await recordGaps(e.missing,{lo:e.lo,hi:e.hi},e.planTemp,e.day,e.sent,e.peakTemp);
     done.add(e.day);
   }
   // Only what was ACTUALLY drained. The worker can append between the read above
@@ -4288,22 +4293,26 @@ async function drainPendingGaps(){
   try{ now=JSON.parse(await prefGet(GAPS_PENDING_KEY,"[]"))||[]; }catch(e){ now=[]; }
   await prefSet(GAPS_PENDING_KEY, JSON.stringify(now.filter(e=>e&&!done.has(e.day))));
 }
-async function recordGaps(missing,w,planTemp,day,sentIds){
+async function recordGaps(missing,w,planTemp,day,sentIds,peak){
   // ONLY while the wardrobe is declared complete. Otherwise an empty slot means
   // "you have not photographed it yet", not "you do not own one" — and a week of
   // that would have the advisor recommending a coat the user already has hanging
   // up. It is also what the tickbox's own text promises, and code that contradicts
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
-  missing=ownershipGaps(missing,planTemp,sentIds);
+  missing=ownershipGaps(missing,planTemp,sentIds,peak!=null?peak:w&&w.hi);
   if(!missing.length||!w||w.lo==null||w.hi==null) return;
   day=day||todayISO();
   let added=false;
-  for(const slot of missing){
-    if(gaps.some(g=>g.day===day&&g.slot===slot)) continue;
-    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),
+  for(const raw of missing){
+    // A cold-morning gap is shopping evidence for `outer`, remembered as cold so
+    // that a warm layer of any kind can clear it (clearGapsFilledBy).
+    const cold=raw===COLD_GAP, slot=cold?"outer":raw;
+    if(gaps.some(g=>g.day===day&&g.slot===slot&&!!g.cold===cold)) continue;
+    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),
                // `at` is the planning temperature the server used for that morning.
-               at:planTemp!=null?Math.round(planTemp):null});
+               at:planTemp!=null?Math.round(planTemp):null,
+               ...(peak!=null?{pk:peak}:{})});
     added=true;
   }
   if(added){
@@ -4351,6 +4360,19 @@ function itemScale(i){
    graded against a particular year. Asking only for the number here, while the
    server asked for the scale, is precisely the twin drift that makes the evidence
    and the advice disagree about the same wardrobe. */
+/* TWIN of scale.too_warm / WARM_TOLERANCE: more clothing than the day calls for. */
+const WARM_TOLERANCE=1;
+function usableWarm(item,t,peak){
+  // Worn all day, an inner or base layer is judged by the afternoon for heat too
+  // (picks._heat_temp); a mid or outer comes off by noon and is judged by the morning.
+  // Pyjamas, underwear and socks keep a torso role but are never put in an outfit
+  // (vocab.NON_SLOT_TYPES): they warm nothing here.
+  if(["briefs","bra","sleepwear","socks"].includes(item.type)) return false;
+  return warmEnough(item,t)&&normRoles(item.roles,item.category).some(r=>{
+    const at=(r==="inner"||r==="base")&&peak!=null?Math.max(t,peak):t;
+    return (item.warmth||3)<=minOuterWarmth(at,gradedOn(item))+WARM_TOLERANCE;
+  });
+}
 function warmEnough(item,t){
   return (item.warmth||3) >= minOuterWarmth(t, gradedOn(item));
 }
@@ -4396,6 +4418,8 @@ async function clearGapsFilledBy(item){
   const roles=new Set(normRoles(item.roles,item.category));
   const before=gaps.length;
   gaps=gaps.filter(g=>{
+    // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
+    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi));
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as
@@ -4415,10 +4439,15 @@ async function clearGapsFilledBy(item){
    the range of weather they happened in. */
 function gapSummary(){
   const by=new Map();
+  const days=new Set();
   for(const g of liveGaps()){
     const e=by.get(g.slot);
-    if(e){ e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
+    // A morning counts once per slot: a cold-morning gap and a plain outer gap on
+    // the same day are one short morning, not two.
+    const k=g.slot+"|"+g.day;
+    if(e){ if(!days.has(k)) e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
     else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
+    days.add(k);
   }
   return [...by.values()].sort((a,b)=>b.n-a.n).slice(0,20);
 }
@@ -4785,7 +4814,7 @@ async function saveToday(res,how){
       day:todayISO(), at:(res&&res.at)||Date.now(), how:how||"app", place:state.place||"",
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
-      missing:res.missing||[], planTemp:res.planTemp??null}));
+      missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null}));
   }catch(e){}
 }
 async function loadToday(){
@@ -4803,7 +4832,7 @@ async function loadToday(){
   // and never taps refresh would never accumulate a week — the weekly feature would
   // simply never switch on for them. recordGaps is idempotent per slot per day, so
   // reading this on every launch counts each morning once.
-  recordGaps(d.missing,d.weather,d.planTemp);
+  recordGaps(d.missing,d.weather,d.planTemp,undefined,undefined,d.peakTemp);
   renderWeather(d.weather);
   if(d.outfit) renderOutfit(d.outfit,d.outfit_text,d.source,lastRes);
   const line=$("todayFrom");
@@ -5016,6 +5045,8 @@ async function load(){
   if($("dryHours")) $("dryHours").value=String(laundry.dryHours);
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
+  // An app older than the cold-morning gap filed the server's "warmth" as a slot.
+  gaps=gaps.map(g=>g&&g.slot===COLD_GAP?{...g,slot:"outer",cold:true}:g);
   try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }

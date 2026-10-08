@@ -54,6 +54,7 @@ import packlist
 import rules
 import ruleparse
 import scale
+import reroll
 import shopping as shopping_llm
 import style
 import updates
@@ -255,12 +256,11 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         "source": source,
         "closetUsed": closet_used,
         "missing": missing,
-        # The temperature the outfit was actually planned around — morning, or the
-        # midpoint when there is no hourly figure. Sent so the phone can decide
-        # later whether a newly bought coat answers a recorded gap, using the number
-        # THIS server used rather than a reimplementation of how to derive it. One
-        # fewer twin, and the one that would have been hardest to notice drifting.
+        # The temperatures the outfit was planned around (morning; and the afternoon
+        # for all-day layers), so the phone judges a bought garment with THIS
+        # server's numbers rather than a twin of how to derive them.
         "planTemp": round(llm._plan_temp(wc), 1),
+        "peakTemp": round(reroll.peak_temp(wc, llm._plan_temp(wc)), 1),
         "picks": picks,
         "tempOffset": req.tempOffset,
     }

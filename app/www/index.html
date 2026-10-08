@@ -4230,7 +4230,7 @@ async function saveGaps(){
    look unfillable, and a week of washing days would have the shopping list
    recommending a replacement for a coat already hanging up. The phone is the only
    party that knows the difference, so it decides here. */
-function ownershipGaps(missing,planTemp,sentIds){
+function ownershipGaps(missing,planTemp,sentIds,peak){
   if(!Array.isArray(missing)) return [];
   // Only what was WITHHELD counts as a laundry gap. The test is not "do you own
   // something for this slot" — that discards the most valuable signal there is: a
@@ -4264,7 +4264,7 @@ function ownershipGaps(missing,planTemp,sentIds){
   // "warmth": nothing the server was sent was warm enough for the morning. A warm
   // layer of ANY torso role left in the wash answers that as well as a coat would.
   const warmWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)
-    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp));
+    &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp,peak));
   return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:!withheld.has(slot));
 }
 const COLD_GAP="warmth";
@@ -4300,7 +4300,7 @@ async function recordGaps(missing,w,planTemp,day,sentIds){
   // up. It is also what the tickbox's own text promises, and code that contradicts
   // its own label is worse than either behaviour on its own.
   if(!closetComplete) return;
-  missing=ownershipGaps(missing,planTemp,sentIds);
+  missing=ownershipGaps(missing,planTemp,sentIds,w&&w.hi);
   if(!missing.length||!w||w.lo==null||w.hi==null) return;
   day=day||todayISO();
   let added=false;
@@ -4361,8 +4361,13 @@ function itemScale(i){
    and the advice disagree about the same wardrobe. */
 /* TWIN of scale.too_warm / WARM_TOLERANCE: more clothing than the day calls for. */
 const WARM_TOLERANCE=1;
-function usableWarm(item,t){
-  return warmEnough(item,t)&&(item.warmth||3)<=minOuterWarmth(t,gradedOn(item))+WARM_TOLERANCE;
+function usableWarm(item,t,peak){
+  // Worn all day, an inner or base layer is judged by the afternoon for heat too
+  // (picks._heat_temp); a mid or outer comes off by noon and is judged by the morning.
+  return warmEnough(item,t)&&normRoles(item.roles,item.category).some(r=>{
+    const at=(r==="inner"||r==="base")&&peak!=null?Math.max(t,peak):t;
+    return (item.warmth||3)<=minOuterWarmth(at,gradedOn(item))+WARM_TOLERANCE;
+  });
 }
 function warmEnough(item,t){
   return (item.warmth||3) >= minOuterWarmth(t, gradedOn(item));
@@ -4410,7 +4415,7 @@ async function clearGapsFilledBy(item){
   const before=gaps.length;
   gaps=gaps.filter(g=>{
     // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
-    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo));
+    if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo,g.hi));
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as

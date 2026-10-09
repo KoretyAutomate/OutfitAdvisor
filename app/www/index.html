@@ -1560,7 +1560,10 @@ function otherConds(it,l){
    qualifies for: a "navy blue silk" load it fails on fabric must not stop navy
    cotton reaching Darks through "navy". */
 function colourToken(it){
-  const c=String((it.colors||[])[0]||"").trim().toLowerCase().replace(/\s+/g," ");
+  // Compact spellings the classifier and older closets use — "offwhite",
+  // "lightgrey", "darkgreen" — read as their two words.
+  const c=String((it.colors||[])[0]||"").trim().toLowerCase().replace(/\s+/g," ")
+    .replace(/^(off|light|pale|dark)(?=(white|grey|gray|blue|green|pink|yellow|brown|red|purple|orange)\b)/,"$1 ");
   if(!c||!laundry.splits.includes("colour")) return null;
   // The catch-all's colours count here too: listing "light" on a catch-all Lights
   // keeps "light grey" from being claimed by Darks through "grey".

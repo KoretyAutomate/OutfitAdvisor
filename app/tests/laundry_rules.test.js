@@ -47,6 +47,9 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
     && loadOf(item("c", ["red"])) === "colorful");
   check("dark pink is dark, light grey is light",
     loadOf(item("d", ["dark pink"])) === "dark" && loadOf(item("e", ["light grey"])) === "light");
+  check("compact spellings: offwhite, lightgrey, lightblue, darkgreen",
+    loadOf(item("o", ["offwhite"])) === "white" && loadOf(item("lg", ["lightgrey"])) === "light"
+    && loadOf(item("lb", ["lightblue"])) === "light" && loadOf(item("dg", ["darkgreen"])) === "dark");
   const ticks = [...$("splitBox").querySelectorAll("input[data-split]")].map(c => c.dataset.split);
   check("Settings offers all five splits", ticks.join() === "colour,fabric,weight,soil,kind", ticks);
   check("no fabric checkboxes on the loads while Fabric is not ticked",

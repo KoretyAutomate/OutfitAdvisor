@@ -5442,6 +5442,11 @@ function loadConds(l,colourOnly=false){
 }
 function paintLoads(){
   const box=$("loadList"); if(!box) return;
+  // Re-rendering replaces every control; whichever one the wearer had moved on to
+  // (tabbing from a name into its colours) gets its focus and caret back.
+  const a=document.activeElement, row=a&&box.contains(a)?a.closest(".loadRow"):null;
+  const focus=row?{load:row.dataset.load,f:a.dataset.f||"",v:a.dataset.v||"",item:a.dataset.item||"",
+    pos:typeof a.selectionStart==="number"?a.selectionStart:null}:null;
   $("splitBox").innerHTML=SPLITS.map(sp=>`<label class="calRow" style="padding-left:0">
     <input type="checkbox" data-split="${sp.id}" ${laundry.splits.includes(sp.id)?"checked":""}>
     <span>${esc(sp.label)} <span class="note">— ${esc(sp.note)}</span></span></label>`).join("");
@@ -5471,6 +5476,12 @@ function paintLoads(){
         '<p class="note">None yet.</p>'}</details>
     </div>`;
   }).join("");
+  if(focus){
+    const r=[...box.querySelectorAll(".loadRow")].find(x=>x.dataset.load===focus.load);
+    const el=r&&[...r.querySelectorAll("input,select,button")].find(x=>(x.dataset.f||"")===focus.f
+      &&(x.dataset.v||"")===focus.v&&(x.dataset.item||"")===focus.item);
+    if(el){ el.focus(); if(focus.pos!=null&&el.setSelectionRange) try{ el.setSelectionRange(focus.pos,focus.pos); }catch(e){} }
+  }
   $("loadAdd").disabled=n>=MAX_LOADS;
   const pinned=closet.filter(i=>ids.includes(i.load)).length;
   $("loadUnpin").style.display=pinned?"":"none";

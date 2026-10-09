@@ -88,6 +88,14 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
     loadOf(item("lg2", ["light grey"], {fabric: "cotton"})) === "light");
   ev(`laundry.splits=["colour","fabric"]; laundry.loads=PRESETS.delicates.loads()`);
 
+  const nm = row => $("loadList").querySelector(`.loadRow[data-load="${row}"] [data-f="name"]`);
+  nm("white").value = "Whites!"; nm("white").dispatchEvent(new w.Event("change", {bubbles: true}));
+  $("loadList").querySelector('.loadRow[data-load="white"] [data-f="colors"]').focus();
+  await drain(); await drain();
+  check("after a save, the field the wearer moved on to still has focus",
+    w.document.activeElement && w.document.activeElement.dataset.f === "colors"
+    && w.document.activeElement.closest(".loadRow").dataset.load === "white", w.document.activeElement && w.document.activeElement.tagName);
+
   console.log("\n--- 4. order matters; up and down -------------------------------------");
   const row = id => $("loadList").querySelector(`.loadRow[data-load="${id}"]`);
   row("white").querySelector('[data-f="up"]').click(); await drain();

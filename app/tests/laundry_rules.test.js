@@ -100,6 +100,13 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   check("a load with no condition on a ticked split matches nothing",
     ev(`matchesLoad(${JSON.stringify(item("x", ["red"]))},{id:"z",match:{colors:["red"],fabrics:[],weight:"",soil:"",kinds:[]}})`) === false);
 
+  ev(`laundry.splits=["colour","fabric"]; laundry.loads=cleanLoads([
+    {id:"bs",name:"Black silk",match:{colors:["black"],fabrics:["silk"]}},
+    {id:"dk",name:"Darks",match:{colors:["black"]}},
+    {id:"r",name:"Rest",rest:true}])`);
+  check("two loads sharing a colour: the other conditions decide",
+    loadOf(item("bc", ["black"], {fabric: "cotton"})) === "dk" && loadOf(item("bs1", ["black"], {fabric: "silk"})) === "bs");
+
   console.log("\n--- 6. what was saved before ------------------------------------------");
   const old = ev(`JSON.stringify(cleanLoads([{id:"white",name:"Whites",colors:["white"]},{id:"dark",name:"Darks",colors:["navy"]},{id:"colorful",name:"Colourful",colors:[],rest:true}]))`);
   check("old loads with top-level colours migrate to colour conditions",

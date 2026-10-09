@@ -96,6 +96,9 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
     w.document.activeElement && w.document.activeElement.dataset.f === "colors"
     && w.document.activeElement.closest(".loadRow").dataset.load === "white", w.document.activeElement && w.document.activeElement.tagName);
 
+  const nameEl = nm("white");
+  nameEl.value = "Whites"; nameEl.dispatchEvent(new w.Event("change", {bubbles: true})); await drain(); await drain();
+  check("an edit inside a load keeps the same controls mounted", nm("white") === nameEl);
   const cf = $("loadList").querySelector('.loadRow[data-load="white"] [data-f="colors"]');
   cf.focus(); cf.value = "white, cream, half-typed";
   await ev("saveCloset()"); await drain();

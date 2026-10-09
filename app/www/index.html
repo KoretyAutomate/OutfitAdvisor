@@ -5441,30 +5441,39 @@ function loadConds(l,colourOnly=false){
     GROUPS.map(g=>chk(`data-f="kind" data-v="${g}"`,m.kinds.includes(g),GROUP_LABEL[g]||g)).join("")}</div>`);
   return out.join("");
 }
+/* The garments a load holds, with a picker each to move one by hand. */
+function loadGarments(l){
+  const ids=loadIds(), mine=closet.filter(i=>loadOf(i)===l.id);
+  const rows=mine.map(i=>`<div class="row" style="gap:8px;align-items:center;margin-top:6px">
+      <span style="flex:1;font-size:.82rem">${esc(i.label||"garment")}${ids.includes(i.load)?' <span class="note">(picked by hand)</span>':""}</span>
+      <select data-item="${esc(i.id)}" style="flex:1;font-size:.78rem">
+        <option value="" ${ids.includes(i.load)?"":"selected"}>Automatic</option>
+        ${laundry.loads.map(o=>`<option value="${esc(o.id)}" ${i.load===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}
+      </select></div>`).join("");
+  return `<summary>${mine.length} garment${mine.length===1?"":"s"} in this load</summary>${rows||
+    '<p class="note">None yet.</p>'}`;
+}
+/* Rebuilt in full only when the SHAPE changes — which splits are ticked, which loads
+   exist, their order, the catch-all. An edit inside a load (a name, colours, a
+   fabric box) changes only which garments land where, so only the garment lists
+   are redrawn and the controls being typed in are never replaced. */
 function paintLoads(){
   const box=$("loadList"); if(!box) return;
-  // Re-rendering replaces every control; whichever one the wearer had moved on to
-  // (tabbing from a name into its colours) gets its focus and caret back.
-  const a=document.activeElement, row=a&&box.contains(a)?a.closest(".loadRow"):null;
-  const focus=row?{load:row.dataset.load,f:a.dataset.f||"",v:a.dataset.v||"",item:a.dataset.item||"",
-    pos:typeof a.selectionStart==="number"?a.selectionStart:null,
-    // A text field's unsaved draft: the persisted value would overwrite it.
-    text:a.tagName==="INPUT"&&a.type==="text"?a.value:null}:null;
-  $("splitBox").innerHTML=SPLITS.map(sp=>`<label class="calRow" style="padding-left:0">
-    <input type="checkbox" data-split="${sp.id}" ${laundry.splits.includes(sp.id)?"checked":""}>
-    <span>${esc(sp.label)} <span class="note">— ${esc(sp.note)}</span></span></label>`).join("");
-  if($("loadPreset").options.length<2)
-    $("loadPreset").innerHTML+=Object.entries(PRESETS).map(([k,p])=>`<option value="${k}">${esc(p.label)}</option>`).join("");
   const ids=loadIds(), n=laundry.loads.length;
-  box.innerHTML=laundry.loads.map((l,k)=>{
-    const mine=closet.filter(i=>loadOf(i)===l.id);
-    const rows=mine.map(i=>`<div class="row" style="gap:8px;align-items:center;margin-top:6px">
-        <span style="flex:1;font-size:.82rem">${esc(i.label||"garment")}${ids.includes(i.load)?' <span class="note">(picked by hand)</span>':""}</span>
-        <select data-item="${esc(i.id)}" style="flex:1;font-size:.78rem">
-          <option value="" ${ids.includes(i.load)?"":"selected"}>Automatic</option>
-          ${laundry.loads.map(o=>`<option value="${esc(o.id)}" ${i.load===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}
-        </select></div>`).join("");
-    return `<div class="loadRow" data-load="${esc(l.id)}" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
+  const shape=JSON.stringify([laundry.splits,laundry.loads.map(l=>[l.id,l.rest])]);
+  if(box.dataset.shape===shape&&box.children.length===n){
+    for(const l of laundry.loads){
+      const d=[...box.querySelectorAll(".loadRow")].find(r=>r.dataset.load===l.id);
+      const det=d&&d.querySelector("details.det");
+      if(det){ const open=det.open; det.innerHTML=loadGarments(l); det.open=open; }
+    }
+  } else {
+    $("splitBox").innerHTML=SPLITS.map(sp=>`<label class="calRow" style="padding-left:0">
+      <input type="checkbox" data-split="${sp.id}" ${laundry.splits.includes(sp.id)?"checked":""}>
+      <span>${esc(sp.label)} <span class="note">— ${esc(sp.note)}</span></span></label>`).join("");
+    if($("loadPreset").options.length<2)
+      $("loadPreset").innerHTML+=Object.entries(PRESETS).map(([k,p])=>`<option value="${k}">${esc(p.label)}</option>`).join("");
+    box.innerHTML=laundry.loads.map((l,k)=>`<div class="loadRow" data-load="${esc(l.id)}" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
       <div class="row" style="gap:6px;align-items:center">
         <input type="text" data-f="name" value="${esc(l.name)}" maxlength="24" aria-label="Load name" style="flex:1">
         <button class="ghost" data-f="up" ${k?"":"disabled"} aria-label="Move up" style="padding:6px 9px">↑</button>
@@ -5475,15 +5484,9 @@ function paintLoads(){
         <input type="radio" name="loadRest" data-f="rest" ${l.rest?"checked":""}> Catch-all — takes whatever no other load matches</label>
       ${l.rest?`<p class="note" style="margin:4px 0 0">Colours listed here are kept out of the other loads.</p>${
         loadConds(l,true)}`:loadConds(l)}
-      <details class="det"><summary>${mine.length} garment${mine.length===1?"":"s"} in this load</summary>${rows||
-        '<p class="note">None yet.</p>'}</details>
-    </div>`;
-  }).join("");
-  if(focus){
-    const r=[...box.querySelectorAll(".loadRow")].find(x=>x.dataset.load===focus.load);
-    const el=r&&[...r.querySelectorAll("input,select,button")].find(x=>(x.dataset.f||"")===focus.f
-      &&(x.dataset.v||"")===focus.v&&(x.dataset.item||"")===focus.item);
-    if(el){ if(focus.text!=null) el.value=focus.text; el.focus(); if(focus.pos!=null&&el.setSelectionRange) try{ el.setSelectionRange(focus.pos,focus.pos); }catch(e){} }
+      <details class="det">${loadGarments(l)}</details>
+    </div>`).join("");
+    box.dataset.shape=shape;
   }
   $("loadAdd").disabled=n>=MAX_LOADS;
   const pinned=closet.filter(i=>ids.includes(i.load)).length;
@@ -5508,6 +5511,7 @@ $("loadPreset").onchange=()=>{ $("loadPresetGo").disabled=!$("loadPreset").value
 $("loadPresetGo").onclick=async()=>{
   const p=PRESETS[$("loadPreset").value]; if(!p) return;
   laundry.splits=[...p.splits]; laundry.loads=p.loads();
+  $("loadList").dataset.shape="";      // the same ids can come back with new conditions
   $("loadPreset").value=""; $("loadPresetGo").disabled=true;
   await saveLaundry();
   toast(`Loads set to: ${p.label}`);

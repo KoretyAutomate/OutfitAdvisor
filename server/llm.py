@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from vocab import CATEGORIES, GROUPS, STYLES, TYPES
+from vocab import CATEGORIES, FABRICS, GROUPS, STYLES, TYPES
 
 if TYPE_CHECKING:                       # only here to name the type in a signature
     from scale import Climate
@@ -255,6 +255,9 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
         # For the style rule that one busy garment is enough (style.py).
         '"pattern": "solid", "striped", "checked", "print" (floral, dots, camo...) or '
         '"graphic" (a large logo or picture) — the fabric as it looks, '
+        # For laundry split by material (user, 2026-10-09).
+        f'"fabric": the main material, one of {list(FABRICS)}, read from a visible care '
+        "label if there is one, else from how it looks; null if you cannot tell, "
         # Asked LAST and with an explicit null, because a brand is the one field
         # here the model can invent fluently: a plain navy crew-neck "looks like"
         # Uniqlo. A made-up maker is worse than none — the wearer has no reason to
@@ -274,8 +277,8 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
             }
         ],
         # 150 was sized before `type` joined the schema; the extra key costs ~10,
-        # `brand` another ~15, `sleeve` ~6, `pattern` ~6.
-        max_tokens=220,
+        # `brand` another ~15, `sleeve` ~6, `pattern` ~6, `fabric` ~6.
+        max_tokens=240,
         timeout=60,
     )
     return _parse_json(out)

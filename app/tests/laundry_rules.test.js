@@ -77,6 +77,11 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
     loadOf(item("s", ["white"], {fabric: "silk"})) === "white" && ev("laundry.loads[0].match.fabrics.length") === 4);
   await tick("fabric");
 
+  ev(`laundry.splits=["colour","fabric","weight"]; laundry.loads=PRESETS.ldh.loads()`);
+  check("with Lights as the catch-all, light grey still goes to Lights, not Darks",
+    loadOf(item("lg", ["light grey"], {fabric: "cotton"})) === "light" && loadOf(item("g2", ["grey"])) === "dark");
+  ev(`laundry.splits=["colour","fabric"]; laundry.loads=PRESETS.delicates.loads()`);
+
   console.log("\n--- 4. order matters; up and down -------------------------------------");
   const row = id => $("loadList").querySelector(`.loadRow[data-load="${id}"]`);
   row("white").querySelector('[data-f="up"]').click(); await drain();

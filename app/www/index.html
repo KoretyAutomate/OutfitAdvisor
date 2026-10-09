@@ -1491,7 +1491,8 @@ const PRESETS={
     loads:()=>[mkLoad("delicate","Delicates",{fabrics:[...DELICATE]}),...COLOUR4()]},
   ldh:{label:"Delicates, heavy, darks, lights",splits:["colour","fabric","weight"],
     loads:()=>[mkLoad("delicate","Delicates",{fabrics:[...DELICATE]}),mkLoad("heavy","Heavy",{weight:"heavy"}),
-      mkLoad("dark","Darks",{colors:[...COLOUR_WORDS.dark]}),mkLoad("light","Lights",{},true)]},
+      mkLoad("dark","Darks",{colors:[...COLOUR_WORDS.dark]}),
+      mkLoad("light","Lights",{colors:[...COLOUR_WORDS.white,...COLOUR_WORDS.light]},true)]},
   sport:{label:"Sportswear + four colour loads",splits:["colour","soil"],
     loads:()=>[mkLoad("sport","Sportswear",{soil:"heavy"}),...COLOUR4()]},
 };
@@ -1561,7 +1562,9 @@ function otherConds(it,l){
 function colourToken(it){
   const c=String((it.colors||[])[0]||"").trim().toLowerCase().replace(/\s+/g," ");
   if(!c||!laundry.splits.includes("colour")) return null;
-  const listed=new Set(laundry.loads.filter(l=>!l.rest&&otherConds(it,l)!==null)
+  // The catch-all's colours count here too: listing "light" on a catch-all Lights
+  // keeps "light grey" from being claimed by Darks through "grey".
+  const listed=new Set(laundry.loads.filter(l=>otherConds(it,l)!==null)
     .flatMap(l=>l.match.colors));
   return [c,...c.split(/[\s-]+/)].find(w=>listed.has(w))||null;
 }
@@ -5417,8 +5420,8 @@ $("washGo").onclick=async()=>{
    blur/select; the closet is re-saved so the grid and the edit sheet follow. */
 const chk=(attrs,on,label)=>`<label class="note" style="display:inline-flex;gap:4px;align-items:center;margin:3px 10px 3px 0">
   <input type="checkbox" ${attrs} ${on?"checked":""}>${esc(label)}</label>`;
-function loadConds(l){
-  const on=new Set(laundry.splits), m=l.match, out=[];
+function loadConds(l,colourOnly=false){
+  const on=new Set(colourOnly?laundry.splits.filter(x=>x==="colour"):laundry.splits), m=l.match, out=[];
   if(on.has("colour")) out.push(`<label class="lbl">Colours</label>
     <input type="text" data-f="colors" value="${esc(m.colors.join(", "))}" style="width:100%"
       placeholder="any colour — or list some: white, cream" aria-label="Colours">`);
@@ -5459,7 +5462,8 @@ function paintLoads(){
       </div>
       <label class="note" style="display:flex;gap:6px;align-items:center;margin-top:6px">
         <input type="radio" name="loadRest" data-f="rest" ${l.rest?"checked":""}> Catch-all — takes whatever no other load matches</label>
-      ${l.rest?"":loadConds(l)}
+      ${l.rest?`<p class="note" style="margin:4px 0 0">Colours listed here are kept out of the other loads.</p>${
+        loadConds(l,true)}`:loadConds(l)}
       <details class="det"><summary>${mine.length} garment${mine.length===1?"":"s"} in this load</summary>${rows||
         '<p class="note">None yet.</p>'}</details>
     </div>`;
@@ -5497,7 +5501,8 @@ $("loadPresetGo").onclick=async()=>{
 });
 // Warmth and style are buttons: their own handlers run first, then this.
 ["shWarm","shForm"].forEach(id=>{
-  const el=$(id); if(el) el.addEventListener("click",()=>{ if(sheet) paintLoad(); });
+  // Deferred: the segment's own handler may be registered after this one.
+  const el=$(id); if(el) el.addEventListener("click",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
 });
 $("loadList").onchange=async e=>{
   const t=e.target;

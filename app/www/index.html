@@ -1926,7 +1926,7 @@ async function addItem(source){
     ...(meta?{brand:typeof meta.brand==="string"?meta.brand:""}:{}),
     ...(meta&&SLEEVED.has(meta.group)?{sleeve:SLEEVES.includes(meta.sleeve)?meta.sleeve:null}:{}),
     ...(meta&&PATTERNED.has(meta.group)?{pattern:PATTERNS.includes(meta.pattern)?meta.pattern:null}:{}),
-    ...(meta&&FABRICS.includes(meta.fabric)?{fabric:meta.fabric}:{}),
+    ...(meta?{fabric:FABRICS.includes(meta.fabric)?meta.fabric:null}:{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
   item.photo=await photoSave(item.id,b64);
@@ -2199,11 +2199,25 @@ function paintSheetLaundry(){
   $("shSoil").value=["heavy","normal"].includes(it.soil)?it.soil:"";
   if(sheet.fabric0===undefined) sheet.fabric0=$("shFabric").value;
 }
+/* The garment as the sheet currently reads, for the "Automatic" load label: what
+   would follow from the fields as edited, not as they were when it opened. */
+function sheetDraft(){
+  const d={...sheet.item,load:undefined};
+  if($("shColors")) d.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean);
+  if($("shGroup")&&$("shGroup").value) d.group=$("shGroup").value;
+  if($("shType")) d.type=$("shType").value||null;
+  const on=new Set(laundry.splits);
+  if(on.has("fabric")&&$("shFabric").options.length) d.fabric=$("shFabric").value||null;
+  if(on.has("weight")&&$("shWeight").options.length) d.weight=$("shWeight").value||undefined;
+  if(on.has("soil")&&$("shSoil").options.length) d.soil=$("shSoil").value||undefined;
+  return d;
+}
 function paintLoad(){
-  const auto=loadOf({...sheet.item,load:undefined});
+  const keep=$("shLoad").options.length?$("shLoad").value:null;
+  const auto=loadOf(sheetDraft());
   $("shLoad").innerHTML=`<option value="">Automatic — ${esc(loadName(auto))}, from your rules</option>`
     +laundry.loads.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
-  $("shLoad").value=loadIds().includes(sheet.item.load)?sheet.item.load:"";
+  $("shLoad").value=keep!==null?keep:(loadIds().includes(sheet.item.load)?sheet.item.load:"");
 }
 function paintTypes(){
   const g=sheet.item.group, cur=normType(sheet.item.type,g);
@@ -2257,7 +2271,8 @@ async function openSheet(item,opts){
   sheet.pattern0=$("shPattern").value;
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
-  paintLoad(); paintSheetLaundry();
+  $("shLoad").innerHTML=""; $("shFabric").innerHTML=""; $("shWeight").innerHTML=""; $("shSoil").innerHTML="";
+  paintSheetLaundry(); paintLoad();
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
   // Save would write, or the wearer approves one picture and keeps another.
@@ -5460,7 +5475,7 @@ $("splitBox").onchange=async e=>{
   if(!next.length){ e.target.checked=true; toast("Keep at least one way of splitting"); return; }
   laundry.splits=SPLIT_IDS.filter(x=>next.includes(x));
   await saveLaundry();
-  if(sheet) paintSheetLaundry();
+  if(sheet){ paintSheetLaundry(); paintLoad(); }
 };
 $("loadPreset").onchange=()=>{ $("loadPresetGo").disabled=!$("loadPreset").value; };
 $("loadPresetGo").onclick=async()=>{
@@ -5470,6 +5485,10 @@ $("loadPresetGo").onclick=async()=>{
   await saveLaundry();
   toast(`Loads set to: ${p.label}`);
 };
+// The "Automatic" load follows the fields as they are edited.
+["shColors","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
+  const el=$(id); if(el) el.addEventListener("change",()=>{ if(sheet) paintLoad(); });
+});
 $("loadList").onchange=async e=>{
   const t=e.target;
   if(t.dataset.item){

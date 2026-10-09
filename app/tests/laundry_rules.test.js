@@ -83,6 +83,13 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   check("moving Whites up puts it above Delicates", ev("laundry.loads[0].id") === "white");
   check("…so a white silk blouse now goes with the whites", loadOf(item("s", ["white"], {fabric: "silk"})) === "white");
   row("white").querySelector('[data-f="down"]').click(); await drain();
+  ev(`closet=[${JSON.stringify(item("c1", ["white"], {fabric: "cotton"}))}]`);
+  await ev(`openSheet(closet[0],{isNew:false})`); await drain();
+  check("the sheet's Automatic load starts as Whites", /Whites/.test($("shLoad").options[0].textContent));
+  $("shFabric").value = "silk"; $("shFabric").dispatchEvent(new w.Event("change"));
+  check("choosing silk updates it to Delicates before saving", /Delicates/.test($("shLoad").options[0].textContent),
+    $("shLoad").options[0].textContent);
+  ev("closeSheet()");
 
   console.log("\n--- 5. weight, dirt and kind need no field ----------------------------");
   ev(`laundry.splits=["weight","soil","kind"]; laundry.loads=cleanLoads([

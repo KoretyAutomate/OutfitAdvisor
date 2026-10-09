@@ -96,6 +96,17 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
     w.document.activeElement && w.document.activeElement.dataset.f === "colors"
     && w.document.activeElement.closest(".loadRow").dataset.load === "white", w.document.activeElement && w.document.activeElement.tagName);
 
+  const cf = $("loadList").querySelector('.loadRow[data-load="white"] [data-f="colors"]');
+  cf.focus(); cf.value = "white, cream, half-typed";
+  await ev("saveCloset()"); await drain();
+  check("a background save does not wipe what is being typed",
+    $("loadList").querySelector('.loadRow[data-load="white"] [data-f="colors"]').value === "white, cream, half-typed");
+  w.document.body.focus(); cf.blur && cf.blur();
+  ev(`laundry.loads.find(l=>l.id==="white").match.colors=colorWords("white, offwhite")`);
+  check("a load's colour typed compactly matches a garment spelled the same",
+    loadOf(item("ow", ["offwhite"])) === "white");
+  await ev("saveLaundry()"); await drain();
+
   console.log("\n--- 4. order matters; up and down -------------------------------------");
   const row = id => $("loadList").querySelector(`.loadRow[data-load="${id}"]`);
   row("white").querySelector('[data-f="up"]').click(); await drain();

@@ -107,6 +107,13 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   check("two loads sharing a colour: the other conditions decide",
     loadOf(item("bc", ["black"], {fabric: "cotton"})) === "dk" && loadOf(item("bs1", ["black"], {fabric: "silk"})) === "bs");
 
+  ev(`laundry.loads=cleanLoads([
+    {id:"nbs",name:"Navy silk",match:{colors:["navy blue"],fabrics:["silk"]}},
+    {id:"dk",name:"Darks",match:{colors:["navy"]}},
+    {id:"r",name:"Rest",rest:true}])`);
+  check("a more specific load it fails does not block a broader one",
+    loadOf(item("nb", ["navy blue"], {fabric: "cotton"})) === "dk" && loadOf(item("nb2", ["navy blue"], {fabric: "silk"})) === "nbs");
+
   console.log("\n--- 6. what was saved before ------------------------------------------");
   const old = ev(`JSON.stringify(cleanLoads([{id:"white",name:"Whites",colors:["white"]},{id:"dark",name:"Darks",colors:["navy"]},{id:"colorful",name:"Colourful",colors:[],rest:true}]))`);
   check("old loads with top-level colours migrate to colour conditions",

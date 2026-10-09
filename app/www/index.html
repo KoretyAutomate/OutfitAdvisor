@@ -1540,39 +1540,44 @@ function soilOf(it){
 }
 const kindOf=it=>GROUP_ALIAS[it.group]||it.group||"";
 const fabricOf=it=>FABRICS.includes(it.fabric)?it.fabric:null;
+/* Every condition this load sets on a TICKED split except colour. `any` says
+   whether it set one at all — a load with no condition on a ticked split matches
+   nothing (only the catch-all takes everything). An unknown fabric fails a fabric
+   condition — never assumed delicate. */
+function otherConds(it,l){
+  const on=new Set(laundry.splits), m=l.match;
+  let any=on.has("colour")&&m.colors.length>0;
+  if(on.has("fabric")&&m.fabrics.length){ any=true; if(!m.fabrics.includes(fabricOf(it))) return null; }
+  if(on.has("weight")&&m.weight){ any=true; if(weightOf(it)!==m.weight) return null; }
+  if(on.has("soil")&&m.soil){ any=true; if(soilOf(it)!==m.soil) return null; }
+  if(on.has("kind")&&m.kinds.length){ any=true; if(!m.kinds.includes(kindOf(it))) return null; }
+  return any;
+}
 /* The colour test: the MAIN colour, the whole of it first ("off-white"), then its
    words in order, so the modifier decides — "light grey" is light, "dark pink" dark.
-   The deciding word is the first one ANY load lists; every load listing that word
-   then passes on colour, and its other conditions decide between them — so "Black
-   silk" above "Darks" still lets black cotton reach Darks. Catch-alls take part in
-   nothing. */
+   The deciding word is the first one listed by a load the garment otherwise
+   qualifies for: a "navy blue silk" load it fails on fabric must not stop navy
+   cotton reaching Darks through "navy". */
 function colourToken(it){
   const c=String((it.colors||[])[0]||"").trim().toLowerCase().replace(/\s+/g," ");
-  if(!c) return null;
-  const listed=new Set(laundry.loads.filter(l=>!l.rest).flatMap(l=>l.match.colors));
+  if(!c||!laundry.splits.includes("colour")) return null;
+  const listed=new Set(laundry.loads.filter(l=>!l.rest&&otherConds(it,l)!==null)
+    .flatMap(l=>l.match.colors));
   return [c,...c.split(/[\s-]+/)].find(w=>listed.has(w))||null;
 }
-/* Does this garment satisfy every condition this load sets on a TICKED split? A
-   load with no condition on a ticked split matches nothing (only the catch-all
-   takes everything). An unknown fabric fails a fabric condition — never assumed
-   delicate. */
-function matchesLoad(it,l){
-  const on=new Set(laundry.splits); let any=false;
-  const m=l.match;
-  if(on.has("colour")&&m.colors.length){ any=true;
-    if(!m.colors.includes(colourToken(it))) return false; }
-  if(on.has("fabric")&&m.fabrics.length){ any=true; if(!m.fabrics.includes(fabricOf(it))) return false; }
-  if(on.has("weight")&&m.weight){ any=true; if(weightOf(it)!==m.weight) return false; }
-  if(on.has("soil")&&m.soil){ any=true; if(soilOf(it)!==m.soil) return false; }
-  if(on.has("kind")&&m.kinds.length){ any=true; if(!m.kinds.includes(kindOf(it))) return false; }
-  return any;
+function matchesLoad(it,l,token=colourToken(it)){
+  const any=otherConds(it,l);
+  if(!any) return false;
+  if(laundry.splits.includes("colour")&&l.match.colors.length&&!l.match.colors.includes(token)) return false;
+  return true;
 }
 /* The load a garment goes in: the wearer's hand-picked one if it still exists, else
    the first load in order that it matches, else the catch-all. */
 function loadOf(it){
   const ids=loadIds();
   if(ids.includes(it.load)) return it.load;
-  const hit=laundry.loads.find(l=>!l.rest&&matchesLoad(it,l));
+  const token=colourToken(it);
+  const hit=laundry.loads.find(l=>!l.rest&&matchesLoad(it,l,token));
   if(hit) return hit.id;
   return (laundry.loads.find(l=>l.rest)||laundry.loads[laundry.loads.length-1]).id;
 }

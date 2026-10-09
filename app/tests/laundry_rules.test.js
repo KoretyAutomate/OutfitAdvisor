@@ -104,6 +104,14 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   check("an old knitwear group reads as tops", ev(`kindOf({group:"knitwear"})`) === "tops");
   check("a per-garment choice beats the automatic weight",
     loadOf(item("j2", ["blue"], {type: "jeans", weight: "light"})) === "rest");
+  ev(`closet=[${JSON.stringify(item("sw", ["red"], {type: "cardigan", warmth: 2}))}]`);
+  await ev(`openSheet(closet[0],{isNew:false})`); await drain();
+  check("a light cardigan opens as Everything else", /Everything else/.test($("shLoad").options[0].textContent),
+    $("shLoad").options[0].textContent);
+  $("shWarm").querySelector('[data-w="4"]').click(); await drain();
+  check("re-graded to warmth 4 it reads Heavy, before saving", /Heavy/.test($("shLoad").options[0].textContent)
+    && /heavy/.test($("shWeight").options[0].textContent), $("shLoad").options[0].textContent);
+  ev("closeSheet()");
   check("a load with no condition on a ticked split matches nothing",
     ev(`matchesLoad(${JSON.stringify(item("x", ["red"]))},{id:"z",match:{colors:["red"],fabrics:[],weight:"",soil:"",kinds:[]}})`) === false);
 

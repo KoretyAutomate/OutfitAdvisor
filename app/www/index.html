@@ -2214,7 +2214,12 @@ function sheetDraft(){
 }
 function paintLoad(){
   const keep=$("shLoad").options.length?$("shLoad").value:null;
-  const auto=loadOf(sheetDraft());
+  const d=sheetDraft(), auto=loadOf(d);
+  // The weight and dirt pickers' own "Automatic — …" too: warmth, kind and the
+  // Active style move them.
+  if($("shWeight").options.length) $("shWeight").options[0].textContent=`Automatic — ${weightOf({...d,weight:undefined})}`;
+  if($("shSoil").options.length) $("shSoil").options[0].textContent=
+    `Automatic — ${soilOf({...d,soil:undefined})==="heavy"?"heavily soiled":"everyday"}`;
   $("shLoad").innerHTML=`<option value="">Automatic — ${esc(loadName(auto))}, from your rules</option>`
     +laundry.loads.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
   $("shLoad").value=keep!==null?keep:(loadIds().includes(sheet.item.load)?sheet.item.load:"");
@@ -2271,13 +2276,14 @@ async function openSheet(item,opts){
   sheet.pattern0=$("shPattern").value;
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
-  $("shLoad").innerHTML=""; $("shFabric").innerHTML=""; $("shWeight").innerHTML=""; $("shSoil").innerHTML="";
-  paintSheetLaundry(); paintLoad();
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
   // Save would write, or the wearer approves one picture and keeps another.
   paintShot(sheet.b64?("data:image/jpeg;base64,"+sheet.b64):((await photoLoad(sheet.item.id))||""));
   paintSheetSegs();
+  // After the type picker and the segments: the automatic load reads them.
+  $("shLoad").innerHTML=""; $("shFabric").innerHTML=""; $("shWeight").innerHTML=""; $("shSoil").innerHTML="";
+  paintSheetLaundry(); paintLoad();
   $("sheetWrap").classList.add("show");
 }
 function closeSheet(){ $("sheetWrap").classList.remove("show"); sheet=null; }
@@ -5488,6 +5494,10 @@ $("loadPresetGo").onclick=async()=>{
 // The "Automatic" load follows the fields as they are edited.
 ["shColors","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
   const el=$(id); if(el) el.addEventListener("change",()=>{ if(sheet) paintLoad(); });
+});
+// Warmth and style are buttons: their own handlers run first, then this.
+["shWarm","shForm"].forEach(id=>{
+  const el=$(id); if(el) el.addEventListener("click",()=>{ if(sheet) paintLoad(); });
 });
 $("loadList").onchange=async e=>{
   const t=e.target;

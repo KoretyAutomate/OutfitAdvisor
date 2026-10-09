@@ -80,6 +80,9 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   ev(`laundry.splits=["colour","fabric","weight"]; laundry.loads=PRESETS.ldh.loads()`);
   check("with Lights as the catch-all, light grey still goes to Lights, not Darks",
     loadOf(item("lg", ["light grey"], {fabric: "cotton"})) === "light" && loadOf(item("g2", ["grey"])) === "dark");
+  ev(`laundry.loads[3].match.fabrics=["silk"]`);
+  check("a catch-all's leftover conditions do not stop its colours protecting shades",
+    loadOf(item("lg2", ["light grey"], {fabric: "cotton"})) === "light");
   ev(`laundry.splits=["colour","fabric"]; laundry.loads=PRESETS.delicates.loads()`);
 
   console.log("\n--- 4. order matters; up and down -------------------------------------");
@@ -91,7 +94,7 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   ev(`closet=[${JSON.stringify(item("c1", ["white"], {fabric: "cotton"}))}]`);
   await ev(`openSheet(closet[0],{isNew:false})`); await drain();
   check("the sheet's Automatic load starts as Whites", /Whites/.test($("shLoad").options[0].textContent));
-  $("shFabric").value = "silk"; $("shFabric").dispatchEvent(new w.Event("change"));
+  $("shFabric").value = "silk"; $("shFabric").dispatchEvent(new w.Event("change")); await drain();
   check("choosing silk updates it to Delicates before saving", /Delicates/.test($("shLoad").options[0].textContent),
     $("shLoad").options[0].textContent);
   ev("closeSheet()");
@@ -116,6 +119,13 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   $("shWarm").querySelector('[data-w="4"]').click(); await drain();
   check("re-graded to warmth 4 it reads Heavy, before saving", /Heavy/.test($("shLoad").options[0].textContent)
     && /heavy/.test($("shWeight").options[0].textContent), $("shLoad").options[0].textContent);
+  ev("closeSheet()");
+  ev(`closet=[${JSON.stringify(item("jn", ["blue"], {type: "jeans", group: "bottoms", category: "bottoms", roles: ["bottoms"], warmth: 1}))}]`);
+  await ev(`openSheet(closet[0],{isNew:false})`); await drain();
+  check("jeans open as Heavy", /Heavy/.test($("shLoad").options[0].textContent));
+  $("shGroup").value = "tops"; $("shGroup").dispatchEvent(new w.Event("change")); await drain();
+  check("moved to Tops, the kind is cleared and the preview follows", ev(`$("shType").value`) === ""
+    && /Everything else/.test($("shLoad").options[0].textContent), [ev(`$("shType").value`), $("shLoad").options[0].textContent]);
   ev("closeSheet()");
   check("a load with no condition on a ticked split matches nothing",
     ev(`matchesLoad(${JSON.stringify(item("x", ["red"]))},{id:"z",match:{colors:["red"],fabrics:[],weight:"",soil:"",kinds:[]}})`) === false);

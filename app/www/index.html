@@ -1564,7 +1564,7 @@ function colourToken(it){
   if(!c||!laundry.splits.includes("colour")) return null;
   // The catch-all's colours count here too: listing "light" on a catch-all Lights
   // keeps "light grey" from being claimed by Darks through "grey".
-  const listed=new Set(laundry.loads.filter(l=>otherConds(it,l)!==null)
+  const listed=new Set(laundry.loads.filter(l=>l.rest||otherConds(it,l)!==null)
     .flatMap(l=>l.match.colors));
   return [c,...c.split(/[\s-]+/)].find(w=>listed.has(w))||null;
 }
@@ -5496,8 +5496,10 @@ $("loadPresetGo").onclick=async()=>{
   toast(`Loads set to: ${p.label}`);
 };
 // The "Automatic" load follows the fields as they are edited.
-["shColors","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
-  const el=$(id); if(el) el.addEventListener("change",()=>{ if(sheet) paintLoad(); });
+// Deferred, like the buttons below: the group and kind handlers reconcile the type
+// in their own (later-registered) handlers, and the preview must read the result.
+["shColors","shCat","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
+  const el=$(id); if(el) el.addEventListener("change",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
 });
 // Warmth and style are buttons: their own handlers run first, then this.
 ["shWarm","shForm"].forEach(id=>{

@@ -111,6 +111,13 @@ def _plan_temp(w: dict) -> float:
     return engine.plan_temp(w)
 
 
+def _peak_temp(w: dict, plan: float) -> float:
+    """The warmest hour the outfit has to carry — the felt peak of the window, else
+    the day's high; never below the plan. The one reader every heat check uses, so
+    the prompt, the validator, the style pass and the re-roll judge the same hour."""
+    return max(plan, float(engine.peak(w)))
+
+
 # A day this warm at its peak is a hot day, whatever the morning says.
 HOT_AFTERNOON_C = 28
 

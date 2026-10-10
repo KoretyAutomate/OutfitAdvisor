@@ -82,3 +82,43 @@ def test_advice_plans_for_the_evening_the_phone_reports(monkeypatch):
     assert late["peakTemp"] == 23
     assert late["weather"]["planUntil"] == 22, "the phone shows what the day was planned for"
     assert reroll.peak_temp(late["weather"], 9) == 23
+
+
+def test_every_heat_check_reads_the_felt_peak():
+    """Air high 20, felt peak 16: the prompt, the validator, the style pass and the
+    re-roll must all judge 16. Raised by the pre-push reviewer, 2026-10-10 — three
+    of them still read the air high, so a warmth-3 trouser was swapped as too warm
+    by one check and offered by another."""
+    import style
+    from picks import Prefs, _index
+    cool = day(hours=[[8, 12.0, 10.0], [14, 20.0, 16.0], [19, 14.0, 12.0]])
+    w = weather.with_plan(cool)
+    assert w["planHi"] == 16 and w["hi"] == 20       # 20 felt as 16: within the 4-colder bound
+    plan = llm._plan_temp(w)
+    assert llm._peak_temp(w, plan) == reroll.peak_temp(w, plan) == 16
+    assert style.ctx_of(w, _index([]), Prefs()).peak == 16
+
+
+def _kotlin_video_pattern():
+    """The phone's own pattern, lifted out of EveningOut.kt so this suite runs the
+    real thing rather than a copy of it (no Kotlin toolchain on this box)."""
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+           / "com" / "korety" / "outfitadvisor" / "EveningOut.kt").read_text()
+    body = src[src.index("private val VIDEO = Regex("):]
+    body = body[:body.index("RegexOption")]
+    parts = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
+    return re.compile("".join(p.encode().decode("unicode_escape") for p in parts), re.I)
+
+
+def test_a_place_with_a_map_link_is_still_a_night_out():
+    """Only a conferencing service or a bare 'online' means the event is not out.
+    Raised by the pre-push reviewer, 2026-10-10."""
+    video = _kotlin_video_pattern()
+    for out in ("Blue Note, 131 W 3rd St https://maps.app.goo.gl/abc", "Carnegie Hall",
+                "Dinner at Joe's https://joes.example.com", "Phone shop, 5th Ave"):
+        assert not video.search(out), out
+    for online in ("https://us02web.zoom.us/j/123", "Microsoft Teams Meeting https://teams.microsoft.com/l/x",
+                   "meet.google.com/abc-defg-hij", "Online", " virtual ", "Zoom"):
+        assert video.search(online), online

@@ -30,8 +30,12 @@ import java.util.Calendar
  */
 object EveningOut {
     const val DAY_ENDS = 19
+    // A conferencing service, or a location that says nothing but "online". NOT any
+    // link: "Blue Note, 131 W 3rd St https://maps.app.goo.gl/..." is a night out.
+    // Raised by the pre-push reviewer, 2026-10-10. Pinned by test_feels_like.py.
     private val VIDEO = Regex(
-        "https?://|zoom\\.us|meet\\.google|teams\\.microsoft|webex|whereby|^\\s*(online|virtual|remote|phone|call)\\s*$",
+        "zoom\\.us|meet\\.google|teams\\.microsoft|teams\\.live|webex|whereby\\.com|gotomeeting|" +
+            "^\\s*(online|virtual|remote|phone|call|video call|zoom|teams|google meet)\\s*$",
         RegexOption.IGNORE_CASE
     )
 
@@ -61,8 +65,11 @@ object EveningOut {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val hour = 3_600_000L
-        val from = day + DAY_ENDS * hour
+        // Clock hours, from calendar fields — never elapsed milliseconds, which are an
+        // hour off on a daylight-saving day. Raised by the pre-push reviewer, 2026-10-10.
+        val from = Calendar.getInstance().apply {
+            timeInMillis = day; set(Calendar.HOUR_OF_DAY, DAY_ENDS)
+        }.timeInMillis
         val midnight = Calendar.getInstance().apply {
             timeInMillis = day; add(Calendar.DAY_OF_MONTH, 1)
         }.timeInMillis
@@ -87,12 +94,19 @@ object EveningOut {
                 if (!isPlace(c.getString(4))) continue
                 if (!c.isNull(5) && c.getInt(5) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue
                 if (begin < day || end <= from) continue                // a multi-day span is a trip, not an evening
-                // The hour it ends, rounded up: out until 21:30 is dressed for 22:00.
-                val h = minOf(24L, (minOf(end, midnight) - day + hour - 1) / hour).toInt()
+                // The clock hour it ends, rounded up: out until 21:30 is dressed for 22:00.
+                val h = endHour(end, midnight)
                 if (h > DAY_ENDS && h > (latest ?: 0)) latest = h
             }
         }
         return latest
+    }
+
+    private fun endHour(end: Long, midnight: Long): Int {
+        if (end >= midnight) return 24
+        val c = Calendar.getInstance().apply { timeInMillis = end }
+        val past = c.get(Calendar.MINUTE) > 0 || c.get(Calendar.SECOND) > 0
+        return c.get(Calendar.HOUR_OF_DAY) + if (past) 1 else 0
     }
 
     /** The wearer's own calendars, narrowed to the ones ticked in the picker. */

@@ -132,6 +132,15 @@
   .item.out img,.item.out .ph{opacity:.35}
   .modal{position:fixed;inset:0;background:rgba(31,29,27,.35);display:none;align-items:flex-end;justify-content:center;z-index:40}
   .modal.show{display:flex}
+  /* photo viewer (user, 2026-10-10): the whole picture, uncropped, over everything */
+  .zoom{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:12px;padding:16px;z-index:45;cursor:zoom-out}
+  .zoom.show{display:flex}
+  .zoom img{max-width:100%;max-height:78vh;object-fit:contain;border-radius:8px;background:#FFFFFF}
+  .zoom .zcap{color:#FFFFFF;font-size:.95rem;text-align:center;line-height:1.35}
+  .zoom .zcap .br{opacity:.7;font-weight:600}
+  .zoom .zhint{color:#FFFFFF;opacity:.55;font-size:.72rem}
+  #wearGrid .wearIt img,#outfitList .thumb,#pkPlan .wearIt img,#shImg{cursor:zoom-in}
   .sheet{background:var(--bg);border:1px solid var(--line);border-radius:16px 16px 0 0;width:100%;
     max-width:560px;max-height:88vh;overflow-y:auto;padding:18px 16px calc(26px + env(safe-area-inset-bottom))}
   .sheet h3{margin:0 0 12px;font-size:1.05rem;font-weight:600}
@@ -448,7 +457,7 @@
       <div class="grid" id="closetGrid"></div>
       <p class="note">Photograph your clothes once — the advisor then dresses you from what you
         actually own and skips items still in the laundry. Photos stay on this phone; the DGX
-        classifies them in memory and stores nothing.</p>
+        classifies them in memory and stores nothing. Press and hold a photo to see it bigger.</p>
       <input type="file" id="fileIn" accept="image/*" style="display:none">
       <div id="clErr" class="err"></div>
     </div>
@@ -503,6 +512,15 @@
   </section>
 
   <footer>Weather by Open-Meteo · outfit written on your own server · location never stored</footer>
+</div>
+
+<!-- Photo viewer (user, 2026-10-10): "tap the picture to make it bigger. I have a few
+     which looks similar and difficult to tell which is which". Every thumbnail is a
+     square crop; this shows the whole photo. Tap anywhere to close. -->
+<div class="zoom" id="zoomWrap" role="dialog" aria-modal="true" aria-label="Photo">
+  <img id="zoomImg" alt="">
+  <div class="zcap" id="zoomCap"></div>
+  <div class="zhint">Tap anywhere to close</div>
 </div>
 
 <!-- Closet item sheet (classify-confirm / edit) -->
@@ -1641,7 +1659,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.40";
+const WEB_BUILD="1.41";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -5591,7 +5609,48 @@ $("dryHours").onchange=async()=>{
   await prefSet("oa.laundry",JSON.stringify(laundry));
   await saveCloset();      // drying times moved: the grid and the push payload follow
 };
+/* ── photo viewer ──
+   A tap on a photo in the outfit, the trip plan or the edit sheet shows it whole.
+   In the closet a tap already opens the garment, so there it is press-and-hold —
+   and the click that ends the hold must not open the sheet as well. */
+function zoomShow(src,it){
+  if(!src) return false;
+  $("zoomImg").src=src;
+  $("zoomCap").innerHTML=it?`${it.brand?`<span class="br">${esc(it.brand)}</span> · `:""}${esc(it.label||"")}`:"";
+  $("zoomWrap").classList.add("show");
+  return true;
+}
+async function zoomItem(id){
+  const it=closet.find(i=>i.id===id); if(!it) return false;
+  return zoomShow(await photoLoad(id),it);
+}
+function zoomClose(){ $("zoomWrap").classList.remove("show"); $("zoomImg").src=""; }
+$("zoomWrap").onclick=zoomClose;
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("zoomWrap").classList.contains("show")) zoomClose(); });
+document.addEventListener("click",e=>{
+  const img=e.target.closest&&e.target.closest("#wearGrid .wearIt img, #outfitList .thumb, #pkPlan .wearIt img");
+  if(!img) return;
+  const id=img.closest("[data-pick]")?.dataset.pick; if(id) zoomItem(id);
+});
+// The sheet's picture may be a retake not saved yet — show what is on screen.
+$("shImg").onclick=()=>{ if($("shImg").getAttribute("src")) zoomShow($("shImg").src,sheet?.item); };
+const HOLD_MS=450;
+let holdTimer=null, holdAt=null, holdFired=false;
+const holdCancel=()=>{ clearTimeout(holdTimer); holdTimer=null; };
+$("closetGrid").addEventListener("pointerdown",e=>{
+  const t=e.target.closest(".item"); holdCancel(); holdFired=false;
+  if(!t||!t.querySelector("img")) return;
+  holdAt=[e.clientX,e.clientY];
+  holdTimer=setTimeout(()=>{ holdTimer=null; holdFired=true; zoomItem(t.dataset.id); },HOLD_MS);
+});
+$("closetGrid").addEventListener("pointermove",e=>{
+  if(holdTimer&&holdAt&&Math.hypot(e.clientX-holdAt[0],e.clientY-holdAt[1])>10) holdCancel();
+});
+["pointerup","pointercancel","pointerleave"].forEach(n=>$("closetGrid").addEventListener(n,holdCancel));
+// The WebView's own long-press menu ("save image") would open over the viewer.
+$("closetGrid").addEventListener("contextmenu",e=>{ if(e.target.closest(".item img")) e.preventDefault(); });
 $("closetGrid").onclick=e=>{
+  if(holdFired){ holdFired=false; return; }
   const t=e.target.closest(".item"); if(!t) return;
   const it=closet.find(i=>i.id===t.dataset.id); if(it) openSheet(it,{isNew:false});
 };

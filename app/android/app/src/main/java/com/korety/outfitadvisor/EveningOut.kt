@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.util.Calendar
 
 /**
@@ -109,13 +111,36 @@ object EveningOut {
         return c.get(Calendar.HOUR_OF_DAY) + if (past) 1 else 0
     }
 
+    /**
+     * The picker's saved choice, read exactly as the app reads it (index.html, the
+     * "oa.calendars" loader): {mode, ids}, or — from builds before the mode existed —
+     * a bare array of ids, which means "some" when it lists any. Reading the bare
+     * array as "all" would let an excluded calendar decide the evening. Raised by
+     * the pre-push reviewer, 2026-10-10.
+     */
+    private fun selection(ctx: Context): Pair<String, Set<String>> {
+        val raw = ctx.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+            .getString("oa.calendars", null) ?: return "all" to emptySet()
+        val ids = { a: JSONArray -> (0 until a.length()).map { a.opt(it).toString() }.toSet() }
+        return try {
+            when (val v = JSONTokener(raw).nextValue()) {
+                is JSONArray -> ids(v).let { (if (it.isEmpty()) "all" else "some") to it }
+                is JSONObject -> {
+                    val sel = v.optJSONArray("ids")?.let(ids) ?: emptySet()
+                    val mode = v.optString("mode").takeIf { it in setOf("all", "some", "none") } ?: "all"
+                    (if (mode == "some" && sel.isEmpty()) "all" else mode) to sel
+                }
+                else -> "all" to emptySet()
+            }
+        } catch (e: Exception) {
+            "all" to emptySet()
+        }
+    }
+
     /** The wearer's own calendars, narrowed to the ones ticked in the picker. */
     private fun allowedCalendars(ctx: Context): Set<Long> {
-        val prefs = ctx.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
-        val sel = try { JSONObject(prefs.getString("oa.calendars", null) ?: "{}") } catch (e: Exception) { JSONObject() }
-        val mode = sel.optString("mode", "all")
+        val (mode, ticked) = selection(ctx)
         if (mode == "none") return emptySet()
-        val ticked = sel.optJSONArray("ids")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
         val out = mutableSetOf<Long>()
         val projection = arrayOf(
             CalendarContract.Calendars._ID,

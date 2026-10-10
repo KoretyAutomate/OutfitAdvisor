@@ -172,8 +172,11 @@ def test_the_evening_check_reads_only_what_the_picker_allows():
     src = EVENING.read_text()
     reader = src[src.index("private fun allowedCalendars"):]
     assert "isShared(" in reader, "shared calendars are not excluded"
-    assert '"oa.calendars"' in reader and '"none"' in reader and '"some"' in reader, \
-        "the picker's selection is not honoured"
+    assert '"none"' in reader and '"some"' in reader, "the picker's selection is not honoured"
+    sel = src[src.index("private fun selection"):src.index("private fun allowedCalendars")]
+    assert '"oa.calendars"' in sel
+    # Builds before the mode stored a bare array of ids; the app reads it as "some".
+    assert "is JSONArray ->" in sel and '"some"' in sel, "a legacy selection would widen to every calendar"
     assert "Manifest.permission.READ_CALENDAR" in src
 
 

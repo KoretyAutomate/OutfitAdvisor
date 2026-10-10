@@ -40,6 +40,16 @@ def _kotlin_list_calendars() -> str:
     return rest[:end]
 
 
+EVENING = PLUGIN.with_name("EveningOut.kt")
+WORKER = PLUGIN.with_name("AdviceWorker.kt")
+
+
+def _kotlin_is_shared() -> str:
+    src = EVENING.read_text()
+    start = src.index("fun isShared(")
+    return src[start:src.index("\n    }", start)]
+
+
 def _js_load_calendars() -> str:
     src = INDEX.read_text()
     start = src.index("async function loadCalendars()")
@@ -60,12 +70,19 @@ def test_both_ownership_tests_are_applied_not_just_one():
     A holiday feed can be owned by another account at owner-level access; a
     calendar you were made an editor on keeps your account name. Dropping
     either test reopens a hole, so the OR is the contract.
+
+    The rule lives in ONE place, EveningOut.isShared (2026-10-10), because a second
+    reader of the calendar — the evening-event check — must exclude exactly what the
+    picker excludes. So: the picker's flag is that function, and that function is
+    the OR.
     """
     body = _kotlin_list_calendars()
-    assert "CAL_ACCESS_OWNER" in body, "access level is never compared"
-    assert re.search(r'!owner\.equals\(account,\s*ignoreCase', body), "owner is never compared to the account"
-    assert re.search(r'put\(\s*"shared",\s*\w+\s*\|\|\s*\w+\s*\)', body), \
-        "the shared flag must be the OR of both tests"
+    assert re.search(r'put\(\s*"shared",\s*EveningOut\.isShared\(owner,\s*account,\s*access\)\s*\)', body), \
+        "the picker's shared flag must come from the one rule"
+    rule = _kotlin_is_shared()
+    assert "CAL_ACCESS_OWNER" in rule, "access level is never compared"
+    assert re.search(r'!owner\.equals\(account,\s*ignoreCase', rule), "owner is never compared to the account"
+    assert re.search(r'return\s+\w+\s*\|\|\s*access\s*<', rule), "the shared flag must be the OR of both tests"
 
 
 def test_the_native_side_never_reads_event_rows():
@@ -147,3 +164,24 @@ def test_unselect_all_exists_and_means_read_nothing():
     save = save[:save.index("\n}") + 2]
     assert re.search(r'!picked\.length.*calMode="none"', save, re.S), \
         "an empty selection must store the none mode, not fall through to all"
+
+
+def test_the_evening_check_reads_only_what_the_picker_allows():
+    """The evening-event reader (2026-10-10) is a second reader of event rows. It
+    must skip shared calendars by the same rule and honour the picker's ticks."""
+    src = EVENING.read_text()
+    reader = src[src.index("private fun allowedCalendars"):]
+    assert "isShared(" in reader, "shared calendars are not excluded"
+    assert '"oa.calendars"' in reader and '"none"' in reader and '"some"' in reader, \
+        "the picker's selection is not honoured"
+    assert "Manifest.permission.READ_CALENDAR" in src
+
+
+def test_only_the_hour_leaves_the_phone():
+    """Title, place and notes are read on the phone and never sent: the worker's
+    request gains one number, and the reader returns nothing but an hour."""
+    src = EVENING.read_text()
+    assert "fun until(ctx: Context): Int?" in src
+    assert "TITLE" not in src and "DESCRIPTION" not in src, "event text is read for no reason"
+    worker = WORKER.read_text()
+    assert re.search(r'EveningOut\.until\(applicationContext\)\?\.let \{ b\.put\("outUntil", it\) \}', worker)

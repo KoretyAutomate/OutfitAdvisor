@@ -281,6 +281,14 @@ class OutfitAlarmPlugin : Plugin() {
      * owns the permission prompt (the plugin's `readCalendar` alias) and asks
      * first. Nothing is stored, and no event text is touched: ids and titles only.
      */
+    /** The hour an evening event keeps the wearer out until, or null — see EveningOut. */
+    @PluginMethod
+    fun eveningOut(call: PluginCall) {
+        val ret = JSObject()
+        EveningOut.until(context)?.let { ret.put("until", it) }
+        call.resolve(ret)
+    }
+
     @PluginMethod
     fun listCalendars(call: PluginCall) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)
@@ -318,7 +326,6 @@ class OutfitAlarmPlugin : Plugin() {
                         else CalendarContract.Calendars.CAL_ACCESS_OWNER
                     val otherOwner = owner.isNotEmpty() && account.isNotEmpty() &&
                         !owner.equals(account, ignoreCase = true)
-                    val guest = access < CalendarContract.Calendars.CAL_ACCESS_OWNER
                     out.put(
                         JSObject()
                             .put("id", id)
@@ -330,7 +337,7 @@ class OutfitAlarmPlugin : Plugin() {
                             // accounts shows two lists of calendars whose names give
                             // no clue which sign-in they belong to.
                             .put("account", account)
-                            .put("shared", otherOwner || guest)
+                            .put("shared", EveningOut.isShared(owner, account, access))
                             // Shown to the user so an excluded calendar says why it
                             // is excluded instead of just vanishing from the list.
                             .put("sharedBy", if (otherOwner) owner else "")

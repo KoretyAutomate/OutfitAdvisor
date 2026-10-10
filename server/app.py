@@ -122,7 +122,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     t0 = time.monotonic()
     # NB: req.lat / req.lon are used here but intentionally NEVER logged.
     try:
-        w = await weather.fetch_weather(req.lat, req.lon, req.day)
+        w = weather.with_plan(await weather.fetch_weather(req.lat, req.lon, req.day), req.outUntil)
     except Exception as e:
         # PRIVACY: an httpx error message embeds the full Open-Meteo URL — lat/lon
         # included. Letting it propagate would put coordinates in the 500 traceback.

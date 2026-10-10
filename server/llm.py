@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+import engine
+
 from vocab import CATEGORIES, FABRICS, GROUPS, STYLES, TYPES
 
 if TYPE_CHECKING:                       # only here to name the type in a signature
@@ -104,11 +106,9 @@ def _parse_json(text: str | None) -> dict | None:
 
 
 def _plan_temp(w: dict) -> float:
-    """The temperature the outfit is planned around — morning, falling back to
-    the midpoint. MUST match engine.recommend()'s basis (engine.py) so the
-    prompt flags and the rule engine never disagree about 'hot'."""
-    m = w.get("morning")
-    return m if m is not None else w["lo"] + (w["hi"] - w["lo"]) / 2
+    """The temperature the outfit is planned around. One definition, engine's, so
+    the prompt flags and the rule engine never disagree about 'hot'."""
+    return engine.plan_temp(w)
 
 
 # A day this warm at its peak is a hot day, whatever the morning says.
@@ -122,15 +122,18 @@ def _weather_flags(w: dict) -> list[str]:
         # User feedback 2026-07-15: without this the model INVENTS a jacket on a
         # 34C day because the slot list reads like a form to fill in.
         flags.append('Hot day — mid and outer should be "None needed"; do NOT invent layers the heat makes pointless.')
-    elif w["hi"] >= HOT_AFTERNOON_C:
+    elif engine.peak(w) >= HOT_AFTERNOON_C:
         # The outfit is planned around the MORNING, and on 2026-09-01 that was 23C
         # under a 32C afternoon — so the hot-day flag never fired and the model was
         # told, correctly, only that there was a big swing. Somebody dressing at 23C
         # for a day that reaches 32 is dressing for the hour, not the day: the
         # garments still have to be ones the afternoon can carry.
-        flags.append(f'Warm now, HOT later ({w["hi"]}C) — dress for the whole day. '
+        flags.append(f'Warm now, HOT later ({engine.peak(w):.0f}C) — dress for the whole day. '
                      'Nothing heavier than the afternoon can carry, and prefer '
                      '"None needed" for mid and outer.')
+    if w.get("planLo") is not None:
+        flags.append(f"Dress for how it FEELS: {w['planLo']:.0f}C at the coldest and "
+                     f"{w['planHi']:.0f}C at the warmest between 08:00 and {w['planUntil']}:00.")
     if w["swing"] >= 10:
         flags.append(f"Big {w['swing']}C swing — say when to shed/add a layer.")
     if w["rain"] >= 50 or w["isRain"]:

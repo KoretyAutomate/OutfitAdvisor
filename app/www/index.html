@@ -324,6 +324,7 @@
         <div>
           <div class="big"><span id="wxLo">–</span>° → <span id="wxHi">–</span>°</div>
           <div class="meta" id="wxDesc">—</div>
+          <div class="meta" id="wxPlan"></div>
         </div>
       </div>
       <div class="chips" id="wxChips"></div>
@@ -931,7 +932,29 @@ function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
    ⇒ we plan for a warmer day ⇒ lighter clothes. Only temperatures move; swing
    (= hi−lo) is invariant under a uniform shift. Returns a COPY: the caller keeps
    the real forecast for display. */
-const TEMP_KEYS=["lo","hi","feelsLo","feelsHi","morning","midday","evening"];
+const TEMP_KEYS=["lo","hi","feelsLo","feelsHi","morning","midday","evening","planLo","planHi"];
+/* Dress for how the day FEELS, 08:00-19:00, or until an evening event ends (user,
+   2026-10-10). Twin of weather.with_plan / engine.plan_temp. Feels-like moves an
+   hour at most 4° colder or 3° warmer than the air: the warmth scale is measured
+   against air temperatures, and a gusty or sunny hour is a short walk. */
+const PLAN_FROM=8, PLAN_UNTIL=19, FEELS_COLDER=4, FEELS_WARMER=3;
+function felt(air,feel){ return feel==null?air:air+Math.max(-FEELS_COLDER,Math.min(FEELS_WARMER,feel-air)); }
+function planWindow(w,outUntil){
+  const until=outUntil&&outUntil>PLAN_UNTIL?outUntil:PLAN_UNTIL;
+  const f=(w.hours||[]).filter(([h])=>h>=PLAN_FROM&&h<=Math.min(23,until)).map(([,a,fl])=>felt(a,fl));
+  if(!f.length) return w;
+  const r1=x=>Math.round(x*10)/10;
+  return {...w,planLo:r1(Math.min(...f)),planHi:r1(Math.max(...f)),planUntil:until};
+}
+function planTemp(w){ return w.planLo!=null?w.planLo:(w.morning ?? w.lo + (w.hi-w.lo)/2); }
+/* The hour an evening event keeps the wearer out until, read on the phone by the
+   same code the morning push uses (EveningOut.kt). Null when there is none, the
+   build predates it, or the calendar was never allowed — the day is then 8-19. */
+async function eveningOut(){
+  try{ const P=Plugins.OutfitAlarm; if(!P||!P.eveningOut) return null;
+       const r=await P.eveningOut(); return r&&r.until>=20&&r.until<=24?r.until:null; }
+  catch(e){ return null; }
+}
 function applyTempOffset(w,offset){
   if(!offset) return w;
   const o={...w};
@@ -939,7 +962,7 @@ function applyTempOffset(w,offset){
   return o;
 }
 function recommend(w,gender,style){
-  const t = (w.morning ?? w.lo + (w.hi-w.lo)/2); const o={};
+  const t = planTemp(w); const o={};
   /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
   if(t>=24) o.inner="Sweat-wicking breathable inner (AIRism-type)";
   else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light inner camisole or undershirt (worn under the top)","Light cotton undershirt");
@@ -1158,13 +1181,20 @@ async function fetchWeatherLocal(lat,lon){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
     `&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,`+
     `precipitation_probability_max,wind_speed_10m_max,weather_code`+
-    `&hourly=temperature_2m&timezone=auto&forecast_days=2&wind_speed_unit=ms`;
+    `&hourly=temperature_2m,apparent_temperature&timezone=auto&forecast_days=2&wind_speed_unit=ms`;
   const d=await (await fetchT(15000,u)).json();
   if(!d||!d.daily||!d.hourly) throw new Error("The weather service gave no forecast. Try again in a moment.");
   const i=0; const date=d.daily.time[i]; const code=d.daily.weather_code[i];
   const hp=h=>{const idx=d.hourly.time.indexOf(`${date}T${String(h).padStart(2,"0")}:00`);return idx>=0?Math.round(d.hourly.temperature_2m[idx]):null;};
   const lo=Math.round(d.daily.temperature_2m_min[i]),hi=Math.round(d.daily.temperature_2m_max[i]);
-  return {date,timezone:d.timezone,code,emoji:(WMO[code]||["🌡️","—"])[0],desc:(WMO[code]||["","—"])[1],lo,hi,swing:hi-lo,
+  const hours=[];
+  for(let h=PLAN_FROM;h<24;h++){
+    const k=d.hourly.time.indexOf(`${date}T${String(h).padStart(2,"0")}:00`);
+    const air=k>=0?d.hourly.temperature_2m[k]:null; if(air==null) continue;
+    const fl=(d.hourly.apparent_temperature||[])[k];
+    hours.push([h,Math.round(air*10)/10,fl==null?null:Math.round(fl*10)/10]);
+  }
+  return {hours,date,timezone:d.timezone,code,emoji:(WMO[code]||["🌡️","—"])[0],desc:(WMO[code]||["","—"])[1],lo,hi,swing:hi-lo,
     feelsLo:Math.round(d.daily.apparent_temperature_min[i]),feelsHi:Math.round(d.daily.apparent_temperature_max[i]),
     rain:d.daily.precipitation_probability_max[i]??0,wind:Math.round(d.daily.wind_speed_10m_max[i]),
     morning:hp(8),midday:hp(13),evening:hp(19),isSnow:SNOW.includes(code),isRain:RAIN.includes(code)};
@@ -1659,7 +1689,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.41";
+const WEB_BUILD="1.42";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3459,6 +3489,7 @@ async function getAdvice(lat,lon){
   const at=Date.now();
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
   const cl=closetPayload();
+  const outUntil=await eveningOut();
   try{
     // closet requests generate ~2x the tokens — give them a longer leash
     // A closet request can legitimately take 35s+: a 17-item wardrobe that trips
@@ -3468,6 +3499,7 @@ async function getAdvice(lat,lon){
     // the LLM was down (2026-08-13). Match the native worker's 90s ceiling.
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
+    if(outUntil) body.outUntil=outUntil;
     // No scale on the REQUEST: each garment carries the year its own number was
     // graded against, in closetPayload above. What has to be known at 06:45 is what
     // each number meant when it was written, and that does not change when the
@@ -3510,7 +3542,7 @@ async function getAdvice(lat,lon){
     // fallback: compute everything on-device. The calibration applies here too —
     // recommend against shifted temps, but return the REAL weather for display.
     let w;
-    try{ w=await fetchWeatherLocal(lat,lon); }
+    try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
     catch(e2){ throw new Error(friendly(e2)); }
     // The on-device recommender dresses from a catalogue and knows nothing about
     // this wardrobe. With the closet declared complete that is precisely what must
@@ -3545,6 +3577,11 @@ function renderWeather(w){
   $("wxWhen").textContent="Today · "+dt.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})+(state.place?" · "+state.place:"");
   $("wxEmoji").textContent=w.emoji; $("wxLo").textContent=w.lo; $("wxHi").textContent=w.hi;
   $("wxDesc").textContent=`${w.desc} · feels ${w.feelsLo}°–${w.feelsHi}°`;
+  // What the outfit was actually dressed for, and why the day runs as long as it does.
+  $("wxPlan").textContent=w.planLo!=null
+    ?`Dressed for ${Math.round(w.planLo)}°–${Math.round(w.planHi)}° as it feels, 8:00–${w.planUntil}:00`
+      +(w.planUntil>PLAN_UNTIL?" (evening plans in your calendar)":"")
+    :"";
   const chips=[];
   if(w.swing>=10) chips.push(`<span class="chip warn">${esc(w.swing)}° swing</span>`);
   if(w.rain>=30||w.isRain) chips.push(`<span class="chip rain">rain ${esc(w.rain)}%</span>`);

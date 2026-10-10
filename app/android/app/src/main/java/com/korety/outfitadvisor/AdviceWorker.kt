@@ -277,6 +277,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 .put("lat", lat).put("lon", lon)
                 .put("gender", gender).put("style", style).put("day", 0)
                 .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
+                .also { b -> EveningOut.until(applicationContext)?.let { b.put("outUntil", it) } }
                 .also { attachWardrobe(it) }
                 .toString()
             conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {

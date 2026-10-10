@@ -14,7 +14,23 @@ def pick(g: str, man: str, woman: str, neutral: str) -> str:
 
 
 # Temperature fields the personal calibration shifts. JS twin: TEMP_KEYS in index.html.
-_TEMP_KEYS = ("lo", "hi", "feelsLo", "feelsHi", "morning", "midday", "evening")
+_TEMP_KEYS = ("lo", "hi", "feelsLo", "feelsHi", "morning", "midday", "evening", "planLo", "planHi")
+
+
+def plan_temp(w: dict) -> float:
+    """The temperature an outfit must be warm enough for: the coldest FELT hour of
+    the day it is worn through (weather.with_plan, 2026-10-10), else the morning,
+    else the midpoint. JS twin: planTemp() in index.html."""
+    if w.get("planLo") is not None:
+        return w["planLo"]
+    m = w.get("morning")
+    return m if m is not None else w["lo"] + (w["hi"] - w["lo"]) / 2
+
+
+def peak(w: dict) -> float:
+    """The warmest hour the outfit has to carry: the warmest felt hour of the
+    window, else the day's high."""
+    return w["planHi"] if w.get("planHi") is not None else w["hi"]
 
 
 def apply_temp_offset(w: dict, offset: float) -> dict:
@@ -192,8 +208,7 @@ def recommend(w: dict, gender: str, style: str) -> dict:
 
     Behaviour is pinned by server/tests/test_engine_characterization.py; change a
     threshold here and the golden diff shows exactly which outfits move."""
-    # plan for the cooler part of the day (morning), falling back to the midpoint
-    t = w["morning"] if w.get("morning") is not None else w["lo"] + (w["hi"] - w["lo"]) / 2
+    t = plan_temp(w)
     return {
         "inner": _inner(t, gender),
         "base": _base(t, gender),

@@ -124,6 +124,16 @@ class ClosetItem(BaseModel):
     # Solid or busy (user, 2026-10-07: style check). None = not stated; style.py
     # then reads the name, and an unknown pattern never triggers the rule.
     pattern: Literal["solid", "striped", "checked", "print", "graphic"] | None = None
+    # Main fabric (user, 2026-10-09: laundry split by material, e.g. delicates).
+    # Only the phone's laundry loads read it; None = not stated.
+    fabric: str | None = None
+
+    @field_validator("fabric", mode="before")
+    @classmethod
+    def _known_fabric(cls, v):
+        """Anything else is DROPPED, not a 422 — same posture as `pattern`."""
+        v = v.strip().lower() if isinstance(v, str) else v
+        return v if v in vocab.FABRICS else None
 
     @field_validator("pattern", mode="before")
     @classmethod

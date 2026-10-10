@@ -547,6 +547,19 @@
     </div>
     <label class="lbl">Laundry load</label>
     <select id="shLoad" style="width:100%;margin-bottom:12px"></select>
+    <!-- Shown only for the splits ticked in Settings → Laundry (user, 2026-10-09). -->
+    <div id="shFabricBox" style="display:none">
+      <label class="lbl">Fabric <span class="note" style="text-transform:none;letter-spacing:0">— for your laundry split</span></label>
+      <select id="shFabric" style="width:100%;margin-bottom:12px"></select>
+    </div>
+    <div id="shWeightBox" style="display:none">
+      <label class="lbl">Weight <span class="note" style="text-transform:none;letter-spacing:0">— for your laundry split</span></label>
+      <select id="shWeight" style="width:100%;margin-bottom:12px"></select>
+    </div>
+    <div id="shSoilBox" style="display:none">
+      <label class="lbl">How dirty it gets <span class="note" style="text-transform:none;letter-spacing:0">— for your laundry split</span></label>
+      <select id="shSoil" style="width:100%;margin-bottom:12px"></select>
+    </div>
     <label class="lbl">Clothing group <span class="note" style="text-transform:none;letter-spacing:0">— which folder it lives in</span></label>
     <select id="shGroup" style="width:100%;margin-bottom:12px">
       <option value="underwear">Underwear</option>
@@ -711,10 +724,20 @@
       <button class="primary" id="verInstall" style="display:none;width:100%;margin-top:9px">Install update</button>
     </div>
     <h3>Laundry</h3>
-    <p class="note" style="margin-top:0">Your household washes in four loads — Whites,
-      Light colours, Colourful and Darks. Each garment goes in the load its main colour
-      says, unless you choose one on the garment itself. "Laundry done" asks which loads
-      you washed.</p>
+    <label class="lbl">How does your household split laundry?</label>
+    <div id="splitBox"></div>
+    <div class="row" style="gap:8px;margin:6px 0 12px">
+      <select id="loadPreset" style="flex:2">
+        <option value="">Start from a preset…</option>
+      </select>
+      <button class="ghost" id="loadPresetGo" style="flex:1" disabled>Use</button>
+    </div>
+    <p class="note" style="margin-top:0">Your loads, checked from the top: a garment goes in the
+      first load whose conditions it meets, and anything else in the catch-all. Pick a load on a
+      garment to override it. "Laundry done" asks which loads you washed.</p>
+    <div id="loadList"></div>
+    <button class="ghost" id="loadAdd" style="width:100%;margin:4px 0 6px">Add a load</button>
+    <button class="ghost" id="loadUnpin" style="width:100%;margin:0 0 14px;display:none"></button>
     <label class="lbl">Drying time <span class="note" style="text-transform:none;letter-spacing:0">— washed clothes are back in rotation once they are dry</span></label>
     <select id="dryHours" style="width:100%;margin-bottom:14px">
       <option value="0">Dry straight away (tumble dryer)</option>
@@ -1429,23 +1452,141 @@ const localDay=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${d.getMonth
    that it went through the wash by then. One function says when a wear stops
    holding its garment, and every reader asks it: the grid, the advice, the push,
    the packing list. */
-const LOADS=["white","light","colorful","dark"];
-const LOAD_LABEL={white:"Whites",light:"Light colours",colorful:"Colourful",dark:"Darks"};
-let laundry={dryHours:24};   // Settings → Laundry; oa.laundry
-const WHITE_C=/^(white|off[- ]?white|ivory|cream|snow|ecru)$/;
-const LIGHT_C=/^(beige|light|pale|pastel|sand|stone|khaki|tan|oatmeal|camel|natural|silver|lilac|lavender|mint|sky|baby|blush|peach)\b|\b(light|pale|pastel)\b|^(pink|light ?(grey|gray|blue|green|pink|yellow))$/;
-const DARK_C=/^(black|navy|charcoal|dark|brown|chocolate|maroon|burgundy|indigo|denim|forest|olive|espresso|midnight|graphite|slate|wine|oxblood)\b|\bdark\b|^(grey|gray)$/;
-/* The load a garment goes in: the wearer's choice if made, else read off its FIRST
-   colour — the one the classifier names as the main one. Grey is a dark-wash colour
-   in most households; "light grey" says otherwise and is read as light. */
+/* The household's own split logic (user, 2026-10-09: "first let the user pick their
+   laundry split logic, and the field should only appear if they selected"). Settings
+   → Laundry ticks which SPLITS the household uses, then edits the loads: each load
+   lists conditions on the ticked splits only. A garment goes in the FIRST load (in
+   the order shown) whose every condition matches, else in the catch-all.
+   Within one split the listed values are alternatives (any of these colours); across
+   splits they must all hold (delicate AND dark). A condition on a split that is not
+   ticked is kept but ignored, so ticking it again restores it.
+   The four colour loads keep the ids an older closet's hand-picked `load` refers to. */
+const SPLITS=[
+  {id:"colour",label:"Colour",note:"whites, lights, darks…"},
+  {id:"fabric",label:"Fabric / delicates",note:"wool, silk, lace… — adds a Fabric field to each garment"},
+  {id:"weight",label:"Weight",note:"heavy (jeans, hoodies, coats) vs light — automatic, can be changed per garment"},
+  {id:"soil",label:"How dirty",note:"sportswear vs everyday — automatic, can be changed per garment"},
+  {id:"kind",label:"Item kind",note:"underwear, tops, bottoms… — from the clothing group"},
+];
+const SPLIT_IDS=SPLITS.map(s=>s.id);
+/* TWIN of vocab.FABRICS. */
+const FABRICS=["cotton","linen","wool","cashmere","silk","lace","denim","knit","synthetic","fleece","leather","down"];
+const DELICATE=["wool","cashmere","silk","lace"];
+const HEAVY_TYPES=["jeans","hoodie","fleece","sweater","coat","puffer","overalls","boots"];
+const MAX_LOADS=8;
+const COLOUR_WORDS={
+  white:["white","off-white","off white","ivory","cream","snow","ecru"],
+  light:["light","pale","pastel","beige","sand","stone","khaki","tan","oatmeal","camel","natural",
+    "silver","lilac","lavender","mint","sky","baby","blush","peach","pink"],
+  dark:["dark","black","navy","charcoal","brown","chocolate","maroon","burgundy","indigo","denim",
+    "forest","olive","espresso","midnight","graphite","slate","wine","oxblood","grey","gray"],
+};
+const mkLoad=(id,name,match={},rest=false)=>({id,name,rest,match:{colors:[],fabrics:[],weight:"",soil:"",kinds:[],...match}});
+const COLOUR4=()=>[mkLoad("white","Whites",{colors:[...COLOUR_WORDS.white]}),
+  mkLoad("light","Light colours",{colors:[...COLOUR_WORDS.light]}),
+  mkLoad("dark","Darks",{colors:[...COLOUR_WORDS.dark]}),mkLoad("colorful","Colourful",{},true)];
+const PRESETS={
+  colour4:{label:"Four colour loads",splits:["colour"],loads:COLOUR4},
+  delicates:{label:"Delicates + four colour loads",splits:["colour","fabric"],
+    loads:()=>[mkLoad("delicate","Delicates",{fabrics:[...DELICATE]}),...COLOUR4()]},
+  ldh:{label:"Delicates, heavy, darks, lights",splits:["colour","fabric","weight"],
+    loads:()=>[mkLoad("delicate","Delicates",{fabrics:[...DELICATE]}),mkLoad("heavy","Heavy",{weight:"heavy"}),
+      mkLoad("dark","Darks",{colors:[...COLOUR_WORDS.dark]}),
+      mkLoad("light","Lights",{colors:[...COLOUR_WORDS.white,...COLOUR_WORDS.light]},true)]},
+  sport:{label:"Sportswear + four colour loads",splits:["colour","soil"],
+    loads:()=>[mkLoad("sport","Sportswear",{soil:"heavy"}),...COLOUR4()]},
+};
+let laundry={dryHours:24,splits:["colour"],loads:COLOUR4()};   // oa.laundry
+/* One spelling for a colour, used for BOTH a load's colour list and a garment's
+   colour, so the two always compare like for like. Compact spellings the classifier
+   and older closets use — "offwhite", "lightgrey", "darkgreen" — become two words. */
+const canonColour=c=>String(c||"").trim().toLowerCase().replace(/\s+/g," ")
+  .replace(/^(off|light|pale|dark)(?=(white|grey|gray|blue|green|pink|yellow|brown|red|purple|orange)\b)/,"$1 ");
+const colorWords=s=>String(s||"").split(/[,、，]/).map(canonColour).filter(Boolean).map(c=>c.slice(0,30));
+const pickKnown=(v,ok)=>(Array.isArray(v)?v:[]).map(x=>String(x).toLowerCase()).filter(x=>ok.includes(x));
+function cleanSplits(raw){
+  const s=pickKnown(raw,SPLIT_IDS);
+  return s.length?[...new Set(s)]:["colour"];
+}
+/* What was stored, made safe to use: at least one load, at most MAX_LOADS, unique
+   ids, exactly one catch-all. A load saved before splits existed had `colors` at its
+   top level; it becomes a colour condition. Anything unreadable is the defaults. */
+function cleanLoads(raw){
+  if(!Array.isArray(raw)||!raw.length) return COLOUR4();
+  const seen=new Set(), out=[];
+  for(const l of raw.slice(0,MAX_LOADS)){
+    if(!l||typeof l!=="object") continue;
+    const id=String(l.id||"").slice(0,40); if(!id||seen.has(id)) continue;
+    seen.add(id);
+    const m=(l.match&&typeof l.match==="object")?l.match:{colors:l.colors};
+    out.push(mkLoad(id,String(l.name||"").trim().slice(0,24)||"Load",{
+      colors:(Array.isArray(m.colors)?m.colors:[]).flatMap(colorWords).slice(0,40),
+      fabrics:pickKnown(m.fabrics,FABRICS),
+      weight:["heavy","light"].includes(m.weight)?m.weight:"",
+      soil:["heavy","normal"].includes(m.soil)?m.soil:"",
+      kinds:pickKnown(m.kinds,GROUPS)},!!l.rest));
+  }
+  if(!out.length) return COLOUR4();
+  const r=out.findIndex(l=>l.rest);
+  out.forEach((l,k)=>{ l.rest=k===(r<0?out.length-1:r); });
+  return out;
+}
+const loadIds=()=>laundry.loads.map(l=>l.id);
+function loadName(id){ const l=laundry.loads.find(x=>x.id===id); return l?l.name:"a removed load"; }
+/* What a garment IS on each split. Weight, dirt and kind need no field: they are
+   read off the kind and warmth unless the wearer chose otherwise on the garment. */
+function weightOf(it){
+  if(["heavy","light"].includes(it.weight)) return it.weight;
+  return HEAVY_TYPES.includes(it.type)||(it.warmth||0)>=4?"heavy":"light";
+}
+function soilOf(it){
+  if(["heavy","normal"].includes(it.soil)) return it.soil;
+  return (it.formality||[]).includes("active")?"heavy":"normal";
+}
+const kindOf=it=>GROUP_ALIAS[it.group]||it.group||"";
+const fabricOf=it=>FABRICS.includes(it.fabric)?it.fabric:null;
+/* Every condition this load sets on a TICKED split except colour. `any` says
+   whether it set one at all — a load with no condition on a ticked split matches
+   nothing (only the catch-all takes everything). An unknown fabric fails a fabric
+   condition — never assumed delicate. */
+function otherConds(it,l){
+  const on=new Set(laundry.splits), m=l.match;
+  let any=on.has("colour")&&m.colors.length>0;
+  if(on.has("fabric")&&m.fabrics.length){ any=true; if(!m.fabrics.includes(fabricOf(it))) return null; }
+  if(on.has("weight")&&m.weight){ any=true; if(weightOf(it)!==m.weight) return null; }
+  if(on.has("soil")&&m.soil){ any=true; if(soilOf(it)!==m.soil) return null; }
+  if(on.has("kind")&&m.kinds.length){ any=true; if(!m.kinds.includes(kindOf(it))) return null; }
+  return any;
+}
+/* The colour test: the MAIN colour, the whole of it first ("off-white"), then its
+   words in order, so the modifier decides — "light grey" is light, "dark pink" dark.
+   The deciding word is the first one listed by a load the garment otherwise
+   qualifies for: a "navy blue silk" load it fails on fabric must not stop navy
+   cotton reaching Darks through "navy". */
+function colourToken(it){
+  const c=canonColour((it.colors||[])[0]);
+  if(!c||!laundry.splits.includes("colour")) return null;
+  // The catch-all's colours count here too: listing "light" on a catch-all Lights
+  // keeps "light grey" from being claimed by Darks through "grey".
+  const listed=new Set(laundry.loads.filter(l=>l.rest||otherConds(it,l)!==null)
+    .flatMap(l=>l.match.colors));
+  return [c,...c.split(/[\s-]+/)].find(w=>listed.has(w))||null;
+}
+function matchesLoad(it,l,token=colourToken(it)){
+  const any=otherConds(it,l);
+  if(!any) return false;
+  if(laundry.splits.includes("colour")&&l.match.colors.length&&!l.match.colors.includes(token)) return false;
+  return true;
+}
+/* The load a garment goes in: the wearer's hand-picked one if it still exists, else
+   the first load in order that it matches, else the catch-all. */
 function loadOf(it){
-  if(LOADS.includes(it.load)) return it.load;
-  const c=String((it.colors||[])[0]||"").trim().toLowerCase();
-  if(!c) return "colorful";
-  if(WHITE_C.test(c)) return "white";
-  if(LIGHT_C.test(c)) return "light";
-  if(DARK_C.test(c)) return "dark";
-  return "colorful";
+  const ids=loadIds();
+  if(ids.includes(it.load)) return it.load;
+  const token=colourToken(it);
+  const hit=laundry.loads.find(l=>!l.rest&&matchesLoad(it,l,token));
+  if(hit) return hit.id;
+  return (laundry.loads.find(l=>l.rest)||laundry.loads[laundry.loads.length-1]).id;
 }
 function freeAt(w){
   return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
@@ -1470,7 +1611,7 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   await prefSet("oa.wearlog",JSON.stringify(wearLog));
   renderCloset();
-  refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash();
+  refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash(); paintLoads();
   refreshShopping();
   // The outfit card reads the closet too, once it is showing what was WORN: the
   // record names ids, and the label and the photo come from here. Renaming or
@@ -1500,7 +1641,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.39";
+const WEB_BUILD="1.40";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1792,6 +1933,7 @@ async function addItem(source){
     ...(meta?{brand:typeof meta.brand==="string"?meta.brand:""}:{}),
     ...(meta&&SLEEVED.has(meta.group)?{sleeve:SLEEVES.includes(meta.sleeve)?meta.sleeve:null}:{}),
     ...(meta&&PATTERNED.has(meta.group)?{pattern:PATTERNS.includes(meta.pattern)?meta.pattern:null}:{}),
+    ...(meta?{fabric:FABRICS.includes(meta.fabric)?meta.fabric:null}:{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
   item.photo=await photoSave(item.id,b64);
@@ -1952,7 +2094,9 @@ const needsSleeve=i=>i.sleeve===undefined&&SLEEVED.has(i.group);
 const PATTERNS=["solid","striped","checked","print","graphic"];
 const PATTERNED=new Set(["tops","outerwear","bottoms","onepiece"]);
 const needsPattern=i=>i.pattern===undefined&&PATTERNED.has(i.group);
-function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i)||needsPattern(i))); }
+/* Only asked for when the household splits laundry by fabric. */
+const needsFabric=i=>i.fabric===undefined&&laundry.splits.includes("fabric");
+function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i)||needsPattern(i)||needsFabric(i))); }
 function refreshBrands(){
   const row=$("brandRow"); if(!row) return;
   const n=unbrandedItems().length;
@@ -1995,6 +2139,7 @@ async function scanBrands(){
       live.pattern=PATTERNS.includes(meta.pattern)?meta.pattern:null;
       if(live.pattern) pats++;
     }
+    if(needsFabric(live)) live.fabric=FABRICS.includes(meta.fabric)?meta.fabric:null;
   }
   await saveCloset();
   brandBusy=false; btn.disabled=false;
@@ -2043,11 +2188,48 @@ function paintSheetSegs(){
    perfectly good wardrobe entry, and every closet saved before 2026-08-14 is one. */
 /* The load picker says what "automatic" means for THIS garment, so following the
    colours is a visible choice rather than an unexplained default. */
+/* The laundry fields of the edit sheet: only those the household's splits use. */
+function paintSheetLaundry(){
+  if(!sheet) return;
+  const on=new Set(laundry.splits), it=sheet.item;
+  $("shFabricBox").style.display=on.has("fabric")?"":"none";
+  $("shWeightBox").style.display=on.has("weight")?"":"none";
+  $("shSoilBox").style.display=on.has("soil")?"":"none";
+  $("shFabric").innerHTML=`<option value="">— not known —</option>`
+    +FABRICS.map(f=>`<option value="${f}">${f}${DELICATE.includes(f)?" (delicate)":""}</option>`).join("");
+  $("shFabric").value=fabricOf(it)||"";
+  $("shWeight").innerHTML=`<option value="">Automatic — ${weightOf({...it,weight:undefined})}</option>
+    <option value="heavy">heavy</option><option value="light">light</option>`;
+  $("shWeight").value=["heavy","light"].includes(it.weight)?it.weight:"";
+  $("shSoil").innerHTML=`<option value="">Automatic — ${soilOf({...it,soil:undefined})==="heavy"?"heavily soiled":"everyday"}</option>
+    <option value="heavy">heavily soiled (sportswear)</option><option value="normal">everyday</option>`;
+  $("shSoil").value=["heavy","normal"].includes(it.soil)?it.soil:"";
+  if(sheet.fabric0===undefined) sheet.fabric0=$("shFabric").value;
+}
+/* The garment as the sheet currently reads, for the "Automatic" load label: what
+   would follow from the fields as edited, not as they were when it opened. */
+function sheetDraft(){
+  const d={...sheet.item,load:undefined};
+  if($("shColors")) d.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean);
+  if($("shGroup")&&$("shGroup").value) d.group=$("shGroup").value;
+  if($("shType")) d.type=$("shType").value||null;
+  const on=new Set(laundry.splits);
+  if(on.has("fabric")&&$("shFabric").options.length) d.fabric=$("shFabric").value||null;
+  if(on.has("weight")&&$("shWeight").options.length) d.weight=$("shWeight").value||undefined;
+  if(on.has("soil")&&$("shSoil").options.length) d.soil=$("shSoil").value||undefined;
+  return d;
+}
 function paintLoad(){
-  const auto=loadOf({...sheet.item,load:undefined});
-  $("shLoad").innerHTML=`<option value="">Automatic — ${esc(LOAD_LABEL[auto])}, from its colour</option>`
-    +LOADS.map(l=>`<option value="${l}">${esc(LOAD_LABEL[l])}</option>`).join("");
-  $("shLoad").value=LOADS.includes(sheet.item.load)?sheet.item.load:"";
+  const keep=$("shLoad").options.length?$("shLoad").value:null;
+  const d=sheetDraft(), auto=loadOf(d);
+  // The weight and dirt pickers' own "Automatic — …" too: warmth, kind and the
+  // Active style move them.
+  if($("shWeight").options.length) $("shWeight").options[0].textContent=`Automatic — ${weightOf({...d,weight:undefined})}`;
+  if($("shSoil").options.length) $("shSoil").options[0].textContent=
+    `Automatic — ${soilOf({...d,soil:undefined})==="heavy"?"heavily soiled":"everyday"}`;
+  $("shLoad").innerHTML=`<option value="">Automatic — ${esc(loadName(auto))}, from your rules</option>`
+    +laundry.loads.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+  $("shLoad").value=keep!==null?keep:(loadIds().includes(sheet.item.load)?sheet.item.load:"");
 }
 function paintTypes(){
   const g=sheet.item.group, cur=normType(sheet.item.type,g);
@@ -2101,12 +2283,14 @@ async function openSheet(item,opts){
   sheet.pattern0=$("shPattern").value;
   $("shGroup").value=sheet.item.group;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
-  paintLoad();
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
   // Save would write, or the wearer approves one picture and keeps another.
   paintShot(sheet.b64?("data:image/jpeg;base64,"+sheet.b64):((await photoLoad(sheet.item.id))||""));
   paintSheetSegs();
+  // After the type picker and the segments: the automatic load reads them.
+  $("shLoad").innerHTML=""; $("shFabric").innerHTML=""; $("shWeight").innerHTML=""; $("shSoil").innerHTML="";
+  paintSheetLaundry(); paintLoad();
   $("sheetWrap").classList.add("show");
 }
 function closeSheet(){ $("sheetWrap").classList.remove("show"); sheet=null; }
@@ -5015,8 +5199,9 @@ async function load(){
   // the drying time, and a default standing in for the wearer's own would release
   // clothes that are still wet.
   try{ const l=JSON.parse(await prefGet("oa.laundry","{}"))||{};
-    laundry={dryHours:l.dryHours!=null&&Number.isFinite(+l.dryHours)?Math.max(0,Math.min(72,+l.dryHours)):24}; }
-  catch(e){ laundry={dryHours:24}; }
+    laundry={dryHours:l.dryHours!=null&&Number.isFinite(+l.dryHours)?Math.max(0,Math.min(72,+l.dryHours)):24,
+             splits:cleanSplits(l.splits),loads:cleanLoads(l.loads)}; }
+  catch(e){ laundry={dryHours:24,splits:["colour"],loads:cleanLoads(null)}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
@@ -5043,6 +5228,7 @@ async function load(){
   try{ places=JSON.parse(await prefGet("oa.places","[]"))||[]; }catch(e){ places=[]; }
   closetComplete=(await prefGet("oa.closetComplete","0"))==="1";
   if($("dryHours")) $("dryHours").value=String(laundry.dryHours);
+  paintLoads();
   if($("closetDone")) $("closetDone").checked=closetComplete;
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   // An app older than the cold-morning gap filed the server's "warmth" as a slot.
@@ -5134,7 +5320,7 @@ $("closetDone").onchange=async()=>{
 /* What a wash can take: wears not yet washed, and not today's — that shirt is still
    on you. Grouped by the load each garment goes in. */
 function washable(){
-  const now=Date.now(), today=localDay(now), by={white:[],light:[],colorful:[],dark:[]};
+  const now=Date.now(), today=localDay(now), by=Object.fromEntries(loadIds().map(l=>[l,[]]));
   for(const w of wearLog){
     // Expired wears too: one already back on the passive timer is clean, and the
     // log is only pruned on a write — stamping it would put a clean garment back to
@@ -5148,12 +5334,16 @@ function washable(){
 let washPick=new Set();
 function paintWash(){
   const by=washable();
-  $("washLoads").innerHTML=LOADS.map(l=>{
+  const any=loadIds().some(l=>by[l].length);
+  $("washLoads").innerHTML=laundry.loads.map(({id:l,name})=>{
     const n=by[l].length;
-    return `<label class="calRow" style="padding-left:0"><input type="checkbox" data-load="${l}"
-      ${washPick.has(l)?"checked":""} ${n?"":"disabled"}><span>${LOAD_LABEL[l]}
+    return `<label class="calRow" style="padding-left:0"><input type="checkbox" data-load="${esc(l)}"
+      ${washPick.has(l)?"checked":""} ${n?"":"disabled"}><span>${esc(name)}
       <span class="note">${n?`${n} item${n===1?"":"s"} waiting`:"nothing waiting"}</span></span></label>`;
-  }).join("");
+  }).join("")+(any?"":`<p class="note">Nothing is in the laundry yet. Clothes go in when you
+    log what you wore: "Wearing it" or "I wore something else" on today's outfit,
+    or "Worn today" on a garment.
+    Loads are set up in Settings → Laundry.</p>`);
   $("washLoads").querySelectorAll("input").forEach(c=>{ c.onchange=()=>{
     if(c.checked) washPick.add(c.dataset.load); else washPick.delete(c.dataset.load);
     $("washGo").disabled=!washPick.size; }; });
@@ -5165,10 +5355,11 @@ function paintWash(){
 }
 $("laundryBtn").onclick=()=>{
   const by=washable();
-  if(!LOADS.some(l=>by[l].length)){ toast("Nothing was waiting on the wash"); return; }
-  // Every load with something in it starts ticked — the old one-tap "everything"
-  // is one tap more, and untick is how you say only the darks went in.
-  washPick=new Set(LOADS.filter(l=>by[l].length));
+  // Opened even with nothing waiting (user, 2026-10-09: "I don't see anywhere ...
+  // inputting which batch has finished"): a toast in its place hid the loads, and
+  // with them how clothes ever get into the laundry. Every load with something in
+  // it starts ticked; untick is how you say only the darks went in.
+  washPick=new Set(loadIds().filter(l=>by[l].length));
   paintWash(); $("washWrap").classList.add("show");
 };
 $("washCancel").onclick=()=>$("washWrap").classList.remove("show");
@@ -5197,7 +5388,7 @@ function refreshUnwash(){
   b.style.display=n?"":"none";
   if(!n) return;
   const when=new Date(lastWash.at).toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});
-  b.textContent=`Undo last wash — ${lastWash.loads.map(l=>LOAD_LABEL[l]).join(", ")} · ${when}`;
+  b.textContent=`Undo last wash — ${lastWash.loads.map(loadName).join(", ")} · ${when}`;
 }
 async function saveLastWash(){ await prefSet("oa.lastWash",JSON.stringify(lastWash)); refreshUnwash(); }
 $("unwashBtn").onclick=async()=>{
@@ -5209,7 +5400,7 @@ $("unwashBtn").onclick=async()=>{
     if(live){ if(live.washedAt===lastWash.at){ delete live.washedAt; n++; } }
     else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now){ wearLog.push({itemId:r.itemId,wornAt:r.wornAt}); n++; }
   }
-  const names=lastWash.loads.map(l=>LOAD_LABEL[l]).join(", ");
+  const names=lastWash.loads.map(loadName).join(", ");
   lastWash=null;
   await saveCloset(); await saveLastWash();
   toast(n?`Wash undone — ${names}: ${n} item${n>1?"s":""} back in the laundry`:"Nothing to undo");
@@ -5217,16 +5408,177 @@ $("unwashBtn").onclick=async()=>{
 $("washGo").onclick=async()=>{
   const by=washable(), now=Date.now(); let n=0;
   const stamped=[];
-  for(const l of washPick) for(const w of by[l]){ w.washedAt=now; n++; stamped.push({itemId:w.itemId,wornAt:w.wornAt}); }
+  for(const l of washPick) for(const w of by[l]||[]){ w.washedAt=now; n++; stamped.push({itemId:w.itemId,wornAt:w.wornAt}); }
   $("washWrap").classList.remove("show");
-  if(n){ lastWash={at:now,loads:[...washPick].filter(l=>by[l].length),wears:stamped}; }
+  if(n){ lastWash={at:now,loads:[...washPick].filter(l=>(by[l]||[]).length),wears:stamped}; }
   await saveCloset(); await saveLastWash();
-  const names=[...washPick].map(l=>LOAD_LABEL[l]).join(", ");
+  const names=[...washPick].map(loadName).join(", ");
   const h=laundry.dryHours;
   toast(!n?"Nothing was waiting on the wash"
     : h ? `${names} washed — ${n} item${n>1?"s":""} back once dry, ${new Date(now+h*3600000)
             .toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"})}`
         : `${names} washed — ${n} item${n>1?"s":""} back in rotation`);
+};
+/* Settings → Laundry (user, 2026-10-09): which splits the household uses, then the
+   loads, each showing conditions for the ticked splits only. Changes save on
+   blur/select; the closet is re-saved so the grid and the edit sheet follow. */
+const chk=(attrs,on,label)=>`<label class="note" style="display:inline-flex;gap:4px;align-items:center;margin:3px 10px 3px 0">
+  <input type="checkbox" ${attrs} ${on?"checked":""}>${esc(label)}</label>`;
+function loadConds(l,colourOnly=false){
+  const on=new Set(colourOnly?laundry.splits.filter(x=>x==="colour"):laundry.splits), m=l.match, out=[];
+  if(on.has("colour")) out.push(`<label class="lbl">Colours</label>
+    <input type="text" data-f="colors" value="${esc(m.colors.join(", "))}" style="width:100%"
+      placeholder="any colour — or list some: white, cream" aria-label="Colours">`);
+  if(on.has("fabric")) out.push(`<label class="lbl">Fabrics</label><div>${
+    FABRICS.map(f=>chk(`data-f="fabric" data-v="${f}"`,m.fabrics.includes(f),f)).join("")}</div>`);
+  if(on.has("weight")) out.push(`<label class="lbl">Weight</label><select data-f="weight" style="width:100%">
+    <option value="">any</option><option value="heavy" ${m.weight==="heavy"?"selected":""}>heavy</option>
+    <option value="light" ${m.weight==="light"?"selected":""}>light</option></select>`);
+  if(on.has("soil")) out.push(`<label class="lbl">How dirty</label><select data-f="soil" style="width:100%">
+    <option value="">any</option><option value="heavy" ${m.soil==="heavy"?"selected":""}>heavily soiled (sportswear)</option>
+    <option value="normal" ${m.soil==="normal"?"selected":""}>everyday</option></select>`);
+  if(on.has("kind")) out.push(`<label class="lbl">Item kinds</label><div>${
+    GROUPS.map(g=>chk(`data-f="kind" data-v="${g}"`,m.kinds.includes(g),GROUP_LABEL[g]||g)).join("")}</div>`);
+  return out.join("");
+}
+/* The garments a load holds, with a picker each to move one by hand. */
+function loadGarments(l){
+  const ids=loadIds(), mine=closet.filter(i=>loadOf(i)===l.id);
+  const rows=mine.map(i=>`<div class="row" style="gap:8px;align-items:center;margin-top:6px">
+      <span style="flex:1;font-size:.82rem">${esc(i.label||"garment")}${ids.includes(i.load)?' <span class="note">(picked by hand)</span>':""}</span>
+      <select data-item="${esc(i.id)}" style="flex:1;font-size:.78rem">
+        <option value="" ${ids.includes(i.load)?"":"selected"}>Automatic</option>
+        ${laundry.loads.map(o=>`<option value="${esc(o.id)}" ${i.load===o.id?"selected":""}>${esc(o.name)}</option>`).join("")}
+      </select></div>`).join("");
+  return `<summary>${mine.length} garment${mine.length===1?"":"s"} in this load</summary>${rows||
+    '<p class="note">None yet.</p>'}`;
+}
+/* Rebuilt in full only when the SHAPE changes — which splits are ticked, which loads
+   exist, their order, the catch-all. An edit inside a load (a name, colours, a
+   fabric box) changes only which garments land where, so only the garment lists
+   are redrawn and the controls being typed in are never replaced. */
+function paintLoads(){
+  const box=$("loadList"); if(!box) return;
+  const ids=loadIds(), n=laundry.loads.length;
+  const shape=JSON.stringify([laundry.splits,laundry.loads.map(l=>[l.id,l.rest])]);
+  if(box.dataset.shape===shape&&box.children.length===n){
+    for(const l of laundry.loads){
+      const d=[...box.querySelectorAll(".loadRow")].find(r=>r.dataset.load===l.id);
+      const det=d&&d.querySelector("details.det");
+      if(det){ const open=det.open; det.innerHTML=loadGarments(l); det.open=open; }
+    }
+  } else {
+    $("splitBox").innerHTML=SPLITS.map(sp=>`<label class="calRow" style="padding-left:0">
+      <input type="checkbox" data-split="${sp.id}" ${laundry.splits.includes(sp.id)?"checked":""}>
+      <span>${esc(sp.label)} <span class="note">— ${esc(sp.note)}</span></span></label>`).join("");
+    if($("loadPreset").options.length<2)
+      $("loadPreset").innerHTML+=Object.entries(PRESETS).map(([k,p])=>`<option value="${k}">${esc(p.label)}</option>`).join("");
+    box.innerHTML=laundry.loads.map((l,k)=>`<div class="loadRow" data-load="${esc(l.id)}" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
+      <div class="row" style="gap:6px;align-items:center">
+        <input type="text" data-f="name" value="${esc(l.name)}" maxlength="24" aria-label="Load name" style="flex:1">
+        <button class="ghost" data-f="up" ${k?"":"disabled"} aria-label="Move up" style="padding:6px 9px">↑</button>
+        <button class="ghost" data-f="down" ${k<n-1?"":"disabled"} aria-label="Move down" style="padding:6px 9px">↓</button>
+        <button class="ghost" data-f="del" ${n<2?"disabled":""} style="padding:6px 9px;font-size:.72rem">Remove</button>
+      </div>
+      <label class="note" style="display:flex;gap:6px;align-items:center;margin-top:6px">
+        <input type="radio" name="loadRest" data-f="rest" ${l.rest?"checked":""}> Catch-all — takes whatever no other load matches</label>
+      ${l.rest?`<p class="note" style="margin:4px 0 0">Colours listed here are kept out of the other loads.</p>${
+        loadConds(l,true)}`:loadConds(l)}
+      <details class="det">${loadGarments(l)}</details>
+    </div>`).join("");
+    box.dataset.shape=shape;
+  }
+  $("loadAdd").disabled=n>=MAX_LOADS;
+  const pinned=closet.filter(i=>ids.includes(i.load)).length;
+  $("loadUnpin").style.display=pinned?"":"none";
+  $("loadUnpin").textContent=`Let ${pinned} hand-picked garment${pinned===1?"":"s"} follow the rules again`;
+}
+async function saveLaundry(){
+  laundry.splits=cleanSplits(laundry.splits);
+  laundry.loads=cleanLoads(laundry.loads);
+  await prefSet("oa.laundry",JSON.stringify(laundry));
+  await saveCloset();
+}
+$("splitBox").onchange=async e=>{
+  const id=e.target.dataset.split; if(!id) return;
+  const next=e.target.checked?[...laundry.splits,id]:laundry.splits.filter(x=>x!==id);
+  if(!next.length){ e.target.checked=true; toast("Keep at least one way of splitting"); return; }
+  laundry.splits=SPLIT_IDS.filter(x=>next.includes(x));
+  await saveLaundry();
+  if(sheet){ paintSheetLaundry(); paintLoad(); }
+};
+$("loadPreset").onchange=()=>{ $("loadPresetGo").disabled=!$("loadPreset").value; };
+$("loadPresetGo").onclick=async()=>{
+  const p=PRESETS[$("loadPreset").value]; if(!p) return;
+  laundry.splits=[...p.splits]; laundry.loads=p.loads();
+  $("loadList").dataset.shape="";      // the same ids can come back with new conditions
+  $("loadPreset").value=""; $("loadPresetGo").disabled=true;
+  await saveLaundry();
+  toast(`Loads set to: ${p.label}`);
+};
+// The "Automatic" load follows the fields as they are edited.
+// Deferred, like the buttons below: the group and kind handlers reconcile the type
+// in their own (later-registered) handlers, and the preview must read the result.
+["shColors","shCat","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
+  const el=$(id); if(el) el.addEventListener("change",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
+});
+// Warmth and style are buttons: their own handlers run first, then this.
+["shWarm","shForm"].forEach(id=>{
+  // Deferred: the segment's own handler may be registered after this one.
+  const el=$(id); if(el) el.addEventListener("click",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
+});
+$("loadList").onchange=async e=>{
+  const t=e.target;
+  if(t.dataset.item){
+    const it=closet.find(i=>i.id===t.dataset.item); if(!it) return;
+    if(loadIds().includes(t.value)) it.load=t.value; else delete it.load;
+    await saveCloset(); return;
+  }
+  const row=t.closest(".loadRow"); if(!row) return;
+  const l=laundry.loads.find(x=>x.id===row.dataset.load); if(!l) return;
+  const f=t.dataset.f, m=l.match;
+  const toggle=(arr,v)=>t.checked?[...new Set([...arr,v])]:arr.filter(x=>x!==v);
+  if(f==="name") l.name=t.value.trim().slice(0,24)||l.name;
+  else if(f==="colors") m.colors=colorWords(t.value).slice(0,40);
+  else if(f==="fabric") m.fabrics=toggle(m.fabrics,t.dataset.v);
+  else if(f==="kind") m.kinds=toggle(m.kinds,t.dataset.v);
+  else if(f==="weight") m.weight=t.value;
+  else if(f==="soil") m.soil=t.value;
+  else if(f==="rest") laundry.loads.forEach(x=>{ x.rest=x===l; });
+  else return;
+  await saveLaundry();
+};
+$("loadList").onclick=async e=>{
+  const b=e.target.closest("button[data-f]"); if(!b||b.disabled) return;
+  const id=b.closest(".loadRow").dataset.load, k=laundry.loads.findIndex(l=>l.id===id);
+  if(k<0) return;
+  if(b.dataset.f==="up"||b.dataset.f==="down"){
+    const to=k+(b.dataset.f==="up"?-1:1); if(to<0||to>=laundry.loads.length) return;
+    const ls=laundry.loads; [ls[k],ls[to]]=[ls[to],ls[k]];
+    await saveLaundry(); return;
+  }
+  if(b.dataset.f!=="del"||laundry.loads.length<2) return;
+  const name=loadName(id);
+  laundry.loads=laundry.loads.filter(l=>l.id!==id);
+  // Garments filed here by hand go back to following the rules.
+  closet.forEach(i=>{ if(i.load===id) delete i.load; });
+  washPick.delete(id);
+  await saveLaundry();
+  toast(`Removed ${name} — its garments now follow the rules`);
+};
+$("loadAdd").onclick=async()=>{
+  if(laundry.loads.length>=MAX_LOADS) return;
+  // Above the catch-all, so it is checked before everything falls through.
+  const r=laundry.loads.findIndex(l=>l.rest);
+  laundry.loads.splice(r<0?laundry.loads.length:r,0,mkLoad("l"+Date.now().toString(36),"New load"));
+  await saveLaundry();
+  toast("Added — give it a name and its conditions");
+};
+$("loadUnpin").onclick=async()=>{
+  const ids=loadIds(); let n=0;
+  closet.forEach(i=>{ if(ids.includes(i.load)){ delete i.load; n++; } });
+  await saveCloset();
+  toast(`${n} garment${n===1?"":"s"} now follow the rules`);
 };
 $("dryHours").onchange=async()=>{
   // Settle what has ALREADY dried under the old time first. The log is pruned only
@@ -5337,7 +5689,7 @@ $("shSave").onclick=async()=>{
   // "" = follow the colours, which is also how every garment saved before loads
   // existed reads — so it is stored as absence, not as a value that would stop
   // following a later colour correction.
-  if(LOADS.includes($("shLoad").value)) it.load=$("shLoad").value; else delete it.load;
+  if(loadIds().includes($("shLoad").value)) it.load=$("shLoad").value; else delete it.load;
   // For an EXISTING item too, since 2026-08-31 — this used to be new-items-only, so
   // a retaken photo was captured, previewed, saved, and silently dropped. Keyed by
   // the item id, so writing it replaces the old picture rather than orphaning it.
@@ -5359,6 +5711,16 @@ $("shSave").onclick=async()=>{
   else if(idx>=0&&closet[idx].sleeve!==undefined) it.sleeve=closet[idx].sleeve;
   if(ptTouched) it.pattern=pt||null;
   else if(idx>=0&&closet[idx].pattern!==undefined) it.pattern=closet[idx].pattern;
+  // The laundry fields, only where the sheet showed them. Fabric like pattern: an
+  // untouched picker defers to what the photo scan may have written meanwhile.
+  const on=new Set(laundry.splits);
+  if(on.has("fabric")){
+    const fb=$("shFabric").value;
+    if(fb!==sheet.fabric0) it.fabric=fb||null;
+    else if(idx>=0&&closet[idx].fabric!==undefined) it.fabric=closet[idx].fabric;
+  }
+  if(on.has("weight")){ const v=$("shWeight").value; if(v) it.weight=v; else delete it.weight; }
+  if(on.has("soil")){ const v=$("shSoil").value; if(v) it.soil=v; else delete it.soil; }
   if(idx>=0) closet[idx]=it; else closet.push(it);
   // After the CORRECTIONS, not before them. addItem clears gaps from whatever
   // /classify guessed, and the user is often here precisely because that guess was

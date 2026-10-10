@@ -256,9 +256,8 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         "source": source,
         "closetUsed": closet_used,
         "missing": missing,
-        # The temperatures the outfit was planned around (morning; and the afternoon
-        # for all-day layers), so the phone judges a bought garment with THIS
-        # server's numbers rather than a twin of how to derive them.
+        # The temperatures the outfit was planned around (morning; afternoon for all-day
+        # layers): the phone judges a bought garment with THIS server's numbers.
         "planTemp": round(llm._plan_temp(wc), 1),
         "peakTemp": round(reroll.peak_temp(wc, llm._plan_temp(wc)), 1),
         "picks": picks,
@@ -586,7 +585,8 @@ async def classify(req: ClassifyRequest):
             waterproof=bool(raw.get("waterproof")),
             warmthScale=graded_on,
             warmthAnchors=anchors,
-            brand=raw.get("brand"), sleeve=raw.get("sleeve"), pattern=raw.get("pattern"),
+            brand=raw.get("brand"), sleeve=raw.get("sleeve"),
+            pattern=raw.get("pattern"), fabric=raw.get("fabric"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

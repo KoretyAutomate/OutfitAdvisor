@@ -170,6 +170,11 @@ LEGACY_TYPE_GROUP = {
 #
 # Side effect, and a correct one: a closet holding only briefs now reports `inner`
 # as an uncoverable slot, because the user genuinely owns no undershirt.
+# Main fabric, for laundry split by material (user, 2026-10-09). The phone's TWIN is
+# FABRICS in index.html; "delicate" there means wool, cashmere, silk and lace.
+FABRICS = ("cotton", "linen", "wool", "cashmere", "silk", "lace", "denim", "knit",
+           "synthetic", "fleece", "leather", "down")
+
 NON_SLOT_TYPES = ("briefs", "bra", "sleepwear", "socks")
 
 # ── how the axes constrain each other ───────────────────────────────────────────

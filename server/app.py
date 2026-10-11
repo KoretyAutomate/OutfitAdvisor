@@ -325,10 +325,8 @@ async def packing(req: PackingRequest):
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
             closet_used = True
-            # The model is capped at two entries per category so its JSON stays
-            # short; the COUNT is made right here, from what the wardrobe has. A
-            # 15-day trip went out with two pairs of bottoms before this
-            # (user, 2026-09-07: "cannot be survived with 2 pants").
+            # The model lists at most two per category; the COUNT is made here, from the
+            # wardrobe (user, 2026-09-07: "cannot be survived with 2 pants").
             lo, hi = trippack.trip_range(felt[1])
             before = trippack.counts(pack)
             pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
@@ -338,6 +336,7 @@ async def packing(req: PackingRequest):
             if added and text:
                 text = f"• {added}\n{text}"
             plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)
+            plan = trippack.keep_rules(plan, rules.clean_rules(req.rules), items)
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day

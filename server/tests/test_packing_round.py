@@ -373,3 +373,22 @@ def test_the_generic_packing_fallback_is_calibrated_too(api):
     assert cold["closetUsed"] is False and warm["closetUsed"] is False
     assert cold["packing_text"] != warm["packing_text"], "the calibration must reach the generic list"
     assert cold["forecast"]["summary"]["loMin"] == warm["forecast"]["summary"]["loMin"] == 14
+
+
+def test_a_garment_banned_in_one_role_still_packs_for_another():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    sweater = {"id": "itm-swtr0001", "category": "base", "roles": ["base", "mid", "outer"], "type": "sweater",
+               "colors": ["navy"]}
+    ban = {"kind": "avoid_item", "a": {"type": "sweater", "role": "base"}}
+    kept, _ = packing.with_feedback([sweater], [], {}, 0.0, [ban])
+    assert kept == [sweater]
+
+
+def test_a_planned_morning_never_wears_a_banned_pair():
+    """Raised by the pre-push reviewer, 2026-10-11: both may be packed, not worn together."""
+    items = [{"id": "itm-under001", "category": "inner", "type": "undershirt", "colors": ["white"]},
+             {"id": "itm-tee00001", "category": "base", "type": "t_shirt", "colors": ["white"]}]
+    pair = {"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "t_shirt"}}
+    plan = [{"date": "2026-10-20", "travel": False, "picks": {"inner": "itm-under001", "base": "itm-tee00001"}}]
+    kept = packing.keep_rules(plan, [pair], items)
+    assert kept[0]["picks"]["base"] == "itm-tee00001" and kept[0]["picks"]["inner"] is None

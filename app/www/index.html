@@ -3635,7 +3635,11 @@ async function getAdvice(lat,lon){
     // The saved outfit keeps the weather it was CHOSEN for — beside a newer forecast
     // its "Dressed for" line would describe a day it was not chosen for (pre-push
     // reviewer, 2026-10-11).
-    const saved=await savedToday();
+    // With the closet declared complete, only advice made FROM the closet may be
+    // shown again — a generic answer saved earlier names clothes they do not own
+    // (pre-push reviewer, 2026-10-11).
+    const kept=await savedToday();
+    const saved=kept&&(!closetComplete||kept.closetUsed)?kept:null;
     if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }

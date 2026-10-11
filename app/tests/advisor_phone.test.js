@@ -82,6 +82,16 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   const tee = (pay.closet || []).find(i => i.id === "itm-tee00001");
   check("the native wear holds the tee in the snapshot", !tee || tee.availableCount === 0, pay.closet);
 
+  // Raised by the pre-push reviewer, 2026-10-11: closet marked complete, but the
+  // saved advice was generic — it is not shown again.
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), outfit: {base: "Cotton T-shirt"},
+    outfit_text: "• Cotton T-shirt", picks: null, closetUsed: false, weather: WX}));
+  ev(`closetComplete = true; fetch = async () => { throw new Error("offline"); };
+      fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off3 = await ev("getAdvice(40.3,-74.6)");
+  check("a generic saved answer is not shown once the closet is complete", off3.source === "offline", off3.source);
+  ev("closetComplete = false;");
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

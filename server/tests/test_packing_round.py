@@ -381,7 +381,8 @@ def test_a_garment_banned_in_one_role_still_packs_for_another():
                "colors": ["navy"]}
     ban = {"kind": "avoid_item", "a": {"type": "sweater", "role": "base"}}
     kept, _ = packing.with_feedback([sweater], [], {}, 0.0, [ban])
-    assert kept == [sweater]
+    assert len(kept) == 1 and kept[0]["roles"] == ["mid", "outer"]
+    assert kept[0]["category"] == "mid", "filed in a role it may play, so counting never uses it as a base"
 
 
 def test_a_planned_morning_never_wears_a_banned_pair():

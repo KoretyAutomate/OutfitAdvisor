@@ -3639,7 +3639,10 @@ async function getAdvice(lat,lon){
     // shown again — a generic answer saved earlier names clothes they do not own
     // (pre-push reviewer, 2026-10-11).
     const kept=await savedToday();
-    const saved=kept&&(!closetComplete||kept.closetUsed)?kept:null;
+    // …and only for the SAME place: after a change of city, another city's advice
+    // and forecast would be shown under the new name (pre-push reviewer).
+    const samePlace=!kept||!kept.place||!state.place||kept.place===state.place;
+    const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?kept:null;
     if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
@@ -5193,7 +5196,8 @@ async function savedToday(){
     const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
     if(!d||d.day!==todayISO()||!d.outfit) return null;
     return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
-            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null};
+            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
+            place:d.place||null};
   }catch(e){ return null; }
 }
 async function loadToday(){

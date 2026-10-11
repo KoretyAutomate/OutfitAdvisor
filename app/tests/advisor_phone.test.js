@@ -92,6 +92,15 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   check("a generic saved answer is not shown once the closet is complete", off3.source === "offline", off3.source);
   ev("closetComplete = false;");
 
+  // Raised by the pre-push reviewer, 2026-10-11: another city's saved advice is
+  // not shown under the new city's name.
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), outfit: {base: "navy polo"},
+    outfit_text: "• Navy polo", picks: {base: "i1"}, closetUsed: true, weather: WX, place: "New York"}));
+  ev(`state.place = "Singapore"; fetch = async () => { throw new Error("offline"); };
+      fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off4 = await ev("getAdvice(1.35,103.8)");
+  check("New York's saved advice is not shown for Singapore", off4.source === "offline", off4.source);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

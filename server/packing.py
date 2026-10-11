@@ -228,9 +228,16 @@ def with_feedback(items: list[dict], days: list[dict], summary: dict, offset: fl
     both halves of a pair without either being wrong."""
     outright = [r for r in user_rules if not rules.is_combination(r)]
     # Banned only where EVERY role it can play is banned: "no sweater as the base"
-    # still packs it as a mid layer (pre-push reviewer, 2026-10-11).
-    kept = [i for i in items if any(not rules.violations(outright, {r: i["id"]}, {i["id"]: i})
-                                    for r in (i.get("roles") or [i["category"]]))]
+    # still packs it as a mid layer — and is then FILED as one, so the counting, the
+    # top-up and the plan, which all read `category`, never use it in the banned
+    # role (pre-push reviewer, 2026-10-11).
+    kept = []
+    for i in items:
+        allowed = [r for r in (i.get("roles") or [i["category"]])
+                   if not rules.violations(outright, {r: i["id"]}, {i["id"]: i})]
+        if allowed:
+            kept.append({**i, "roles": allowed,
+                         "category": i["category"] if i["category"] in allowed else allowed[0]})
 
     def shift(v: object) -> object:
         return math.floor(v + offset + 0.5) if isinstance(v, (int, float)) and offset else v

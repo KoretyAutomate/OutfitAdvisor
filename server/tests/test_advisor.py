@@ -358,3 +358,15 @@ def test_wearing_it_from_the_notification_updates_the_push_wear_history():
     body = kt[kt.index("private fun holdInPayload"):]
     body = body[:body.index("\n    private fun ", 10)]
     assert 'optJSONObject("recentAt")' in body and 'p.put("recentAt", recent)' in body
+
+
+def test_a_rating_from_an_earlier_days_notification_is_ignored():
+    """Raised by the pre-push reviewer, 2026-10-11: the warmth buttons carry the day
+    the advice was for, and the receiver ignores a tap from another day."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java" / "com" / "korety"
+    note = (root / "outfitadvisor" / "OutfitNotification.kt").read_text()
+    action = note[note.index("private fun feedbackAction"):]
+    assert "putExtra(FeedbackReceiver.EXTRA_DAY" in action[:action.index("PendingIntent.getBroadcast")]
+    recv = (root / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
+    assert "if (advised != null && advised != today) return" in recv

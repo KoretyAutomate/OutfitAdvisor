@@ -363,3 +363,13 @@ def test_a_pairing_rule_reaches_the_packing_prompt():
     summary = {"mode": "forecast", "nDays": 1, "loMin": 10, "hiMax": 18, "rainDays": 0}
     p = packlist._pack_prompt((days, summary), packlist.Trip("man", ("casual",), "vacation", rules=(pair,)), [])
     assert "never use" in p and "together with" in p
+
+
+def test_the_generic_packing_fallback_is_calibrated_too(api):
+    """Raised by the pre-push reviewer, 2026-10-11: with no closet the list came from
+    the unshifted forecast, so +6 and 0 packed the same. The forecast shown stays real."""
+    cold = api.post("/packing", json=_req(closet=None, tempOffset=-6)).json()
+    warm = api.post("/packing", json=_req(closet=None, tempOffset=6)).json()
+    assert cold["closetUsed"] is False and warm["closetUsed"] is False
+    assert cold["packing_text"] != warm["packing_text"], "the calibration must reach the generic list"
+    assert cold["forecast"]["summary"]["loMin"] == warm["forecast"]["summary"]["loMin"] == 14

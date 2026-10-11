@@ -55,6 +55,12 @@ class FeedbackReceiver : BroadcastReceiver() {
         // fbRevert), drop it, then apply the new one — never stack two for a morning.
         val now = System.currentTimeMillis()
         val today = dayOf(now)
+        // A rating belongs to the morning it was advised for. A notification left over
+        // from an earlier day is about clothes already off, and replacing today's
+        // verdict with it would be wrong — so it is ignored (pre-push reviewer,
+        // 2026-10-11). Older builds' buttons carry no day and keep the old behaviour.
+        val advised = intent.getStringExtra(EXTRA_DAY)
+        if (advised != null && advised != today) return
         var prevIdx = -1
         for (i in 0 until log.length()) {
             val e = log.optJSONObject(i) ?: continue

@@ -363,8 +363,7 @@ async def packing(req: PackingRequest):
         # result None -> honest generic fallback below, closetUsed stays False.
 
     if not text:
-        # Generic packing advice: dress the trip's WORST case (coldest low, wettest
-        # day) via the existing rule engine, so the user still gets something useful.
+        # Generic packing: the trip's WORST case via the rule engine, calibrated too.
         worst = {
             "morning": None,
             "lo": summary["loMin"],
@@ -376,7 +375,8 @@ async def packing(req: PackingRequest):
             "isRain": summary["isRain"],
             "code": max(days, key=lambda d: d["rain"])["code"],
         }
-        text = engine.outfit_to_bullets(engine.recommend(worst, req.gender, req.styles[0]))
+        text = engine.outfit_to_bullets(engine.recommend(engine.apply_temp_offset(worst, req.tempOffset),
+                                                         req.gender, req.styles[0]))
 
     dt_s = round(time.monotonic() - t0, 2)
     # Coarse log ONLY. No coords (as /advice). And no DATES — a real date range plus

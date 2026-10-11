@@ -355,8 +355,10 @@ def test_wearing_it_from_the_notification_updates_the_push_wear_history():
     from pathlib import Path
     kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
           / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
-    body = kt[kt.index("private fun holdInPayload"):]
-    body = body[:body.index("\n    private fun ", 10)]
+    # Since one-writer-per-key (2026-10-11) the receiver queues the wear and the
+    # worker applies it to the snapshot at fire time — recentAt included.
+    body = kt[kt.index("fun applyNativeWears"):]
+    body = body[:body.index("catch (e: Exception) { null }")]
     assert 'optJSONObject("recentAt")' in body and 'p.put("recentAt", recent)' in body
 
 

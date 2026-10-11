@@ -75,12 +75,16 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   // Raised by the pre-push reviewer, 2026-10-11: a notification wear survives ANY
   // snapshot rebuild, not only a closet save.
   ev(`closet=[{id:"itm-tee00001",label:"tee",category:"base",group:"tops",type:"t_shirt",roles:["base"],
-      colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]; wearLog=[]; wearSeen="[]";`);
-  w.localStorage.setItem("oa.wearlog", JSON.stringify([{itemId: "itm-tee00001", wornAt: Date.now() - 60000}]));
+      colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]; wearLog=[]; nativeSeen=new Set();`);
+  // The notification writes only its own queue (one writer per key).
+  w.localStorage.setItem("oa.nativeWears", JSON.stringify([{itemId: "itm-tee00001", wornAt: Date.now() - 60000,
+                                                            key: "n1-itm-tee00001"}]));
   await ev("savePushPayload()");
   const pay = JSON.parse(w.localStorage.getItem("oa.pushPayload") || "{}");
   const tee = (pay.closet || []).find(i => i.id === "itm-tee00001");
   check("the native wear holds the tee in the snapshot", !tee || tee.availableCount === 0, pay.closet);
+  check("…and the snapshot says it is folded in, so the worker does not hold it twice",
+    (pay.nativeSeen || []).includes("n1-itm-tee00001"), pay.nativeSeen);
 
   // Raised by the pre-push reviewer, 2026-10-11: closet marked complete, but the
   // saved advice was generic — it is not shown again.
@@ -100,6 +104,29 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
       fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
   const off4 = await ev("getAdvice(1.35,103.8)");
   check("New York's saved advice is not shown for Singapore", off4.source === "offline", off4.source);
+
+  // Raised by the pre-push reviewer, 2026-10-11: the notification logs a wear WHILE
+  // the page is mid-save. One writer per key — the wear lands in the receiver's own
+  // queue, which the page never writes, and is folded in on the next save.
+  ev(`closet=[{id:"itm-tee00002",label:"tee",category:"base",group:"tops",type:"t_shirt",roles:["base"],
+      colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]; wearLog=[]; nativeSeen=new Set();`);
+  w.localStorage.removeItem("oa.nativeWears");
+  ev(`window.__realSet = prefSet; prefSet = async (k, v) => {
+        if (k === "oa.lastWorn" && !window.__injected) {
+          window.__injected = true;   // the receiver runs between the page's awaited writes
+          localStorage.setItem("oa.nativeWears", JSON.stringify([{itemId: "itm-tee00002",
+            wornAt: Date.now() - 1000, key: "n9-itm-tee00002"}]));
+          localStorage.setItem("oa.nativeWore", JSON.stringify({day: todayISO(), map: {base: "itm-tee00002"}}));
+        }
+        return window.__realSet(k, v); };`);
+  await ev("saveCloset()");
+  check("the mid-save wear is still in the receiver's queue",
+    (JSON.parse(w.localStorage.getItem("oa.nativeWears") || "[]")).length === 1);
+  ev("prefSet = window.__realSet");
+  await ev("saveCloset()");
+  check("…and the next save folds it into the wear log",
+    JSON.parse(w.localStorage.getItem("oa.wearlog") || "[]").some(x => x.itemId === "itm-tee00002"),
+    w.localStorage.getItem("oa.wearlog"));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

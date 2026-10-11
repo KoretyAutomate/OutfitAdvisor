@@ -1612,40 +1612,30 @@ function unlogWearToday(id){ const today=localDay(Date.now());
   // An undo is a statement that it was NOT worn today — the history forgets it too,
   // keeping any earlier wear (raised by the pre-push reviewer, 2026-10-11).
   if(lastWorn[id]){ lastWorn[id]=lastWorn[id].filter(t=>localDay(t)!==today); if(!lastWorn[id].length) delete lastWorn[id]; } }
-/* The oa.wearlog this page last read or wrote, verbatim (2026-10-11). The
-   notification's "Wearing it" (FeedbackReceiver.kt) also writes the wear log, and
-   only ever APPENDS. So when the disk differs from this, the entries on disk that
-   were not here last time are the native side's, and they are merged into memory
-   before this page writes — otherwise any closet write from a page that has not
-   yet re-read the disk (an item-sheet wear during the resume reads, say) erased
-   them. Entries this page removed itself (undo, a wash) were in the baseline, so
-   they stay removed. Raised by the pre-push reviewer, 2026-10-11. */
-let wearSeen="[]";
+/* The notification's "Wearing it" (FeedbackReceiver.kt) writes ONLY its own keys —
+   oa.nativeWears (a queue it appends to and prunes) and oa.nativeWore (its day
+   record) — and this page owns oa.wearlog, oa.woreToday and the push snapshot. One
+   writer per key, so neither can overwrite the other's write mid-save (pre-push
+   reviewer, 2026-10-11). Queue entries are folded into the wear log once each, by
+   key; `nativeSeen` (this page's own oa.nativeSeen) remembers which, and travels in
+   the push snapshot so the morning worker applies only what is still unfolded. */
+let nativeSeen=new Set();
 async function mergeNativeWears(){
-  let disk, rawWore;
-  try{ disk=await prefGet("oa.wearlog","[]"); rawWore=await prefGet(WORE_KEY,""); }catch(e){ return; }
-  if(disk!==wearSeen){
-    let onDisk=null, base;
-    try{ onDisk=JSON.parse(disk)||[]; }catch(e){ onDisk=null; }
-    if(onDisk){
-      try{ base=JSON.parse(wearSeen)||[]; }catch(e){ base=[]; }
-      const key=w=>w&&(w.itemId+"@"+w.wornAt);
-      // logWear's own rule as well: one wear per garment per day, so a garment this
-      // page has logged today since is not counted a second time.
-      const day=w=>w&&(w.itemId+"@"+localDay(w.wornAt));
-      const had=new Set(base.map(key)), mine=new Set(wearLog.map(key)), mineDay=new Set(wearLog.map(day));
-      for(const w of onDisk)
-        if(w&&!had.has(key(w))&&!mine.has(key(w))&&!mineDay.has(day(w))) wearLog.push(w);
-      // Memory now includes this disk state, so it is the new baseline: a later
-      // merge must not take what this page has since removed for a native addition.
-      wearSeen=disk;
-    }
+  let rawQ, rawWore;
+  try{ rawQ=await prefGet("oa.nativeWears","[]"); rawWore=await prefGet("oa.nativeWore",""); }catch(e){ return; }
+  let q=[];
+  try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
+  const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
+  const mine=new Set(wearLog.map(dayKey));
+  for(const e of q){
+    if(nativeSeen.has(e.key)) continue;          // folded before — an undo since must stand
+    if(!mine.has(dayKey(e))) wearLog.push({itemId:e.itemId,wornAt:e.wornAt});
+    nativeSeen.add(e.key);
   }
-  // The day's record, on its own: the notification can write it with the wear log
-  // unchanged (every garment already logged today from its sheet). Adopted when
-  // memory has none for TODAY — judged without wearRecord(), whose expiry of a
-  // stale record WRITES to storage and would erase the native one first. Raised by
-  // the pre-push reviewer, 2026-10-11.
+  const live=new Set(q.map(e=>e.key));
+  for(const k of [...nativeSeen]) if(!live.has(k)) nativeSeen.delete(k);   // the receiver pruned it
+  try{ await prefSet("oa.nativeSeen",JSON.stringify([...nativeSeen])); }catch(e){}
+  // The day's record: adopted when this page has none for TODAY.
   if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
 }
 async function saveCloset(){
@@ -1661,7 +1651,6 @@ async function saveCloset(){
   await prefSet("oa.closet",JSON.stringify(closet));
   const wl=JSON.stringify(wearLog);
   await prefSet("oa.wearlog",wl);
-  wearSeen=wl;
   renderCloset();
   refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash(); paintLoads();
   refreshShopping();
@@ -3494,7 +3483,10 @@ async function savePushPayload(){
       styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null,
       // When each garment was last worn, as a time: the worker turns it into "days
       // ago" at 06:45, so a snapshot written last night still counts right.
-      recentAt:lastWornAt()}));
+      recentAt:lastWornAt(),
+      // Which notification wears this snapshot already counts — the worker applies
+      // the rest of oa.nativeWears itself at fire time.
+      nativeSeen:[...nativeSeen]}));
   }catch(e){}
 }
 
@@ -5388,9 +5380,11 @@ async function reloadShared(){
       let wl=[];
       try{ wl=JSON.parse(rawWl)||[]; }catch(e){ wl=[]; }
       wearChanged=JSON.stringify(wl)!==JSON.stringify(wearLog);
-      wearLog=wl; wearSeen=rawWl;
+      wearLog=wl;
       applyWoreRaw(rawWore);
     }
+    // And whatever the notification queued while the page was away.
+    if(!woreBusy){ const n=wearLog.length; await mergeNativeWears(); if(wearLog.length!==n) wearChanged=true; }
     const fresh=raw!==todaySeen && await loadToday();
     syncWearBtn();
     // Only when something actually changed: a plain resume must not flip the card
@@ -5450,7 +5444,8 @@ async function load(){
              splits:cleanSplits(l.splits),loads:cleanLoads(l.loads)}; }
   catch(e){ laundry={dryHours:24,splits:["colour"],loads:cleanLoads(null)}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
-  try{ const wl=await prefGet("oa.wearlog","[]"); wearLog=JSON.parse(wl)||[]; wearSeen=wl; }catch(e){ wearLog=[]; }
+  try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
+  try{ nativeSeen=new Set(JSON.parse(await prefGet("oa.nativeSeen","[]"))||[]); }catch(e){ nativeSeen=new Set(); }
   try{ lastWorn=JSON.parse(await prefGet("oa.lastWorn","{}"))||{}; }catch(e){ lastWorn={}; }
   try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
          .filter(x=>x&&typeof x.day==="string"&&Array.isArray(x.ids)&&(x.v===1||x.v===-1)); }

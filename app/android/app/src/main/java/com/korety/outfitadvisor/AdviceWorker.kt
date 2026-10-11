@@ -451,7 +451,12 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // quietly. The app writes this key whenever the tickbox changes.
             val complete = prefs.getString(KEY_CLOSET_COMPLETE, "0") == "1"
             if (complete) body.put("closetOnly", true)
-            val raw = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
+            // Wears the notification queued that the app has not folded in yet: applied
+            // here, at fire time, because the receiver never writes the app's snapshot
+            // (one writer per key, 2026-10-11).
+            val stored = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
+            val raw = FeedbackReceiver.applyNativeWears(stored, FeedbackReceiver.nativeQueue(prefs),
+                System.currentTimeMillis()) ?: stored
             val p = JSONObject(raw)
             val age = System.currentTimeMillis() - p.optLong("at", 0L)
             if (age !in 0..PUSH_PAYLOAD_MAX_AGE_MS) return

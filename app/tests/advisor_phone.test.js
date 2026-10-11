@@ -128,6 +128,32 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
     JSON.parse(w.localStorage.getItem("oa.wearlog") || "[]").some(x => x.itemId === "itm-tee00002"),
     w.localStorage.getItem("oa.wearlog"));
 
+  // Raised by the pre-push reviewer, 2026-10-11 (P1): a folded queue wear is SAVED
+  // before it is acknowledged, so a reload cannot lose it.
+  ev(`wearLog=[]; nativeSeen=new Set(); nativeWoreSeen="";`);
+  w.localStorage.setItem("oa.wearlog", "[]");
+  w.localStorage.setItem("oa.nativeWears", JSON.stringify([{itemId: "itm-p1", wornAt: Date.now() - 1000, key: "nP1"}]));
+  await ev("mergeNativeWears()");
+  check("the folded wear is on disk before its key is acknowledged",
+    JSON.parse(w.localStorage.getItem("oa.wearlog")).some(x => x.itemId === "itm-p1")
+    && JSON.parse(w.localStorage.getItem("oa.nativeSeen")).includes("nP1"));
+
+  // Raised by the pre-push reviewer, 2026-10-11: an undo of a notification-logged
+  // outfit is not undone by re-adopting the same day record.
+  w.localStorage.setItem("oa.nativeWore", JSON.stringify({day: ev("todayISO()"), map: {base: "itm-p1"}}));
+  ev(`woreLogged=null; woreDay=null;`);
+  await ev("mergeNativeWears()");
+  check("the receiver's record is adopted once", ev("JSON.stringify(woreLogged)") === '{"base":"itm-p1"}');
+  ev(`woreLogged=null; woreDay=null;`);       // the wearer undoes it
+  await ev("mergeNativeWears()");
+  check("…and not again after an undo", ev("woreLogged") === null, ev("JSON.stringify(woreLogged)"));
+
+  // Raised by the pre-push reviewer, 2026-10-11: packing sees each garment's roles.
+  ev(`closet=[{id:"itm-swtr",label:"sweater",category:"base",group:"tops",type:"sweater",roles:["base","mid","outer"],
+      colors:["navy"],warmth:4,formality:["casual"],waterproof:false,count:1}]; wearLog=[];`);
+  const pp = ev(`packPayload({start:"2026-10-20",end:"2026-10-22"})`);
+  check("the packing payload carries the roles", JSON.stringify(pp[0].roles) === '["base","mid","outer"]', pp[0]);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -1620,6 +1620,7 @@ function unlogWearToday(id){ const today=localDay(Date.now());
    key; `nativeSeen` (this page's own oa.nativeSeen) remembers which, and travels in
    the push snapshot so the morning worker applies only what is still unfolded. */
 let nativeSeen=new Set();
+let nativeWoreSeen="";   // the receiver's day record last adopted (oa.nativeWoreSeen)
 async function mergeNativeWears(){
   let rawQ, rawWore;
   try{ rawQ=await prefGet("oa.nativeWears","[]"); rawWore=await prefGet("oa.nativeWore",""); }catch(e){ return; }
@@ -1627,16 +1628,29 @@ async function mergeNativeWears(){
   try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
   const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
   const mine=new Set(wearLog.map(dayKey));
+  let folded=false;
   for(const e of q){
     if(nativeSeen.has(e.key)) continue;          // folded before — an undo since must stand
-    if(!mine.has(dayKey(e))) wearLog.push({itemId:e.itemId,wornAt:e.wornAt});
+    if(!mine.has(dayKey(e))){ wearLog.push({itemId:e.itemId,wornAt:e.wornAt}); folded=true; }
     nativeSeen.add(e.key);
   }
   const live=new Set(q.map(e=>e.key));
   for(const k of [...nativeSeen]) if(!live.has(k)) nativeSeen.delete(k);   // the receiver pruned it
-  try{ await prefSet("oa.nativeSeen",JSON.stringify([...nativeSeen])); }catch(e){}
-  // The day's record: adopted when this page has none for TODAY.
-  if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
+  // The wear log is SAVED before the queue entries are acknowledged: the other way
+  // round, a reload in between restores the old log and skips the acknowledged
+  // entries, and the wear is gone for good (pre-push reviewer, 2026-10-11, P1).
+  try{
+    if(folded) await prefSet("oa.wearlog",JSON.stringify(wearLog));
+    await prefSet("oa.nativeSeen",JSON.stringify([...nativeSeen]));
+  }catch(e){}
+  // The day's record: adopted ONCE (the same record is not taken again after an
+  // explicit undo — pre-push reviewer, 2026-10-11), and only when this page has
+  // none for today.
+  if(rawWore&&rawWore!==nativeWoreSeen){
+    if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
+    nativeWoreSeen=rawWore;
+    try{ await prefSet("oa.nativeWoreSeen",nativeWoreSeen); }catch(e){}
+  }
 }
 async function saveCloset(){
   await mergeNativeWears();
@@ -3275,6 +3289,9 @@ function packPayload(trip){
   // group/type travel with the item: the packing prompt prints the type, and a trip
   // list that cannot tell a shirt from a tee packs the wrong one for a business day.
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    // Roles too: a ban "no sweater as a base" must still pack it as a mid layer,
+    // and the server can only see that from the roles (pre-push reviewer, 2026-10-11).
+    roles:normRoles(i.roles,i.category),
     type:normType(i.type,i.group),colors:i.colors,
     warmth:i.warmth,...itemScale(i),
     formality:i.formality,waterproof:i.waterproof,...(i.sleeve?{sleeve:i.sleeve}:{}),
@@ -5446,6 +5463,7 @@ async function load(){
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ nativeSeen=new Set(JSON.parse(await prefGet("oa.nativeSeen","[]"))||[]); }catch(e){ nativeSeen=new Set(); }
+  try{ nativeWoreSeen=await prefGet("oa.nativeWoreSeen","")||""; }catch(e){ nativeWoreSeen=""; }
   try{ lastWorn=JSON.parse(await prefGet("oa.lastWorn","{}"))||{}; }catch(e){ lastWorn={}; }
   try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
          .filter(x=>x&&typeof x.day==="string"&&Array.isArray(x.ids)&&(x.v===1||x.v===-1)); }

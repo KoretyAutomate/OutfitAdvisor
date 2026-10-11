@@ -337,3 +337,13 @@ def test_trousers_they_do_not_own_are_missing_not_unneeded(api, monkeypatch):
     assert {"bottoms", "footwear"} <= set(d["missing"])
     for slot in ("bottoms", "footwear"):
         assert d["outfit"][slot].startswith("None — nothing in your closet"), d["outfit"][slot]
+
+
+def test_a_none_needed_line_for_a_gap_becomes_the_missing_marker(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"])
+    a["lines"].update({"bottoms": "None needed", "footwear": "Plain white sneakers (not in your closet yet)."})
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[UNDER, POLO, CARDI])
+    assert d["outfit"]["bottoms"].startswith("None — nothing in your closet")
+    assert d["outfit"]["footwear"] == "Plain white sneakers (not in your closet yet)."

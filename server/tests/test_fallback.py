@@ -101,3 +101,10 @@ def test_with_no_knitwear_the_warmer_polo_replaces_the_thinner_one():
     d = day(10, POLO, KNIT_POLO, JEANS, SNEAK)
     fixed, _ = fallback.fix(ids(base=POLO, mid=KNIT_POLO, bottoms=JEANS, footwear=SNEAK), d)
     assert fixed["base"] == KNIT_POLO["id"] and not fixed.get("mid"), fixed
+
+
+def test_the_warmer_top_swap_respects_the_afternoon():
+    """Raised by the pre-push reviewer, 2026-10-11: 10C morning, 30C afternoon."""
+    fixed, _ = fallback.fix(ids(base=POLO, mid=KNIT_POLO, bottoms=JEANS, footwear=SNEAK),
+                            day(10, POLO, KNIT_POLO, JEANS, SNEAK, hi=30))
+    assert fixed["base"] != KNIT_POLO["id"], fixed

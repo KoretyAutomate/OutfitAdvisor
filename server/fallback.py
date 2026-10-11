@@ -153,8 +153,11 @@ def _warm_up(out: dict, day: Day) -> None:
     base = out.get("base")
     if base and wd.by_item[base].get("type") in TOPS:
         for iid, item in wd.by_item.items():
+            # The base is worn all day: too warm judged by the afternoon (pre-push
+            # reviewer, 2026-10-11).
             if (iid not in out.values() and "base" in (wd.by_roles.get(iid) or ())
-                    and scale.warm_enough(item, day.plan) and not scale.too_warm(item, day.plan)
+                    and scale.warm_enough(item, day.plan)
+                    and not scale.too_warm(item, pk._heat_temp("base", day.plan, day.peak))
                     and not rules.violations(day.rules, {**out, "base": iid}, wd.by_item)):
                 out["base"] = iid
                 return

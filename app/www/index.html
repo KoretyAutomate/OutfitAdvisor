@@ -1483,7 +1483,7 @@ function reconcileItem(it,inferFromLabel=false){
 function migrateItem(it){ return reconcileItem(it,true); }
 let closet=[];   // {id,label,brand?,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms), washedAt?(epoch-ms)}
-let lastWorn={}; // {itemId: wornAt} — wear HISTORY for the advisor; survives the wash
+let lastWorn={}; // {itemId: [wornAt…]} — wear HISTORY for the advisor; survives the wash
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
   : [8,8,8,8].map(n=>Math.random().toString(36).slice(2,2+n)).join("-"));
@@ -1649,7 +1649,10 @@ function logWear(id){ const today=localDay(Date.now());          // idempotent p
   if(wearLog.some(w=>w.itemId===id && localDay(w.wornAt)===today)) return;
   wearLog.push({itemId:id,wornAt:Date.now()}); }
 function unlogWearToday(id){ const today=localDay(Date.now());
-  wearLog=wearLog.filter(w=>!(w.itemId===id && localDay(w.wornAt)===today)); }
+  wearLog=wearLog.filter(w=>!(w.itemId===id && localDay(w.wornAt)===today));
+  // An undo is a statement that it was NOT worn today — the history forgets it too,
+  // keeping any earlier wear (raised by the pre-push reviewer, 2026-10-11).
+  if(lastWorn[id]){ lastWorn[id]=lastWorn[id].filter(t=>localDay(t)!==today); if(!lastWorn[id].length) delete lastWorn[id]; } }
 async function saveCloset(){
   // Prune wears that no longer hold anything, on every write. By freeAt, not by
   // wornAt: a shirt worn five days ago and washed this morning is still drying.
@@ -3497,14 +3500,25 @@ function dayStart(t){ const d=new Date(t); d.setHours(0,0,0,0); return d.getTime
    a garment is clean and dry. Every wear passes through wearLog, so folding it in
    here (and in saveCloset, before it is pruned) keeps the history whole. */
 function noteWorn(now=Date.now()){
-  for(const w of wearLog) if(w&&w.itemId&&w.wornAt<=now&&!(lastWorn[w.itemId]>=w.wornAt)) lastWorn[w.itemId]=w.wornAt;
+  for(const w of wearLog){
+    if(!w||!w.itemId||!(w.wornAt<=now)) continue;
+    const ts=Array.isArray(lastWorn[w.itemId])?lastWorn[w.itemId]:[];
+    if(!ts.includes(w.wornAt)) ts.push(w.wornAt);
+    lastWorn[w.itemId]=ts;
+  }
   const since=dayStart(now)-(RECENT_DAYS+1)*DAY_MS;
-  for(const id of Object.keys(lastWorn)) if(!(lastWorn[id]>=since)) delete lastWorn[id];
+  for(const id of Object.keys(lastWorn)){
+    const ts=(Array.isArray(lastWorn[id])?lastWorn[id]:[]).filter(t=>t>=since);
+    if(ts.length) lastWorn[id]=ts; else delete lastWorn[id];
+  }
 }
 function lastWornAt(now=Date.now()){
   noteWorn(now);
   const out={}, since=dayStart(now)-RECENT_DAYS*DAY_MS;
-  for(const [id,t] of Object.entries(lastWorn)) if(t>=since&&t<=now) out[id]=t;
+  for(const [id,ts] of Object.entries(lastWorn)){
+    const t=Math.max(...ts.filter(x=>x>=since&&x<=now));
+    if(isFinite(t)) out[id]=t;
+  }
   return out;
 }
 function recentWorn(now=Date.now()){

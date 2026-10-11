@@ -62,7 +62,16 @@ const check = (name, cond, detail = "") => {
   check("the wash cleared the laundry entry", w.eval("wearLog.length") === 0);
   check("…but yesterday's wear is still history", w.eval("recentWorn().z") === 1, w.eval("recentWorn()"));
   const kept = JSON.parse(await w.eval(`prefGet("oa.lastWorn","{}")`));
-  check("…and it is saved", typeof kept.z === "number", kept);
+  check("…and it is saved", Array.isArray(kept.z) && kept.z.length === 1, kept);
+
+  // Raised by the pre-push reviewer, 2026-10-11: an undo takes today's wear out of
+  // the history, keeping an earlier one.
+  w.eval(`lastWorn={}; wearLog=${JSON.stringify([{itemId: "u", wornAt: Date.now() - 2 * 86400000},
+                                                 {itemId: "u", wornAt: Date.now() - 60000}])}`);
+  await w.eval("saveCloset()");
+  check("worn today", w.eval("recentWorn().u") === 0, w.eval("recentWorn()"));
+  w.eval('unlogWearToday("u")'); await w.eval("saveCloset()");
+  check("…undone: the earlier wear is what remains", w.eval("recentWorn().u") === 2, w.eval("recentWorn()"));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

@@ -316,10 +316,16 @@ def _model_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
             # A gap says so: its generic suggestion, or the phone's "None — …" marker —
             # never "None needed" for trousers they simply do not own (raised by the
             # pre-push reviewer, 2026-10-11).
-            out[slot] = said if said and not day.prefs.closet_only else NOTHING_OWNED
+            out[slot] = said if _generic(said) and not day.prefs.closet_only else NOTHING_OWNED
         elif not day.prefs.closet_only:
             out[slot] = said
     return out
+
+
+def _generic(line: str) -> bool:
+    """A real generic suggestion for a gap — the shape the prompt asks for — not a
+    "None needed" that would hide trousers they do not own (pre-push reviewer)."""
+    return "not in your closet yet" in line.lower()
 
 
 def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) -> dict:
@@ -335,7 +341,7 @@ def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
         # fallback emptied holds a line about the garment it took off. Raised by
         # the pre-push reviewer, 2026-10-11.
         generic = "" if best.picks.get(s) else str(said.get(s) or "").strip()
-        out[s] = (NOTHING_OWNED if day.prefs.closet_only or not generic else generic)
+        out[s] = (NOTHING_OWNED if day.prefs.closet_only or not _generic(generic) else generic)
     return out
 
 

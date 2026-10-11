@@ -76,3 +76,9 @@ def test_on_snow_the_fallback_reaches_for_waterproof():
     d = day(-3, UNDER, TEE, wool, parka, JEANS, SNEAK, BOOTS, isSnow=True)
     fixed, _ = fallback.fix(ids(inner=UNDER, base=TEE, bottoms=JEANS, footwear=SNEAK), d)
     assert fixed["outer"] == parka["id"] and fixed["footwear"] == BOOTS["id"]
+
+
+def test_missing_trousers_are_filled_with_what_suits_the_heat():
+    """Raised by the pre-push reviewer, 2026-10-11: jeans listed first, shorts owned."""
+    fixed, _ = fallback.fix(ids(base=TEE, footwear=SNEAK), day(29, TEE, JEANS, SHORTS, SNEAK, hi=32))
+    assert fixed["bottoms"] == SHORTS["id"]

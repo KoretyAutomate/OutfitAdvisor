@@ -45,7 +45,7 @@ def test_a_dress_covers_the_legs():
 
 def test_the_undershirt_alone_is_nothing_on_top():
     found = check.issues(ids(inner=UNDER, bottoms=JEANS), day(25, UNDER, JEANS))
-    assert any(i.kind == "no-top" and "undershirt" in i.text for i in found)
+    assert any(i.kind == "inner-alone" and "undershirt" in i.text for i in found)
 
 
 def test_cold_only_when_something_they_own_would_fix_it():
@@ -93,3 +93,10 @@ def test_missing_trousers_count_even_when_the_chosen_top_clashes_with_every_pair
     ban = {"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"role": "bottoms"}}
     d = day(18, TEE, POLO, JEANS, SNEAK, prefs=pk.Prefs(rules=(ban,)))
     assert "no-bottoms" in kinds(ids(base=TEE, footwear=SNEAK), d)
+
+
+def test_no_top_owned_is_a_gap_not_something_to_ask_again():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    found = kinds(ids(bottoms=JEANS, footwear=SNEAK), day(18, JEANS, SNEAK))
+    assert "no-top" not in found
+    assert "inner-alone" in kinds(ids(inner=UNDER, bottoms=JEANS, footwear=SNEAK), day(18, UNDER, JEANS, SNEAK))

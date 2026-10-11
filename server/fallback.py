@@ -62,7 +62,11 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
         _put_on_a_top(out, day)
     for slot in ("bottoms", "footwear"):
         if not out.get(slot) and not (slot == "bottoms" and wd.by_group.get(out.get("base")) == "onepiece"):
-            out[slot] = pk._suitable_for(slot, out, wd, day.plan, day.rules)
+            # What suits the heat first — shorts before jeans at 30C — and only
+            # failing that anything legal. Raised by the pre-push reviewer, 2026-10-11.
+            out[slot] = pk._suitable_for(slot, out, wd, day.plan, day.rules,
+                                         hot_temp=pk._heat_temp(slot, day.plan, day.peak)) \
+                or pk._suitable_for(slot, out, wd, day.plan, day.rules)
     # 7. Warm enough for the coldest hour: knitwear or a jacket, the lightest that does it.
     if any(out.get(c) for c in TORSO) and not layers._still_warm(out, wd.by_item, day.plan):
         _warm_up(out, day)

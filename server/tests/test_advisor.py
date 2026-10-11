@@ -269,3 +269,14 @@ def test_an_invented_handle_on_a_hot_day_is_not_shopping_evidence(monkeypatch):
     fake_model.install(monkeypatch, [bad] * 3)
     d = post(TestClient(srv.app), closet=[TEE, JEANS, SNEAK], closetOnly=True)
     assert d["missing"] == [], d["missing"]
+
+
+def test_after_a_fallback_a_half_registered_closet_keeps_its_generic_suggestion(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=KNIT_POLO["id"], bottoms=JEANS["id"])
+    a["lines"]["footwear"] = "White leather sneakers (not in your closet yet)."
+    a["missing"] = ["footwear"]
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[UNDER, POLO, KNIT_POLO, CARDI, JEANS])
+    assert d["picks"]["mid"] == CARDI["id"], "the fallback ran"
+    assert "White leather sneakers (not in your closet yet)." in d["outfit_text"]

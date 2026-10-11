@@ -261,11 +261,12 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     # filled — evidence, once gaps.missing has checked nothing they own fits (an
     # outright ban on the only undershirt). An invented handle, or a garment merely
     # moved to another slot, is not.
-    claimed = best.out.get("missing") if isinstance(best.out.get("missing"), list) else []
+    said_missing = best.out.get("missing")
+    claimed: list = said_missing if isinstance(said_missing, list) else []
     wanted = [s for s, i in best.picks.items() if i in wd.ids and s in (wd.by_roles.get(i) or ())
               and not picks.get(s) and i not in picks.values()]
     missing = gaps.missing(picks, day, [*claimed, *wanted])
-    final = _plain_lines(picks, day, missing) if changed else _model_lines(best, picks, day, missing)
+    final = _plain_lines(best, picks, day, missing) if changed else _model_lines(best, picks, day, missing)
     # The model's tip and lines describe ITS outfit. Once the fallback has changed
     # that outfit, patching its sentences one case at a time chased contradictions
     # through three review rounds (2026-10-11); they are rebuilt from the final picks.
@@ -315,12 +316,17 @@ def _model_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
     return out
 
 
-def _plain_lines(picks: dict, day: check.Day, missing: list[str]) -> dict:
+def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) -> dict:
     """The outfit as it now stands, in plain words — used when the fallback changed
     it, so no sentence can describe a garment that is no longer worn or deny one
-    that was just put on."""
+    that was just put on. A slot they own nothing for keeps the advisor's generic
+    suggestion unless the closet is complete (raised by the pre-push reviewer)."""
+    given = best.out.get("lines")
+    said = given if isinstance(given, dict) else {}
     out = {s: str(day.wd.by_item[i]["label"]) for s in CATEGORIES if (i := picks.get(s))}
-    out |= {s: "Nothing suitable in your closet for this." for s in missing if s in CATEGORIES}
+    for s in (s for s in missing if s in CATEGORIES):
+        generic = str(said.get(s) or "").strip()
+        out[s] = ("Nothing in your closet for this." if day.prefs.closet_only or not generic else generic)
     return out
 
 

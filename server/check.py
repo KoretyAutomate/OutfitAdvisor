@@ -116,8 +116,13 @@ def _dressed(worn: dict, day: Day) -> list[Issue]:
     """A top, trousers (or a one-piece) and shoes — when they own them."""
     out: list[Issue] = []
     if not any(worn.get(c) for c in TORSO):
-        out.append(Issue("no-top", "nothing on top"
-                         + (" — the undershirt cannot be worn on its own" if worn.get("inner") else ""), True))
+        # Only where they own a top: otherwise it is a wardrobe gap (gaps.py), and
+        # asking again cannot help. An undershirt alone is always fixable — take it
+        # off. Raised by the pre-push reviewer, 2026-10-11.
+        if any(day.owns_for(c, worn) for c in TORSO):
+            out.append(Issue("no-top", "nothing on top", True))
+        elif worn.get("inner"):
+            out.append(Issue("inner-alone", "the undershirt cannot be worn on its own", True))
     onepiece = day.wd.by_group.get(worn.get("base")) == "onepiece"
     for slot, what in (("bottoms", "trousers"), ("footwear", "shoes")):
         if not worn.get(slot) and not (slot == "bottoms" and onepiece) and day.owns_for(slot, worn):

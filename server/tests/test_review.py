@@ -306,3 +306,15 @@ def test_an_unreviewed_revision_does_not_win_by_escaping_the_stylist(monkeypatch
                [{"score": 2, "issue": "flat", "swap": None}])
     d = post(c)
     assert len(c.seen["prompts"]) == 2 and d["picks"]["mid"] == SWEATER["id"]
+
+
+def test_a_topless_revision_loses():
+    """Raised by the pre-push reviewer, 2026-10-11: with nothing above the waist
+    there is nothing to be cold IN, so 'still too cold' alone let it through."""
+    from picks import Prefs, _index
+    wd = _index(CLOSET)
+    w = {"morning": 20, "lo": 18, "hi": 24}
+    dressed = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+               "review": review.Seen(None, [("base", POLO["id"])])}
+    topless = {"picks": {"bottoms": PANTS["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
+    assert review._rank(topless, dressed, wd, w, Prefs()) > review._rank(dressed, topless, wd, w, Prefs())

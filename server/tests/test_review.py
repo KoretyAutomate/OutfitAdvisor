@@ -251,3 +251,30 @@ def test_on_snow_waterproof_boots_are_never_swapped_for_ones_that_are_not():
     rainy = style.ctx_of({"morning": -2, "lo": -4, "hi": 1, "isRain": True}, wardrobe, Prefs())
     assert not style.legal_swap(snowy, picks, "footwear", plain["id"], improve=False)
     assert style.legal_swap(rainy, picks, "footwear", plain["id"], improve=False)
+
+
+def test_on_snow_the_warmth_fixer_reaches_for_the_waterproof_coat():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    import layers
+    from picks import _index
+    tee = g("itm-tee00001", "white tee", "tops", "t_shirt", ["base"], 1)
+    cardi = g("itm-cardi0001", "grey cardigan", "tops", "cardigan", ["mid", "outer"], 4)
+    coat = g("itm-coat00001", "waterproof parka", "outerwear", "coat", ["outer"], 4, waterproof=True)
+    wd = _index([tee, cardi, coat, PANTS, SHOES])
+    for snow, want in ((True, ("outer", coat["id"])), (False, ("mid", cardi["id"]))):
+        picks = {"base": tee["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]}
+        layers.tidy(picks, wd, 2, [], peak_temp=5, day=layers.Day(snow=snow))
+        assert picks.get(want[0]) == want[1], (snow, picks)
+
+
+def test_the_listing_says_waterproof_only_on_snow():
+    import closet_prompt
+    boots = g("itm-snowboot1", "snow boots", "footwear", "boots", ["footwear"], 4, waterproof=True,
+              availableCount=1)
+    items = [{**i, "availableCount": 1} for i in (POLO, PANTS)] + [boots]
+    w = {"lo": -3, "hi": 1, "feelsLo": -6, "feelsHi": 0, "desc": "Snow", "rain": 0, "wind": 2,
+         "morning": -2, "midday": 0, "evening": -1, "swing": 4, "isRain": False, "isSnow": True}
+    assert "snow boots (Boots) | " in closet_prompt._closet_prompt(w, "man", "casual", items)
+    assert "| waterproof" in closet_prompt._closet_prompt(w, "man", "casual", items)
+    assert "waterproof |" not in closet_prompt._closet_prompt({**w, "isSnow": False, "rain": 90},
+                                                             "man", "casual", items)

@@ -103,7 +103,10 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         + (f" | {s} sleeves" if (s := layers.sleeve_of(i)) in ("short", "long") else
            " | sleeveless" if s == "none" else "")
         + f" | colors: {','.join(i['colors'])}"
-        f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
+        # Only on snow: rain never chooses a garment (user, 2026-10-11), snow does —
+        # the flag asks for waterproof boots, so the listing must say which are.
+        + (f" | {'waterproof' if i['waterproof'] else 'not waterproof'}" if w.get("isSnow") else "")
+        + f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
         f" | {i['availableCount']} available"
         + (f" | TOO WARM today as: {','.join(hr)}" if (hr := hot_roles(i)) else "")
         for i in closet

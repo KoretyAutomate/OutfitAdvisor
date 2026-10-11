@@ -66,3 +66,13 @@ def test_a_dress_put_on_late_still_takes_the_trousers_off():
     d = day(20, DRESS, JEANS, SNEAK)
     fixed, _ = fallback.fix(ids(bottoms=JEANS, footwear=SNEAK), d)
     assert fixed["base"] == DRESS["id"] and fixed["bottoms"] is None
+
+
+def test_on_snow_the_fallback_reaches_for_waterproof():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    from wardrobe_fixtures import BOOTS, g
+    parka = g("parka0001", "waterproof parka", "outerwear", "coat", ["outer"], 5, waterproof=True)
+    wool = g("woolcoat1", "wool coat", "outerwear", "coat", ["outer"], 5)
+    d = day(-3, UNDER, TEE, wool, parka, JEANS, SNEAK, BOOTS, isSnow=True)
+    fixed, _ = fallback.fix(ids(inner=UNDER, base=TEE, bottoms=JEANS, footwear=SNEAK), d)
+    assert fixed["outer"] == parka["id"] and fixed["footwear"] == BOOTS["id"]

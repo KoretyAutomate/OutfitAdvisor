@@ -69,11 +69,30 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     # 8. An undershirt is never worn on its own.
     if out.get("inner") and not any(out.get(c) for c in TORSO):
         out["inner"] = None
-    # 9. A dress covers the legs — again, since steps 5 and 6 can put one on.
+    # 9. Snow: the waterproof boots or coat they own. Snow is not rain. Raised by the
+    #    pre-push reviewer, 2026-10-11.
+    if day.w.get("isSnow"):
+        _snow_proof(out, day)
+    # 10. A dress covers the legs — again, since steps 5 and 6 can put one on.
     #    Raised by the pre-push reviewer, 2026-10-11.
     if wd.by_group.get(out.get("base")) == "onepiece":
         out["bottoms"] = None
     return out, {s: out.get(s) for s in set(out) | set(before) if out.get(s) != before.get(s)}
+
+
+def _snow_proof(out: dict, day: Day) -> None:
+    wd = day.wd
+    for slot in ("footwear", "outer"):
+        if out.get(slot) and wd.by_item[out[slot]].get("waterproof"):
+            continue
+        for iid, item in wd.by_item.items():
+            if not item.get("waterproof") or iid in out.values() or slot not in (wd.by_roles.get(iid) or ()):
+                continue
+            if slot == "outer" and not scale.warm_enough(item, day.plan) and out.get(slot):
+                continue
+            if not rules.violations(day.rules, {**out, slot: iid}, wd.by_item):
+                out[slot] = iid
+                break
 
 
 def _put_on_a_top(out: dict, day: Day) -> None:
@@ -104,7 +123,8 @@ def _warm_up(out: dict, day: Day) -> None:
             if rules.violations(day.rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
                 continue
             kind = item.get("type") or ""
-            cands.append((kind in TOPS, kind not in _WARM_FIRST, -scale.garment_temp(item), slot, iid))
+            snow_wet = bool(day.w.get("isSnow")) and slot == "outer" and not item.get("waterproof")
+            cands.append((snow_wet, kind in TOPS, kind not in _WARM_FIRST, -scale.garment_temp(item), slot, iid))
     if cands:
         *_, slot, iid = min(cands)
         out[slot] = iid

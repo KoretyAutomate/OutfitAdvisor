@@ -18,6 +18,7 @@ before the weather fetch). A revision only starts by REVISE_BY_S, the stylist on
 with STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S.
 """
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 
@@ -254,7 +255,10 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     picks, changed = (fallback.fix(best.picks, day) if check.hard(best.found) else (best.picks, {}))
     for slot, now in changed.items():
         log.warning("advisor: fallback %s → %s", slot, now or "empty")
-    emptied = {s for s, now in changed.items() if not now}
+    # A garment the fallback MOVED (a hoodie filed as base, now the mid) left its old
+    # slot empty without the wardrobe lacking anything. Raised by the pre-push
+    # reviewer, 2026-10-11.
+    emptied = {s for s, now in changed.items() if not now and best.picks.get(s) not in picks.values()}
     missing = gaps.missing(picks, day, best.out.get("missing"), emptied)
     given = best.out.get("lines")
     lines = given if isinstance(given, dict) else {}
@@ -274,17 +278,21 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     # The model's words describe ITS outfit. Whatever the fallback took off must not
     # be recommended by another line or the tip — a banned pairing undone in the one
     # place the wearer reads. Raised by the pre-push reviewer, 2026-10-11.
-    gone = [str(wd.by_item[i]["label"]).lower() for s_, i in best.picks.items()
+    gone = [wd.by_item[i] for s_, i in best.picks.items()
             if i in wd.by_item and s_ in changed and i not in picks.values()]
     if gone:
+        terms = _terms(gone, [wd.by_item[i] for i in picks.values() if i in wd.by_item])
         for slot, t in list(final.items()):
-            if slot not in changed and any(g in t.lower() for g in gone):
+            if slot not in changed and any(re.search(rf"\b{re.escape(w)}\b", t.lower()) for w in terms):
                 if picks.get(slot):
                     final[slot] = str(wd.by_item[picks[slot]]["label"])
                 else:
                     del final[slot]
-        if any(g in tip.lower() for g in gone):
-            tip = ""
+    # The tip was written for the model's outfit; once the fallback has changed it,
+    # "no mid-layer needed" can sit under the cardigan it just added. Raised by the
+    # pre-push reviewer, 2026-10-11.
+    if changed:
+        tip = ""
     if day.prefs.closet_only:
         # Their wardrobe is everything they own: a line recommending anything else
         # breaks that promise in the words the notification shows. A worn garment's
@@ -305,6 +313,21 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     text = "\n".join(bullets) + (f"\n\n💡 {tip}" if tip else "")
     return {"picks": picks, "text": text, "lines": final, "tip": tip, "look": str(best.out.get("look") or ""),
             "missing": missing, "cleared": sorted(emptied - set(missing))}
+
+
+def _terms(gone: list[dict], worn: list[dict]) -> set[str]:
+    """How a line might refer to a garment that came off: its name, or its kind
+    ("your white undershirt" for one named "Airism") — the kind only while nothing
+    still worn is of that kind. Raised by the pre-push reviewer, 2026-10-11."""
+    kept = {w for it in worn for w in _kind_words(it)}
+    out = {str(it.get("label") or "").lower().strip() for it in gone} - {""}
+    out |= {w for it in gone for w in _kind_words(it)} - kept
+    return out
+
+
+def _kind_words(it: dict) -> set[str]:
+    kind = str(it.get("type") or "")
+    return {w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()) if len(w) > 3}
 
 
 def _owned_words(picks: dict, wd: "pk.Wardrobe") -> list[tuple[str, bool]]:

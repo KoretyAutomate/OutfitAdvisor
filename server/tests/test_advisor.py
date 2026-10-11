@@ -174,3 +174,36 @@ def test_a_garment_the_fallback_took_off_is_not_recommended_by_another_line(api,
     d = post(api, rules=[ban])
     assert d["picks"]["inner"] is None
     assert "grey v-neck inner" not in d["outfit_text"], d["outfit_text"]
+
+
+def test_a_removed_garment_described_by_its_kind_is_not_recommended(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: named "Airism", described as
+    "your white undershirt"."""
+    airism = {**UNDER, "label": "Airism"}
+    ban = {"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "polo"}}
+    a = outfit(inner=airism["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["base"] = "The navy polo over your white undershirt."
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[airism, POLO, CARDI, JEANS, SNEAK], rules=[ban])
+    assert d["picks"]["inner"] is None and "undershirt" not in d["outfit_text"].lower(), d["outfit_text"]
+
+
+def test_the_tip_goes_when_the_fallback_changed_the_outfit(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: "no mid-layer needed" under the
+    cardigan the fallback just added."""
+    cold = outfit(inner=UNDER["id"], base=POLO["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    cold["tip"] = "No mid-layer is needed today."
+    fake_model.install(monkeypatch, [cold] * 3)
+    d = post(api, closet=[UNDER, POLO, CARDI, JEANS, SNEAK])
+    assert d["picks"]["mid"] == CARDI["id"] and "No mid-layer" not in d["outfit_text"]
+
+
+def test_a_garment_the_fallback_moved_is_not_a_gap(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: a mid-only hoodie filed as base,
+    moved to mid — the wearer has a top on, nothing to buy."""
+    from wardrobe_fixtures import g
+    hoodie = g("hoodie001", "grey hoodie", "tops", "hoodie", ["mid", "outer"], 3)
+    wrong = outfit(base=hoodie["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    fake_model.install(monkeypatch, [wrong] * 3)
+    d = post(api, closet=[hoodie, JEANS, SNEAK], closetOnly=True)
+    assert hoodie["id"] in d["picks"].values() and "base" not in d["missing"], d["missing"]

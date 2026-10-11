@@ -328,10 +328,11 @@ def test_lost_trousers_count_even_when_no_pair_suits_the_new_top():
     from picks import _index
     shirt = g("itm-oxford001", "blue oxford", "tops", "shirt", ["base"], 2)
     wd = _index([*CLOSET, shirt])
-    w = {"morning": 20, "lo": 18, "hi": 24}
-    complete = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+    w = {"morning": 10, "lo": 9, "hi": 12}
+    complete = {"picks": {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"],
+                          "footwear": SHOES["id"]},
                 "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
-    legless = {"picks": {"base": shirt["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
+    legless = {"picks": {"base": shirt["id"], "mid": SWEATER["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
     assert not review.better(legless, complete, wd, w) and review.better(complete, legless, wd, w)
 
 
@@ -366,3 +367,32 @@ def test_trading_bare_feet_for_bare_legs_is_a_loss(monkeypatch):
                              outfit(base=POLO["id"], mid=SWEATER["id"], footwear=SHOES["id"])])
     d = post(c)
     assert len(c.seen["prompts"]) == 2 and d["picks"]["bottoms"] == PANTS["id"]
+
+
+def test_on_snow_a_revision_that_drops_the_waterproof_boots_loses():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    from picks import _index
+    boots = g("itm-snowboot1", "snow boots", "footwear", "boots", ["footwear"], 4, waterproof=True)
+    suede = g("itm-suedebt1", "suede boots", "footwear", "boots", ["footwear"], 4)
+    wd = _index([*CLOSET, boots, suede])
+    w = {"morning": -2, "lo": -4, "hi": 1, "isSnow": True}
+    dressed = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"]}
+    dry = {"picks": {**dressed, "footwear": boots["id"]},
+           "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
+    wet = {"picks": {**dressed, "footwear": suede["id"]}, "review": review.Seen(None, [])}
+    assert not review.better(wet, dry, wd, w) and review.better(dry, wet, wd, w)
+
+
+def test_a_revision_that_overheats_loses():
+    """Raised by the pre-push reviewer, 2026-10-11: a jumper as the all-day base on a
+    day that peaks at 30."""
+    from picks import _index
+    linen = g("itm-linenshrt", "linen shirt", "tops", "shirt", ["base", "mid"], 1)
+    wd = _index([*CLOSET, linen])
+    w = {"morning": 10, "lo": 10, "hi": 30}
+    light = {"picks": {"base": linen["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+             "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
+    hot = {"picks": {"base": SWEATER["id"], "mid": linen["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+           "review": review.Seen(None, [])}
+    assert "cooler base" in review.unresolved(hot, wd, w)
+    assert not review.better(hot, light, wd, w)

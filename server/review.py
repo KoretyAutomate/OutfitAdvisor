@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 import picks as pk
 from layers import _still_warm
-from llm import _fenced, _plan_temp, log
+from llm import _fenced, _peak_temp, _plan_temp, log
 from stylist import POOR, Verdict
 from vocab import CATEGORIES
 
@@ -87,7 +87,8 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
 
 def unresolved(result: dict, wd: "pk.Wardrobe", w: dict) -> set[str]:
     """What the FINISHED outfit still lacks: legs or feet bare though they own
-    trousers or shoes, nothing on top, or nothing warm enough on top.
+    trousers or shoes, nothing on top, nothing warm enough on top, something too
+    warm for the day, or on snow the waterproof boots or coat they own.
 
     Coverage is judged by what they OWN, not by what suits these picks: a top that
     clashes with every pair of trousers would otherwise lose the trousers and the
@@ -99,10 +100,21 @@ def unresolved(result: dict, wd: "pk.Wardrobe", w: dict) -> set[str]:
     out = {slot for slot in ("bottoms", "footwear")
            if not picks.get(slot) and slot in owned
            and not (slot == "bottoms" and wd.by_group.get(picks.get("base")) == "onepiece")}
+    plan = _plan_temp(w)
     if not any(picks.get(c) for c in ("base", "mid", "outer")):
         out.add("top")
-    elif not _still_warm(picks, wd.by_item, _plan_temp(w)):
+    elif not _still_warm(picks, wd.by_item, plan):
         out.add("warmth")
+    # Too warm is as unresolved as too cold: an all-day jumper on a day that peaks
+    # hot. And on snow, boots or a coat that are not waterproof while waterproof ones
+    # are owned — snow is not rain. Both raised by the pre-push reviewer, 2026-10-11.
+    out |= {f"cooler {c}" for c in pk._too_warm_slots(picks, wd.by_item, plan, _peak_temp(w, plan))}
+    if w.get("isSnow"):
+        for slot in ("footwear", "outer"):
+            worn = wd.by_item.get(picks.get(slot)) or {}
+            if not worn.get("waterproof") and any(
+                    slot in (wd.by_roles.get(i) or ()) and it.get("waterproof") for i, it in wd.by_item.items()):
+                out.add(f"waterproof {slot}")
     return out
 
 

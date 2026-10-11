@@ -176,3 +176,34 @@ def test_no_trousers_when_they_own_some_goes_back(monkeypatch):
     d = post(c)
     assert "no trousers, though they own suitable ones" in c.seen["prompts"][1]
     assert d["picks"]["bottoms"] == PANTS["id"]
+
+
+def test_a_revision_that_leaves_the_legs_bare_loses(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11. First: a warmth repair, trousers
+    on (one problem). Revision: the sweater chosen, trousers dropped (one problem).
+    Equal counts — but bare legs are worse than a repaired outfit."""
+    c = client(monkeypatch, [outfit(base=POLO["id"], bottoms=PANTS["id"], footwear=SHOES["id"]),
+                             outfit(base=POLO["id"], mid=SWEATER["id"], footwear=SHOES["id"])])
+    d = post(c)
+    assert len(c.seen["prompts"]) == 2
+    assert d["picks"]["bottoms"] == PANTS["id"]
+
+
+def test_a_revision_that_runs_past_the_deadline_keeps_the_first(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: the revision is bounded too, not
+    only its start, so the phone never waits past its own limit."""
+    import asyncio
+    monkeypatch.setattr(review, "DEADLINE_S", 0.2)
+    # The revision WOULD win (shoes added) — only the deadline keeps the first.
+    c = client(monkeypatch, [outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"]),
+                             outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"],
+                                    footwear=SHOES["id"])])
+    slow = llm._chat
+
+    async def stall(messages, *a, **k):
+        if "REVISION" in messages[0]["content"]:
+            await asyncio.sleep(1)
+        return await slow(messages, *a, **k)
+    monkeypatch.setattr(closet_llm, "_chat", stall)
+    d = post(c)
+    assert d["picks"]["mid"] == SWEATER["id"] and not d["picks"]["footwear"]

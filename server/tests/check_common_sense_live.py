@@ -29,9 +29,11 @@ from picks import Prefs
 TOPS = {"t_shirt", "polo", "tank", "blouse", "shirt"}
 
 
-def g(iid, label, group, typ, roles, warmth, colors=("navy",), **kw):
+def g(iid, label, kind, roles, warmth, **kw):
+    """`kind` is "group/type", e.g. "tops/polo"."""
+    group, typ = kind.split("/")
     return {"id": f"itm-{iid}", "label": label, "category": roles[0], "group": group, "type": typ,
-            "roles": list(roles), "colors": list(colors), "warmth": warmth, "formality": ["casual"],
+            "roles": list(roles), "colors": ["navy"], "warmth": warmth, "formality": ["casual"],
             "waterproof": False, "availableCount": 1, **kw}
 
 
@@ -42,20 +44,20 @@ def day(morning, rain=0):
             "isSnow": False, "isRain": rain >= 50}
 
 
-POLO = g("navypolo", "navy polo shirt", "tops", "polo", ("base", "mid", "outer"), 2)
-KNIT_POLO = g("knitpolo", "grey knit polo", "tops", "polo", ("base", "mid", "outer"), 3, ("grey",))
-TEE = g("whitetee", "white crew-neck T-shirt", "tops", "t_shirt", ("base",), 1, ("white",))
-OXFORD = g("oxford", "blue oxford shirt", "tops", "shirt", ("base", "mid", "outer"), 2, ("blue",))
-INNER = g("vinner", "grey v-neck inner", "underwear", "undershirt", ("inner",), 1, ("grey",))
-SWEATER = g("sweater", "navy v-neck sweater", "tops", "sweater", ("base", "mid", "outer"), 4)
-CARDI = g("cardi", "charcoal cardigan", "tops", "cardigan", ("mid", "outer"), 3, ("charcoal",))
-HOODIE = g("hoodie", "grey hoodie", "tops", "hoodie", ("mid", "outer"), 3, ("grey",))
-JACKET = g("jacket", "olive field jacket", "outerwear", "jacket", ("outer",), 3, ("olive",))
-RAIN = g("rainjkt", "black rain jacket", "outerwear", "rainwear", ("outer",), 2, ("black",), waterproof=True)
-PANTS = g("drawstr", "beige drawstring pants", "bottoms", "trousers", ("bottoms",), 3, ("beige",))
-JEANS = g("jeans", "blue jeans", "bottoms", "jeans", ("bottoms",), 3, ("blue",))
-SNEAK = g("sneaker", "white sneakers", "footwear", "sneakers", ("footwear",), 2, ("white",))
-LOAFER = g("loafer", "brown loafers", "footwear", "loafers", ("footwear",), 2, ("brown",))
+POLO = g("navypolo", "navy polo shirt", "tops/polo", ("base", "mid", "outer"), 2)
+KNIT_POLO = g("knitpolo", "grey knit polo", "tops/polo", ("base", "mid", "outer"), 3, colors=["grey"])
+TEE = g("whitetee", "white crew-neck T-shirt", "tops/t_shirt", ("base",), 1, colors=["white"])
+OXFORD = g("oxford", "blue oxford shirt", "tops/shirt", ("base", "mid", "outer"), 2, colors=["blue"])
+INNER = g("vinner", "grey v-neck inner", "underwear/undershirt", ("inner",), 1, colors=["grey"])
+SWEATER = g("sweater", "navy v-neck sweater", "tops/sweater", ("base", "mid", "outer"), 4)
+CARDI = g("cardi", "charcoal cardigan", "tops/cardigan", ("mid", "outer"), 3, colors=["charcoal"])
+HOODIE = g("hoodie", "grey hoodie", "tops/hoodie", ("mid", "outer"), 3, colors=["grey"])
+JACKET = g("jacket", "olive field jacket", "outerwear/jacket", ("outer",), 3, colors=["olive"])
+RAIN = g("rainjkt", "black rain jacket", "outerwear/rainwear", ("outer",), 2, colors=["black"], waterproof=True)
+PANTS = g("drawstr", "beige drawstring pants", "bottoms/trousers", ("bottoms",), 3, colors=["beige"])
+JEANS = g("jeans", "blue jeans", "bottoms/jeans", ("bottoms",), 3, colors=["blue"])
+SNEAK = g("sneaker", "white sneakers", "footwear/sneakers", ("footwear",), 2, colors=["white"])
+LOAFER = g("loafer", "brown loafers", "footwear/loafers", ("footwear",), 2, colors=["brown"])
 
 # name: (weather, wardrobe). Add the wearer's next odd outfit here.
 DAYS = {

@@ -20,6 +20,7 @@ the last resort now, not the stylist.
 Time-boxed like the stylist: only when the first answer came back early enough for
 a second to fit inside the phone's 90 s.
 """
+import asyncio
 import time
 from dataclasses import dataclass, field
 
@@ -31,6 +32,13 @@ from vocab import CATEGORIES
 # The first answer must be back by this for a second to be worth asking: a closet
 # generation is 15-30 s, the stylist 2-3 s, and the phone gives up at 90 s.
 REVISE_BUDGET_S = 40.0
+# And the revision must be BACK by this, or the first answer stands: the phone
+# aborts at 90 s, and a revision that needs its own corrective retry can take two
+# more generations. Raised by the pre-push reviewer, 2026-10-11.
+DEADLINE_S = 80.0
+# Unresolved omissions: an outfit missing one of these is worse than any outfit a
+# repair completed, whatever the counts say.
+_BARE = ("it had no trousers", "it had no shoes")
 
 
 @dataclass(frozen=True)
@@ -79,11 +87,15 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
             "from the wardrobe above, fixing exactly this and keeping what worked.\n")
 
 
-async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs,
-                      t0: float | None = None) -> dict:
+def _weight(found: list[str]) -> tuple[int, int]:
+    """How bad: bare legs or feet first, then everything else."""
+    return sum(1 for f in found if f.startswith(_BARE)), len(found)
+
+
+async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> dict:
     """The answer that stands: `first`, or the model's revision when it did better."""
     look = getattr(prefs, "look", None)
-    start = t0 if t0 is not None else (look.t0 if look else time.monotonic())
+    start = look.t0 if look else time.monotonic()
     found = problems(first, wd, w, prefs)
     if not found:
         return _done(first)
@@ -92,14 +104,22 @@ async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs,
         log.info("review: %d problem(s), no time to revise (%.0fs)", len(found), age)
         return _done(first)
     log.info("review: revising — %d problem(s)", len(found))
-    second = await again(revision_note(first, wd, found))
+    try:
+        second = await asyncio.wait_for(again(revision_note(first, wd, found)),
+                                        DEADLINE_S - age)
+    except TimeoutError:
+        log.info("review: the revision ran past %.0fs, the first answer stands", DEADLINE_S)
+        return _done(first)
     if second is None:
         log.info("review: no usable revision, the first answer stands")
         return _done(first)
     left = problems(second, wd, w, prefs)
     # The revision stands unless it is worse: it is the model's own answer, made
-    # knowing what went wrong, and the repairs have judged it like the first.
-    keep = second if len(left) <= len(found) else first
+    # knowing what went wrong, and the repairs have judged it like the first. Worse
+    # means bare legs or feet before anything else — a complete outfit a repair had
+    # to warm is better than one the model left without trousers. Raised by the
+    # pre-push reviewer, 2026-10-11.
+    keep = second if _weight(left) <= _weight(found) else first
     log.info("review: %d → %d problem(s), %s answer stands", len(found), len(left),
              "revised" if keep is second else "first")
     return _done(keep)

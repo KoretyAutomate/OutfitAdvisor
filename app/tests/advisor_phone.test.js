@@ -154,6 +154,15 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   const pp = ev(`packPayload({start:"2026-10-20",end:"2026-10-22"})`);
   check("the packing payload carries the roles", JSON.stringify(pp[0].roles) === '["base","mid","outer"]', pp[0]);
 
+  // Raised by the pre-push reviewer, 2026-10-11 (P1): the adopted record is saved
+  // into the app's own key before it is acknowledged, so a second reload keeps it.
+  ev(`woreLogged=null; woreDay=null; nativeWoreSeen="";`);
+  w.localStorage.setItem("oa.woreToday", "");
+  w.localStorage.setItem("oa.nativeWore", JSON.stringify({day: ev("todayISO()"), map: {base: "itm-p2"}}));
+  await ev("mergeNativeWears()");
+  const rec = JSON.parse(w.localStorage.getItem("oa.woreToday") || "null");
+  check("the adopted record is in the app's own key", rec && rec.map && rec.map.base === "itm-p2", rec);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

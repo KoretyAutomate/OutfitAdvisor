@@ -214,6 +214,7 @@ class FeedbackReceiver : BroadcastReceiver() {
         const val KEY_NATIVE_WEARS = "oa.nativeWears"
         const val KEY_NATIVE_WORE = "oa.nativeWore"
         private const val QUEUE_DAYS = 14
+        private const val RECENT_DAYS = 7     // twin of RECENT_DAYS in index.html
 
         fun nativeQueue(prefs: android.content.SharedPreferences): JSONArray =
             try { JSONArray(prefs.getString(KEY_NATIVE_WEARS, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
@@ -237,7 +238,14 @@ class FeedbackReceiver : BroadcastReceiver() {
                     val e = queue.optJSONObject(q) ?: continue
                     val id = e.optString("itemId")
                     val worn = e.optLong("wornAt", 0L)
-                    if (e.optString("key") in seen || worn + COOLDOWN_DAYS * DAY_MS <= now) continue
+                    if (e.optString("key") in seen) continue
+                    // Recent-wear HISTORY for a week, independent of the laundry hold
+                    // below, which ends after COOLDOWN_DAYS (pre-push reviewer, 2026-10-11).
+                    if (worn > now - RECENT_DAYS * DAY_MS && recent.optLong(id, 0L) < worn) {
+                        recent.put(id, worn)
+                        changed = true
+                    }
+                    if (worn + COOLDOWN_DAYS * DAY_MS <= now) continue
                     for (arr in listOfNotNull(p.optJSONArray("closet"), p.optJSONArray("pending"))) {
                         for (i in 0 until arr.length()) {
                             val o = arr.optJSONObject(i) ?: continue
@@ -255,7 +263,6 @@ class FeedbackReceiver : BroadcastReceiver() {
                             o.put("freeAt", still)
                         }
                     }
-                    if (recent.optLong(id, 0L) < worn) recent.put(id, worn)
                     changed = true
                 }
                 if (!changed) return null

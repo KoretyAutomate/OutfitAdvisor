@@ -1647,7 +1647,13 @@ async function mergeNativeWears(){
   // explicit undo — pre-push reviewer, 2026-10-11), and only when this page has
   // none for today.
   if(rawWore&&rawWore!==nativeWoreSeen){
-    if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
+    if(!(woreLogged&&woreDay===todayISO())){
+      applyWoreRaw(rawWore);
+      // Saved into this page's OWN record before it is acknowledged — or a reload
+      // reads an empty record and the acknowledged one is never taken again
+      // (pre-push reviewer, 2026-10-11, P1).
+      if(woreLogged&&woreDay===todayISO()) await saveWoreLogged();
+    }
     nativeWoreSeen=rawWore;
     try{ await prefSet("oa.nativeWoreSeen",nativeWoreSeen); }catch(e){}
   }
@@ -6368,6 +6374,9 @@ const appReady=(async()=>{
   // AFTER the render loadToday does, which reads woreLogged for the button state.
   // syncWearBtn below re-runs that read once the record is back.
   await readWoreRecord();
+  // What the notification queued while the app was closed, BEFORE the button, the
+  // card and the closet are drawn from it (pre-push reviewer, 2026-10-11).
+  await mergeNativeWears();
   syncWearBtn();
   // loadToday drew the advice before the record was readable. If today already has
   // one, the pictures should be of what was worn — that is what the card is for.

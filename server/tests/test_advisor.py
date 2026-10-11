@@ -372,3 +372,14 @@ def test_a_rating_from_an_earlier_days_notification_is_ignored():
     assert "putExtra(FeedbackReceiver.EXTRA_DAY" in action[:action.index("PendingIntent.getBroadcast")]
     recv = (root / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
     assert "if (advised != null && advised != today) return" in recv
+
+
+def test_queued_wears_stay_recent_history_after_the_laundry_hold_ends():
+    """Raised by the pre-push reviewer, 2026-10-11: recentAt is updated for a week,
+    before (and independently of) the four-day laundry hold's early exit."""
+    from pathlib import Path
+    kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+          / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
+    body = kt[kt.index("fun applyNativeWears"):]
+    assert body.index("RECENT_DAYS * DAY_MS") < body.index("if (worn + COOLDOWN_DAYS * DAY_MS <= now) continue")
+    assert "RECENT_DAYS = 7" in kt

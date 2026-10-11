@@ -325,9 +325,10 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     let ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
     check("a stale page's old record does not erase the notification's, and the correction releases A",
       JSON.stringify(ids) === '["jean1","teeB"]', ids);
-    // (b) The notification writes the record with the wear log unchanged.
+    // (b) The notification writes the record with the wear log unchanged — a fresh
+    // start, so the page has not adopted any receiver record yet.
     setup();
-    ls.setItem("oa.woreToday", "");
+    ls.setItem("oa.woreToday", ""); ls.removeItem("oa.nativeWoreSeen"); ev(`nativeWoreSeen=""`);
     ev(`wearLog=[]; logWear("teeA"); logWear("jean1"); woreLogged=null; woreDay=null;`);
     await ev("saveCloset()");               // both on disk, logged from their sheets
     notify(ls, [], {day: today, map: {base: "teeA", bottoms: "jean1"}});

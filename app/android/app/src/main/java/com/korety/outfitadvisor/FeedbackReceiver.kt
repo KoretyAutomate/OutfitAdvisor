@@ -12,7 +12,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Thermal feedback from the morning notification's action buttons (2026-07-27).
+ * Thermal feedback from the morning notification's action buttons (2026-07-27),
+ * and its "Wearing it" button (2026-10-11, see onWear).
  *
  * Why a bare BroadcastReceiver is correct HERE, when PackingWorker needed WorkManager:
  * this does a SharedPreferences write and nothing else — no network, no LLM, microseconds
@@ -34,6 +35,7 @@ import kotlin.math.min
 class FeedbackReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_WEAR) { onWear(context, intent); return }
         if (intent.action != ACTION_FEEDBACK) return
         val rating = intent.getIntExtra(EXTRA_RATING, 99)
         val delta = DELTA[rating] ?: return   // unknown rating -> do nothing, silently
@@ -89,9 +91,102 @@ class FeedbackReceiver : BroadcastReceiver() {
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
-    /** Local calendar day — the JS twin compares localDay(at) the same way. */
-    private fun dayOf(ms: Long): String =
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(ms))
+    /**
+     * "Wearing it" from the notification (2026-10-11): log a wear for each picked
+     * garment exactly as the app's button does — twin of the `$("dWear").onclick`
+     * logging branch, logWear() and saveWoreLogged() in app/www/index.html:
+     *   oa.wearlog   — append {"itemId": id, "wornAt": epochMs}, at most once per
+     *                  garment per local day (logWear is idempotent the same way)
+     *   oa.woreToday — {"day": "yyyy-MM-dd", "map": picks}, today's record
+     * and, because the app's button also re-stamps it through saveCloset, the
+     * morning push's snapshot: each worn garment loses a unit until it comes back
+     * from the wash, so tomorrow's 05:00 push does not offer it again.
+     *
+     * Idempotent: if today already has a record — the app's button, or an earlier
+     * tap here — nothing is written. Still SharedPreferences only, no network.
+     */
+    private fun onWear(context: Context, intent: Intent) {
+        val prefs = context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val today = dayOf(now)
+        val picks = try {
+            JSONObject(intent.getStringExtra(EXTRA_PICKS) ?: return)
+        } catch (e: Exception) { return }
+        val ids = pickIds(picks)
+        if (ids.isEmpty()) return
+        // The notification is about ONE morning. Tapped tomorrow from the shade it
+        // would log yesterday's outfit as today's.
+        if (intent.getStringExtra(EXTRA_DAY) != today) {
+            Toast.makeText(context, "That was an earlier day's outfit — open the app to log today's",
+                Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (loggedToday(prefs, today)) {
+            OutfitNotification.afterWear(context)
+            Toast.makeText(context, "Already logged for today", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val log = try {
+            JSONArray(prefs.getString(KEY_WEARLOG, "[]") ?: "[]")
+        } catch (e: Exception) {
+            // Unreadable: writing a fresh one would be guessing. The app can do it.
+            Toast.makeText(context, "Couldn't log it here — open the app", Toast.LENGTH_SHORT).show()
+            return
+        }
+        for (id in ids) {
+            var already = false
+            for (i in 0 until log.length()) {
+                val e = log.optJSONObject(i) ?: continue
+                if (e.optString("itemId") == id && dayOf(e.optLong("wornAt", 0L)) == today) {
+                    already = true
+                    break
+                }
+            }
+            if (!already) log.put(JSONObject().put("itemId", id).put("wornAt", now))
+        }
+        val edit = prefs.edit()
+            .putString(KEY_WEARLOG, log.toString())
+            .putString(KEY_WORE, JSONObject().put("day", today).put("map", picks).toString())
+        holdInPayload(prefs.getString(AdviceWorker.KEY_PUSH_PAYLOAD, null), ids, now)
+            ?.let { edit.putString(AdviceWorker.KEY_PUSH_PAYLOAD, it) }
+        edit.apply()
+
+        OutfitNotification.afterWear(context)
+        Toast.makeText(context, "Rotation updated — these go to the laundry pile",
+            Toast.LENGTH_SHORT).show()
+    }
+
+    /** Twin of the launch-time read of oa.woreToday: today's day AND a map. */
+    private fun loggedToday(prefs: android.content.SharedPreferences, today: String): Boolean = try {
+        val raw = prefs.getString(KEY_WORE, "") ?: ""
+        if (raw.isEmpty()) false
+        else JSONObject(raw).let { it.optString("day") == today && it.optJSONObject("map") != null }
+    } catch (e: Exception) { false }
+
+    /**
+     * The push snapshot with each worn garment held: one unit fewer available, and
+     * that unit's return time (worn + COOLDOWN_DAYS, the app's freeAt for an
+     * unwashed wear) added to `freeAt`, which AdviceWorker.freedBy already reads.
+     * Null when there is no snapshot or it cannot be read — then nothing is
+     * written and the app re-stamps it on next open, as it always does.
+     */
+    private fun holdInPayload(raw: String?, ids: List<String>, now: Long): String? {
+        if (raw == null) return null
+        return try {
+            val p = JSONObject(raw)
+            val closet = p.optJSONArray("closet") ?: return null
+            for (i in 0 until closet.length()) {
+                val o = closet.optJSONObject(i) ?: continue
+                if (o.optString("id") !in ids) continue
+                val n = o.optInt("availableCount", 0)
+                if (n < 1) continue
+                o.put("availableCount", n - 1)
+                val times = o.optJSONArray("freeAt") ?: JSONArray().also { o.put("freeAt", it) }
+                times.put(now + COOLDOWN_DAYS * DAY_MS)
+            }
+            p.toString()
+        } catch (e: Exception) { null }
+    }
 
     private fun clamp(v: Double) = max(-CLAMP, min(CLAMP, v))
 
@@ -116,6 +211,37 @@ class FeedbackReceiver : BroadcastReceiver() {
         const val KEY_OFFSET = "oa.tempOffset"
         const val KEY_LOG = "oa.feedback"
 
+        // "Wearing it" — twins of the keys app/www/index.html writes.
+        const val ACTION_WEAR = "com.korety.outfitadvisor.WEAR"
+        const val EXTRA_PICKS = "picks"
+        const val EXTRA_DAY = "day"
+        const val KEY_WEARLOG = "oa.wearlog"
+        const val KEY_WORE = "oa.woreToday"
+        // Twin of COOLDOWN_DAYS / DAY_MS in index.html: an unwashed wear holds a unit
+        // for this long.
+        private const val COOLDOWN_DAYS = 4
+        private const val DAY_MS = 86_400_000L
+
+        /** Local calendar day, "yyyy-MM-dd" — the app's todayISO()/dayISO(). */
+        fun dayOf(ms: Long): String =
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(ms))
+
+        /**
+         * The distinct garment ids in a picks map — twin of the app's
+         * `Object.values(res.picks).filter(Boolean)`. JSON null slots are skipped:
+         * optString would turn them into the string "null".
+         */
+        fun pickIds(picks: JSONObject?): List<String> {
+            if (picks == null) return emptyList()
+            val out = LinkedHashSet<String>()
+            val keys = picks.keys()
+            while (keys.hasNext()) {
+                val v = picks.opt(keys.next())
+                if (v is String && v.isNotEmpty()) out.add(v)
+            }
+            return out.toList()
+        }
+
         // Twin constants — app/www/index.html FB_DELTA / FB_RATE / FB_CLAMP / FB_KEEP.
         // The notification carries only the three coarse verdicts (Android renders at
         // most 3 actions); the -1 / +1 "a bit" steps exist in-app and are accepted
@@ -129,5 +255,6 @@ class FeedbackReceiver : BroadcastReceiver() {
         const val REQ_COLD = 4791
         const val REQ_OK = 4792
         const val REQ_WARM = 4793
+        const val REQ_WEAR = 4794
     }
 }

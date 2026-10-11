@@ -185,6 +185,81 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     check("the new entry uses the same clock as the day test", /put\("at", now\)/.test(kt));
   }
 
+  console.log("\n--- 'Wearing it' from the notification ---------------------------");
+  {
+    const fb = KT("FeedbackReceiver.kt"), note = KT("OutfitNotification.kt"),
+          worker = KT("AdviceWorker.kt");
+    const manifest = fs.readFileSync(path.join(__dirname, "..", "android", "app", "src", "main",
+      "AndroidManifest.xml"), "utf8");
+    const kconst = name => (fb.match(new RegExp(`const val ${name} = "([^"]+)"`)) || [])[1];
+    check("the receiver writes the app's wear-log key",
+      kconst("KEY_WEARLOG") === "oa.wearlog" && /prefSet\("oa\.wearlog"/.test(SRC), kconst("KEY_WEARLOG"));
+    check("and the app's day-record key",
+      kconst("KEY_WORE") === (SRC.match(/const WORE_KEY="([^"]+)"/) || [])[1], kconst("KEY_WORE"));
+    check("an unwashed wear is held as long as the app holds it",
+      +(fb.match(/COOLDOWN_DAYS = (\d+)/) || [])[1] === +(SRC.match(/COOLDOWN_DAYS=(\d+)/) || [])[1]);
+    check("wear entries have the app's fields",
+      /put\("itemId", id\)\.put\("wornAt", now\)/.test(fb) && /wearLog\.push\(\{itemId:id,wornAt:Date\.now\(\)\}\)/.test(SRC));
+    check("the day record has the app's fields",
+      /put\("day", today\)\.put\("map", picks\)/.test(fb) && /JSON\.stringify\(\{day:woreDay, map:woreLogged\}\)/.test(SRC));
+    check("one wear per garment per day, like logWear",
+      /e\.optString\("itemId"\) == id && dayOf\(e\.optLong\("wornAt", 0L\)\) == today/.test(fb));
+    check("idempotent: an existing record for today means nothing is written",
+      fb.indexOf("if (loggedToday(prefs, today))") < fb.indexOf("putString(KEY_WEARLOG"));
+    check("a tap on another day's notification logs nothing",
+      /intent\.getStringExtra\(EXTRA_DAY\) != today/.test(fb));
+    check("null slots are not logged as a garment called \"null\"",
+      /v is String && v\.isNotEmpty\(\)/.test(fb));
+    check("the WEAR action is routed and registered",
+      /intent\.action == ACTION_WEAR/.test(fb) &&
+      manifest.includes('<action android:name="com.korety.outfitadvisor.WEAR" />') &&
+      kconst("ACTION_WEAR") === "com.korety.outfitadvisor.WEAR");
+    const post = note.slice(note.indexOf("fun post("), note.indexOf("fun postUpdate("));
+    const withWear = post.slice(post.indexOf("if (wearPicks != null"), post.indexOf("} else {"));
+    check("with picks: Wearing it, Too cold, Too warm — three actions, Android's limit",
+      (withWear.match(/addAction\(/g) || []).length === 3 &&
+      withWear.indexOf("wearAction") < withWear.indexOf("Too cold") &&
+      withWear.indexOf("Too cold") < withWear.indexOf("Too warm") && !/Just right/.test(withWear), withWear);
+    check("without picks: the three verdicts as before", /b\.setActions\(\*ratingActions\(context\)\)/.test(post));
+    check("the push offers it only for closet advice (the app's rule)",
+      /wearPicks = advice\.raw\?\.takeIf \{ it\.optBoolean\("closetUsed", false\) \}/.test(worker) &&
+      /res&&res\.closetUsed&&res\.picks/.test(SRC));
+    check("request code 4794 is not shared", (fb + note + worker).split("= 4794").length === 2 && !/= 4794/.test(note + worker));
+
+    // The app reading what the receiver writes, as the button would have written it.
+    const w = page();
+    const d = w.document, ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const today = ev("todayISO()");
+    ev(`closet=[{id:"tee1",label:"Navy tee",category:"base",roles:["base"],count:2},
+               {id:"jean1",label:"Jeans",category:"bottoms",roles:["bottoms"],count:1}];
+        wearLog=[]; woreLogged=null; woreDay=null;
+        lastRes={picks:{base:"tee1",bottoms:"jean1",outer:null},closetUsed:true,weather:${JSON.stringify(WX)}};
+        lastPickIds=["tee1","jean1"]; wornLogged=false; syncWearBtn();`);
+    // Exactly what onWear writes:
+    const now = Date.now();
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "tee1", wornAt: now}, {itemId: "jean1", wornAt: now}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "tee1", bottoms: "jean1", outer: null}}));
+    // App is still open with stale memory; the user taps the in-app button too.
+    d.getElementById("dWear").click();
+    for (let i = 0; i < 30 && ev("woreBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    await drain();
+    check("the in-app button adopts the notification's log instead of logging again",
+      ev("wearLog.length") === 2, ev("JSON.stringify(wearLog)"));
+    check("the record is today's, from the notification",
+      ev("JSON.stringify(woreLogged)") === '{"base":"tee1","bottoms":"jean1","outer":null}');
+    check("the button now offers undo", /Logged/.test(d.getElementById("dWear").textContent),
+      d.getElementById("dWear").textContent);
+    check("and the garments read as worn", ev(`avail(closet[0])`) === 1 && ev(`avail(closet[1])`) === 0,
+      [ev(`avail(closet[0])`), ev(`avail(closet[1])`)]);
+    // Undo works on a notification-written record like on the app's own.
+    d.getElementById("dWear").click();
+    for (let i = 0; i < 30 && ev("woreBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    await drain();
+    check("undo releases what the notification logged", ev("wearLog.length") === 0 && ev("woreLogged") === null,
+      ev("JSON.stringify(wearLog)"));
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

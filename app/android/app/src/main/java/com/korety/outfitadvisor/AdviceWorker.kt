@@ -116,7 +116,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             applicationContext, header,
             advice.text.ifBlank { "Tap to see today's outfit." },
             "AI · $srcBadge",
-            withFeedback = advice.text.isNotBlank()
+            withFeedback = advice.text.isNotBlank(),
+            // Only closet advice names garments to log — the app's "Wearing it"
+            // has the same rule (renderOutfit: res.closetUsed && res.picks).
+            wearPicks = advice.raw?.takeIf { it.optBoolean("closetUsed", false) }
+                ?.optJSONObject("picks")
         )
         maybeNotifyUpdate(base)
         return Result.success()

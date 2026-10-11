@@ -1674,24 +1674,31 @@ function unlogWearToday(id){ const today=localDay(Date.now());
    they stay removed. Raised by the pre-push reviewer, 2026-10-11. */
 let wearSeen="[]";
 async function mergeNativeWears(){
-  let disk;
-  try{ disk=await prefGet("oa.wearlog","[]"); }catch(e){ return; }
-  if(disk===wearSeen) return;
-  let onDisk, base;
-  try{ onDisk=JSON.parse(disk)||[]; }catch(e){ return; }
-  try{ base=JSON.parse(wearSeen)||[]; }catch(e){ base=[]; }
-  const key=w=>w&&(w.itemId+"@"+w.wornAt);
-  // logWear's own rule as well: one wear per garment per day, so a garment this
-  // page has logged today since is not counted a second time.
-  const day=w=>w&&(w.itemId+"@"+localDay(w.wornAt));
-  const had=new Set(base.map(key)), mine=new Set(wearLog.map(key)), mineDay=new Set(wearLog.map(day));
-  for(const w of onDisk)
-    if(w&&!had.has(key(w))&&!mine.has(key(w))&&!mineDay.has(day(w))) wearLog.push(w);
-  // The day's record comes with it when the page has none of its own.
-  if(!wearRecord()) await readWoreRecord();
-  // Memory now includes this disk state, so it is the new baseline: a later merge
-  // must not take what this page has since removed for a fresh native addition.
-  wearSeen=disk;
+  let disk, rawWore;
+  try{ disk=await prefGet("oa.wearlog","[]"); rawWore=await prefGet(WORE_KEY,""); }catch(e){ return; }
+  if(disk!==wearSeen){
+    let onDisk=null, base;
+    try{ onDisk=JSON.parse(disk)||[]; }catch(e){ onDisk=null; }
+    if(onDisk){
+      try{ base=JSON.parse(wearSeen)||[]; }catch(e){ base=[]; }
+      const key=w=>w&&(w.itemId+"@"+w.wornAt);
+      // logWear's own rule as well: one wear per garment per day, so a garment this
+      // page has logged today since is not counted a second time.
+      const day=w=>w&&(w.itemId+"@"+localDay(w.wornAt));
+      const had=new Set(base.map(key)), mine=new Set(wearLog.map(key)), mineDay=new Set(wearLog.map(day));
+      for(const w of onDisk)
+        if(w&&!had.has(key(w))&&!mine.has(key(w))&&!mineDay.has(day(w))) wearLog.push(w);
+      // Memory now includes this disk state, so it is the new baseline: a later
+      // merge must not take what this page has since removed for a native addition.
+      wearSeen=disk;
+    }
+  }
+  // The day's record, on its own: the notification can write it with the wear log
+  // unchanged (every garment already logged today from its sheet). Adopted when
+  // memory has none for TODAY — judged without wearRecord(), whose expiry of a
+  // stale record WRITES to storage and would erase the native one first. Raised by
+  // the pre-push reviewer, 2026-10-11.
+  if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
 }
 async function saveCloset(){
   await mergeNativeWears();
@@ -4356,9 +4363,13 @@ function applyWoreRaw(raw){
 }
 
 /* Today's record, or none. Everything that reads woreLogged goes through here, so a
-   day boundary retires it wherever the app happens to be. */
+   day boundary retires it wherever the app happens to be.
+   In MEMORY only (2026-10-11). Every reader of oa.woreToday — this page's and
+   FeedbackReceiver.kt's — already ignores a record for another day, so clearing
+   the disk copy bought nothing, and once the notification could write today's
+   record it erased that: a page still holding yesterday's wrote "" over it. */
 function wearRecord(){
-  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; saveWoreLogged(); }
+  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; }
   return woreLogged;
 }
 function openWoreSheet(){

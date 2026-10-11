@@ -294,6 +294,49 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
       ls.getItem("oa.wearlog"));
   }
 
+  console.log("\n--- review round 5: the day record is synced on its own ----------");
+  {
+    const w = page();
+    const ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const today = ev("todayISO()");
+    const setup = () => ev(`closet=[{id:"teeA",label:"Tee A",category:"base",roles:["base"],count:1},
+               {id:"teeB",label:"Tee B",category:"base",roles:["base"],count:1},
+               {id:"jean1",label:"Jeans",category:"bottoms",roles:["bottoms"],count:1}];
+        swaps=[]; lastRes={picks:{base:"teeA",bottoms:"jean1"},closetUsed:true,weather:${JSON.stringify(WX)}};
+        lastPickIds=["teeA","jean1"]; wornLogged=false;`);
+    // (a) The page still holds YESTERDAY's record when the notification logs today.
+    setup();
+    ev(`wearLog=[]; woreLogged=null; woreDay=null;`);
+    await ev("saveCloset()");
+    ev(`woreLogged={base:"teeB"}; woreDay="2000-01-01";`);
+    const t = Date.now() - 1000;
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
+    await ev("saveWore()");
+    let ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
+    check("a stale page's old record does not erase the notification's, and the correction releases A",
+      JSON.stringify(ids) === '["jean1","teeB"]', ids);
+    // (b) The notification writes the record with the wear log unchanged.
+    setup();
+    ls.setItem("oa.woreToday", "");
+    ev(`wearLog=[]; logWear("teeA"); logWear("jean1"); woreLogged=null; woreDay=null;`);
+    await ev("saveCloset()");               // both on disk, logged from their sheets
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
+    await ev("saveWore()");
+    ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
+    check("a record written without a wear-log change is still learned before a correction",
+      JSON.stringify(ids) === '["jean1","teeB"]', ids);
+    // Reading the record never writes over the disk.
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA"}}));
+    ev(`woreLogged={base:"teeB"}; woreDay="2000-01-01"; wearRecord();`);
+    await drain();
+    check("expiring yesterday's record in memory leaves the disk alone",
+      JSON.parse(ls.getItem("oa.woreToday")).map.base === "teeA", ls.getItem("oa.woreToday"));
+  }
+
   console.log("\n--- FeedbackReceiver.kt mirrors one-rating-a-day ------------------");
   {
     const kt = KT("FeedbackReceiver.kt");

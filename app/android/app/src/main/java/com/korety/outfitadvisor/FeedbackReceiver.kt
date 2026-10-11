@@ -133,6 +133,9 @@ class FeedbackReceiver : BroadcastReceiver() {
             Toast.makeText(context, "Couldn't log it here — open the app", Toast.LENGTH_SHORT).show()
             return
         }
+        // Only garments whose wear is NEW today get held in the push snapshot: one
+        // already logged today (the item sheet, say) was held when the app wrote it.
+        val held = ArrayList<String>()
         for (id in ids) {
             var already = false
             for (i in 0 until log.length()) {
@@ -142,12 +145,15 @@ class FeedbackReceiver : BroadcastReceiver() {
                     break
                 }
             }
-            if (!already) log.put(JSONObject().put("itemId", id).put("wornAt", now))
+            if (!already) {
+                log.put(JSONObject().put("itemId", id).put("wornAt", now))
+                held.add(id)
+            }
         }
         val edit = prefs.edit()
             .putString(KEY_WEARLOG, log.toString())
             .putString(KEY_WORE, JSONObject().put("day", today).put("map", picks).toString())
-        holdInPayload(prefs.getString(AdviceWorker.KEY_PUSH_PAYLOAD, null), ids, now)
+        holdInPayload(prefs.getString(AdviceWorker.KEY_PUSH_PAYLOAD, null), held, now)
             ?.let { edit.putString(AdviceWorker.KEY_PUSH_PAYLOAD, it) }
         edit.apply()
 
@@ -164,25 +170,39 @@ class FeedbackReceiver : BroadcastReceiver() {
     } catch (e: Exception) { false }
 
     /**
-     * The push snapshot with each worn garment held: one unit fewer available, and
-     * that unit's return time (worn + COOLDOWN_DAYS, the app's freeAt for an
+     * The push snapshot with each newly worn garment held: one unit fewer available,
+     * and that unit's return time (worn + COOLDOWN_DAYS, the app's freeAt for an
      * unwashed wear) added to `freeAt`, which AdviceWorker.freedBy already reads.
-     * Null when there is no snapshot or it cannot be read — then nothing is
-     * written and the app re-stamps it on next open, as it always does.
+     *
+     * Both arrays, and units already back first: freedBy restores a garment from
+     * `pending` (or a held unit in `closet`) once its time has passed, so a shirt
+     * that was drying at the last snapshot can be the one worn today. Counting the
+     * elapsed returns in before subtracting is what freedBy would have done at fire
+     * time; skipping them left that unit free for the next push.
+     *
+     * Null when there is nothing to hold, or no snapshot, or it cannot be read —
+     * then nothing is written and the app re-stamps it on next open, as it always does.
      */
     private fun holdInPayload(raw: String?, ids: List<String>, now: Long): String? {
-        if (raw == null) return null
+        if (raw == null || ids.isEmpty()) return null
         return try {
             val p = JSONObject(raw)
-            val closet = p.optJSONArray("closet") ?: return null
-            for (i in 0 until closet.length()) {
-                val o = closet.optJSONObject(i) ?: continue
-                if (o.optString("id") !in ids) continue
-                val n = o.optInt("availableCount", 0)
-                if (n < 1) continue
-                o.put("availableCount", n - 1)
-                val times = o.optJSONArray("freeAt") ?: JSONArray().also { o.put("freeAt", it) }
-                times.put(now + COOLDOWN_DAYS * DAY_MS)
+            for (arr in listOfNotNull(p.optJSONArray("closet"), p.optJSONArray("pending"))) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    if (o.optString("id") !in ids) continue
+                    var n = o.optInt("availableCount", 0)
+                    val still = JSONArray()
+                    val times = o.optJSONArray("freeAt")
+                    if (times != null) for (k in 0 until times.length()) {
+                        val t = times.optLong(k, Long.MAX_VALUE)
+                        if (t <= now) n++ else still.put(t)
+                    }
+                    if (n < 1) continue   // nothing free to have worn: leave it as written
+                    still.put(now + COOLDOWN_DAYS * DAY_MS)
+                    o.put("availableCount", n - 1)
+                    o.put("freeAt", still)
+                }
             }
             p.toString()
         } catch (e: Exception) { null }

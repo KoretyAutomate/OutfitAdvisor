@@ -224,6 +224,19 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     check("the push offers it only for closet advice (the app's rule)",
       /wearPicks = advice\.raw\?\.takeIf \{ it\.optBoolean\("closetUsed", false\) \}/.test(worker) &&
       /res&&res\.closetUsed&&res\.picks/.test(SRC));
+    // Raised by the pre-push reviewer, 2026-10-11: the snapshot hold must count
+    // only NEW wears, and must see a unit that came back from `pending`.
+    check("only garments newly logged today are held in the push snapshot",
+      /if \(!already\) \{\s*log\.put\([^\n]*\)\s*held\.add\(id\)/.test(fb) &&
+      /holdInPayload\(prefs\.getString\(AdviceWorker\.KEY_PUSH_PAYLOAD, null\), held, now\)/.test(fb));
+    const hold = fb.slice(fb.indexOf("private fun holdInPayload"), fb.indexOf("private fun clamp"));
+    check("the hold reads both snapshot arrays, as freedBy does",
+      /listOfNotNull\(p\.optJSONArray\("closet"\), p\.optJSONArray\("pending"\)\)/.test(hold) &&
+      /listOfNotNull\(closet, pending\)/.test(worker));
+    check("and counts units already back before taking one",
+      /if \(t <= now\) n\+\+ else still\.put\(t\)/.test(hold) &&
+      hold.indexOf("n++") < hold.indexOf("if (n < 1) continue") &&
+      hold.indexOf("if (n < 1) continue") < hold.indexOf('o.put("availableCount", n - 1)'));
     check("request code 4794 is not shared", (fb + note + worker).split("= 4794").length === 2 && !/= 4794/.test(note + worker));
 
     // The app reading what the receiver writes, as the button would have written it.

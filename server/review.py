@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 import picks as pk
 import style
+import layers
 from layers import _still_warm
 from llm import _fenced, _peak_temp, _plan_temp, log
 from stylist import POOR, Verdict
@@ -113,7 +114,9 @@ def unresolved(result: dict, wd: "pk.Wardrobe", w: dict, look=None) -> set[str]:
     # Too warm is as unresolved as too cold: an all-day jumper on a day that peaks
     # hot. And on snow, boots or a coat that are not waterproof while waterproof ones
     # are owned — snow is not rain. Both raised by the pre-push reviewer, 2026-10-11.
-    out |= {f"cooler {c}" for c in pk._too_warm_slots(picks, wd.by_item, plan, _peak_temp(w, plan))}
+    peak = _peak_temp(w, plan)
+    out |= {f"cooler {c}" for c in pk._too_warm_slots(picks, wd.by_item, plan, peak)
+            if layers.overdressed(wd.by_item[picks[c]], c, wd, plan, peak)}
     if w.get("isSnow"):
         for slot in ("footwear", "outer"):
             worn = wd.by_item.get(picks.get(slot)) or {}

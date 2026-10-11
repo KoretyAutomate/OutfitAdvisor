@@ -93,9 +93,11 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
     # the empty-slot line, so the model is never left to infer it.
     plan = _plan_temp(w)
     peak = _peak_temp(w, plan)
+    wd = pk._index(closet)
+
     def hot_roles(i: dict) -> list[str]:
         return [r for r in (i.get("roles") or [i["category"]])
-                if scale.too_warm(i, pk._heat_temp(r, plan, peak))]
+                if layers.overdressed(i, r, wd, plan, peak)]
     lines = [
         f"{handles[i['id']]} | can be worn as: {'/'.join(i.get('roles') or [i['category']])}"
         f" | {i['label']}"

@@ -75,6 +75,25 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
+def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float) -> bool:
+    """Is this garment too warm to wear as `slot` today, in a way that can be HELPED?
+
+    Too warm by the numbers, and either the slot can simply be left off (an
+    undershirt, a layer) or they own something cooler for it. Trousers they have
+    nothing cooler than are not too warm, they are the trousers: the live test days
+    (2026-10-11) found every pair marked TOO WARM on an 18-23C day, the model
+    obeying, and the legs left bare. picks._cool_down always kept such trousers;
+    the prompt and the review now say the same.
+    """
+    hot = pk._heat_temp(slot, plan_temp, peak_temp)
+    if not scale.too_warm(item, hot):
+        return False
+    if slot in pk._SHEDDABLE:
+        return True
+    return any(slot in (wd.by_roles.get(i) or ()) and not scale.too_warm(it, hot)
+               for i, it in wd.by_item.items() if it is not item)
+
+
 def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict],
                         peak_temp: float | None = None) -> bool:
     """Nothing on the torso is warm enough for the morning, after every repair has

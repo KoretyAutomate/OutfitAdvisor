@@ -427,3 +427,23 @@ def test_a_second_slot_breaking_the_same_style_rule_is_a_second_problem():
     one = {"picks": {**top, "bottoms": PANTS["id"], "footwear": trainers["id"]}, "review": review.Seen()}
     two = {"picks": {**top, "bottoms": joggers["id"], "footwear": trainers["id"]}, "review": review.Seen()}
     assert not review.better(two, one, wd, w, look)
+
+
+def test_trousers_with_nothing_cooler_owned_are_not_too_warm():
+    """Found by the live test days, 2026-10-11: on an 18-23C day every pair was
+    listed TOO WARM, the model left the legs bare, and the review counted the
+    trousered revision as a lack. They are the trousers — unless cooler ones exist."""
+    import closet_prompt
+    from picks import _index
+    jeans = g("itm-jeans0001", "blue jeans", "bottoms", "jeans", ["bottoms"], 3, availableCount=1)
+    shorts = g("itm-shorts001", "khaki shorts", "bottoms", "shorts", ["bottoms"], 1, availableCount=1)
+    tee = g("itm-tee00001", "white tee", "tops", "t_shirt", ["base"], 1, availableCount=1)
+    w = {"lo": 18, "hi": 23, "feelsLo": 18, "feelsHi": 23, "desc": "Clear", "rain": 0, "wind": 2,
+         "morning": 18, "midday": 23, "evening": 20, "swing": 5, "isRain": False, "isSnow": False}
+    only_jeans = closet_prompt._closet_prompt(w, "man", "casual", [tee, jeans])
+    assert "TOO WARM today as: bottoms" not in only_jeans
+    with_shorts = closet_prompt._closet_prompt(w, "man", "casual", [tee, jeans, shorts])
+    assert "blue jeans (Jeans)" in with_shorts and "TOO WARM today as: bottoms" in with_shorts
+    worn = {"picks": {"base": tee["id"], "bottoms": jeans["id"]}, "review": review.Seen()}
+    assert "cooler bottoms" not in review.unresolved(worn, _index([tee, jeans]), w)
+    assert "cooler bottoms" in review.unresolved(worn, _index([tee, jeans, shorts]), w)

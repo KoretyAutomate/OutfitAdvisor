@@ -3663,7 +3663,7 @@ async function getAdvice(lat,lon){
     // IS — it matches only when advice is for "my location", never a typed city
     // (pre-push reviewer, 2026-10-11).
     const samePlace=!kept||(kept.place?kept.place===state.place:!state.city);
-    const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?kept:null;
+    const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?closetOnlyView(kept):null;
     if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
@@ -5210,6 +5210,17 @@ async function saveToday(res,how){
     await prefSet(TODAY_KEY, raw);
     todaySeen=raw;
   }catch(e){}
+}
+/* Saved advice, held to "My closet is complete" as it stands NOW: it may have been
+   made before the tick, with generic suggestions for slots nothing owned fills.
+   Those become the empty-slot marker and their lines go (pre-push reviewer). */
+function closetOnlyView(rec){
+  if(!closetComplete||!rec) return rec;
+  const outfit={...rec.outfit};
+  for(const k of CATS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
+    outfit[k]="None — nothing in your closet for this";
+  const text=String(rec.text||"").split("\n").filter(l=>!/not in your closet yet/i.test(l)).join("\n");
+  return {...rec,outfit,text};
 }
 /* Today's advice as saved (the morning push, or this page earlier) — what the
    offline path shows instead of inventing an outfit. Null when there is none. */

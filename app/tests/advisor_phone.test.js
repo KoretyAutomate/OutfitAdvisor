@@ -201,6 +201,18 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   const off6 = await ev("getAdvice(40.3,-74.6)");
   check("…but is, for my location", off6.source === "saved", off6.source);
 
+  // Raised by the pre-push reviewer, 2026-10-11: advice saved before the closet was
+  // marked complete loses its generic suggestions when re-used.
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"),
+    outfit: {base: "white tee", bottoms: "Chinos (not in your closet yet)"},
+    outfit_text: "• White tee\n• Chinos (not in your closet yet)", picks: {base: "i1"}, closetUsed: true, weather: WX}));
+  ev(`state.city = ""; state.place = ""; closetComplete = true;
+      fetch = async () => { throw new Error("offline"); };`);
+  const off7 = await ev("getAdvice(40.3,-74.6)");
+  check("an unowned suggestion becomes the empty marker", off7.outfit.bottoms.startsWith("None"), off7.outfit);
+  check("…and its line goes", !/not in your closet yet/.test(off7.text) && /White tee/.test(off7.text), off7.text);
+  ev("closetComplete = false;");
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

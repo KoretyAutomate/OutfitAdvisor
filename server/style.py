@@ -1,6 +1,10 @@
 """
 style.py — whether an outfit LOOKS right, not only whether it is valid.
 
+Since the 2026-10-11 refactor: the style RULES (check.py reports them to the
+advisor as soft issues), the Look and its prompt block. The swaps are gone, and the
+stylist is a judge only (stylist.py).
+
 User, 2026-10-07: "I'm not sure if today's recommendation is looking fashionable ...
 build all 3. user feedback is important to build." Until this, every check after the
 model answered was about validity — the slot, the warmth, the layers, the sleeves,
@@ -27,12 +31,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 
-import layers
 import picks as pk
-import rules
-import scale
-from llm import _peak_temp, _plan_temp, log
-from sleeves import sleeve_clashes
 
 # The garments other people see, in the order a swap is tried: the mid layer is the
 # easiest to change and the base the hardest, since everything else is chosen around
@@ -177,93 +176,6 @@ def violations(picks: dict, by_item: dict, look: Look,
     for v in out:
         first.setdefault(v[0], v)      # one reason per slot: the worst, listed first
     return list(first.values())
-
-
-@dataclass(frozen=True)
-class Ctx:
-    wd: pk.Wardrobe
-    plan: float
-    peak: float
-    rules: tuple
-    shown: dict
-    look: Look
-    #: snow today — waterproof boots or coat are never swapped for ones that are not.
-    #: Rain is not here: they carry an umbrella (user, 2026-10-11). Snow is not rain.
-    snow: bool = False
-
-
-def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
-    plan = _plan_temp(w)
-    peak = _peak_temp(w, plan)
-    return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
-               getattr(prefs, "look", None) or Look(), bool(w.get("isSnow")))
-
-
-def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True) -> bool:
-    """May `cand` replace what is in `slot`? The ONE test for every style change —
-    the rule repair and the stylist's suggestion alike — so neither can undo what an
-    earlier pass made true."""
-    wd = ctx.wd
-    item = wd.by_item.get(cand)
-    if not item or not picks.get(slot) or cand in picks.values():
-        return False
-    if slot not in (wd.by_roles.get(cand) or ()):
-        return False
-    if ctx.shown.get(slot) == cand:             # would undo "show me something else"
-        return False
-    if wd.by_group.get(cand) == "onepiece":     # changes the legs too: not a swap
-        return False
-    # Nor OUT of one: the trousers were cleared for the dress, and a shirt in its
-    # place would leave the legs bare. Raised by the pre-push reviewer, 2026-10-07.
-    if wd.by_group.get(picks[slot]) == "onepiece":
-        return False
-    if slot == "outer" and not scale.warm_enough(item, ctx.plan):
-        return False
-    # Snow: what keeps feet and back dry stays. Raised by the pre-push reviewer,
-    # 2026-10-11, when the rain guard this replaces went.
-    if ctx.snow and (wd.by_item.get(picks[slot]) or {}).get("waterproof") and not item.get("waterproof"):
-        return False
-    if scale.too_warm(item, pk._heat_temp(slot, ctx.plan, ctx.peak)):
-        return False
-    trial = {**picks, slot: cand}
-    if rules.violations(list(ctx.rules), trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
-        return False
-    if layers._still_warm(picks, wd.by_item, ctx.plan) and not layers._still_warm(
-            trial, wd.by_item, ctx.plan):
-        return False
-    if layers.tidy(dict(trial), wd, ctx.plan, list(ctx.rules), ctx.peak):
-        return False                            # the layer pass would change it
-    before = violations(picks, wd.by_item, ctx.look, one_per_slot=False)
-    after = violations(trial, wd.by_item, ctx.look, one_per_slot=False)
-    # Never a NEW problem, whatever it buys: trading three colour violations for a
-    # pairing the wearer voted down is not an improvement they would recognise.
-    # Raised by the pre-push reviewer, 2026-10-07.
-    if not set(after) <= set(before):
-        return False
-    return len(after) < len(before) if improve else True
-
-
-def repair(ctx: Ctx, picks: dict, prefer_ids: set) -> list[tuple]:
-    """Fix what the rules find, one swap at a time. (slot, new, old, why) each.
-    Bounded: every swap strictly reduces the violations, so at most one per slot."""
-    done: list[tuple] = []
-    for _ in range(len(_SWAP_ORDER)):
-        found = violations(picks, ctx.wd.by_item, ctx.look)
-        if not found:
-            break
-        # A garment the wearer keeps choosing is changed last.
-        found.sort(key=lambda v: picks.get(v[0]) in prefer_ids)
-        swap = next(((slot, cand, why) for slot, why in found
-                     for cand in ctx.wd.by_item
-                     if legal_swap(ctx, picks, slot, cand)), None)
-        if swap is None:
-            for slot, why in found:
-                log.info("style: %s kept (%s) — nothing owned would fix it", slot, why)
-            break
-        slot, cand, why = swap
-        done.append((slot, cand, picks[slot], why))
-        picks[slot] = cand
-    return done
 
 
 def prompt_block(look, handles: dict | None) -> str:

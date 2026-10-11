@@ -1,0 +1,163 @@
+"""The outfit advisor (advisor.py, 2026-10-11): a personal stylist asked to dress
+one person, told what a fact check found, and asked again.
+
+User, 2026-10-11: "It needs to act as an outfit advisor." These pin the shape of
+that conversation; the live test days (check_common_sense_live.py) pin how well the
+real model plays its part."""
+import asyncio
+
+import pytest
+from fastapi.testclient import TestClient
+
+import advisor
+import app as srv
+import fake_model
+import picks as pk
+import style
+from fake_model import outfit
+from wardrobe_fixtures import CARDI, JEANS, KNIT_POLO, POLO, SNEAK, SWEATER, UNDER, weather
+
+CLOSET = [UNDER, POLO, KNIT_POLO, CARDI, JEANS, SNEAK]
+
+
+@pytest.fixture
+def api(monkeypatch):
+    async def cold_morning(lat, lon, day):
+        return weather(10)
+    monkeypatch.setattr(srv.weather, "fetch_weather", cold_morning)
+    return TestClient(srv.app)
+
+
+def post(api, closet=CLOSET, **body):
+    r = api.post("/advice", json={"lat": 40.3, "lon": -74.6, "closet": closet, **body})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_the_model_is_a_stylist_told_who_it_dresses_and_what_they_own(api, monkeypatch):
+    seen = fake_model.install(monkeypatch, [outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"],
+                                                   bottoms=JEANS["id"], footwear=SNEAK["id"])])
+    post(api, gender="man", style="casual")
+    assert "You are a personal stylist" in seen["system"][0]
+    prompt = seen["prompts"][0]
+    for part in ("TODAY", "THE PERSON: a man who wants a casual look", "THEIR WARDROBE", '"look"'):
+        assert part in prompt, part
+    assert prompt.index('"look"') < prompt.index('"picks"'), "it pictures the outfit before it picks"
+    assert POLO["id"] not in prompt, "handles, never ids"
+
+
+def test_polo_over_polo_goes_back_with_the_reason_and_the_revision_stands(api, monkeypatch):
+    """The 2026-10-11 morning, now: the model is told, and chooses again."""
+    seen = fake_model.install(monkeypatch, [
+        outfit(inner=UNDER["id"], base=POLO["id"], mid=KNIT_POLO["id"], bottoms=JEANS["id"], footwear=SNEAK["id"]),
+        outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])])
+    d = post(api)
+    assert len(seen["prompts"]) == 2
+    assert "two tops stacked" in seen["prompts"][1]
+    assert d["picks"]["mid"] == CARDI["id"]
+
+
+def test_if_it_insists_the_fallback_does_what_a_person_would(api, monkeypatch):
+    stacked = outfit(inner=UNDER["id"], base=POLO["id"], mid=KNIT_POLO["id"], bottoms=JEANS["id"],
+                     footwear=SNEAK["id"])
+    seen = fake_model.install(monkeypatch, [stacked] * 3)
+    d = post(api)
+    assert len(seen["prompts"]) == 1 + advisor.MAX_REVISIONS
+    assert d["picks"]["mid"] == CARDI["id"], "the second polo comes off, knitwear goes on"
+    assert "charcoal cardigan — chosen so the outfit works today." in d["outfit_text"]
+
+
+def test_a_revision_never_trades_one_hole_for_another(api, monkeypatch):
+    seen = fake_model.install(monkeypatch, [
+        outfit(base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"]),              # no shoes
+        outfit(base=POLO["id"], mid=CARDI["id"], footwear=SNEAK["id"]),             # no trousers
+        outfit(base=POLO["id"], mid=CARDI["id"], footwear=SNEAK["id"])])
+    d = post(api)
+    assert len(seen["prompts"]) == 3
+    assert d["picks"]["bottoms"] == JEANS["id"], "bare legs never beat bare feet"
+    # The FIRST answer stood — its own trousers line, the fallback adding only shoes.
+    # (Were the revision kept, the fallback would put the jeans back and hide it.)
+    assert "bottoms chosen" in d["outfit_text"]
+    assert "white sneakers — chosen so the outfit works today." in d["outfit_text"]
+
+
+def test_a_poor_look_goes_back_with_the_stylists_words(api, monkeypatch):
+    monkeypatch.setenv("OUTFIT_STYLIST", "1")
+    good = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    seen = fake_model.install(monkeypatch, [good, good],
+                              [{"score": 2, "issue": "navy on navy hides the collar"}, {"score": 4, "issue": ""}])
+    post(api)
+    assert seen["stylist"] == 2
+    assert 'a second stylist scored it 2/5: "navy on navy hides the collar"' in seen["prompts"][1]
+
+
+def test_a_lower_scored_revision_does_not_replace_the_first(api, monkeypatch):
+    monkeypatch.setenv("OUTFIT_STYLIST", "1")
+    seen = fake_model.install(monkeypatch, [
+        outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"]),
+        outfit(inner=UNDER["id"], base=KNIT_POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"]),
+        None], [{"score": 2, "issue": "flat"}, {"score": 1, "issue": "worse"}])
+    d = post(api)
+    assert d["picks"]["base"] == POLO["id"] and seen["calls"] >= 2
+
+
+def test_no_reply_is_asked_once_and_the_app_answers_without_the_closet(api, monkeypatch):
+    seen = fake_model.install(monkeypatch, [None])
+
+    async def generic(*a, **k):
+        return "• a sensible outfit"
+    monkeypatch.setattr(srv.llm, "outfit_text", generic)
+    d = post(api)
+    assert seen["calls"] == 1 and d["closetUsed"] is False
+
+
+def test_the_deadline_bounds_the_whole_conversation(monkeypatch):
+    """A slow model: the answer stands as it is when time runs out."""
+    monkeypatch.setattr(advisor, "DEADLINE_S", 0.3)
+
+    async def slow(messages, max_tokens, timeout=45, **kw):
+        await asyncio.sleep(1)
+        return None
+    monkeypatch.setattr(advisor, "_chat", slow)
+    look = style.Look("casual", "man")
+    assert asyncio.run(advisor.dress(weather(10), CLOSET, pk.Prefs(look=look))) is None
+
+
+def test_a_reroll_samples_wider_and_says_so_when_nothing_else_suits(api, monkeypatch):
+    same = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    seen = fake_model.install(monkeypatch, [same])
+    shown = {s: v for s, v in same["picks"].items() if v}
+    d = post(api, closet=[UNDER, POLO, CARDI, JEANS, SNEAK], shown=shown)
+    assert seen["temperature"] == 0.9
+    assert d["outfit_text"].startswith("• Same outfit again")
+
+
+def test_what_they_wore_lately_is_on_the_garments_line(api, monkeypatch):
+    seen = fake_model.install(monkeypatch, [outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"],
+                                                   bottoms=JEANS["id"], footwear=SNEAK["id"])])
+    post(api, recent={POLO["id"]: 1, "itm-unknown": 2, CARDI["id"]: 99})
+    line = next(ln for ln in seen["prompts"][0].splitlines() if "navy polo shirt" in ln)
+    assert "worn yesterday" in line
+    assert "99" not in seen["prompts"][0], "out-of-range days are dropped by the schema"
+
+
+def test_the_notification_reads_the_advisors_own_words(api, monkeypatch):
+    """No catalogue garment beside the closet answer: an empty slot carries the
+    advisor's own line, and the tip is the advisor's."""
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["outer"] = "None needed — the cardigan is enough."
+    a["tip"] = "Push the sleeves up by noon."
+    fake_model.install(monkeypatch, [a])
+    d = post(api)
+    assert d["outfit"]["outer"] == "None needed — the cardigan is enough."
+    assert d["outfit"]["tip"] == "Push the sleeves up by noon."
+    assert d["outfit"]["base"] == "navy polo shirt"
+    assert "peakTemp" in d and "planTemp" in d
+
+
+def test_a_worn_garment_always_has_a_line(api, monkeypatch):
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=SWEATER["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"] = {}
+    fake_model.install(monkeypatch, [a])
+    d = post(api, closet=[UNDER, POLO, SWEATER, JEANS, SNEAK])
+    assert "navy polo shirt" in d["outfit_text"] and d["source"] == "llm"

@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 import app as srv
 import engine
 import llm
-import reroll
 import weather
 from schemas import AdviceRequest
 
@@ -81,7 +80,7 @@ def test_advice_plans_for_the_evening_the_phone_reports(monkeypatch):
     assert plain["planTemp"] == 10 and late["planTemp"] == 9
     assert late["peakTemp"] == 23
     assert late["weather"]["planUntil"] == 22, "the phone shows what the day was planned for"
-    assert reroll.peak_temp(late["weather"], 9) == 23
+    assert llm._peak_temp(late["weather"], 9) == 23
 
 
 def test_every_heat_check_reads_the_felt_peak():
@@ -89,14 +88,14 @@ def test_every_heat_check_reads_the_felt_peak():
     re-roll must all judge 16. Raised by the pre-push reviewer, 2026-10-10 — three
     of them still read the air high, so a warmth-3 trouser was swapped as too warm
     by one check and offered by another."""
-    import style
     from picks import Prefs, _index
     cool = day(hours=[[8, 12.0, 10.0], [14, 20.0, 16.0], [19, 14.0, 12.0]])
     w = weather.with_plan(cool)
     assert w["planHi"] == 16 and w["hi"] == 20       # 20 felt as 16: within the 4-colder bound
     plan = llm._plan_temp(w)
-    assert llm._peak_temp(w, plan) == reroll.peak_temp(w, plan) == 16
-    assert style.ctx_of(w, _index([]), Prefs()).peak == 16
+    assert llm._peak_temp(w, plan) == llm._peak_temp(w, plan) == 16
+    import check
+    assert check.Day.of(w, _index([]), Prefs()).peak == 16, "the fact check reads the same peak"
 
 
 def _kotlin_video_pattern():

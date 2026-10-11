@@ -21,7 +21,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as srv
-import closet as closet_llm
+import advisor
+import layers
 import llm
 import picks as pk
 
@@ -115,9 +116,9 @@ def test_no_reply_is_not_called_bad_json_and_is_not_asked_again(monkeypatch, cap
         calls.append(1)
         return None
 
-    monkeypatch.setattr(closet_llm, "_chat", silent)
+    monkeypatch.setattr(advisor, "_chat", silent)
     with caplog.at_level(logging.WARNING, logger="outfit.llm"):
-        out = asyncio.run(closet_llm.closet_outfit(HOT, "man", "casual", [TEE, SHORTS]))
+        out = asyncio.run(advisor.dress(HOT, [TEE, SHORTS], pk.Prefs()))
     assert out is None
     assert len(calls) == 1, "a missing reply must not be asked for a second time"
     said = "\n".join(r.getMessage() for r in caplog.records)
@@ -132,9 +133,9 @@ def test_bad_json_is_still_bad_json_and_still_retried(monkeypatch, caplog):
         calls.append(1)
         return "not json at all"
 
-    monkeypatch.setattr(closet_llm, "_chat", garbage)
+    monkeypatch.setattr(advisor, "_chat", garbage)
     with caplog.at_level(logging.WARNING, logger="outfit.llm"):
-        assert asyncio.run(closet_llm.closet_outfit(HOT, "man", "casual", [TEE, SHORTS])) is None
+        assert asyncio.run(advisor.dress(HOT, [TEE, SHORTS], pk.Prefs())) is None
     assert len(calls) == 2
     assert "not the required JSON" in caplog.text
 
@@ -155,7 +156,7 @@ def _silence(monkeypatch):
         return None
 
     monkeypatch.setattr(llm, "_chat", none)
-    monkeypatch.setattr(closet_llm, "_chat", none)
+    monkeypatch.setattr(advisor, "_chat", none)
 
 
 def test_closet_only_refusal_is_not_credited_to_the_model(api, monkeypatch):
@@ -180,64 +181,64 @@ def test_the_model_is_credited_when_it_answers(api, monkeypatch):
                 '"outer": null, "bottoms": null, "footwear": null, "accessories": null}, '
                 '"bullets": ["Base: the white tee"], "tip": ""}')
 
-    monkeypatch.setattr(closet_llm, "_chat", cold_answer)
+    monkeypatch.setattr(advisor, "_chat", cold_answer)
     d = api.post("/advice", json={"lat": 40.3, "lon": -74.6, "closet": [TEE]}).json()
     assert d["closetUsed"] is True
     assert d["source"] == "llm"
 
 
-# ── 3. told per garment, repaired without a second ask ────────────────────────
+# ── 3. told per garment; told again if it insists; shed only as a last resort ──
 
 def test_the_listing_marks_what_the_heat_rules_out():
-    prompt = closet_llm._closet_prompt(HOT, "man", "casual", [TEE, FLEECE, SHORTS],
-                                       closet_llm.Prefs())
+    prompt = advisor.prompt_for(HOT, [TEE, FLEECE, SHORTS], pk.Prefs())
     fleece_line = next(ln for ln in prompt.splitlines() if "grey fleece" in ln)
-    assert "TOO WARM today as: mid,outer" in fleece_line
+    assert "too warm today as mid/outer" in fleece_line
     tee_line = next(ln for ln in prompt.splitlines() if "white tee" in ln)
-    assert "TOO WARM" not in tee_line
-    assert "HEAT RULE" in prompt
+    assert "too warm" not in tee_line
 
 
-def test_the_mark_uses_the_validators_own_arithmetic():
+def test_the_mark_uses_the_checks_own_arithmetic():
     """The line and the check must agree, or the model is told one thing and
-    corrected by another."""
-    prompt = closet_llm._closet_prompt(COLD, "man", "casual", [TEE, FLEECE, SHORTS],
-                                       closet_llm.Prefs())
-    wardrobe = prompt.split("```")[1]
-    assert "TOO WARM" not in wardrobe, "a fleece is not too warm at 3C"
+    corrected by another — both read layers.overdressed."""
+    prompt = advisor.prompt_for(COLD, [TEE, FLEECE, SHORTS], pk.Prefs())
+    assert "too warm" not in prompt.split("```")[1], "a fleece is not too warm at 3C"
+    wd = pk._index([TEE, FLEECE, SHORTS])
     plan = llm._plan_temp(HOT)
-    peak = max(plan, HOT["hi"])
-    assert pk._too_warm_slots({"mid": FLEECE["id"]}, {FLEECE["id"]: FLEECE}, plan, peak) == ["mid"]
+    assert layers.overdressed(FLEECE, "mid", wd, plan, llm._peak_temp(HOT, plan))
 
 
-def test_a_too_warm_pick_is_repaired_on_the_first_attempt(monkeypatch):
-    """Was: a corrective retry, then the swap. In 30 days of journal the retry never
-    once changed what the swap then did anyway (2026-09-06)."""
+def test_a_too_warm_pick_goes_back_to_the_model_and_is_shed_if_it_insists(monkeypatch):
+    """2026-10-11: the advisor is told why and chooses again; only if its best answer
+    still overdresses them does the fallback take the fleece off."""
     prompts = []
 
     async def insists(messages, max_tokens, timeout=45, **kw):
-        prompts.append(messages[0]["content"])
+        prompts.append(messages[-1]["content"])
         return FLEECE_ANSWER
 
-    monkeypatch.setattr(closet_llm, "_chat", insists)
-    out = asyncio.run(closet_llm.closet_outfit(HOT, "man", "casual", [TEE, FLEECE, SHORTS]))
+    monkeypatch.setattr(advisor, "_chat", insists)
+    out = asyncio.run(advisor.dress(HOT, [TEE, FLEECE, SHORTS], pk.Prefs()))
     assert out is not None
     assert out["picks"]["mid"] is None, "the fleece is shed"
-    assert len(prompts) == 1, "told in the listing, repaired in code — not asked twice"
-    assert "Too much clothing for the heat" not in prompts[0]
+    assert len(prompts) == 1 + advisor.MAX_REVISIONS
+    assert "grey fleece is too warm as mid" in prompts[1]
 
 
 # ── 4. the rule's kind, not its words ─────────────────────────────────────────
 
-def test_a_rule_that_clears_a_pick_is_logged_by_kind_only(caplog):
+def test_a_rule_that_clears_a_pick_never_reaches_the_journal_in_words(monkeypatch, caplog):
+    """The rule is told to the MODEL (check.py) and cleared by the fallback; the
+    journal gets slots and ids only."""
     rule = {"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"type": "fleece"},
             "text": "never the grey fleece over the white tee"}
-    picks = {"base": TEE["id"], "mid": FLEECE["id"]}
-    by_item = {TEE["id"]: TEE, FLEECE["id"]: FLEECE}
-    with caplog.at_level(logging.WARNING, logger="outfit.llm"):
-        note, cleared, _ = pk._enforce_user_rules(picks, by_item, [rule], 1)
-    assert cleared, "the pair rule must have fired for this test to mean anything"
-    said = caplog.text
-    assert "avoid_pair rule" in said
-    for word in ("fleece", "tee", "white", "grey", "never"):
-        assert word not in said.lower(), f"rule text leaked into the journal: {word!r}"
+
+    async def insists(messages, max_tokens, timeout=45, **kw):
+        return FLEECE_ANSWER
+
+    monkeypatch.setattr(advisor, "_chat", insists)
+    with caplog.at_level(logging.INFO, logger="outfit.llm"):
+        out = asyncio.run(advisor.dress(COLD, [TEE, FLEECE, SHORTS], pk.Prefs(rules=(rule,))))
+    assert out is not None and out["picks"]["mid"] is None, "the pair rule must have fired"
+    said = caplog.text.lower()
+    for word in ("tee", "white", "grey", "never"):
+        assert word not in said, f"rule text leaked into the journal: {word!r}"

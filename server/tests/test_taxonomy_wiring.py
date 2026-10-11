@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-import closet as closet_mod
+import advisor
 import llm
 import packlist
 import vocab
@@ -84,7 +84,7 @@ def test_socks_and_underpants_are_withheld_from_the_outfit_prompt():
         item(id="itm-00000003", group="footwear", category="footwear", type="socks").model_dump(),
         item(id="itm-00000004", group="footwear", category="footwear", type="boots").model_dump(),
     ]
-    kept = {i["id"] for i in closet_mod.wearable(wardrobe)}
+    kept = {i["id"] for i in advisor.wearable(wardrobe)}
     assert kept == {"itm-00000001", "itm-00000004"}
 
 
@@ -92,13 +92,13 @@ def test_a_closet_of_only_underpants_reports_inner_as_uncoverable():
     """And that is the TRUE answer — the user owns no undershirt."""
     wardrobe = [item(id="itm-00000002", group="underwear", category="inner",
                      type="briefs").model_dump()]
-    assert closet_mod.wearable(wardrobe) == []
+    assert advisor.wearable(wardrobe) == []
 
 
 def test_the_prompt_names_the_garment_type_beside_the_label():
     """"navy top" and "navy polo" read identically to the model otherwise."""
     wardrobe = [item(group="tops", type="polo", label="navy pique").model_dump()]
-    prompt = closet_mod._closet_prompt(WEATHER, "man", "smart", wardrobe)
+    prompt = advisor.prompt_for(WEATHER, wardrobe, picks_mod.Prefs())
     assert "Polo shirt" in prompt
 
 
@@ -154,26 +154,31 @@ def test_the_classify_prompt_asks_what_it_is_before_how_it_is_worn():
 
 # ── the one-piece rule ─────────────────────────────────────────────────────────
 
-def test_trousers_under_a_dress_are_cleared():
-    """`picks` holds one item per slot and _dedupe_picks forbids one id in two, so
-    the honest encoding is: the one-piece takes `base`, bottoms is not NEEDED."""
-    picks = {"base": "itm-dress", "bottoms": "itm-chinos"}
-    by_group = {"itm-dress": "onepiece", "itm-chinos": "bottoms"}
-    assert picks_mod._onepiece_conflicts(picks, by_group) is True
-    assert picks["bottoms"] is None
-    assert picks["base"] == "itm-dress"
+def _day(*items):
+    import check
+    return check.Day.of(WEATHER, picks_mod._index([i.model_dump() for i in items]), picks_mod.Prefs())
 
 
-def test_an_ordinary_top_leaves_bottoms_alone():
-    picks = {"base": "itm-tee", "bottoms": "itm-chinos"}
-    by_group = {"itm-tee": "tops", "itm-chinos": "bottoms"}
-    assert picks_mod._onepiece_conflicts(picks, by_group) is False
-    assert picks["bottoms"] == "itm-chinos"
+def test_trousers_under_a_dress_are_a_hard_issue_and_the_fallback_clears_them():
+    """The one-piece takes `base`, bottoms is not NEEDED (2026-10-11: the advisor is
+    told, and the fallback clears them only if it still answers that way)."""
+    import check
+    import fallback
+    dress = item(id="itm-dress01", group="onepiece", type="dress", category="base", roles=["base"])
+    chinos = item(id="itm-chinos01", group="bottoms", type="trousers", category="bottoms", roles=["bottoms"])
+    day = _day(dress, chinos)
+    picks = {"base": "itm-dress01", "bottoms": "itm-chinos01"}
+    assert "onepiece" in check.hard(check.issues(picks, day))
+    fixed, changed = fallback.fix(picks, day)
+    assert fixed["base"] == "itm-dress01" and fixed["bottoms"] is None and changed == {"bottoms": None}
 
 
-def test_a_one_piece_with_no_bottoms_picked_is_already_correct():
-    picks = {"base": "itm-dress", "bottoms": None}
-    assert picks_mod._onepiece_conflicts(picks, {"itm-dress": "onepiece"}) is False
+def test_an_ordinary_top_with_trousers_is_no_issue():
+    import check
+    tee = item(id="itm-tee0001", group="tops", type="t_shirt", category="base", roles=["base"])
+    chinos = item(id="itm-chinos01", group="bottoms", type="trousers", category="bottoms", roles=["bottoms"])
+    assert "onepiece" not in check.hard(check.issues({"base": "itm-tee0001", "bottoms": "itm-chinos01"},
+                                                     _day(tee, chinos)))
 
 
 def test_a_one_piece_item_is_confined_to_the_base_slot():

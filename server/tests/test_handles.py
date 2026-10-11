@@ -8,7 +8,7 @@ characters, different after. Both were rejected as unknown ids on both attempts,
 the user was told their closet had nothing wearable, on two consecutive days, with
 fifteen garments registered. They reported it as the server being unreachable.
 """
-import closet as closet_mod
+import advisor
 import picks as pk
 
 UUID = "itm-e27af5ac-6454-44ed-9a7e-3ddb08307222"
@@ -27,7 +27,7 @@ def test_handles_are_short_and_in_listing_order():
 
 
 def test_no_uuid_reaches_the_prompt():
-    prompt = closet_mod._closet_prompt(WARM, "man", "casual", [TEE, POLO], pk.Prefs())
+    prompt = advisor.prompt_for(WARM, [TEE, POLO], pk.Prefs())
     assert UUID not in prompt
     assert POLO["id"] not in prompt
     assert "i1 |" in prompt and "i2 |" in prompt
@@ -69,7 +69,7 @@ def test_the_two_sides_derive_the_handles_from_one_list():
     """The prompt's listing order IS the handle order. Two derivations of one map is
     how a handle comes to mean different garments on the two sides of a request."""
     closet = [TEE, POLO]
-    prompt = closet_mod._closet_prompt(WARM, "man", "casual", closet, pk.Prefs())
+    prompt = advisor.prompt_for(WARM, closet, pk.Prefs())
     handles = pk.handles_for(closet)
     for handle, iid in handles.items():
         label = next(i["label"] for i in closet if i["id"] == iid)

@@ -162,9 +162,7 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
     wd = day.wd
     out: list[Issue] = []
     torso = [worn[c] for c in TORSO if worn.get(c)]
-    tops = [i for i in torso if wd.by_item[i].get("type") in TOPS]
-    kinds = [wd.by_item[i].get("type") for i in torso if wd.by_item[i].get("type")]
-    if len(tops) > 1 or len(kinds) != len(set(kinds)):
+    if stacked(worn, wd.by_item):
         out.append(Issue("stacked", " over ".join(_name(day, i) for i in reversed(torso))
                          + " — two tops stacked; warmth comes from knitwear or a jacket", True))
     out += [Issue(f"sleeve-{lo}", f"long-sleeved {_name(day, worn[lo])} under short-sleeved "
@@ -179,6 +177,14 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
                   "though something else of theirs suits today", False)
             for slot in reroll.repeated_slots(worn, day.prefs.shown_map, wd, day.plan, day.rules, day.peak)]
     return out
+
+
+def stacked(picks: dict, by_item: dict) -> bool:
+    """Two tops, or two of the same kind, on the torso — THE stacking rule, shared by
+    this check and the fallback so neither can undo the other."""
+    worn = [by_item[picks[c]] for c in TORSO if picks.get(c) in by_item]
+    kinds = [it.get("type") for it in worn if it.get("type")]
+    return sum(1 for it in worn if it.get("type") in TOPS) > 1 or len(kinds) != len(set(kinds))
 
 
 def hard(found: list[Issue]) -> set[str]:

@@ -12,7 +12,7 @@ import layers
 import picks as pk
 import rules
 import scale
-from check import TOPS, TORSO, Day
+from check import TOPS, TORSO, Day, stacked
 from sleeves import sleeve_clashes
 
 # What a person reaches for to get warmer: knitwear, then a jacket — never a top.
@@ -40,19 +40,8 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     # 3. A dress covers the legs.
     if wd.by_group.get(out.get("base")) == "onepiece":
         out["bottoms"] = None
-    # 4. Two tops, or two of the same kind (two shirts): the one worn over the other
-    #    comes off — the same condition check.py calls `stacked`.
-    seen_kinds: set = set()
-    tops = 0
-    for c in TORSO:
-        if not out.get(c):
-            continue
-        kind = wd.by_item[out[c]].get("type")
-        if (kind in TOPS and tops) or (kind and kind in seen_kinds):
-            out[c] = None
-            continue
-        tops += kind in TOPS
-        seen_kinds.add(kind)
+    # 4. Two tops, or two of the same kind: the one worn over the other comes off.
+    _unstack(out, wd)
     # 5. Far too warm: a cooler garment they own, or off if the slot can go.
     for slot in [s for s, i in out.items() if i]:
         if not out.get(slot):
@@ -92,6 +81,15 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     if wd.by_group.get(out.get("base")) == "onepiece":
         out["bottoms"] = None
     return out, {s: out.get(s) for s in set(out) | set(before) if out.get(s) != before.get(s)}
+
+
+def _unstack(out: dict, wd) -> None:
+    """Take garments off from the top down until the torso is not `stacked`."""
+    for c in reversed(TORSO):
+        if not stacked(out, wd.by_item):
+            return
+        if out.get(c) and any(out.get(lower) for lower in TORSO[:TORSO.index(c)]):
+            out[c] = None
 
 
 def _put(out: dict, slot: str, iid: str | None, wd) -> None:
@@ -143,12 +141,11 @@ def _warm_up(out: dict, day: Day) -> None:
             if not scale.warm_enough(item, day.plan) or scale.too_warm(item, day.plan):
                 continue
             kind = item.get("type") or ""
-            # Never a second top: that is the stack step 4 just took apart. Raised by
-            # the pre-push reviewer, 2026-10-11.
-            if kind in TOPS and any(wd.by_item[out[c]].get("type") in TOPS for c in TORSO if out.get(c) and c != slot):
-                continue
             trial = {**out, slot: iid}
-            if rules.violations(day.rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
+            # Never the stack step 4 just took apart — the SAME rule check.py applies.
+            # Raised twice by the pre-push reviewer, 2026-10-11.
+            if stacked(trial, wd.by_item) or rules.violations(day.rules, trial, wd.by_item) \
+                    or sleeve_clashes(trial, wd.by_item):
                 continue
             snow_wet = bool(day.w.get("isSnow")) and slot == "outer" and not item.get("waterproof")
             cands.append((snow_wet, kind in TOPS, kind not in _WARM_FIRST, -scale.garment_temp(item), slot, iid))
@@ -156,16 +153,16 @@ def _warm_up(out: dict, day: Day) -> None:
         *_, slot, iid = min(cands)
         out[slot] = iid
         return
-    # No layer to add: a warmer TOP in place of the thin one — the knit polo instead
-    # of the polo, rather than both.
-    base = out.get("base")
-    if base and wd.by_item[base].get("type") in TOPS:
+    # No layer to add: a warmer garment in place of the thin base — the knit polo
+    # instead of the polo, the thick sweater instead of the thin one — never both.
+    if out.get("base"):
         for iid, item in wd.by_item.items():
             # The base is worn all day: too warm judged by the afternoon (pre-push
             # reviewer, 2026-10-11).
             if (iid not in out.values() and "base" in (wd.by_roles.get(iid) or ())
                     and scale.warm_enough(item, day.plan)
                     and not scale.too_warm(item, pk._heat_temp("base", day.plan, day.peak))
+                    and not stacked({**out, "base": iid}, wd.by_item)
                     and not rules.violations(day.rules, {**out, "base": iid}, wd.by_item)):
                 out["base"] = iid
                 return

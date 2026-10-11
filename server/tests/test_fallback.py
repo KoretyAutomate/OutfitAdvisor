@@ -118,3 +118,14 @@ def test_two_shirts_stacked_lose_the_upper_one():
     fixed, _ = fallback.fix(ids(base=OXFORD, mid=flannel, bottoms=JEANS, footwear=SNEAK),
                             day(15, OXFORD, flannel, JEANS, SNEAK, CARDI))
     assert fixed["base"] == OXFORD["id"] and fixed["mid"] != flannel["id"], fixed
+
+
+def test_warm_up_never_restores_two_sweaters():
+    """Raised by the pre-push reviewer, 2026-10-11: the thick sweater replaces the
+    thin one instead of going back on top of it."""
+    from wardrobe_fixtures import g
+    thin = g("thinswtr1", "thin grey sweater", "tops", "sweater", ["base", "mid", "outer"], 2)
+    fixed, _ = fallback.fix(ids(base=thin, mid=SWEATER, bottoms=JEANS, footwear=SNEAK),
+                            day(3, thin, SWEATER, JEANS, SNEAK))
+    torso = [fixed.get(c) for c in ("base", "mid", "outer") if fixed.get(c)]
+    assert torso == [SWEATER["id"]], fixed

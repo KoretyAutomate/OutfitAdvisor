@@ -146,13 +146,20 @@ class FeedbackReceiver : BroadcastReceiver() {
         // pre-push reviewer, 2026-10-11.
         val appLog = try { JSONArray(prefs.getString(KEY_WEARLOG, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
         val queue = nativeQueue(prefs)
+        // Queue entries the app has folded in are the APP's to keep or undo: only the
+        // unacknowledged ones still count here, so a wear undone in the app can be
+        // logged again (pre-push reviewer, 2026-10-11).
+        val acked = try { JSONArray(prefs.getString(KEY_NATIVE_SEEN, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
+            .let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
+        val pending = JSONArray()
+        for (i in 0 until queue.length()) queue.optJSONObject(i)?.let { if (it.optString("key") !in acked) pending.put(it) }
         val kept = JSONArray()
         for (i in 0 until queue.length()) {
             val e = queue.optJSONObject(i) ?: continue
             if (now - e.optLong("wornAt", 0L) < QUEUE_DAYS * DAY_MS) kept.put(e)   // native prunes its own
         }
         for (id in ids) {
-            val wornToday = listOf(appLog, kept).any { arr ->
+            val wornToday = listOf(appLog, pending).any { arr ->
                 (0 until arr.length()).any { i ->
                     val e = arr.optJSONObject(i)
                     e != null && e.optString("itemId") == id && dayOf(e.optLong("wornAt", 0L)) == today
@@ -173,13 +180,21 @@ class FeedbackReceiver : BroadcastReceiver() {
     }
 
     /** Twin of the launch-time read of oa.woreToday: today's day AND a map. */
-    private fun loggedToday(prefs: android.content.SharedPreferences, today: String): Boolean =
-        listOf(KEY_WORE, KEY_NATIVE_WORE).any { key ->
-            try {
-                val raw = prefs.getString(key, "") ?: ""
-                raw.isNotEmpty() && JSONObject(raw).let { it.optString("day") == today && it.optJSONObject("map") != null }
-            } catch (e: Exception) { false }
-        }
+    /**
+     * Today already logged? The app's record decides once the app has ACKNOWLEDGED
+     * this receiver's record (oa.nativeWoreSeen): an undo in the app empties the app's
+     * record and must re-open "Wearing it" here. An unacknowledged receiver record
+     * still counts — the app has not seen it yet. Raised by the pre-push reviewer,
+     * 2026-10-11.
+     */
+    private fun loggedToday(prefs: android.content.SharedPreferences, today: String): Boolean {
+        fun isToday(raw: String) = try {
+            raw.isNotEmpty() && JSONObject(raw).let { it.optString("day") == today && it.optJSONObject("map") != null }
+        } catch (e: Exception) { false }
+        val native = prefs.getString(KEY_NATIVE_WORE, "") ?: ""
+        val acknowledged = native == (prefs.getString(KEY_NATIVE_WORE_SEEN, "") ?: "")
+        return isToday(prefs.getString(KEY_WORE, "") ?: "") || (!acknowledged && isToday(native))
+    }
 
     private fun clamp(v: Double) = max(-CLAMP, min(CLAMP, v))
 
@@ -213,6 +228,9 @@ class FeedbackReceiver : BroadcastReceiver() {
         // This receiver's OWN keys — the only ones it writes for a wear (2026-10-11).
         const val KEY_NATIVE_WEARS = "oa.nativeWears"
         const val KEY_NATIVE_WORE = "oa.nativeWore"
+        // The app's acknowledgements, READ here, never written.
+        const val KEY_NATIVE_SEEN = "oa.nativeSeen"
+        const val KEY_NATIVE_WORE_SEEN = "oa.nativeWoreSeen"
         private const val QUEUE_DAYS = 14
         private const val RECENT_DAYS = 7     // twin of RECENT_DAYS in index.html
 

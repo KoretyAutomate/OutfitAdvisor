@@ -163,6 +163,20 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   const rec = JSON.parse(w.localStorage.getItem("oa.woreToday") || "null");
   check("the adopted record is in the app's own key", rec && rec.map && rec.map.base === "itm-p2", rec);
 
+  // Raised by the pre-push reviewer, 2026-10-11: a queued wear is folded in BEFORE the
+  // advice request reads the closet and the recent wears.
+  ev(`closet=[{id:"itm-tee00003",label:"tee",category:"base",group:"tops",type:"t_shirt",roles:["base"],
+      colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]; wearLog=[]; nativeSeen=new Set(); lastWorn={};`);
+  w.localStorage.setItem("oa.nativeWears", JSON.stringify([{itemId: "itm-tee00003", wornAt: Date.now() - 1000, key: "nQ3"}]));
+  const bodies = [];
+  ev(`fetch = async (u, o) => { window.__b = JSON.parse(o.body); throw new Error("stop"); };
+      fetchWeatherLocal = async () => (${JSON.stringify(WX)}); localStorage.removeItem("oa.today");`);
+  try { await ev("getAdvice(40.3,-74.6)"); } catch (e) { /* offline after the request — not under test */ }
+  const b = ev("window.__b");
+  check("the request knows today's notification wear", b && b.recent && b.recent["itm-tee00003"] === 0, b && b.recent);
+  check("…and does not offer the worn tee as clean", b && !(b.closet || []).some(i => i.id === "itm-tee00003"),
+    b && b.closet);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

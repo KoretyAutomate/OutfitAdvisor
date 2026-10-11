@@ -3583,6 +3583,9 @@ function recentWorn(now=Date.now()){
   return out;
 }
 async function getAdvice(lat,lon){
+  // What the notification logged, folded in BEFORE the closet and the recent wears
+  // are read for the request (pre-push reviewer, 2026-10-11).
+  await mergeNativeWears();
   // Stamped when the wardrobe snapshot is taken, not when the answer lands: a
   // suitcase declared while the request is in flight is NEWER than this advice,
   // whatever the clock says at completion (the pre-push reviewer, 2026-09-10).
@@ -4107,6 +4110,7 @@ function syncCityToGeo(){
 /* ── packing list ── */
 let lastPack=null; // {trip, pack[]}
 async function openPacking(trip){
+  await mergeNativeWears();     // the suitcase counts what is clean NOW
   lastPack=null;
   $("pkTitle").textContent=trip.place;
   $("pkWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;

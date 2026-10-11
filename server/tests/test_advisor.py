@@ -383,3 +383,17 @@ def test_queued_wears_stay_recent_history_after_the_laundry_hold_ends():
     body = kt[kt.index("fun applyNativeWears"):]
     assert body.index("RECENT_DAYS * DAY_MS") < body.index("if (worn + COOLDOWN_DAYS * DAY_MS <= now) continue")
     assert "RECENT_DAYS = 7" in kt
+
+
+def test_an_undo_in_the_app_reopens_wearing_it_on_the_notification():
+    """Raised by the pre-push reviewer, 2026-10-11: once the app has acknowledged the
+    receiver's record and queue entries, the APP's record and log decide."""
+    from pathlib import Path
+    kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+          / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
+    logged = kt[kt.index("private fun loggedToday"):]
+    logged = logged[:logged.index("\n    }\n")]
+    assert "KEY_NATIVE_WORE_SEEN" in logged and "!acknowledged && isToday(native)" in logged
+    assert 'val wornToday = listOf(appLog, pending)' in kt and '!in acked' in kt
+    assert 'const val KEY_NATIVE_SEEN = "oa.nativeSeen"' in kt
+    assert 'const val KEY_NATIVE_WORE_SEEN = "oa.nativeWoreSeen"' in kt

@@ -189,6 +189,18 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   check("re-logging the same outfit after an undo is adopted again",
     ev("JSON.stringify(woreLogged)") === '{"base":"itm-p3"}', ev("JSON.stringify(woreLogged)"));
 
+  // Raised by the pre-push reviewer, 2026-10-11: the push's record has no place —
+  // it is not re-used for a typed city.
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), outfit: {base: "wool sweater"},
+    outfit_text: "• Wool sweater", picks: {base: "i1"}, closetUsed: true, weather: WX}));
+  ev(`state.city = "Singapore"; state.place = "Singapore"; closetComplete = false;
+      fetch = async () => { throw new Error("offline"); }; fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off5 = await ev("getAdvice(1.35,103.8)");
+  check("the push's place-less record is not shown for a typed city", off5.source === "offline", off5.source);
+  ev(`state.city = ""; state.place = "";`);
+  const off6 = await ev("getAdvice(40.3,-74.6)");
+  check("…but is, for my location", off6.source === "saved", off6.source);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

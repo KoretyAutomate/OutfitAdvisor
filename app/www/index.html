@@ -3659,7 +3659,10 @@ async function getAdvice(lat,lon){
     const kept=await savedToday();
     // …and only for the SAME place: after a change of city, another city's advice
     // and forecast would be shown under the new name (pre-push reviewer).
-    const samePlace=!kept||!kept.place||!state.place||kept.place===state.place;
+    // A record with no place is the morning push's, which dresses wherever the phone
+    // IS — it matches only when advice is for "my location", never a typed city
+    // (pre-push reviewer, 2026-10-11).
+    const samePlace=!kept||(kept.place?kept.place===state.place:!state.city);
     const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?kept:null;
     if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;

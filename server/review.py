@@ -120,8 +120,10 @@ def unresolved(result: dict, wd: "pk.Wardrobe", w: dict, look=None) -> set[str]:
             if not worn.get("waterproof") and any(
                     slot in (wd.by_roles.get(i) or ()) and it.get("waterproof") for i, it in wd.by_item.items()):
                 out.add(f"waterproof {slot}")
-    out |= {f"style: {why}" for _slot, why in style.violations(picks, wd.by_item, look or style.Look(),
-                                                                one_per_slot=False)}
+    # Per slot: a second slot breaking the same rule is a second problem, and must
+    # not hide behind the first. Raised by the pre-push reviewer, 2026-10-11.
+    out |= {f"style ({slot}): {why}" for slot, why in style.violations(
+        picks, wd.by_item, look or style.Look(), one_per_slot=False)}
     return out
 
 

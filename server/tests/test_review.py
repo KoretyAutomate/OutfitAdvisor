@@ -412,3 +412,18 @@ def test_a_revision_that_brings_in_a_disliked_pairing_loses():
     voted_down = {"picks": {**ok["picks"], "base": KNIT_POLO["id"]},
                   "review": review.Seen(stylist.Verdict(2, "flat"), [])}
     assert not review.better(voted_down, ok, wd, w, look)
+
+
+def test_a_second_slot_breaking_the_same_style_rule_is_a_second_problem():
+    """Raised by the pre-push reviewer, 2026-10-11: 'smarter for today' on the shoes
+    must not hide 'smarter for today' on the trousers."""
+    from picks import _index
+    joggers = g("itm-joggers01", "grey joggers", "bottoms", "trousers", ["bottoms"], 3, formality=["active"])
+    trainers = g("itm-trainer01", "running shoes", "footwear", "sneakers", ["footwear"], 2, formality=["active"])
+    wd = _index([*CLOSET, joggers, trainers])
+    w = {"morning": 10, "lo": 9, "hi": 12}
+    look = style.Look("smart", "man")
+    top = {"base": POLO["id"], "mid": SWEATER["id"]}
+    one = {"picks": {**top, "bottoms": PANTS["id"], "footwear": trainers["id"]}, "review": review.Seen()}
+    two = {"picks": {**top, "bottoms": joggers["id"], "footwear": trainers["id"]}, "review": review.Seen()}
+    assert not review.better(two, one, wd, w, look)

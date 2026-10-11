@@ -68,3 +68,7 @@ max-nested-blocks = 4
 # tailnet. urllib is the point of the check; the URL is built in-check, not taken
 # from input. (check_reroll_live.py needs no exception — it uses httpx.)
 "**/tests/check_packing_live.py" = ["S310"]
+# A script run by path (python3 server/tests/check_common_sense_live.py) — not
+# collected by pytest, so conftest's sys.path line never runs for it. It puts
+# server/ on the path itself, and its imports must follow that line.
+"**/tests/check_common_sense_live.py" = ["E402"]

@@ -19,8 +19,11 @@ Depends one way on llm.py (transport + shared weather flags); llm.py does not
 import this, so there is no cycle.
 """
 
+from dataclasses import dataclass
+
 import layers
 import picks as pk
+import review
 import stylist
 import reroll
 import scale
@@ -279,10 +282,39 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
     # in the same order. Two derivations of one thing is how a handle comes to mean
     # different garments on the two sides of the request.
     handles = pk.handles_for(closet)
+    job = _Job(w, gender, style, closet, prefs, wd, handles)
+    first = await _dress(job)
+    if first is None:
+        return None
+    # The model looks again when its outfit did not hold up — a code repair had to
+    # change it, or the stylist scored it poor (user, 2026-10-11). review.py decides
+    # whether, and which answer stands.
+    return await review.second_look(first, lambda note: _dress(job, note), wd, w, prefs)
+
+
+@dataclass(frozen=True)
+class _Job:
+    """One request's inputs, so the review round can ask again with the same ones."""
+
+    w: dict
+    gender: str
+    style: str
+    closet: list
+    prefs: Prefs
+    wd: "pk.Wardrobe"
+    handles: dict
+
+
+async def _dress(job: _Job, revision: str = "") -> dict | None:
+    """One outfit from the model, through every check: the body closet_outfit had
+    before review.py, which may now call it a second time with a `revision` note."""
+    w, gender, style, closet, prefs, wd, handles = (job.w, job.gender, job.style, job.closet,
+                                                    job.prefs, job.wd, job.handles)
     error_note = ""
     for attempt in range(2):
         out, error_note = await _ask_model(
-            _closet_prompt(w, gender, style, closet, prefs, error_note),
+            # The revision rides with the corrective note, after the wardrobe.
+            _closet_prompt(w, gender, style, closet, prefs, revision + error_note),
             bool(prefs.shown), attempt)
         if out is None:
             if error_note == _NO_REPLY:
@@ -358,7 +390,7 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
         # The outfit as a STACK, LAST of all the repairs (layers.py): the re-roll
         # above can swap a short tee over a long undershirt, and every check before
         # it judged garments one at a time. Raised by the pre-push reviewer.
-        banned_labels, put_on, cleared = await stylist.finish(picks, w, wd, prefs, banned_labels, added)
+        banned_labels, put_on, cleared, verdict = await stylist.finish(picks, w, wd, prefs, banned_labels, added)
 
         def can_fill(slot: str, _p=picks) -> bool:
             return pk._has_suitable_alternative(slot, _p, wd, _plan_temp(w),
@@ -390,6 +422,10 @@ async def closet_outfit(w: dict, gender: str, style: str, closet: list[dict],
             error_note = "Your last reply had empty bullets. "
             continue
         return {"picks": picks, "text": text, "cleared": sorted(cleared),
+                # What review.py judges by: the stylist's verdict and every garment a
+                # layer repair had to put on — a top for nobody, warmth for a cold
+                # morning, a sleeve fixed — each a sign the model's own answer failed.
+                "review": review.Seen(verdict, [a for a in put_on or [] if len(a) < 3 or a[2] in ("warmth", "sleeve")]),
                 # `now_covered` unioned HERE rather than assigned above: the
                 # re-roll swap can put a dress in `base` after _hold_to_the_rules
                 # worked coverage out, and the legs it clears are not a gap.

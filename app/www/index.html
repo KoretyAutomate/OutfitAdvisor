@@ -1689,6 +1689,9 @@ async function mergeNativeWears(){
     if(w&&!had.has(key(w))&&!mine.has(key(w))&&!mineDay.has(day(w))) wearLog.push(w);
   // The day's record comes with it when the page has none of its own.
   if(!wearRecord()) await readWoreRecord();
+  // Memory now includes this disk state, so it is the new baseline: a later merge
+  // must not take what this page has since removed for a fresh native addition.
+  wearSeen=disk;
 }
 async function saveCloset(){
   await mergeNativeWears();
@@ -4482,6 +4485,10 @@ async function saveWore(){
   }
   woreBusy=true;
   try{
+  // What the notification logged while this page was stale has to be known BEFORE
+  // working out what to take back: a correction from outfit A (logged natively)
+  // to B left A in the laundry beside B. Raised by the pre-push reviewer, 2026-10-11.
+  await mergeNativeWears();
   const picked=(lastRes&&lastRes.picks)||{};
   const day=todayISO();
   // Take back whatever this outfit last put in the laundry, before adding what it
@@ -6001,15 +6008,15 @@ $("dWear").onclick=async()=>{
   if(woreBusy) return;
   woreBusy=true;
   try{
-  if(!wornLogged){
+  // The notification's "Wearing it" may have logged today while this page was
+  // open behind the shade. Both halves read the record — logging must not log over
+  // it, and undo must release what it logged — so merge it in first (2026-10-11).
+  const wasLogged=wornLogged;
+  await mergeNativeWears();
+  if(!wasLogged){
     // Only the LOGGING half needs picks to log. Undo works from the record.
     if(!lastPickIds.length) return;
-    // The notification's "Wearing it" may have logged today while this page was
-    // open behind the shade. Logging again from memory would overwrite its wear
-    // log; adopt what it wrote instead (2026-10-11).
-    await readWoreRecord();
     if(wearRecord()){
-      try{ const wl=await prefGet("oa.wearlog","[]"); wearLog=JSON.parse(wl)||[]; wearSeen=wl; }catch(e){}
       syncWearBtn(); syncWornNote();
       await renderCloset();
       return toast("Already logged from the notification");

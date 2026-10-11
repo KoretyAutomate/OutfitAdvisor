@@ -248,6 +248,52 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
       !JSON.parse(ls.getItem("oa.wearlog")).some(x => x.itemId === "jean1"), ls.getItem("oa.wearlog"));
   }
 
+  console.log("\n--- review round 4: a correction takes back the notification's outfit");
+  {
+    const w = page();
+    const d = w.document, ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const today = ev("todayISO()");
+    ev(`closet=[{id:"teeA",label:"Tee A",category:"base",roles:["base"],count:1},
+               {id:"teeB",label:"Tee B",category:"base",roles:["base"],count:1},
+               {id:"jean1",label:"Jeans",category:"bottoms",roles:["bottoms"],count:1}];
+        wearLog=[]; woreLogged=null; woreDay=null; swaps=[];
+        lastRes={picks:{base:"teeA",bottoms:"jean1"},closetUsed:true,weather:${JSON.stringify(WX)}};
+        lastPickIds=["teeA","jean1"]; wornLogged=false;`);
+    await ev("saveCloset()");               // baseline: nothing worn
+    // The notification logs outfit A; the page has not re-read.
+    const t = Date.now() - 1000;
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    // The user corrects to B through the sheet.
+    ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
+    await ev("saveWore()");
+    const ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
+    check("correcting a notification-logged outfit leaves only the corrected one in the laundry",
+      JSON.stringify(ids) === '["jean1","teeB"]', ids);
+    check("and the record is the correction", ev("JSON.stringify(woreLogged)") === '{"base":"teeB","bottoms":"jean1"}',
+      ev("JSON.stringify(woreLogged)"));
+    // Undo from the button releases everything.
+    ev("syncWearBtn()");
+    d.getElementById("dWear").click();
+    for (let i = 0; i < 30 && ev("woreBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    await drain();
+    check("undo afterwards leaves nothing stranded", JSON.parse(ls.getItem("oa.wearlog")).length === 0,
+      ls.getItem("oa.wearlog"));
+    // Undo directly after a notification log, with the page still stale and its
+    // button showing the record (wornLogged) from an earlier read.
+    ev(`wearLog=[]; woreLogged=null; woreDay=null;`);
+    await ev("saveCloset()");
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA"}}));
+    ev(`woreLogged={base:"teeA"}; woreDay=todayISO(); wornLogged=true;`);
+    d.getElementById("dWear").click();
+    for (let i = 0; i < 30 && ev("woreBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    await drain();
+    check("undo releases a wear only the disk knew about", JSON.parse(ls.getItem("oa.wearlog")).length === 0,
+      ls.getItem("oa.wearlog"));
+  }
+
   console.log("\n--- FeedbackReceiver.kt mirrors one-rating-a-day ------------------");
   {
     const kt = KT("FeedbackReceiver.kt");

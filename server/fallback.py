@@ -16,6 +16,8 @@ import scale
 from check import TOPS, TORSO, Day, stacked
 from sleeves import sleeve_clashes
 
+_UNDRESSED = frozenset({"no-top", "inner-alone", "no-bottoms", "no-footwear"})
+_COMFORT = ("hot-", "cold", "snow-")
 # What a person reaches for to get warmer: knitwear, then a jacket — never a top.
 _WARM_FIRST = ("cardigan", "sweater", "hoodie", "fleece", "waistcoat", "blazer", "jacket", "coat", "puffer")
 
@@ -129,7 +131,14 @@ def _adds_trouble(out: dict, trial: dict, day: Day) -> bool:
     if wd.by_group.get(out.get("base")) == "onepiece" and wd.by_group.get(trial.get("base")) != "onepiece" \
             and not trial.get("bottoms"):
         return True
-    return not check.hard(check.issues(trial, day)) <= check.hard(check.issues(out, day))
+    before, after = check.hard(check.issues(out, day)), check.hard(check.issues(trial, day))
+    added = after - before
+    # Dressed beats comfortable: a change that covers a bare top, legs or feet may
+    # leave them too warm or too cold — the only hoodie on a hot day is still a top.
+    # Raised by the pre-push reviewer, 2026-10-11.
+    if added and (before - after) & _UNDRESSED and all(k.startswith(_COMFORT) for k in added):
+        return False
+    return bool(added)
 
 
 def _first(slot: str, out: dict, day: Day, hot: float | None) -> str | None:

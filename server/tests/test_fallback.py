@@ -156,3 +156,13 @@ def test_cooling_never_swaps_in_a_second_top():
     d = day(24, TEE, SWEATER, JACKET, POLO, JEANS, SNEAK, hi=27)
     fixed, _ = fallback.fix(ids(base=TEE, mid=SWEATER, outer=JACKET, bottoms=JEANS, footwear=SNEAK), d)
     assert "stacked" not in check.hard(check.issues(fixed, d)), fixed
+
+
+def test_the_only_top_goes_back_on_even_if_too_warm():
+    """Raised by the pre-push reviewer, 2026-10-11: a misfiled hoodie, 30C — dressed
+    beats comfortable."""
+    from wardrobe_fixtures import g
+    hoodie = g("hoodie002", "grey hoodie", "tops", "hoodie", ["mid", "outer"], 3)
+    fixed, _ = fallback.fix(ids(base=hoodie, bottoms=SHORTS, footwear=SNEAK),
+                            day(29, hoodie, SHORTS, SNEAK, hi=32))
+    assert hoodie["id"] in (fixed.get("mid"), fixed.get("outer")), fixed

@@ -977,7 +977,6 @@ function recommend(w,gender,style){
   else if(t>=7) o.mid=pick(gender,"Wool sweater or fleece","Sweater or fleece","Wool sweater or fleece");
   else o.mid=pick(gender,"Heavy knit + insulating mid-layer","Heavy knit + insulating layer","Heavy knit / insulating layer");
   if(w.isSnow) o.outer="Insulated waterproof parka";
-  else if(w.isRain||w.rain>=50) o.outer=pick(gender,"Waterproof shell / trench","Waterproof coat or trench","Waterproof shell");
   else if(t>=24) o.outer="None — but pack a thin layer for AC indoors";
   else if(t>=16) o.outer=pick(gender,"Light jacket or blazer","Light jacket or trench","Light jacket");
   else if(t>=8) o.outer=pick(gender,"Wool coat or padded jacket","Wool coat or padded jacket","Insulated jacket");
@@ -989,7 +988,6 @@ function recommend(w,gender,style){
   else o.bottoms=pick(gender,"Lined trousers + base layer","Thermal-lined trousers or thick tights","Insulated / lined trousers");
   if(style==="active") o.bottoms="Stretch / technical trousers";
   if(w.isSnow) o.footwear="Insulated waterproof boots";
-  else if(w.isRain||w.rain>=50) o.footwear="Waterproof boots or shoes";
   else if(t>=24) o.footwear=pick(gender,"Loafers or breathable sneakers","Sandals or breathable flats","Breathable sneakers");
   else if(t>=10) o.footwear=style==="smart"?"Leather shoes / ankle boots":"Sneakers or casual shoes";
   else o.footwear="Insulated boots";
@@ -1000,7 +998,7 @@ function recommend(w,gender,style){
   o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
   if(w.swing>=10){ const span=(w.morning!=null&&w.midday!=null)?` (${w.morning}° → ${w.midday}°)`:"";
     o.tip=`Big ${w.swing}° swing today${span}. Dress in layers you can shed by midday and add back in the evening.`; }
-  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%). Prioritise the waterproof outer + footwear.`;
+  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%) — take an umbrella.`;
   else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
   else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
   else o.tip="Comfortable conditions — the layers above keep you flexible through the day.";
@@ -1689,7 +1687,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.42";
+const WEB_BUILD="1.43";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();

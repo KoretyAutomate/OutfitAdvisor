@@ -75,6 +75,25 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
+def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float) -> bool:
+    """Is this garment too warm to wear as `slot` today, in a way that can be HELPED?
+
+    Too warm by the numbers, and either the slot can simply be left off (an
+    undershirt, a layer) or they own something cooler for it. Trousers they have
+    nothing cooler than are not too warm, they are the trousers: the live test days
+    (2026-10-11) found every pair marked TOO WARM on an 18-23C day, the model
+    obeying, and the legs left bare. picks._cool_down always kept such trousers;
+    the prompt and the review now say the same.
+    """
+    hot = pk._heat_temp(slot, plan_temp, peak_temp)
+    if not scale.too_warm(item, hot):
+        return False
+    if slot in pk._SHEDDABLE:
+        return True
+    return any(slot in (wd.by_roles.get(i) or ()) and not scale.too_warm(it, hot)
+               for i, it in wd.by_item.items() if it is not item)
+
+
 def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict],
                         peak_temp: float | None = None) -> bool:
     """Nothing on the torso is warm enough for the morning, after every repair has
@@ -118,18 +137,15 @@ def _short_inner(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     return (warm or legal or [None])[0]
 
 
-def is_wet(w: dict) -> bool:
-    """Rain or snow likely today — the same reading style.py makes."""
-    return bool(w.get("isRain") or w.get("isSnow") or (w.get("rain") or 0) >= 50)
-
-
 @dataclass(frozen=True)
 class Day:
-    """What about today the layer pass needs besides the temperature: whether it is
-    wet, and what the wearer asked to move on from (the re-roll's `shown`)."""
+    """What about today the layer pass needs besides the temperature: what the
+    wearer asked to move on from (the re-roll's `shown`), and whether it snows.
+    Rain is not here: they carry an umbrella (user, 2026-10-11), so it never
+    chooses a garment. Snow is not rain — a waterproof coat still comes first."""
 
-    wet: bool = False
     shown: dict = field(default_factory=dict)
+    snow: bool = False
 
 
 def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict],
@@ -141,16 +157,15 @@ def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict],
     clash of its own.
 
     Of those, the COOLEST that does the job: the cardigan before the parka, so a
-    5C morning is not answered with a 5-grade coat that is wrong by noon. On a wet
-    day a waterproof one first, and the outer slot first with it — rain is the
-    reason to be out of doors in a shell, not a cardigan.
+    5C morning is not answered with a 5-grade coat that is wrong by noon. On snow a
+    waterproof one first, and the outer slot first with it.
 
     Written for the sleeve repair that took the only warm layer off (2026-09-30),
     and now also the answer to the plain cold morning (user, 2026-10-08): a T-shirt
     and jeans at 5C, with the jacket owned and "None needed" written beside it,
     passed every check because every check judged a garment already in the outfit."""
     day = day or Day()
-    slots = ("outer", "mid") if day.wet else ("mid", "outer")
+    slots = ("outer", "mid") if day.snow else ("mid", "outer")
     cands = []
     for rank, slot in enumerate(slots):
         # An occupied slot is open too when what fills it is itself too thin — a
@@ -159,7 +174,7 @@ def _rewarm(picks: dict, wd, plan_temp: float, user_rules: list[dict],
         # reviewer, 2026-09-30.
         if picks.get(slot) and scale.warm_enough(wd.by_item.get(picks[slot]) or {}, plan_temp):
             continue
-        cands += [(day.wet and not item.get("waterproof"),     # rain: waterproof first
+        cands += [(day.snow and not item.get("waterproof"),    # snow: waterproof first
                    day.shown.get(slot) == iid,                 # then not what they rejected
                    rank,                                       # then the easier slot
                    -scale.garment_temp(item),                  # then the lightest that does it
@@ -243,7 +258,7 @@ def hold(picks: dict, w: dict, wd, prefs, banned: list[dict],
     before = dict(picks)
     put_on: dict = {}
     cleared: set = set()
-    day = Day(is_wet(w), prefs.shown_map)
+    day = Day(prefs.shown_map, bool(w.get("isSnow")))
     for slot, alt, why in tidy(picks, wd, plan, list(prefs.rules), reroll.peak_temp(w, plan), day):
         log.warning("closet picks: %s %s (%s)", slot, f"swapped for {alt}" if alt else "shed", why)
         put_on[slot] = (slot, alt, why) if alt else None

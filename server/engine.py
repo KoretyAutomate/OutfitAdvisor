@@ -116,8 +116,6 @@ def _mid(t: float, gender: str) -> str:
 def _outer(t: float, w: dict, gender: str) -> str:
     if w["isSnow"]:
         outer = "Insulated waterproof parka"
-    elif _is_wet(w):
-        outer = pick(gender, "Waterproof shell / trench", "Waterproof coat or trench", "Waterproof shell")
     elif t >= 24:
         outer = "None — but pack a thin layer for AC indoors"
     elif t >= 16:
@@ -154,8 +152,6 @@ def _bottoms(t: float, gender: str, style: str) -> str:
 def _footwear(t: float, w: dict, gender: str, style: str) -> str:
     if w["isSnow"]:
         return "Insulated waterproof boots"
-    if _is_wet(w):
-        return "Waterproof boots or shoes"
     if t >= 24:
         return pick(gender, "Loafers or breathable sneakers", "Sandals or breathable flats", "Breathable sneakers")
     if t >= 10:
@@ -194,7 +190,7 @@ def _tip(w: dict) -> str:
             "by midday and add back in the evening."
         )
     if _is_wet(w):
-        return f"Rain likely ({w['rain']}%). Prioritise the waterproof outer + footwear."
+        return f"Rain likely ({w['rain']}%) — take an umbrella."
     if w["wind"] >= 8:
         return f"Strong wind ({w['wind']} m/s) — a windproof outer makes a real difference."
     if w["hi"] >= 28:

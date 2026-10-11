@@ -8,20 +8,22 @@ read the seams.
 import re
 from pathlib import Path
 
-import closet as closet_mod
+import closet_prompt as prompt_mod
 import picks as picks_mod
 import rules
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 INDEX = ROOT / "app" / "www" / "index.html"
-CLOSET_PY = Path(closet_mod.__file__)
+# The prompt moved to closet_prompt.py on 2026-10-11, when closet.py reached the
+# ceiling again.
+PROMPT_PY = Path(prompt_mod.__file__)
 # The validation moved to picks.py on 2026-08-27, when closet.py crossed the
 # line ceiling. closet.py builds the prompt; picks.py judges the answer.
 PICKS_PY = Path(picks_mod.__file__)
 
 
 def test_the_generator_is_given_the_rules():
-    src = CLOSET_PY.read_text()
+    src = PROMPT_PY.read_text()
     prompt = src[src.index("def _closet_prompt("):]
     # _closet_prompt is now the last plain `def` in the module — closet_outfit
     # follows it as an `async def` — so the slice runs to the end rather than to a

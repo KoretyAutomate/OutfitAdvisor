@@ -18,6 +18,7 @@ itself takes 20-30 s, longer with a retry. The stylist is skipped once the reque
 has used BUDGET_S, and given STYLIST_TIMEOUT_S of its own.
 """
 import time
+from dataclasses import dataclass
 
 import layers
 import llm
@@ -31,6 +32,17 @@ STYLIST_TIMEOUT_S = 15
 _RULE_WHYS = ("one pattern is enough", "fewer colours together", "smarter for today",
               "a pairing you did not like")
 POOR = 2            # a score at or below this may swap; above it, the review is noted only
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What the stylist thought, whether or not its swap was applied — review.py
+    sends a poor outfit back to the model with `issue` (user, 2026-10-11). Twice
+    the stylist scored an outfit 2/5 and the verdict was dropped on the floor."""
+
+    score: int
+    issue: str
+    swap: tuple | None = None       # (slot, new id, reason) when applied
 
 
 def _line(h: str, it: dict) -> str:
@@ -62,8 +74,9 @@ def prompt(ctx: style.Ctx, picks: dict, handles: dict) -> str:
     )
 
 
-async def review(ctx: style.Ctx, picks: dict) -> tuple | None:
-    """(slot, new id, reason) when a swap should be applied, else None."""
+async def review(ctx: style.Ctx, picks: dict) -> Verdict | None:
+    """The stylist's verdict, with the swap to apply if it passed; None when the
+    stylist is off, out of time, or gave nothing usable."""
     if not style.stylist_enabled():
         return None
     if time.monotonic() - ctx.look.t0 > BUDGET_S:
@@ -88,28 +101,32 @@ async def review(ctx: style.Ctx, picks: dict) -> tuple | None:
     swap = raw.get("swap") if isinstance(raw.get("swap"), dict) else None
     slot = str((swap or {}).get("slot") or "")
     cand = by_handle.get(str((swap or {}).get("handle") or "").strip())
-    applied = bool(score <= POOR and slot in style._SWAP_ORDER and cand
-                   and style.legal_swap(ctx, picks, slot, cand, improve=False))
+    # Which check said no, so the next odd outfit can be traced (2026-10-11: two 2/5
+    # scores logged only "swap refused").
+    refused = ("score above poor" if score > POOR else "unknown slot" if slot not in style._SWAP_ORDER
+               else "unknown garment" if not cand
+               else "failed the legal-swap check" if not style.legal_swap(ctx, picks, slot, cand, improve=False)
+               else "")
+    applied = bool(swap) and not refused
     log.info("stylist: score %s, swap %s (%.1fs)", score,
-             "applied" if applied else ("refused" if swap else "none"), time.monotonic() - t)
-    if not applied:
-        return None
-    reason = _fenced(raw.get("issue"), 120) or "a better match with the rest"
-    return slot, cand, reason
+             "applied" if applied else (f"refused — {slot or '?'}→{cand or '?'}: {refused}" if swap else "none"),
+             time.monotonic() - t)
+    issue = _fenced(raw.get("issue"), 120)
+    return Verdict(score, issue, (slot, cand, issue or "a better match with the rest") if applied else None)
 
 
 async def finish(picks: dict, w: dict, wd, prefs, banned: list[dict],
-                 added: tuple | None) -> tuple[list[dict], list | None, set]:
+                 added: tuple | None) -> tuple[list[dict], list | None, set, Verdict | None]:
     """The last passes over the outfit, in order, for closet.py's one call: the
     layer rules (layers.hold), then the style rules, then the stylist. Returns what
     layers.hold returns, with the style changes folded in — the replaced garments
-    struck from the prose, the new ones given a line."""
+    struck from the prose, the new ones given a line — and the stylist's verdict."""
     banned, put_on, cleared = layers.hold(picks, w, wd, prefs, banned, added)
     ctx = style.ctx_of(w, wd, prefs)
     changes = style.repair(ctx, picks, {p.get("id") for p in prefs.prefers if isinstance(p, dict)})
-    rv = await review(ctx, picks)
-    if rv:
-        slot, cand, reason = rv
+    verdict = await review(ctx, picks)
+    if verdict and verdict.swap:
+        slot, cand, reason = verdict.swap
         changes.append((slot, cand, picks[slot], reason))
         picks[slot] = cand
     lines = list(put_on or [])
@@ -125,4 +142,4 @@ async def finish(picks: dict, w: dict, wd, prefs, banned: list[dict],
             why = "a better match with the rest"
         lines.append((slot, new, "style", why))
     lines = [a for a in lines if a and picks.get(a[0]) == a[1]]
-    return banned, lines or None, cleared
+    return banned, lines or None, cleared, verdict

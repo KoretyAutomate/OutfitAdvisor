@@ -505,9 +505,10 @@
       <div id="candList"></div>
       <p class="note" id="tripNote">Link your calendar and the advisor spots upcoming trips, then tells
         you what to pack — from the clothes you actually own, for the weather where you're going.
-        Your events stay on this phone: only the dates and the city's coordinates are ever sent,
-        never the event's title, notes, or location text. Calendars shared with you by someone
-        else are never read at all.</p>
+        To judge whether an event is a trip, its title, location text and dates are sent to your
+        own advisor server, which reads them and does not store them; notes are never sent. The
+        weather service only ever sees the destination city's coordinates. Calendars shared with
+        you by someone else are never read at all.</p>
       <div id="tripErr" class="err"></div>
     </div>
   </section>
@@ -647,9 +648,10 @@
       <button class="ghost" id="tsFind">Find</button>
     </div>
     <!-- The calendar's own location text is shown as a HINT only. It is never
-         geocoded or sent anywhere: it is routinely a hotel or a street address,
-         and shipping it to a third-party geocoder would leak the one thing this
-         design promises to keep on the phone. The user names the city. -->
+         geocoded: it is routinely a hotel or a street address, and shipping it to a
+         third-party geocoder would leak it. It DOES go, with the title, to the
+         user's own server's /triage (triageCandidate) to judge whether the event
+         is a trip; the server does not store it. The user names the city. -->
     <p class="note" id="tsHint" style="display:none"></p>
     <div id="tsMatches"></div>
     <p class="note" id="tsPlace" style="display:none;color:var(--good)"></p>
@@ -3078,11 +3080,14 @@ async function triageCandidate(c){
 }
 
 /* ───────── trips (T2/T2.5): calendar → packing list ─────────
-   PRIVACY: the calendar is read ON THIS PHONE and stays here. The event's title,
-   notes and location TEXT are never geocoded and never sent to any host — not the
-   DGX, not Open-Meteo. A calendar location is routinely a hotel, a clinic or a
-   colleague's address, auto-filled by whoever sent the invite. The user names the
-   destination city themselves; only its coordinates and the dates leave the phone. */
+   PRIVACY: the calendar is read ON THIS PHONE. A candidate event's title and
+   location TEXT go to the user's OWN server's /triage (triageCandidate) so the model
+   can judge whether it is a trip; the server answers and does not store them (its
+   log line carries no title or location). They are never geocoded and never sent to
+   a third party — not Open-Meteo. Notes are never sent anywhere. A calendar location
+   is routinely a hotel, a clinic or a colleague's address, auto-filled by whoever
+   sent the invite, so the geocoder only ever sees the CITY the model or the user
+   names; only its coordinates and the dates reach the weather service. */
 let trips=[];            // {id,calId,title,start,end,lat,lon,place,type,styles[],
                          //  notifyDays,laundryBefore,packed:[{id,qty}],armedAt}
 let tripsDismissed=[];   // calendar event ids the user said are NOT trips

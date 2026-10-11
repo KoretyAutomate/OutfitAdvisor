@@ -24,7 +24,8 @@ import kotlin.math.min
  * Writes the same two CapacitorStorage keys the web layer owns, so the app and the
  * notification are one shared calibration:
  *   oa.tempOffset — the scalar, e.g. "-0.75"
- *   oa.feedback   — [{"at": epochMs, "rating": -2..2}], pruned to the last 60
+ *   oa.feedback   — [{"at": epochMs, "rating": -2..2, "from": offset before it}],
+ *                   pruned to the last 60
  *
  * ONE rating per calendar day across both writers (2026-10-11): a later verdict the
  * same day replaces the earlier one instead of stacking a second correction.
@@ -60,11 +61,16 @@ class FeedbackReceiver : BroadcastReceiver() {
             if (e.has("at") && dayOf(e.optLong("at", 0L)) == today) prevIdx = i
         }
         var current = prefs.getString(KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
-        current = clamp(current)   // the app clamps on read too
+        current = if (current.isNaN()) 0.0 else clamp(current)   // the app clamps on read too (and parseFloat("NaN") is 0 to it)
         val replaced = prevIdx >= 0
         if (replaced) {
-            val prev = DELTA[log.optJSONObject(prevIdx)?.optInt("rating", 0) ?: 0] ?: 0.0
-            current = clamp(round2(current - RATE * prev))
+            // Back to the offset that rating started from (twin of fbTakeBack):
+            // subtracting the nominal step is wrong at the clamp. Entries written
+            // before `from` existed fall back to the step.
+            val prevEntry = log.optJSONObject(prevIdx)
+            val from = prevEntry?.optDouble("from", Double.NaN) ?: Double.NaN
+            current = if (!from.isNaN()) clamp(from)
+            else clamp(round2(current - RATE * (DELTA[prevEntry?.optInt("rating", 0) ?: 0] ?: 0.0)))
             log.remove(prevIdx)
         }
 
@@ -72,7 +78,7 @@ class FeedbackReceiver : BroadcastReceiver() {
         val updated = clamp(round2(current + RATE * delta))
 
         // ---- history: append, prune to the newest KEEP entries (twin of saveFeedback) ----
-        log.put(JSONObject().put("at", now).put("rating", rating))
+        log.put(JSONObject().put("at", now).put("rating", rating).put("from", round2(current)))
         val pruned = JSONArray()
         for (i in max(0, log.length() - KEEP) until log.length()) pruned.put(log.get(i))
 

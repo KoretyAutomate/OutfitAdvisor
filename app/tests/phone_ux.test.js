@@ -173,16 +173,59 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
       /Logged/.test(d.getElementById("dWear").textContent), d.getElementById("dWear").textContent);
   }
 
+  console.log("\n--- review round 2: clamp, reset ordering, reload race -----------");
+  {
+    const w = page();
+    const d = w.document, ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const tap = async r => { d.querySelector(`#fbRow button[data-r="${r}"]`).click(); await ev("fbChain"); };
+    // Near the clamp, replacing a rating restores where it started.
+    ls.setItem("oa.feedback", "[]"); ls.setItem("oa.tempOffset", "5.7");
+    await tap(2);
+    check("too warm at +5.70 clamps to +6", ev("tempOffset") === 6, ev("tempOffset"));
+    await tap(0);
+    check("replacing it with just right goes back to +5.70, not +5.25",
+      ev("tempOffset") === 5.7, ev("tempOffset"));
+    check("the entry records where it started", ev("feedback[0].from") === 5.7, ev("JSON.stringify(feedback)"));
+
+    // A reset tapped while a rating is queued comes after it.
+    ls.setItem("oa.feedback", "[]"); ls.setItem("oa.tempOffset", "0");
+    d.querySelector('#fbRow button[data-r="2"]').click();
+    // fbNote's guard reads feedback before the rating lands; seed one so it acts.
+    ev("feedback=[{at:1,rating:2}]");
+    d.getElementById("fbNote").click();
+    await ev("fbChain");
+    check("a reset after a queued rating wins", ev("tempOffset") === 0 && ev("feedback.length") === 0 &&
+      ls.getItem("oa.tempOffset") === "0", { off: ev("tempOffset"), fb: ev("JSON.stringify(feedback)") });
+
+    // A wear logged while the foreground reload is reading is not overwritten.
+    ls.setItem("oa.wearlog", "[]"); ls.setItem("oa.woreToday", "");
+    ev(`wearLog=[]; woreLogged=null; woreDay=null;
+        window.__pg=prefGet; prefGet=async(k,dflt)=>{ await new Promise(r=>setTimeout(r,15)); return window.__pg(k,dflt); };`);
+    d.dispatchEvent(new w.Event("visibilitychange"));
+    await new Promise(r => setTimeout(r, 5));
+    ev(`logWear("tee1"); woreLogged={base:"tee1"}; woreDay=todayISO();`);
+    for (let i = 0; i < 100 && ev("sharedBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    ev("prefGet=window.__pg;");
+    check("the reload does not overwrite a wear made while it was reading",
+      ev("wearLog.length") === 1 && ev("JSON.stringify(woreLogged)") === '{"base":"tee1"}',
+      { wl: ev("JSON.stringify(wearLog)"), rec: ev("JSON.stringify(woreLogged)") });
+  }
+
   console.log("\n--- FeedbackReceiver.kt mirrors one-rating-a-day ------------------");
   {
     const kt = KT("FeedbackReceiver.kt");
     check("it finds today's entry by local calendar day",
       /dayOf\(e\.optLong\("at", 0L\)\) == today/.test(kt) && /SimpleDateFormat\("yyyy-MM-dd"/.test(kt));
     check("reverts its step before applying the new one (twin of fbRevert)",
-      /current = clamp\(round2\(current - RATE \* prev\)\)/.test(kt) &&
-      kt.indexOf("current - RATE * prev") < kt.indexOf("current + RATE * delta"));
+      /clamp\(round2\(current - RATE \* \(DELTA\[/.test(kt) &&
+      kt.indexOf("current - RATE * (DELTA[") < kt.indexOf("current + RATE * delta"));
     check("and drops it, so the day keeps one entry", /log\.remove\(prevIdx\)/.test(kt));
     check("the new entry uses the same clock as the day test", /put\("at", now\)/.test(kt));
+    check("it records the offset a rating started from, as the app does",
+      /\.put\("from", round2\(current\)\)/.test(kt) && /feedback\.push\(\{at:Date\.now\(\),rating,from\}\)/.test(SRC));
+    check("and replaces by restoring it, falling back to the step for old entries",
+      /optDouble\("from", Double\.NaN\)/.test(kt) && /if \(!from\.isNaN\(\)\) clamp\(from\)/.test(kt));
   }
 
   console.log("\n--- 'Wearing it' from the notification ---------------------------");

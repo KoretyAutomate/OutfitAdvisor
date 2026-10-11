@@ -1823,16 +1823,28 @@ function todaysRating(){
   const today=localDay(Date.now());
   for(let i=feedback.length-1;i>=0;i--){
     const f=feedback[i];
-    if(f&&Number.isFinite(f.at)&&localDay(f.at)===today) return {i,rating:f.rating};
+    if(f&&Number.isFinite(f.at)&&localDay(f.at)===today) return {i,rating:f.rating,from:f.from};
   }
   return null;
 }
 /* The notification can rate while this page is open behind the shade, so read the
    shared pair back before changing it — a write from memory would erase that rating. */
 async function reloadFeedback(){
-  const off=parseFloat(await prefGet("oa.tempOffset","0"));
+  applyFeedbackRaw(await prefGet("oa.tempOffset","0"), await prefGet("oa.feedback","[]"));
+}
+function applyFeedbackRaw(rawOff,rawFb){
+  const off=parseFloat(rawOff);
   tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
-  try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
+  try{ feedback=JSON.parse(rawFb)||[]; }catch(e){ feedback=[]; }
+}
+/* Take back the day's earlier rating. Restored to the offset it started from when
+   the entry carries one: subtracting the nominal step is wrong at the clamp — +5.70
+   rated too warm lands on +6.00, and +6.00 minus 0.75 is +5.25, not +5.70. Entries
+   from before `from` existed fall back to the nominal step. Raised by the pre-push
+   reviewer, 2026-10-11. Kotlin twin: FeedbackReceiver.kt. */
+function fbTakeBack(prev){
+  if(Number.isFinite(prev.from)) tempOffset=Math.max(-FB_CLAMP,Math.min(FB_CLAMP,prev.from));
+  else fbRevert(prev.rating);
 }
 
 function fbApply(rating){
@@ -4299,8 +4311,12 @@ async function saveWoreLogged(){
 /* Read the day's record back from disk — at launch, and on returning to the
    foreground, because the notification's "Wearing it" writes it natively. */
 async function readWoreRecord(){
+  let raw="";
+  try{ raw=await prefGet(WORE_KEY,""); }catch(e){ raw=""; }
+  applyWoreRaw(raw);
+}
+function applyWoreRaw(raw){
   try{
-    const raw=await prefGet(WORE_KEY,"");
     const d=raw?JSON.parse(raw):null;
     woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
     woreDay=woreLogged?d.day:null;
@@ -5281,15 +5297,28 @@ async function reloadShared(){
   if(sharedBusy||woreBusy||fbBusy) return;
   sharedBusy=true;
   try{
-    await reloadFeedback();
-    let wl=[];
-    try{ wl=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wl=[]; }
-    const wearChanged=JSON.stringify(wl)!==JSON.stringify(wearLog);
-    wearLog=wl;
-    const recBefore=JSON.stringify(woreLogged);
-    await readWoreRecord();
+    // Every read first, every assignment after, with no await in between — and
+    // only for state the page has not itself changed while the reads were in
+    // flight. A tap on "Wearing it" during the reads changes wearLog in memory and
+    // then writes it; assigning the older disk copy over it lost that wear, and
+    // the next saveCloset erased it from disk too. Raised by the pre-push
+    // reviewer, 2026-10-11.
+    const memFb=JSON.stringify(feedback)+"|"+tempOffset;
+    const memWear=JSON.stringify(wearLog)+"|"+JSON.stringify(woreLogged);
+    const rawOff=await prefGet("oa.tempOffset","0"), rawFb=await prefGet("oa.feedback","[]");
+    const rawWl=await prefGet("oa.wearlog","[]"), rawWore=await prefGet(WORE_KEY,"");
     let raw="";
     try{ raw=await prefGet(TODAY_KEY,""); }catch(e){ raw=""; }
+    if(!fbBusy && JSON.stringify(feedback)+"|"+tempOffset===memFb) applyFeedbackRaw(rawOff,rawFb);
+    let wearChanged=false;
+    const recBefore=JSON.stringify(woreLogged);
+    if(!woreBusy && JSON.stringify(wearLog)+"|"+JSON.stringify(woreLogged)===memWear){
+      let wl=[];
+      try{ wl=JSON.parse(rawWl)||[]; }catch(e){ wl=[]; }
+      wearChanged=JSON.stringify(wl)!==JSON.stringify(wearLog);
+      wearLog=wl;
+      applyWoreRaw(rawWore);
+    }
     const fresh=raw!==todaySeen && await loadToday();
     syncWearBtn();
     // Only when something actually changed: a plain resume must not flip the card
@@ -6019,15 +6048,16 @@ async function rateDay(rating){
   // corrections for one morning.
   const prev=todaysRating();
   if(prev){
-    fbRevert(prev.rating);
+    fbTakeBack(prev);
     feedback.splice(prev.i,1);
     if(prev.rating===rating){            // tapping the same verdict again = undo
       await saveFeedback(); renderFeedback();
       return toast("Rating removed");
     }
   }
+  const from=tempOffset;
   fbApply(rating);
-  feedback.push({at:Date.now(),rating});
+  feedback.push({at:Date.now(),rating,from});
   await saveFeedback(); renderFeedback();
   const sign=tempOffset>0?"+":"";
   toast(rating===0 ? (prev?"Changed — keeping this calibration":"Noted — keeping this calibration")
@@ -6040,11 +6070,18 @@ $("fbRow").onclick=e=>{
   fbChain=fbChain.then(()=>rateDay(rating)).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 };
-$("fbNote").onclick=async()=>{
+/* Through the same queue as the ratings: a reset tapped while a rating is still
+   being written must come AFTER it, or that rating lands on top of the reset the
+   toast has just confirmed. Raised by the pre-push reviewer, 2026-10-11. */
+$("fbNote").onclick=()=>{
   if(!feedback.length) return;
-  tempOffset=0; feedback=[];
-  await saveFeedback(); renderFeedback();
-  toast("Calibration reset");
+  fbBusy++;
+  fbChain=fbChain.then(async()=>{
+    tempOffset=0; feedback=[];
+    await saveFeedback(); renderFeedback();
+    toast("Calibration reset");
+  }).catch(()=>{}).finally(()=>{ fbBusy--; });
+  return fbChain;
 };
 
 /* ── trips wiring ── */

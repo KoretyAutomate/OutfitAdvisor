@@ -129,3 +129,12 @@ def test_warm_up_never_restores_two_sweaters():
                             day(3, thin, SWEATER, JEANS, SNEAK))
     torso = [fixed.get(c) for c in ("base", "mid", "outer") if fixed.get(c)]
     assert torso == [SWEATER["id"]], fixed
+
+
+def test_a_dress_swapped_for_a_warmer_top_gets_its_trousers_back():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    from wardrobe_fixtures import g
+    sweater_base = g("swbase001", "chunky sweater", "tops", "sweater", ["base"], 4)
+    fixed, _ = fallback.fix(ids(base=DRESS, footwear=SNEAK), day(3, DRESS, sweater_base, JEANS, SNEAK))
+    assert fixed["base"] == sweater_base["id"], "the scenario: the dress gave way to warmth"
+    assert fixed["bottoms"] == JEANS["id"], fixed

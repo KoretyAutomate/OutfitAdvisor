@@ -64,7 +64,7 @@ def test_if_it_insists_the_fallback_does_what_a_person_would(api, monkeypatch):
     d = post(api)
     assert len(seen["prompts"]) == 1 + advisor.MAX_REVISIONS
     assert d["picks"]["mid"] == CARDI["id"], "the second polo comes off, knitwear goes on"
-    assert "charcoal cardigan — chosen so the outfit works today." in d["outfit_text"]
+    assert "• charcoal cardigan" in d["outfit_text"], "rebuilt from the final outfit"
 
 
 def test_a_revision_never_trades_one_hole_for_another(api, monkeypatch):
@@ -75,10 +75,12 @@ def test_a_revision_never_trades_one_hole_for_another(api, monkeypatch):
     d = post(api)
     assert len(seen["prompts"]) == 3
     assert d["picks"]["bottoms"] == JEANS["id"], "bare legs never beat bare feet"
-    # The FIRST answer stood — its own trousers line, the fallback adding only shoes.
-    # (Were the revision kept, the fallback would put the jeans back and hide it.)
-    assert "bottoms chosen" in d["outfit_text"]
-    assert "white sneakers — chosen so the outfit works today." in d["outfit_text"]
+
+    # After the fallback both end dressed alike, so the choice itself is pinned:
+    import check
+    first = advisor.Answer({}, {}, [check.Issue("no-footwear", "", True)])
+    revised = advisor.Answer({}, {}, [check.Issue("no-bottoms", "", True)])
+    assert not advisor._better(revised, first), "bare legs never pay for shoes"
 
 
 def test_a_poor_look_goes_back_with_the_stylists_words(api, monkeypatch):
@@ -239,3 +241,31 @@ def test_same_again_is_only_blamed_on_the_wardrobe_when_true(api, monkeypatch):
     shown = {s: v for s, v in same["picks"].items() if v}
     d = post(api, closet=[UNDER, TEE, POLO, CARDI, JEANS, SNEAK], shown=shown)
     assert "nothing else you own suits today" not in d["outfit_text"]
+
+
+def test_after_a_fallback_no_line_contradicts_the_final_outfit(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11, three rounds running: removed
+    garments by name or punctuation-ended label, an added layer denied by another
+    line, a tip about the old outfit. The text is rebuilt from the final picks."""
+    odd = {**UNDER, "label": "Airism (white)"}
+    ban = {"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "polo"}}
+    a = outfit(inner=odd["id"], base=POLO["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"] = {"base": "Your navy polo alone; no cardigan needed.",
+                  "bottoms": "Blue jeans go well with your Airism (white).", "footwear": "Sneakers."}
+    a["tip"] = "Skip the cardigan."
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[odd, POLO, CARDI, JEANS, SNEAK], rules=[ban])
+    t = d["outfit_text"]
+    assert d["picks"]["inner"] is None and d["picks"]["mid"] == CARDI["id"]
+    assert "Airism" not in t and "no cardigan" not in t and "Skip the cardigan" not in t, t
+
+
+def test_an_invented_handle_on_a_hot_day_is_not_shopping_evidence(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    async def hot(lat, lon, day):
+        return weather(28, hi=31)
+    monkeypatch.setattr(srv.weather, "fetch_weather", hot)
+    bad = outfit(base=TEE["id"], outer="i99", bottoms=JEANS["id"], footwear=SNEAK["id"])
+    fake_model.install(monkeypatch, [bad] * 3)
+    d = post(TestClient(srv.app), closet=[TEE, JEANS, SNEAK], closetOnly=True)
+    assert d["missing"] == [], d["missing"]

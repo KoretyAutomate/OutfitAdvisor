@@ -14,14 +14,14 @@ from vocab import CATEGORIES
 COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
 
 
-def missing(picks: dict, day: Day, claimed: object, emptied: set) -> list[str]:
+def missing(picks: dict, day: Day, claimed: object) -> list[str]:
     """Empty slots the wardrobe cannot fill: the ones the model said it could not
-    fill or the fallback had to empty, plus a missing top, trousers or shoes — each
-    only if nothing they own, unused and legal, could have filled it."""
+    fill, plus a missing top, trousers or shoes — each only if nothing they own,
+    unused and legal, could have filled it."""
     onepiece = day.wd.by_group.get(picks.get("base")) == "onepiece"
     named = {c for c in (claimed if isinstance(claimed, list) else []) if c in CATEGORIES}
     essential = {"bottoms", "footwear"} | ({"base"} if not any(picks.get(c) for c in TORSO) else set())
-    candidates = {c for c in named | set(emptied) | essential
+    candidates = {c for c in named | essential
                   if not picks.get(c) and not (c == "bottoms" and onepiece)}
     # A pairing rule ("no undershirt with the white tee") empties a slot without the
     # wardrobe lacking anything: tomorrow the undershirt goes under another shirt.

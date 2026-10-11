@@ -18,7 +18,6 @@ before the weather fetch). A revision only starts by REVISE_BY_S, the stylist on
 with STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S.
 """
 import asyncio
-import re
 import time
 from dataclasses import dataclass
 
@@ -255,44 +254,22 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     picks, changed = (fallback.fix(best.picks, day) if check.hard(best.found) else (best.picks, {}))
     for slot, now in changed.items():
         log.warning("advisor: fallback %s → %s", slot, now or "empty")
-    # A garment the fallback MOVED (a hoodie filed as base, now the mid) left its old
-    # slot empty without the wardrobe lacking anything. Raised by the pre-push
-    # reviewer, 2026-10-11.
-    emptied = {s for s, now in changed.items() if not now and best.picks.get(s) not in picks.values()}
-    missing = gaps.missing(picks, day, best.out.get("missing"), emptied)
-    given = best.out.get("lines")
-    lines = given if isinstance(given, dict) else {}
-    final: dict = {}
-    for slot in CATEGORIES:
-        if slot in changed:
-            if picks.get(slot):
-                final[slot] = f"{wd.by_item[picks[slot]]['label']} — chosen so the outfit works today."
-        elif picks.get(slot):
-            # A worn garment always has a line — its name, if the model gave none.
-            final[slot] = str(lines.get(slot) or "").strip() or str(wd.by_item[picks[slot]]["label"])
-        elif not day.prefs.closet_only:
-            final[slot] = str(lines.get(slot) or "").strip()
-        elif slot in missing:
-            final[slot] = "Nothing in your closet for this."
-    tip = str(best.out.get("tip") or "").strip()
-    # The model's words describe ITS outfit. Whatever the fallback took off must not
-    # be recommended by another line or the tip — a banned pairing undone in the one
-    # place the wearer reads. Raised by the pre-push reviewer, 2026-10-11.
-    gone = [wd.by_item[i] for s_, i in best.picks.items()
-            if i in wd.by_item and s_ in changed and i not in picks.values()]
-    if gone:
-        pats = _patterns(gone, [wd.by_item[i] for i in picks.values() if i in wd.by_item])
-        for slot, t in list(final.items()):
-            if slot not in changed and any(p.search(t.lower()) for p in pats):
-                if picks.get(slot):
-                    final[slot] = str(wd.by_item[picks[slot]]["label"])
-                else:
-                    del final[slot]
-    # The tip was written for the model's outfit; once the fallback has changed it,
-    # "no mid-layer needed" can sit under the cardigan it just added. Raised by the
-    # pre-push reviewer, 2026-10-11.
-    if changed:
-        tip = ""
+    # Gaps from the FINAL outfit and what they own — never from what the fallback
+    # removed: an invented handle, a garment moved to another slot or a layer shed
+    # for the heat says nothing about the wardrobe. Raised by the pre-push reviewer.
+    # A slot the model filled with a REAL garment that is now off is a slot it wanted
+    # filled — evidence, once gaps.missing has checked nothing they own fits (an
+    # outright ban on the only undershirt). An invented handle, or a garment merely
+    # moved to another slot, is not.
+    claimed = best.out.get("missing") if isinstance(best.out.get("missing"), list) else []
+    wanted = [s for s, i in best.picks.items() if i in wd.ids and s in (wd.by_roles.get(i) or ())
+              and not picks.get(s) and i not in picks.values()]
+    missing = gaps.missing(picks, day, [*claimed, *wanted])
+    final = _plain_lines(picks, day, missing) if changed else _model_lines(best, picks, day, missing)
+    # The model's tip and lines describe ITS outfit. Once the fallback has changed
+    # that outfit, patching its sentences one case at a time chased contradictions
+    # through three review rounds (2026-10-11); they are rebuilt from the final picks.
+    tip = "" if changed else str(best.out.get("tip") or "").strip()
     if day.prefs.closet_only:
         # Their wardrobe is everything they own: a line recommending anything else
         # breaks that promise in the words the notification shows. A worn garment's
@@ -316,32 +293,35 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     if again:
         bullets.insert(0, f"• {again}")
     text = "\n".join(bullets) + (f"\n\n💡 {tip}" if tip else "")
+    cleared = sorted(s for s, now in changed.items() if not now and s not in missing)
     return {"picks": picks, "text": text, "lines": final, "tip": tip, "look": str(best.out.get("look") or ""),
-            "missing": missing, "cleared": sorted(emptied - set(missing))}
+            "missing": missing, "cleared": cleared}
 
 
-def _patterns(gone: list[dict], worn: list[dict]) -> list["re.Pattern[str]"]:
-    """How a line might refer to a garment that came off (raised twice by the
-    pre-push reviewer, 2026-10-11): its name; its colour and kind together ("your
-    white T-shirt" for one named "Airism"); its kind alone, while nothing still worn
-    is of that kind."""
-    kept = {w for it in worn for w in _kind_words(it)}
-    out = []
-    for it in gone:
-        label = str(it.get("label") or "").lower().strip()
-        if label:
-            out.append(re.compile(rf"\b{re.escape(label)}\b"))
-        for k in _kind_words(it):
-            if k not in kept:
-                out.append(re.compile(rf"\b{re.escape(k)}\b"))
-            for c in it.get("colors") or []:
-                out.append(re.compile(rf"\b{re.escape(str(c).lower())}[\s-]+(?:\w+[\s-]+){{0,2}}{re.escape(k)}\b"))
+def _model_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) -> dict:
+    """The advisor's own line per slot; a worn garment always has one (its name, if
+    the model gave none)."""
+    given = best.out.get("lines")
+    lines = given if isinstance(given, dict) else {}
+    out = {}
+    for slot in CATEGORIES:
+        said = str(lines.get(slot) or "").strip()
+        if picks.get(slot):
+            out[slot] = said or str(day.wd.by_item[picks[slot]]["label"])
+        elif not day.prefs.closet_only:
+            out[slot] = said
+        elif slot in missing:
+            out[slot] = "Nothing in your closet for this."
     return out
 
 
-def _kind_words(it: dict) -> set[str]:
-    kind = str(it.get("type") or "")
-    return {w for w in re.split(r"[^a-z]+", TYPE_LABEL.get(kind, kind).lower()) if len(w) > 3}
+def _plain_lines(picks: dict, day: check.Day, missing: list[str]) -> dict:
+    """The outfit as it now stands, in plain words — used when the fallback changed
+    it, so no sentence can describe a garment that is no longer worn or deny one
+    that was just put on."""
+    out = {s: str(day.wd.by_item[i]["label"]) for s in CATEGORIES if (i := picks.get(s))}
+    out |= {s: "Nothing suitable in your closet for this." for s in missing if s in CATEGORIES}
+    return out
 
 
 def _owned_words(picks: dict, wd: "pk.Wardrobe") -> list[tuple[str, bool]]:

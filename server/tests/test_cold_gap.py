@@ -42,9 +42,9 @@ def test_cold_gap_is_its_own_word_not_outer():
     tee = {"id": "t", "label": "tee", "category": "base", "roles": ["base"], "warmth": 1,
            "colors": ["white"], "formality": ["casual"]}
     wd = pk._index([tee])
-    assert gaps.missing({"base": "t"}, _day(wd, 3.0), [], set()) == ["bottoms", "footwear", "warmth"]
-    assert gaps.missing({"base": "t"}, _day(wd, 3.0), ["outer"], set()) == ["outer", "bottoms", "footwear", "warmth"]
-    assert gaps.missing({"base": "t"}, _day(wd, 25.0), [], set()) == ["bottoms", "footwear"]
+    assert gaps.missing({"base": "t"}, _day(wd, 3.0), []) == ["bottoms", "footwear", "warmth"]
+    assert gaps.missing({"base": "t"}, _day(wd, 3.0), ["outer"]) == ["outer", "bottoms", "footwear", "warmth"]
+    assert gaps.missing({"base": "t"}, _day(wd, 25.0), []) == ["bottoms", "footwear"]
 
 
 def test_a_forbidden_warm_garment_does_not_hide_the_gap():

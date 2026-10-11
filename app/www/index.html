@@ -3442,7 +3442,10 @@ async function savePushPayload(){
       // reviewer, 2026-10-03.
       prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[],
       // How outfits looked (style.py): the worker forwards this as it stands.
-      styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null}));
+      styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null,
+      // When each garment was last worn, as a time: the worker turns it into "days
+      // ago" at 06:45, so a snapshot written last night still counts right.
+      recentAt:lastWornAt()}));
   }catch(e){}
 }
 
@@ -3480,6 +3483,21 @@ function syncGoBtn(){
 }
 
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
+/* What they wore lately (2026-10-11): {itemId: local days ago} over the last week,
+   for the advisor's "avoid repeating yesterday". Days by the local calendar, so a
+   wear at 23:00 is "yesterday" the next morning. Twin: daysAgo in AdviceWorker.kt. */
+const RECENT_DAYS=7;
+function dayStart(t){ const d=new Date(t); d.setHours(0,0,0,0); return d.getTime(); }
+function lastWornAt(now=Date.now()){
+  const out={}, since=dayStart(now)-RECENT_DAYS*DAY_MS;
+  for(const w of wearLog) if(w&&w.itemId&&w.wornAt>=since&&w.wornAt<=now&&!(out[w.itemId]>=w.wornAt)) out[w.itemId]=w.wornAt;
+  return out;
+}
+function recentWorn(now=Date.now()){
+  const out={}, today=dayStart(now);
+  for(const [id,t] of Object.entries(lastWornAt(now))) out[id]=Math.round((today-dayStart(t))/DAY_MS);
+  return out;
+}
 async function getAdvice(lat,lon){
   // Stamped when the wardrobe snapshot is taken, not when the answer lands: a
   // suitcase declared while the request is in flight is NEWER than this advice,
@@ -3498,6 +3516,9 @@ async function getAdvice(lat,lon){
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(outUntil) body.outUntil=outUntil;
+    // What they wore lately, {id: days ago}, so the advisor can avoid yesterday's
+    // outfit when something else of theirs suits as well (2026-10-11).
+    const rec=recentWorn(); if(Object.keys(rec).length) body.recent=rec;
     // No scale on the REQUEST: each garment carries the year its own number was
     // graded against, in closetPayload above. What has to be known at 06:45 is what
     // each number meant when it was written, and that does not change when the

@@ -134,12 +134,27 @@ def _warm_up(out: dict, day: Day) -> None:
                 continue
             if not scale.warm_enough(item, day.plan) or scale.too_warm(item, day.plan):
                 continue
+            kind = item.get("type") or ""
+            # Never a second top: that is the stack step 4 just took apart. Raised by
+            # the pre-push reviewer, 2026-10-11.
+            if kind in TOPS and any(wd.by_item[out[c]].get("type") in TOPS for c in TORSO if out.get(c) and c != slot):
+                continue
             trial = {**out, slot: iid}
             if rules.violations(day.rules, trial, wd.by_item) or sleeve_clashes(trial, wd.by_item):
                 continue
-            kind = item.get("type") or ""
             snow_wet = bool(day.w.get("isSnow")) and slot == "outer" and not item.get("waterproof")
             cands.append((snow_wet, kind in TOPS, kind not in _WARM_FIRST, -scale.garment_temp(item), slot, iid))
     if cands:
         *_, slot, iid = min(cands)
         out[slot] = iid
+        return
+    # No layer to add: a warmer TOP in place of the thin one — the knit polo instead
+    # of the polo, rather than both.
+    base = out.get("base")
+    if base and wd.by_item[base].get("type") in TOPS:
+        for iid, item in wd.by_item.items():
+            if (iid not in out.values() and "base" in (wd.by_roles.get(iid) or ())
+                    and scale.warm_enough(item, day.plan) and not scale.too_warm(item, day.plan)
+                    and not rules.violations(day.rules, {**out, "base": iid}, wd.by_item)):
+                out["base"] = iid
+                return

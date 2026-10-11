@@ -312,3 +312,16 @@ def test_snow_never_demands_boots_they_have_banned():
     d = day(-3, UNDER, SWEATER, JEANS, SNEAK, BOOTS, isSnow=True, prefs=pk.Prefs(rules=(ban,)))
     found = check.issues(ids(inner=UNDER, base=SWEATER, bottoms=JEANS, footwear=SNEAK), d)
     assert not any(i.kind == "snow-footwear" for i in found)
+
+
+def test_the_morning_push_forwards_recent_wear_counted_at_fire_time():
+    """The worker turns the snapshot's `recentAt` times into `recent` days when it
+    fires (Kotlin cannot run here; this pins the seam against the server's field)."""
+    from pathlib import Path
+    kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+          / "com" / "korety" / "outfitadvisor" / "AdviceWorker.kt").read_text()
+    body = kt[kt.index("private fun attachWardrobe"):]
+    assert 'optJSONObject("recentAt")' in body and 'body.put("recent", recent)' in body
+    assert "daysAgo(at.optLong(id), System.currentTimeMillis())" in body
+    import schemas
+    assert "recent" in schemas.AdviceRequest.model_fields

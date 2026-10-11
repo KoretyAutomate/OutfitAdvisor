@@ -93,3 +93,11 @@ def test_a_dress_put_on_mid_fallback_takes_the_trousers_off_at_once():
     d = day(29, SWEATER, DRESS, JEANS, BOOTS, SNEAK, hi=32, prefs=pk.Prefs(rules=(ban,)))
     fixed, _ = fallback.fix(ids(base=SWEATER, bottoms=JEANS, footwear=BOOTS), d)
     assert fixed["base"] == DRESS["id"] and fixed["bottoms"] is None and fixed["footwear"] == SNEAK["id"], fixed
+
+
+def test_with_no_knitwear_the_warmer_polo_replaces_the_thinner_one():
+    """Raised by the pre-push reviewer, 2026-10-11: warm-up must not restore the
+    stack step 4 took apart."""
+    d = day(10, POLO, KNIT_POLO, JEANS, SNEAK)
+    fixed, _ = fallback.fix(ids(base=POLO, mid=KNIT_POLO, bottoms=JEANS, footwear=SNEAK), d)
+    assert fixed["base"] == KNIT_POLO["id"] and not fixed.get("mid"), fixed

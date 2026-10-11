@@ -8,6 +8,7 @@ on EVERY answer. It is reached rarely — the model is told about every issue fi
 what cannot be worn, put on what is missing, add warmth when they would be cold,
 take off what is far too warm. Everything else stays the model's choice.
 """
+import check
 import layers
 import picks as pk
 import rules
@@ -47,13 +48,14 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
         if not out.get(slot):
             continue                              # a dress put on above took it off
         if layers.overdressed(wd.by_item[out[slot]], slot, wd, day.plan, day.peak, day.rules):
-            out[slot] = None
-            alt = pk._suitable_for(slot, out, wd, day.plan, day.rules,
-                                   hot_temp=pk._heat_temp(slot, day.plan, day.peak))
-            if alt or slot in pk._SHEDDABLE:
+            was = out[slot]
+            alt = _first(slot, out, day, pk._heat_temp(slot, day.plan, day.peak))
+            if alt:
                 _put(out, slot, alt, wd)
+            elif slot in pk._SHEDDABLE and not _adds_trouble(out, {**out, slot: None}, day):
+                out[slot] = None
             else:
-                out[slot] = before[slot]          # nothing cooler: better dressed than not
+                out[slot] = was                   # nothing cooler: better dressed than not
     # 6. Dressed: a top, trousers, shoes — whatever they own that is legal. A top
     #    that suits the heat first; failing that any legal top, because too warm is
     #    better than undressed (raised by the pre-push reviewer, 2026-10-11).
@@ -68,9 +70,8 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     #     first — shorts before jeans at 30C — and only failing that anything legal.
     for slot in ("bottoms", "footwear"):
         if not out.get(slot) and not (slot == "bottoms" and wd.by_group.get(out.get("base")) == "onepiece"):
-            out[slot] = pk._suitable_for(slot, out, wd, day.plan, day.rules,
-                                         hot_temp=pk._heat_temp(slot, day.plan, day.peak)) \
-                or pk._suitable_for(slot, out, wd, day.plan, day.rules)
+            out[slot] = _first(slot, out, day, pk._heat_temp(slot, day.plan, day.peak)) \
+                or _first(slot, out, day, None)
     # 8. An undershirt is never worn on its own.
     if out.get("inner") and not any(out.get(c) for c in TORSO):
         out["inner"] = None
@@ -113,16 +114,48 @@ def _snow_proof(out: dict, day: Day) -> None:
                 continue
             if slot == "outer" and not scale.warm_enough(item, day.plan) and out.get(slot):
                 continue
-            if not rules.violations(day.rules, {**out, slot: iid}, wd.by_item):
+            if not rules.violations(day.rules, {**out, slot: iid}, wd.by_item) \
+                    and not _adds_trouble(out, {**out, slot: iid}, day):
                 out[slot] = iid
                 break
+
+
+def _adds_trouble(out: dict, trial: dict, day: Day) -> bool:
+    """Would this change add a hard issue the outfit did not have — the same facts
+    check.py judges? Every change the fallback makes passes this, so no step can
+    undo another (raised by the pre-push reviewer, 2026-10-11, more than once). Legs
+    a dress covered must stay covered, owned trousers or not."""
+    wd = day.wd
+    if wd.by_group.get(out.get("base")) == "onepiece" and wd.by_group.get(trial.get("base")) != "onepiece" \
+            and not trial.get("bottoms"):
+        return True
+    return not check.hard(check.issues(trial, day)) <= check.hard(check.issues(out, day))
+
+
+def _first(slot: str, out: dict, day: Day, hot: float | None) -> str | None:
+    """The first unused garment they own that is legal for `slot`, warm enough if it
+    is the outer layer, under `hot` if given, and adds no hard issue."""
+    wd = day.wd
+    for iid, item in wd.by_item.items():
+        if iid in out.values() or slot not in (wd.by_roles.get(iid) or ()):
+            continue
+        if slot == "outer" and not scale.warm_enough(item, day.plan):
+            continue
+        if hot is not None and scale.too_warm(item, hot):
+            continue
+        trial = {**out, slot: iid}
+        if slot == "base" and wd.by_group.get(iid) == "onepiece":
+            trial["bottoms"] = None
+        if rules.violations(day.rules, trial, wd.by_item) or _adds_trouble(out, trial, day):
+            continue
+        return iid
+    return None
 
 
 def _put_on_a_top(out: dict, day: Day) -> None:
     for heat in (True, False):
         for slot in TORSO:
-            hot = pk._heat_temp(slot, day.plan, day.peak) if heat else None
-            alt = pk._suitable_for(slot, out, day.wd, day.plan, day.rules, hot_temp=hot)
+            alt = _first(slot, out, day, pk._heat_temp(slot, day.plan, day.peak) if heat else None)
             if alt:
                 _put(out, slot, alt, day.wd)
                 return
@@ -147,7 +180,7 @@ def _warm_up(out: dict, day: Day) -> None:
             # Never the stack step 4 just took apart — the SAME rule check.py applies.
             # Raised twice by the pre-push reviewer, 2026-10-11.
             if stacked(trial, wd.by_item) or rules.violations(day.rules, trial, wd.by_item) \
-                    or sleeve_clashes(trial, wd.by_item):
+                    or sleeve_clashes(trial, wd.by_item) or _adds_trouble(out, trial, day):
                 continue
             snow_wet = bool(day.w.get("isSnow")) and slot == "outer" and not item.get("waterproof")
             cands.append((snow_wet, kind in TOPS, kind not in _WARM_FIRST, -scale.garment_temp(item), slot, iid))
@@ -161,10 +194,19 @@ def _warm_up(out: dict, day: Day) -> None:
         for iid, item in wd.by_item.items():
             # The base is worn all day: too warm judged by the afternoon (pre-push
             # reviewer, 2026-10-11).
-            if (iid not in out.values() and "base" in (wd.by_roles.get(iid) or ())
-                    and scale.warm_enough(item, day.plan)
-                    and not scale.too_warm(item, pk._heat_temp("base", day.plan, day.peak))
-                    and not stacked({**out, "base": iid}, wd.by_item)
-                    and not rules.violations(day.rules, {**out, "base": iid}, wd.by_item)):
-                out["base"] = iid
+            if (iid in out.values() or "base" not in (wd.by_roles.get(iid) or ())
+                    or not scale.warm_enough(item, day.plan)
+                    or scale.too_warm(item, pk._heat_temp("base", day.plan, day.peak))):
+                continue
+            trial = {**out, "base": iid}
+            # Out of a dress: the trousers come in the SAME change, or not at all.
+            if wd.by_group.get(out["base"]) == "onepiece" and wd.by_group.get(iid) != "onepiece":
+                legs = _first("bottoms", trial, day, pk._heat_temp("bottoms", day.plan, day.peak)) \
+                    or _first("bottoms", trial, day, None)
+                if not legs:
+                    continue
+                trial["bottoms"] = legs
+            if (not stacked(trial, wd.by_item) and not rules.violations(day.rules, trial, wd.by_item)
+                    and not _adds_trouble(out, trial, day)):
+                out.update(trial)
                 return

@@ -138,3 +138,21 @@ def test_a_dress_swapped_for_a_warmer_top_gets_its_trousers_back():
     fixed, _ = fallback.fix(ids(base=DRESS, footwear=SNEAK), day(3, DRESS, sweater_base, JEANS, SNEAK))
     assert fixed["base"] == sweater_base["id"], "the scenario: the dress gave way to warmth"
     assert fixed["bottoms"] == JEANS["id"], fixed
+
+
+def test_a_dress_is_kept_when_no_trousers_could_replace_it():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    from wardrobe_fixtures import g
+    sweater_base = g("swbase002", "chunky sweater", "tops", "sweater", ["base"], 4)
+    fixed, _ = fallback.fix(ids(base=DRESS, footwear=SNEAK), day(3, DRESS, sweater_base, SNEAK))
+    assert fixed["base"] == DRESS["id"], fixed
+
+
+def test_cooling_never_swaps_in_a_second_top():
+    """Raised by the pre-push reviewer, 2026-10-11: tee + hot sweater + jacket at
+    24C — the sweater is shed, not swapped for a polo over the tee."""
+    from wardrobe_fixtures import JACKET
+    import check
+    d = day(24, TEE, SWEATER, JACKET, POLO, JEANS, SNEAK, hi=27)
+    fixed, _ = fallback.fix(ids(base=TEE, mid=SWEATER, outer=JACKET, bottoms=JEANS, footwear=SNEAK), d)
+    assert "stacked" not in check.hard(check.issues(fixed, d)), fixed

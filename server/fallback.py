@@ -65,16 +65,27 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
                 k = _key(q)
                 if k not in visited and k not in fresh:
                     fresh.add(k)
-                    nxt.append((_rank(q, picks, day), q))
+                    nxt.append((_rank(q, picks, day), hard(issues(q, day)), q))
         if not nxt:
             break
-        nxt.sort(key=lambda rq: rq[0])
-        beam = [q for _, q in nxt[:BEAM]]
+        nxt.sort(key=lambda r: r[0])
+        # Diverse first: the best outfit for each distinct set of unresolved issues,
+        # then the rest by rank. Otherwise fifty equivalent sweater swaps fill the
+        # beam and prune the one different path (the tee, then a layer). Raised by
+        # the pre-push reviewer, 2026-10-11.
+        seen_sigs: set = set()
+        first: list = []
+        rest: list = []
+        for r in nxt:
+            sig = frozenset(r[1])
+            (rest if sig in seen_sigs else first).append(r)
+            seen_sigs.add(sig)
+        beam = [q for _, _, q in (first + rest)[:BEAM]]
         # Only what is KEPT is marked: an outfit pruned at this depth may be the one
         # step a later path needs. Raised by the pre-push reviewer, 2026-10-11.
         visited |= {_key(q) for q in beam}
         if nxt[0][0] < best_rank:
-            best_rank, best = nxt[0]
+            best_rank, best = nxt[0][0], nxt[0][2]
     return best, {s: best.get(s) for s in CATEGORIES if best.get(s) != picks.get(s)}
 
 

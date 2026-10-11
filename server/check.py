@@ -27,6 +27,7 @@ import style
 from llm import _peak_temp, _plan_temp
 
 TORSO = ("base", "mid", "outer")
+HOT_DAY_C = 24      # the coldest felt hour at or above this: no layer (llm._weather_flags' line)
 # A top is worn ONCE. These are tops however warm they are: a knit polo is still a
 # polo. A button-up `shirt` is left out on purpose — open over a tee it is a layer.
 TOPS = frozenset({"t_shirt", "polo", "tank", "blouse"})
@@ -145,6 +146,12 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
                   f"({day.peak:.0f}C felt)", True)
             for slot, iid in worn.items()
             if layers.overdressed(wd.by_item[iid], slot, wd, day.plan, day.peak, day.rules)]
+    # A hot day wants no layer at all — not even an open shirt over the tee (user,
+    # 2026-07-15: "no outer/mid recommendations when the weather is hot"). Found by
+    # the live test days, 2026-10-11. The same line the prompt's hot-day flag uses.
+    if day.plan >= HOT_DAY_C:
+        out += [Issue(f"hot-{slot}", f"{_name(day, worn[slot])} as {slot}: no layer is needed on a hot day", True)
+                for slot in ("mid", "outer") if worn.get(slot)]
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
                 for slot in ("footwear", "outer")

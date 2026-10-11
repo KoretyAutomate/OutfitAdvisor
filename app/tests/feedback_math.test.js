@@ -9,10 +9,9 @@
  *   - the SIGN (felt too warm ⇒ offset up ⇒ lighter clothes). Backwards here means
  *     days of steadily worse advice before anyone notices.
  *   - CONVERGENCE ("just right" stops moving it; repeated verdicts don't run away).
- *   - applyTempOffset returns a COPY and leaves non-thermal fields alone, so the
- *     displayed forecast is never the shifted one.
  *   - re-tapping replaces the rating instead of stacking a second correction.
- *   - parity with the Python twin's thresholds (server/engine.py).
+ * (Applying the offset to a forecast is the server's alone since 2026-10-11, when
+ * the phone's catalogue twin of engine.py was removed.)
  *
  * Run: npm test   (or: node tests/feedback_math.test.js — jsdom is a devDependency since 2026-08-20)
  */
@@ -74,47 +73,9 @@ console.log("\n--- 4. revert is the exact inverse ------------------------------
 ev("tempOffset = 0.9; fbApply(-1); fbRevert(-1);");
 check("fbRevert undoes fbApply exactly", Math.abs(ev("tempOffset") - 0.9) < 1e-9, ev("tempOffset"));
 
-console.log("\n--- 5. applyTempOffset: copy, temps only -------------------------");
-ev(`WX = {lo:10, hi:20, feelsLo:8, feelsHi:19, morning:11, midday:18, evening:14,
-        rain:40, wind:9, code:61, desc:"Rain", isRain:true, isSnow:false, swing:10};`);
-ev("SHIFTED = applyTempOffset(WX, 3)");
-check("returns a new object (original untouched)", ev("WX.lo") === 10, ev("WX.lo"));
-check("every temperature field shifts", ev(`
-  SHIFTED.lo===13 && SHIFTED.hi===23 && SHIFTED.feelsLo===11 && SHIFTED.feelsHi===22 &&
-  SHIFTED.morning===14 && SHIFTED.midday===21 && SHIFTED.evening===17`),
-  ev("JSON.stringify(SHIFTED)"));
-check("rain / wind / code / isRain are NOT shifted", ev(`
-  SHIFTED.rain===40 && SHIFTED.wind===9 && SHIFTED.code===61 && SHIFTED.isRain===true`));
-check("swing (hi-lo) is invariant under a uniform shift and left alone",
-  ev("SHIFTED.swing===10 && (SHIFTED.hi-SHIFTED.lo)===(WX.hi-WX.lo)"));
-check("offset 0 short-circuits to the same object (no needless copy)",
-  ev("applyTempOffset(WX,0) === WX"));
-check("nulls survive (hourly index misses stay null, not NaN)",
-  ev("applyTempOffset({lo:5,hi:9,morning:null},2).morning === null"));
-
-console.log("\n--- 5b. twin parity: the SAME table server/engine.py asserts ------");
-// Python round() is banker's rounding, JS Math.round() is half-up. A .5 offset is
-// reachable (five "a bit warm" taps = 1.5), so the two twins must agree digit for
-// digit or the same weather yields different outfits depending on whether the DGX
-// was reachable. This table is duplicated verbatim in scripts/check_feedback_fb1.py
-// section [8] — both sides must pass it.
-const HALF_UP = [
-  [10, 1.5, 12], [11, 1.5, 13], [10, 0.5, 11], [11, 0.5, 12],
-  [-10, 0.5, -9], [-11, 0.5, -10], [10, -1.5, 9], [11, -0.5, 11],
-];
-for (const [val, off, want] of HALF_UP) {
-  const got = ev(`applyTempOffset({morning:${val}}, ${off}).morning`);
-  check(`applyTempOffset(${val}, ${off >= 0 ? "+" : ""}${off}) === ${want}`, got === want, got);
-}
-
-console.log("\n--- 6. the offset actually changes the outfit --------------------");
-check("a +6 calibration dresses lighter than a -6 one on the same weather", ev(`
-  (()=>{ const cold=recommend(applyTempOffset(WX,-6),"man","casual");
-         const warm=recommend(applyTempOffset(WX, 6),"man","casual");
-         return cold.mid !== warm.mid || cold.base !== warm.base; })()`));
-check("recommend() is unaffected when the calibration is 0", ev(`
-  JSON.stringify(recommend(applyTempOffset(WX,0),"man","casual")) ===
-  JSON.stringify(recommend(WX,"man","casual"))`));
+// Sections 5-6 (applyTempOffset and the offline recommender) went with the phone's
+// catalogue twin on 2026-10-11: the calibration is applied by the SERVER only now
+// (engine.apply_temp_offset, pinned in server/tests), and the phone dresses nobody.
 
 console.log("\n--- 7. re-tapping replaces, never stacks -------------------------");
 ev("tempOffset = 0; feedback = [];");

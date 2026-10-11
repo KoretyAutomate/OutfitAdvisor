@@ -941,13 +941,9 @@ const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Par
   81:["🌧️","Rain showers"],82:["⛈️","Violent showers"],85:["🌨️","Snow showers"],86:["❄️","Snow showers"],
   95:["⛈️","Thunderstorm"],96:["⛈️","Storm w/ hail"],99:["⛈️","Storm w/ hail"]};
 const SNOW=[71,73,75,77,85,86], RAIN=[51,53,55,61,63,65,66,67,80,81,82,95,96,99];
-function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
-/* Personal thermal calibration. Twin: apply_temp_offset() in server/engine.py.
-   `offset` is ADDED to the temps the recommender sees — felt too warm ⇒ positive
-   ⇒ we plan for a warmer day ⇒ lighter clothes. Only temperatures move; swing
-   (= hi−lo) is invariant under a uniform shift. Returns a COPY: the caller keeps
-   the real forecast for display. */
-const TEMP_KEYS=["lo","hi","feelsLo","feelsHi","morning","midday","evening","planLo","planHi"];
+/* The phone dresses nobody itself (2026-10-11): the catalogue twin of the server's
+   engine.py — recommend(), applyTempOffset(), outfitToBullets() — was removed with
+   the advisor refactor. Offline, the day's saved advice is shown instead. */
 /* Dress for how the day FEELS, 08:00-19:00, or until an evening event ends (user,
    2026-10-10). Twin of weather.with_plan / engine.plan_temp. Feels-like moves an
    hour at most 4° colder or 3° warmer than the air: the warmth scale is measured
@@ -969,58 +965,6 @@ async function eveningOut(){
   try{ const P=Plugins.OutfitAlarm; if(!P||!P.eveningOut) return null;
        const r=await P.eveningOut(); return r&&r.until>=20&&r.until<=24?r.until:null; }
   catch(e){ return null; }
-}
-function applyTempOffset(w,offset){
-  if(!offset) return w;
-  const o={...w};
-  for(const k of TEMP_KEYS) if(o[k]!=null) o[k]=Math.round(o[k]+offset);
-  return o;
-}
-function recommend(w,gender,style){
-  const t = planTemp(w); const o={};
-  /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
-  if(t>=24) o.inner="Sweat-wicking breathable inner (AIRism-type)";
-  else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light inner camisole or undershirt (worn under the top)","Light cotton undershirt");
-  else if(t>=5) o.inner="Warm inner (Heattech-type)";
-  else o.inner="Heavyweight thermal inner";
-  if(t>=26) o.base=pick(gender,"Breathable cotton/linen tee","Light camisole or linen blouse","Lightweight breathable tee");
-  else if(t>=18) o.base=pick(gender,"Cotton T-shirt","Short-sleeve top or light blouse","Cotton T-shirt");
-  else if(t>=10) o.base=pick(gender,"Long-sleeve shirt","Long-sleeve top","Long-sleeve shirt");
-  else o.base=pick(gender,"Thermal / merino base layer","Thermal or merino base layer","Thermal base layer");
-  if(t>=22) o.mid="None needed";
-  else if(t>=15) o.mid=pick(gender,"Light overshirt or thin knit","Light cardigan or knit","Light layer / thin knit");
-  else if(t>=7) o.mid=pick(gender,"Wool sweater or fleece","Sweater or fleece","Wool sweater or fleece");
-  else o.mid=pick(gender,"Heavy knit + insulating mid-layer","Heavy knit + insulating layer","Heavy knit / insulating layer");
-  if(w.isSnow) o.outer="Insulated waterproof parka";
-  else if(t>=24) o.outer="None — but pack a thin layer for AC indoors";
-  else if(t>=16) o.outer=pick(gender,"Light jacket or blazer","Light jacket or trench","Light jacket");
-  else if(t>=8) o.outer=pick(gender,"Wool coat or padded jacket","Wool coat or padded jacket","Insulated jacket");
-  else o.outer=pick(gender,"Heavy winter coat / down","Down coat or heavy wool coat","Heavy winter coat");
-  if(w.wind>=8 && !/waterproof|shell|parka|down/i.test(o.outer)) o.outer+=" (windproof)";
-  if(t>=26) o.bottoms=pick(gender,"Light chinos or shorts","Skirt, dress, or light trousers","Shorts or light trousers");
-  else if(t>=16) o.bottoms=pick(gender,"Chinos or jeans","Jeans, trousers, or midi skirt + tights","Chinos or jeans");
-  else if(t>=6) o.bottoms=pick(gender,"Jeans or wool trousers","Trousers or jeans (consider thermal tights)","Warm trousers or jeans");
-  else o.bottoms=pick(gender,"Lined trousers + base layer","Thermal-lined trousers or thick tights","Insulated / lined trousers");
-  if(style==="active") o.bottoms="Stretch / technical trousers";
-  if(w.isSnow) o.footwear="Insulated waterproof boots";
-  else if(t>=24) o.footwear=pick(gender,"Loafers or breathable sneakers","Sandals or breathable flats","Breathable sneakers");
-  else if(t>=10) o.footwear=style==="smart"?"Leather shoes / ankle boots":"Sneakers or casual shoes";
-  else o.footwear="Insulated boots";
-  const acc=[]; if(t<5) acc.push("hat, gloves & scarf"); else if(t<10) acc.push("scarf");
-  if(w.rain>=40||w.isRain) acc.push("umbrella");
-  if(w.hi>=24 && [0,1,2].includes(w.code)) acc.push("sunglasses");
-  if(w.swing>=10) acc.push("a packable layer for the temp swing");
-  o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
-  if(w.swing>=10){ const span=(w.morning!=null&&w.midday!=null)?` (${w.morning}° → ${w.midday}°)`:"";
-    o.tip=`Big ${w.swing}° swing today${span}. Dress in layers you can shed by midday and add back in the evening.`; }
-  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%) — take an umbrella.`;
-  else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
-  else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
-  else o.tip="Comfortable conditions — the layers above keep you flexible through the day.";
-  return o;
-}
-function outfitToBullets(o){
-  return `• Inner: ${o.inner}\n• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\nTip: ${o.tip}`;
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
@@ -1749,7 +1693,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.43";
+const WEB_BUILD="1.44";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3678,28 +3622,20 @@ async function getAdvice(lat,lon){
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
             missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null};
   }catch(e){
-    // fallback: compute everything on-device. The calibration applies here too —
-    // recommend against shifted temps, but return the REAL weather for display.
+    // ONE advisor (2026-10-11): offline, the phone does not invent an outfit from a
+    // catalogue that knows nothing about this wardrobe. It shows the advice already
+    // made today, if there is one, and otherwise says plainly that it could not ask.
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
     catch(e2){ throw new Error(friendly(e2)); }
-    // The on-device recommender dresses from a catalogue and knows nothing about
-    // this wardrobe. With the closet declared complete that is precisely what must
-    // not happen, and an outage is where a broken promise is hardest to notice —
-    // everything else on the screen looks normal. The server's own failure path
-    // answers this way; so does this one.
-    if(closetComplete){
-      const none={};
-      for(const k of CATS) none[k]="None — couldn't reach the advisor";
-      none.tip="";
-      return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
-              closetSent:cl.length>0,missing:[],
-              text:"• Nothing to suggest — couldn't reach the advisor.\n"+
-                   "• Your closet is set to 'complete', so nothing outside it is offered."};
-    }
-    const o=recommend(applyTempOffset(w,tempOffset),state.gender,state.style);
-    return {at,weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
-            closetUsed:false,picks:null,closetSent:cl.length>0};
+    const saved=await savedToday();
+    if(saved) return {...saved,weather:w,source:"saved"};
+    const none={};
+    for(const k of CATS) none[k]="None — couldn't reach the advisor";
+    none.tip="";
+    return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
+            closetSent:cl.length>0,missing:[],
+            text:"• Couldn't reach your advisor just now — try again in a moment."};
   }
 }
 
@@ -3739,7 +3675,8 @@ function renderOutfit(o,text,source,res){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
-  if(source==="offline"){ b.textContent="offline estimate"; b.className="chip off"; }
+  if(source==="offline"){ b.textContent="offline"; b.className="chip off"; }
+  else if(source==="saved"){ b.textContent="saved earlier today"; b.className="chip off"; }
   // Re-dressed on the phone after a gender or style change. Not the LLM's answer
   // any more, and not a connection failure either — saying "AI · 122B" over an
   // outfit the on-device recommender produced credits the wrong author.
@@ -4309,9 +4246,10 @@ async function run(){
     res.at=res.at||Date.now();    // when it was made (request time), for the suitcase note
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
-    await saveToday(res,"app");
+    // Only a fresh answer replaces the day's advice: offline, the morning's stands.
+    if(res.source!=="offline"&&res.source!=="saved") await saveToday(res,"app");
     if($("todayFrom")) $("todayFrom").style.display="none";
-    if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
+    if(res.source==="offline"||res.source==="saved") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(friendly(e)); }
   // Restored from what is NOW on screen, not from the label captured before the
@@ -5228,6 +5166,16 @@ async function saveToday(res,how){
     todaySeen=raw;
   }catch(e){}
 }
+/* Today's advice as saved (the morning push, or this page earlier) — what the
+   offline path shows instead of inventing an outfit. Null when there is none. */
+async function savedToday(){
+  try{
+    const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
+    if(!d||d.day!==todayISO()||!d.outfit) return null;
+    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
+            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[]};
+  }catch(e){ return null; }
+}
 async function loadToday(){
   let d=null;
   try{ const raw=await prefGet(TODAY_KEY,""); todaySeen=raw; d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
@@ -5544,29 +5492,22 @@ async function load(){
    Wrong on both counts, and convincing. The re-render is generic, so it says so:
    no picks, no closet ownership, and every tile falls back to its icon.
    Raised by the pre-push reviewer, 2026-08-26. */
-function rerenderLocalOutfit(){
-  if(!lastWeather) return;
-  lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);
-  lastText=outfitToBullets(lastOutfit);
-  lastSource="local";
-  lastRes={weather:lastWeather,outfit:lastOutfit,text:lastText,source:lastSource,
-           picks:null,closetUsed:false,closetSent:false};
-  renderOutfit(lastOutfit,lastText,lastSource,lastRes);
-  // Kept, so reopening the app shows what is on screen rather than the LLM answer
-  // this replaced.
-  saveToday(lastRes,"app");
-}
+/* A profile change (gender, style) asks the ADVISOR again (2026-10-11) — the phone
+   no longer re-dresses from its own catalogue, which threw away a closet-backed
+   answer for generic clothing. With no advice on screen yet, the next request
+   simply uses the new setting. */
+function reaskAdvisor(){ if(lastRes&&state.lat!=null) run(); }
 // Tapping the option you are already on changes nothing — and must therefore cost
 // nothing. Without this guard it threw away a closet-backed answer, replaced it
 // with generic on-device clothing, and saved that over the day's advice.
 $("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
   if(b.dataset.g===state.gender) return;
-  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");rerenderLocalOutfit();};
+  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");reaskAdvisor();};
 // Style feeds the same recommender, so it re-dresses the same way. It used only to
 // repaint the segment and leave yesterday's outfit on screen under the new label.
 $("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
   if(b.dataset.s===state.style) return;
-  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");rerenderLocalOutfit();};
+  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");reaskAdvisor();};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");

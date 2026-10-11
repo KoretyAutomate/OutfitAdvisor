@@ -409,7 +409,7 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("no tip means no tip line", 
     w.document.getElementById("outfitTip").style.display === "none");
 
-  console.log("\n--- 10b. changing gender re-dresses honestly --------------------");
+  console.log("\n--- 10b. changing gender asks the advisor again -----------------");
   /* The on-device recommender knows nothing about the closet, so the garments it
      names are generic. Carrying the previous result along with them kept its
      `picks`, and the grid put the OLD outfit's photos beside the NEW outfit's
@@ -429,26 +429,18 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   // would test the guard rather than the re-render.
   const other = [...w.document.querySelectorAll("#genderSeg button")]
     .find(b => b.dataset.g !== ev("state.gender"));
+  /* 2026-10-11: the phone no longer re-dresses from its own catalogue — a profile
+     change asks the ADVISOR again, so the closet-backed answer is replaced by
+     another closet-backed answer, never by generic clothing. */
   ev(`lastRes = {weather:lastWeather, outfit:lastOutfit, text:"x", source:"llm",
-                 picks:{base:"i1"}, closetUsed:true, closetSent:true};`);
+                 picks:{base:"i1"}, closetUsed:true, closetSent:true}; state.lat = 40.3; state.lon = -74.6;
+      window.__asked = 0; run = async () => { window.__asked++; };`);
   other.click();
   await new Promise(r => setTimeout(r, 40));
-  check("re-dressing locally drops the old outfit's picks",
-    ev(`lastRes.picks`) === null, ev(`lastRes`));
-  check("so no photo from the previous outfit survives beside the new names",
-    !w.document.querySelector("#wearGrid .wearIt img"));
-  check("and every tile is marked as a suggestion, not something owned",
-    [...w.document.querySelectorAll("#wearGrid .wearIt")].every(t =>
-      t.classList.contains("gen")));
-  /* The badge has to move too: "AI · 122B" over an outfit the on-device
-     recommender produced credits the wrong author, and it is not an offline
-     failure either. */
-  check("the badge credits the phone, not the model it no longer came from",
-    w.document.getElementById("srcBadge").textContent === "on this phone",
+  check("changing gender asks the advisor again", ev("window.__asked") === 1, ev("window.__asked"));
+  check("and leaves the closet answer on screen until the new one arrives",
+    w.document.getElementById("srcBadge").textContent === "AI · your closet",
     w.document.getElementById("srcBadge").textContent);
-  check("and the kept copy matches what is on screen",
-    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source === "local",
-    JSON.parse(w.localStorage.getItem("oa.today") || "{}").source);
 
   // Style feeds the same recommender; it used only to repaint the segment and leave
   // the old outfit on screen under the new label.
@@ -476,12 +468,8 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   ev(`lastSource="llm"; lastRes={...lastRes, picks:{base:"i1"}, closetUsed:true};`);
   w.document.querySelectorAll("#styleSeg button")[2].click();
   await new Promise(r => setTimeout(r, 40));
-  // What is guaranteed is that the re-render RAN and is honest about it — whether
-  // the garments differ depends on the style, and asserting that would be testing
-  // the recommender's table, not this handler.
-  check("changing style re-dresses through the same path",
-    ev(`lastSource`) === "local" && ev(`lastRes.picks`) === null, 
-    { source: ev(`lastSource`), picks: ev(`lastRes.picks`) });
+  check("changing style asks the advisor again through the same path", ev("window.__asked") === 2,
+    ev("window.__asked"));
 
   console.log("\n--- 11. the avoid list folds too, and starts folded -------------");
   const rlDet = w.document.getElementById("rlDet");
@@ -674,25 +662,25 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
     ev(`gaps.map(g=>g.slot).join()`) === "outer", ev(`JSON.stringify(gaps)`));
   ev(`gaps=[];`);
 
-  /* An OUTAGE is where a broken promise is hardest to notice: everything else on
-     the screen looks normal. The on-device recommender dresses from a catalogue, so
-     with the closet declared complete it must not run. */
-  ev(`closetComplete=true;
-      fetch = async () => { throw new Error("DGX down"); };
+  /* An OUTAGE (2026-10-11, one advisor): the phone no longer invents an outfit
+     from a catalogue. With nothing saved today it says plainly it could not ask;
+     with today's advice saved, that is what it shows. */
+  w.localStorage.removeItem("oa.today");
+  ev(`fetch = async () => { throw new Error("DGX down"); };
       fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
   const off = await ev(`getAdvice(40.3,-74.6)`);
-  check("with the advisor down, nothing unowned is suggested",
-    Object.entries(off.outfit).every(([k, v]) => k === "tip" || String(v).startsWith("None")),
-    off.outfit);
+  check("with the advisor down and nothing saved, nothing is invented",
+    off.source === "offline" &&
+    Object.entries(off.outfit).every(([k, v]) => k === "tip" || String(v).startsWith("None")), off);
   check("and the PROSE says so too — it is what the notification shows",
-    /Nothing to suggest/.test(off.text) && !/coat|jacket/i.test(off.text), off.text);
+    /Couldn't reach your advisor/.test(off.text) && !/coat|jacket/i.test(off.text), off.text);
 
-  ev(`closetComplete=false;`);
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), outfit: {base: "navy polo", tip: ""},
+    outfit_text: "• Navy polo", picks: {base: "i1"}, closetUsed: true, weather: WX}));
   const off2 = await ev(`getAdvice(40.3,-74.6)`);
-  check("without the tickbox the offline estimate still helps",
-    Object.entries(off2.outfit).some(([k, v]) => k !== "tip" && !String(v).startsWith("None")),
-    off2.outfit);
-  ev(`closetComplete=true;`);
+  check("with today's advice saved, the outage shows it rather than a guess",
+    off2.source === "saved" && off2.outfit.base === "navy polo" && off2.text === "• Navy polo", off2);
+  w.localStorage.removeItem("oa.today");
 
   console.log("\n--- 13b. the MORNING PUSH's gaps count too ----------------------");
   /* The push is how most advice actually arrives. Recording only in the foreground

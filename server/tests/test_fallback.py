@@ -226,3 +226,16 @@ def test_a_big_closet_does_not_hide_the_two_step_repair():
     d = day(3, *sweaters, *shoes, TEE, warm_mid, JEANS, hi=25)
     fixed, _ = fallback.fix({"base": sweaters[0]["id"], "bottoms": JEANS["id"], "footwear": shoes[0]["id"]}, d)
     assert not check.hard(check.issues(fixed, d)), (fixed, check.hard(check.issues(fixed, d)))
+
+
+def test_fifty_equivalent_swaps_do_not_crowd_out_the_one_different_path():
+    """Raised by the pre-push reviewer, 2026-10-11 (reproducible): 50 base-only warm
+    sweaters sorted before the tee must not monopolise the beam."""
+    import check
+    from wardrobe_fixtures import g
+    sweaters = [g(f"aaswb{n:05d}", f"sweater {n}", "tops", "sweater", ["base"], 4) for n in range(50)]
+    warm_mid = g("zzwarmmid", "wool cardigan", "tops", "cardigan", ["mid", "outer"], 4)
+    tee = g("zztee0001", "white tee", "tops", "t_shirt", ["base"], 1)
+    d = day(3, *sweaters, tee, warm_mid, JEANS, SNEAK, hi=25)
+    fixed, _ = fallback.fix({"base": sweaters[0]["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}, d)
+    assert not check.hard(check.issues(fixed, d)), (fixed, check.hard(check.issues(fixed, d)))

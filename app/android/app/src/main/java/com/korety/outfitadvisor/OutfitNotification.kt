@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import org.json.JSONObject
 
 /**
  * The one place the morning outfit notification is built.
@@ -23,7 +24,7 @@ object OutfitNotification {
     const val CHANNEL_OUTFIT = "outfit_daily"
     const val OUTFIT_NOTIF_ID = 4775
     // Fresh constants — daily push owns 4771-4775, packing 4781/4782+,
-    // feedback 4791-4793.
+    // feedback 4791-4794 (4794 = "Wearing it").
     const val CHANNEL_UPDATE = "outfit_update"
     const val UPDATE_NOTIF_ID = 4796
     const val UPDATE_REQUEST = 4797
@@ -43,8 +44,11 @@ object OutfitNotification {
      * @param withFeedback only when [text] is real advice. Asking "how did that
      *   feel?" under "Tap to check what to wear" would collect a rating for an
      *   outfit we never actually recommended, quietly poisoning the calibration.
+     * @param wearPicks the advice's slot -> garment id map, only when it came from
+     *   the wearer's own closet. With at least one id it adds "Wearing it".
      */
-    fun post(context: Context, title: String, text: String, badge: String?, withFeedback: Boolean) {
+    fun post(context: Context, title: String, text: String, badge: String?, withFeedback: Boolean,
+             wearPicks: JSONObject? = null) {
         ensureChannel(context)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -75,9 +79,18 @@ object OutfitNotification {
         if (badge != null) b.setSubText(badge)
         if (withFeedback) {
             // Android renders at most 3 actions; the "a bit cool/warm" steps are in-app.
-            b.addAction(feedbackAction(context, "🥶 Too cold", -2, FeedbackReceiver.REQ_COLD))
-            b.addAction(feedbackAction(context, "👌 Just right", 0, FeedbackReceiver.REQ_OK))
-            b.addAction(feedbackAction(context, "🥵 Too warm", 2, FeedbackReceiver.REQ_WARM))
+            // With closet picks the first slot is "Wearing it" (2026-10-11) — the one
+            // thing done every morning — and "Just right" gives way: no rating
+            // changes nothing, which is what "just right" does. Once the outfit is
+            // logged, FeedbackReceiver swaps "Just right" back in (afterWear), so
+            // the full verdict set is there for the evening.
+            if (wearPicks != null && FeedbackReceiver.pickIds(wearPicks).isNotEmpty()) {
+                b.addAction(wearAction(context, wearPicks))
+                b.addAction(feedbackAction(context, "🥶 Too cold", -2, FeedbackReceiver.REQ_COLD))
+                b.addAction(feedbackAction(context, "🥵 Too warm", 2, FeedbackReceiver.REQ_WARM))
+            } else {
+                b.setActions(*ratingActions(context))
+            }
         }
 
         nm.notify(OUTFIT_NOTIF_ID, b.build())
@@ -119,6 +132,50 @@ object OutfitNotification {
                 .setContentIntent(pi)
                 .build()
         )
+    }
+
+    /** The three coarse verdicts, in display order. */
+    fun ratingActions(context: Context): Array<Notification.Action> = arrayOf(
+        feedbackAction(context, "🥶 Too cold", -2, FeedbackReceiver.REQ_COLD),
+        feedbackAction(context, "👌 Just right", 0, FeedbackReceiver.REQ_OK),
+        feedbackAction(context, "🥵 Too warm", 2, FeedbackReceiver.REQ_WARM)
+    )
+
+    /**
+     * The outfit is logged: rebuild the posted notification with the three verdicts
+     * in place of "Wearing it", without alerting again. Best effort — a notification
+     * already dismissed has nothing to update, and failing here must never cost the
+     * wear that was just written.
+     */
+    fun afterWear(context: Context) {
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val sbn = nm.activeNotifications.firstOrNull { it.id == OUTFIT_NOTIF_ID } ?: return
+            val b = Notification.Builder.recoverBuilder(context, sbn.notification)
+                .setActions(*ratingActions(context))
+                .setOnlyAlertOnce(true)
+            nm.notify(OUTFIT_NOTIF_ID, b.build())
+        } catch (e: Exception) {
+            // Leave the notification as it is; tapping "Wearing it" again is a no-op.
+        }
+    }
+
+    /**
+     * Carries the picks and the DAY they were advised for: the notification can sit
+     * in the shade overnight, and tomorrow's tap must not log today's outfit.
+     */
+    private fun wearAction(context: Context, picks: JSONObject): Notification.Action {
+        val i = Intent(context, FeedbackReceiver::class.java)
+            .setAction(FeedbackReceiver.ACTION_WEAR)
+            .putExtra(FeedbackReceiver.EXTRA_PICKS, picks.toString())
+            .putExtra(FeedbackReceiver.EXTRA_DAY, FeedbackReceiver.dayOf(System.currentTimeMillis()))
+        val pi = PendingIntent.getBroadcast(
+            context, FeedbackReceiver.REQ_WEAR, i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Action.Builder(
+            Icon.createWithResource(context, context.applicationInfo.icon), "👕 Wearing it", pi
+        ).build()
     }
 
     /**

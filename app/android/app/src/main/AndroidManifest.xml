@@ -85,6 +85,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.korety.outfitadvisor.FEEDBACK" />
+                <action android:name="com.korety.outfitadvisor.WEAR" />
             </intent-filter>
         </receiver>
     </application>

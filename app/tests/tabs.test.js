@@ -58,7 +58,8 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
 
   console.log("\n--- 2. every control is on the sheet the user was promised --------");
   // "location & style + advice"
-  for (const id of ["city", "geoBtn", "goBtn", "genderSeg", "styleSeg", "err",
+  // Gender and Style moved to Settings → Profile (2026-10-11); see phone_ux.test.js.
+  for (const id of ["city", "geoBtn", "goBtn", "err",
                     "wxCard", "outfitCard", "aiText", "fbRow", "dShare"])
     check(`${id} is on the location & advice sheet`, sheetOf(id) === "advice", sheetOf(id));
   // "closet"

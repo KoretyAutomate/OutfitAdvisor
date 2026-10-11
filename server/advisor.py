@@ -77,7 +77,7 @@ def wearable(closet: list[dict]) -> list[dict]:
 
 def _line(i: dict, h: str, day: check.Day) -> str:
     roles = i.get("roles") or [i["category"]]
-    hot = [r for r in roles if layers.overdressed(i, r, day.wd, day.plan, day.peak)]
+    hot = [r for r in roles if layers.overdressed(i, r, day.wd, day.plan, day.peak, day.rules)]
     s = sleeves.sleeve_of(i)
     parts = [h, f"{_fenced(i['label'], 60)}" + (f" ({TYPE_LABEL[i['type']]})" if i.get("type") in TYPE_LABEL else ""),
              "can be: " + "/".join(roles),

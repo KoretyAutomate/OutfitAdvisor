@@ -49,7 +49,7 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     for slot in [s for s, i in out.items() if i]:
         if not out.get(slot):
             continue                              # a dress put on above took it off
-        if layers.overdressed(wd.by_item[out[slot]], slot, wd, day.plan, day.peak):
+        if layers.overdressed(wd.by_item[out[slot]], slot, wd, day.plan, day.peak, day.rules):
             out[slot] = None
             alt = pk._suitable_for(slot, out, wd, day.plan, day.rules,
                                    hot_temp=pk._heat_temp(slot, day.plan, day.peak))

@@ -100,3 +100,11 @@ def test_no_top_owned_is_a_gap_not_something_to_ask_again():
     found = kinds(ids(bottoms=JEANS, footwear=SNEAK), day(18, JEANS, SNEAK))
     assert "no-top" not in found
     assert "inner-alone" in kinds(ids(inner=UNDER, bottoms=JEANS, footwear=SNEAK), day(18, UNDER, JEANS, SNEAK))
+
+
+def test_a_banned_cooler_alternative_does_not_make_the_jeans_too_warm():
+    """Raised by the pre-push reviewer, 2026-10-11: shorts banned outright — the
+    jeans are the trousers, not an impossible correction."""
+    ban = {"kind": "avoid_item", "a": {"type": "shorts"}}
+    d = day(29, TEE, JEANS, SHORTS, SNEAK, hi=32, prefs=pk.Prefs(rules=(ban,)))
+    assert "hot-bottoms" not in kinds(ids(base=TEE, bottoms=JEANS, footwear=SNEAK), d)

@@ -61,7 +61,8 @@ def _still_warm(picks: dict, by_item: dict, plan_temp: float) -> bool:
                for c in _TORSO if picks.get(c))
 
 
-def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float) -> bool:
+def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float,
+                user_rules: list[dict] | None = None) -> bool:
     """Is this garment too warm to wear as `slot` today, in a way that can be HELPED?
 
     Too warm by the numbers, and either the slot can simply be left off (an
@@ -76,7 +77,11 @@ def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float) -
         return False
     if slot in pk._SHEDDABLE:
         return True
+    # An alternative they have banned outright is no alternative: asking for it would
+    # be an impossible correction (raised by the pre-push reviewer, 2026-10-11).
+    outright = [r for r in user_rules or [] if not rules.is_combination(r)]
     return any(slot in (wd.by_roles.get(i) or ()) and not scale.too_warm(it, hot)
+               and not rules.violations(outright, {slot: i}, wd.by_item)
                for i, it in wd.by_item.items() if it is not item)
 
 

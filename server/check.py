@@ -143,7 +143,8 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
                          "add knitwear or a jacket they own", True))
     out += [Issue(f"hot-{slot}", f"{_name(day, iid)} is too warm as {slot} for the warmest hour "
                   f"({day.peak:.0f}C felt)", True)
-            for slot, iid in worn.items() if layers.overdressed(wd.by_item[iid], slot, wd, day.plan, day.peak)]
+            for slot, iid in worn.items()
+            if layers.overdressed(wd.by_item[iid], slot, wd, day.plan, day.peak, day.rules)]
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
                 for slot in ("footwear", "outer")

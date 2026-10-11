@@ -12,6 +12,7 @@ From the model's own outfit it tries changing one garment at a time, up to DEPTH
 changes, keeping the BEAM best at each depth, and returns the best outfit seen,
 ranked by the same facts check.py reports:
 
+    0. none of their rules broken — absolute, never traded for anything below
     1. least undressed    (no top, trousers or shoes they own — dressed beats comfortable)
     2. fewest hard issues (cold, overheated, stacked, their rules, snow gear …)
     3. a top in base      (not a lone layer filed as mid)
@@ -20,6 +21,7 @@ ranked by the same facts check.py reports:
 
 Reached rarely: the model is told every issue first (advisor.dress).
 """
+import rules
 from check import Day, hard, issues
 from vocab import CATEGORIES
 
@@ -40,10 +42,22 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
             start[slot] = None
         elif iid:
             seen_ids.add(iid)
+    # Their rules are absolute — never traded for coverage or warmth: the blamed
+    # garment of each broken rule comes off before the search starts, and the
+    # search ranks any rule broken above everything else. Raised by the pre-push
+    # reviewer, 2026-10-11.
+    for _ in CATEGORIES:
+        broken = rules.violations(day.rules, start, wd.by_item)
+        if not broken:
+            break
+        start[broken[0]["slot"]] = None
     best, best_rank = start, _rank(start, picks, day)
     beam, visited = [start], {_key(start)}
-    for _ in range(DEPTH):
-        if best_rank[:3] == (0, 0, 0):
+    # Deep enough to fix every hard issue one change at a time, however many slots
+    # need it (four white garments under a no-white rule).
+    depth = min(len(CATEGORIES), DEPTH + len(hard(issues(start, day))))
+    for _ in range(depth):
+        if best_rank[:4] == (0, 0, 0, 0):
             break
         nxt = []
         for p in beam:
@@ -73,7 +87,9 @@ def _rank(p: dict, original: dict, day: Day) -> tuple:
     # the top belongs in base.
     misfiled = int(not p.get("base") and any(p.get(c) for c in ("mid", "outer")))
     changes = sum(1 for c in CATEGORIES if p.get(c) != original.get(c))
-    return (len(h & _UNDRESSED) + bare_legs, len(h), misfiled, changes, sum(1 for i in found if not i.hard))
+    broken = sum(1 for k in h if k.startswith("rule-"))
+    return (broken, len(h & _UNDRESSED) + bare_legs, len(h), misfiled, changes,
+            sum(1 for i in found if not i.hard))
 
 
 def _moves(p: dict, day: Day):

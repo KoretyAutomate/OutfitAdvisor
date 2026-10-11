@@ -187,3 +187,29 @@ def test_a_hot_sweater_base_becomes_a_tee_with_a_removable_layer():
     fixed, _ = fallback.fix(ids(base=SWEATER, bottoms=JEANS, footwear=SNEAK), d)
     assert not check.hard(check.issues(fixed, d)), (fixed, check.hard(check.issues(fixed, d)))
     assert fixed["base"] == TEE["id"], fixed
+
+
+def test_a_banned_dress_comes_off_even_with_no_trousers_to_replace_it():
+    """Raised by the pre-push reviewer, 2026-10-11: their rules are absolute."""
+    import picks as pk
+    ban = {"kind": "avoid_item", "a": {"type": "dress"}}
+    d = day(20, DRESS, SNEAK, prefs=pk.Prefs(rules=(ban,)))
+    fixed, _ = fallback.fix(ids(base=DRESS, footwear=SNEAK), d)
+    assert fixed["base"] != DRESS["id"], fixed
+
+
+def test_four_banned_garments_all_come_off():
+    """Raised by the pre-push reviewer, 2026-10-11: more fixes than the search depth."""
+    import check
+    import picks as pk
+    from wardrobe_fixtures import g
+    white = [g(f"white{n:04d}", f"white {k}", grp, typ, [slot], 2, colors=["white"])
+             for n, (k, grp, typ, slot) in enumerate([("undershirt", "underwear", "undershirt", "inner"),
+                                                      ("tee", "tops", "t_shirt", "base"),
+                                                      ("jeans", "bottoms", "jeans", "bottoms"),
+                                                      ("sneakers", "footwear", "sneakers", "footwear")])]
+    ban = {"kind": "avoid_item", "a": {"color": "white"}}
+    d = day(20, *white, POLO, JEANS, prefs=pk.Prefs(rules=(ban,)))
+    slots = ("inner", "base", "bottoms", "footwear")
+    fixed, _ = fallback.fix(dict(zip(slots, (w["id"] for w in white), strict=True)), d)
+    assert not any(k.startswith("rule-") for k in check.hard(check.issues(fixed, d))), fixed

@@ -303,6 +303,9 @@ class AdviceRequest(BaseModel):
     # phone. Out of range is dropped, never a 422: the morning push must not fail
     # over a calendar.
     outUntil: int | None = None
+    # What they wore lately, {item id: days ago}, from the phone's wear log
+    # (2026-10-11): the advisor avoids repeating yesterday when something else suits.
+    recent: dict[str, int] = Field(default_factory=dict, max_length=80)
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
@@ -337,6 +340,14 @@ class AdviceRequest(BaseModel):
     # from an older build costs the re-roll, never the morning.
     shown: dict[str, str] = Field(default_factory=dict)
     styleVotes: StyleVotes | None = None
+
+    @field_validator("recent", mode="before")
+    @classmethod
+    def _recent_days(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        return {str(k)[:80]: int(d) for k, d in list(v.items())[:80]
+                if isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 14}
 
     @field_validator("outUntil", mode="before")
     @classmethod

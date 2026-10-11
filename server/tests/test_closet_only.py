@@ -14,7 +14,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_mod
-import closet as closet_mod
+import advisor
+import picks as pk
+import fake_model
 
 client = TestClient(app_mod.app)
 
@@ -33,9 +35,8 @@ def test_the_prompt_stops_suggesting_what_they_cannot_wear():
     It is a garment the user has told us they do not own and cannot put on, so the
     slot is reported empty instead (user, 2026-08-27).
     """
-    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM],
-                                       closet_mod.Prefs(closet_only=True))
-    assert "Nothing in your closet for this" in prompt
+    prompt = advisor.prompt_for(COLD, [ITEM], pk.Prefs(closet_only=True))
+    assert "None — nothing in your closet for this" in prompt
     assert "not in your closet yet" not in prompt, \
         "a complete wardrobe must not be offered garments it does not contain"
 
@@ -47,7 +48,7 @@ def test_by_default_the_helpful_suggestion_stays():
     (2026-07-15). That complaint is still valid for anyone who has not finished
     photographing their wardrobe.
     """
-    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM], closet_mod.Prefs())
+    prompt = advisor.prompt_for(COLD, [ITEM], pk.Prefs())
     assert "not in your closet yet" in prompt
 
 
@@ -58,9 +59,9 @@ def test_the_model_is_asked_WHY_a_slot_is_empty():
     shopping list is built from the second. Guessing between them would recommend
     buying a coat because it was July.
     """
-    prompt = closet_mod._closet_prompt(COLD, "man", "casual", [ITEM], closet_mod.Prefs())
+    prompt = advisor.prompt_for(COLD, [ITEM], pk.Prefs())
     assert '"missing"' in prompt
-    assert "not the ones the weather made unnecessary" in prompt
+    assert "because they own nothing suitable" in prompt
 
 
 def test_a_failed_generation_does_not_dress_a_complete_closet_from_a_catalogue(monkeypatch):
@@ -83,7 +84,7 @@ def test_a_failed_generation_does_not_dress_a_complete_closet_from_a_catalogue(m
     async def fake_text(*a, **k):
         return "• wear a coat"
 
-    monkeypatch.setattr(app_mod.closet_llm, "closet_outfit", no_answer)
+    monkeypatch.setattr(app_mod.advisor, "dress", no_answer)
     monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
     monkeypatch.setattr(app_mod.llm, "outfit_text", fake_text)
 
@@ -119,7 +120,7 @@ def test_without_the_flag_the_fallback_still_helps(monkeypatch):
     async def fake_text(*a, **k):
         return "• wear a coat"
 
-    monkeypatch.setattr(app_mod.closet_llm, "closet_outfit", no_answer)
+    monkeypatch.setattr(app_mod.advisor, "dress", no_answer)
     monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
     monkeypatch.setattr(app_mod.llm, "outfit_text", fake_text)
 
@@ -189,23 +190,38 @@ def test_a_kind_of_garment_only_means_THEIRS_when_pointed_at(line, dropped):
     assert prose_mod._names_something_unowned(line, owned) is dropped
 
 
-def test_the_reader_is_told_the_advice_is_shorter():
-    """A gap in the advice must explain itself rather than look like an oversight."""
-    out = {"bullets": ["Start with your white t-shirt.", "Add a light shell."],
-           "tip": "Take a brolly."}
-    text = prose_mod._assemble_text(out, [], True,
-                                     {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
-    assert "light shell" not in text
-    assert "white t-shirt" in text
-    assert "nothing you own suits them" in text
+def _advise(monkeypatch, answer, closet_only):
+    async def fake_weather(*a, **k):
+        return {"lo": 12, "hi": 16, "feelsLo": 11, "feelsHi": 15, "desc": "Cloudy",
+                "rain": 10, "wind": 4, "morning": 13, "midday": 15, "evening": 14,
+                "swing": 4, "isRain": False, "isSnow": False, "code": 3,
+                "emoji": "☁️", "date": "2026-10-11", "timezone": "America/New_York"}
+    monkeypatch.setattr(app_mod.weather, "fetch_weather", fake_weather)
+    fake_model.install(monkeypatch, [answer])
+    tee = {**ITEM, "label": "white t-shirt", "type": "t_shirt", "roles": ["base"], "category": "base"}
+    return client.post("/advice", json={"lat": 40.35, "lon": -74.66, "closetOnly": closet_only,
+                                        "closet": [tee]}).json()
 
 
-def test_without_the_tickbox_the_prose_is_left_alone():
+def test_with_the_tickbox_no_line_recommends_something_they_do_not_own(monkeypatch):
+    """A worn garment's line falls back to its name; an empty slot's suggestion goes;
+    a tip naming an unowned garment goes (2026-10-11 port of the prose rule)."""
+    answer = fake_model.outfit(base=ITEM["id"])
+    answer["lines"] = {"base": "Start with your white t-shirt and add a light shell.",
+                       "outer": "A wool overcoat would help (not in your closet yet)."}
+    answer["tip"] = "Take a fleece."
+    body = _advise(monkeypatch, answer, True)
+    assert "light shell" not in body["outfit_text"] and "overcoat" not in body["outfit_text"]
+    assert "fleece" not in body["outfit_text"]
+    assert "white t-shirt" in body["outfit_text"]
+
+
+def test_without_the_tickbox_the_prose_is_left_alone(monkeypatch):
     """A half-registered wardrobe still wants the hint."""
-    out = {"bullets": ["Add a light shell."], "tip": ""}
-    text = prose_mod._assemble_text(out, [], False,
-                                     {"base": "i1"}, {"i1": {"label": "white t-shirt"}})
-    assert "light shell" in text
+    answer = fake_model.outfit(base=ITEM["id"])
+    answer["lines"] = {"base": "Your white t-shirt.", "outer": "A light shell (not in your closet yet)."}
+    body = _advise(monkeypatch, answer, False)
+    assert "light shell" in body["outfit_text"]
 
 
 def test_a_slot_that_came_up_short_once_cannot_carry_a_purchase(monkeypatch):
@@ -242,7 +258,7 @@ def test_a_closet_that_was_not_sent_is_not_called_unwearable(monkeypatch):
 
     monkeypatch.setattr(app_mod.weather, "fetch_weather", cold)
     monkeypatch.setattr(app_mod.llm, "_chat", none)
-    monkeypatch.setattr(closet_mod, "_chat", none)
+    monkeypatch.setattr(advisor, "_chat", none)
     absent = client.post("/advice", json={"lat": 40.3, "lon": -74.6, "closetOnly": True}).json()
     assert "wasn't available this morning" in absent["outfit"]["base"]
     assert "open the app" in absent["outfit_text"]

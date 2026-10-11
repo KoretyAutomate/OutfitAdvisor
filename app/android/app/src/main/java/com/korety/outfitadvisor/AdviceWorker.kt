@@ -429,6 +429,16 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         return out
     }
 
+    /** Local calendar days between two times. Twin of recentWorn in index.html. */
+    private fun daysAgo(then: Long, now: Long): Int {
+        fun start(t: Long) = java.util.Calendar.getInstance().apply {
+            timeInMillis = t
+            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        return Math.round((start(now) - start(then)) / 86_400_000.0).toInt()
+    }
+
     private fun attachWardrobe(body: JSONObject) {
         try {
             val prefs = applicationContext
@@ -507,6 +517,16 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // and their notes. Forwarded as written — the server drops any garment it
             // was not sent, so a pair naming something still drying costs nothing.
             p.optJSONObject("styleVotes")?.let { body.put("styleVotes", it) }
+            // What they wore lately, as days ago counted NOW (2026-10-11): the app
+            // stored times, so a snapshot written last night is still right at 06:45.
+            p.optJSONObject("recentAt")?.let { at ->
+                val recent = JSONObject()
+                for (id in at.keys()) {
+                    val d = daysAgo(at.optLong(id), System.currentTimeMillis())
+                    if (d in 0..14) recent.put(id, d)
+                }
+                if (recent.length() > 0) body.put("recent", recent)
+            }
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

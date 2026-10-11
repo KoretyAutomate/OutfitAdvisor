@@ -312,10 +312,13 @@ def _model_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
         said = str(lines.get(slot) or "").strip()
         if picks.get(slot):
             out[slot] = said or str(day.wd.by_item[picks[slot]]["label"])
+        elif slot in missing:
+            # A gap says so: its generic suggestion, or the phone's "None — …" marker —
+            # never "None needed" for trousers they simply do not own (raised by the
+            # pre-push reviewer, 2026-10-11).
+            out[slot] = said if said and not day.prefs.closet_only else NOTHING_OWNED
         elif not day.prefs.closet_only:
             out[slot] = said
-        elif slot in missing:
-            out[slot] = NOTHING_OWNED
     return out
 
 

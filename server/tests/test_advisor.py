@@ -325,3 +325,15 @@ def test_the_morning_push_forwards_recent_wear_counted_at_fire_time():
     assert "daysAgo(at.optLong(id), System.currentTimeMillis())" in body
     import schemas
     assert "recent" in schemas.AdviceRequest.model_fields
+
+
+def test_trousers_they_do_not_own_are_missing_not_unneeded(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: no line from the model for a gap
+    must not read "None needed"."""
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"])
+    a["lines"] = {"inner": "x", "base": "y", "mid": "z"}
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[UNDER, POLO, CARDI])
+    assert {"bottoms", "footwear"} <= set(d["missing"])
+    for slot in ("bottoms", "footwear"):
+        assert d["outfit"][slot].startswith("None — nothing in your closet"), d["outfit"][slot]

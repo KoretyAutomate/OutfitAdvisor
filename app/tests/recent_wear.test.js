@@ -54,6 +54,16 @@ const check = (name, cond, detail = "") => {
   check("the push snapshot carries recentAt as times", payload.recentAt && typeof payload.recentAt.a === "number",
     payload.recentAt);
 
+  // Raised by the pre-push reviewer, 2026-10-11: the laundry prunes wearLog once a
+  // garment is clean — the history must outlive that.
+  w.eval(`wearLog=${JSON.stringify([{itemId: "z", wornAt: Date.now() - 86400000, washedAt: Date.now() - 3600000}])}`);
+  w.eval("laundry.dryHours=0");
+  await w.eval("saveCloset()");
+  check("the wash cleared the laundry entry", w.eval("wearLog.length") === 0);
+  check("…but yesterday's wear is still history", w.eval("recentWorn().z") === 1, w.eval("recentWorn()"));
+  const kept = JSON.parse(await w.eval(`prefGet("oa.lastWorn","{}")`));
+  check("…and it is saved", typeof kept.z === "number", kept);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

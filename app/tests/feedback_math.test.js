@@ -39,7 +39,7 @@ const ev = (code) => w.eval(code);
 // Preferences plugin is absent in jsdom -> prefSet falls through to localStorage.
 
 console.log("\n--- 1. sign convention -------------------------------------------");
-ev("tempOffset = 0; feedback = []; ratedThisAdvice = null;");
+ev("tempOffset = 0; feedback = [];");
 ev("fbApply(2)");                       // 🥵 too warm
 check("too warm pushes the offset UP (plan for a warmer day => lighter)",
   ev("tempOffset") > 0, ev("tempOffset"));
@@ -117,7 +117,7 @@ check("recommend() is unaffected when the calibration is 0", ev(`
   JSON.stringify(recommend(WX,"man","casual"))`));
 
 console.log("\n--- 7. re-tapping replaces, never stacks -------------------------");
-ev("tempOffset = 0; feedback = []; ratedThisAdvice = null;");
+ev("tempOffset = 0; feedback = [];");
 ev(`document.querySelector('#fbRow button[data-r="2"]').click()`);
 ev(`document.querySelector('#fbRow button[data-r="-2"]').click()`);
 // clicks are async handlers; drain the microtask queue before asserting

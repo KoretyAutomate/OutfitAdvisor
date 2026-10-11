@@ -1811,7 +1811,29 @@ const FB_LABEL={"-2":"too cold","-1":"a bit cool","0":"just right","1":"a bit wa
 const FB_RATE=0.5, FB_CLAMP=6, FB_KEEP=60;
 let tempOffset=0;   // °C added to the temps the recommender sees
 let feedback=[];    // {at: epoch-ms, rating: -2..2}
-let ratedThisAdvice=null;  // rating applied to the CURRENT card, so a re-tap can revert it
+/* ONE rating per calendar day, shared with the notification (2026-10-11).
+
+   The in-app row used to reset on every render (ratedThisAdvice), and the
+   notification buttons rated on their own, so one morning could be rated three or
+   four times and every one of them moved the offset. The day's rating is now simply
+   the last oa.feedback entry stamped today — whoever wrote it, this page or
+   FeedbackReceiver.kt — and a later verdict the same day REPLACES it: its step is
+   reverted before the new one is applied. Kotlin twin: FeedbackReceiver.kt. */
+function todaysRating(){
+  const today=localDay(Date.now());
+  for(let i=feedback.length-1;i>=0;i--){
+    const f=feedback[i];
+    if(f&&Number.isFinite(f.at)&&localDay(f.at)===today) return {i,rating:f.rating};
+  }
+  return null;
+}
+/* The notification can rate while this page is open behind the shade, so read the
+   shared pair back before changing it — a write from memory would erase that rating. */
+async function reloadFeedback(){
+  const off=parseFloat(await prefGet("oa.tempOffset","0"));
+  tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
+  try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
+}
 
 function fbApply(rating){
   const d=FB_DELTA[String(rating)]??0;
@@ -1841,8 +1863,9 @@ function renderFeedback(){
   const note=$("fbNote"); if(!note) return;
   note.textContent=fbCalibrationText();
   note.style.cursor=feedback.length?"pointer":"default";
+  const t=todaysRating();
   [...document.querySelectorAll("#fbRow button")].forEach(b=>
-    b.classList.toggle("on", ratedThisAdvice!==null && +b.dataset.r===ratedThisAdvice));
+    b.classList.toggle("on", t!==null && +b.dataset.r===t.rating));
 }
 
 /* photos: app-private Filesystem on device, localStorage in a plain browser */
@@ -3662,7 +3685,8 @@ function renderOutfit(o,text,source,res){
      released the wrong garments, and the next save counted a second outfit on the
      same day. Staleness is a question of the DAY, and the restore checks that.
      Raised by the pre-push reviewer, 2026-08-29. */
-  ratedThisAdvice=null;   // a fresh suggestion is unrated — a re-tap can't revert a stale delta
+  // NOT reset here any more: the rating is about the DAY, not this suggestion, so
+  // asking again must not open the morning to a second rating (2026-10-11).
   renderFeedback(); renderLook();
 }
 
@@ -4270,6 +4294,17 @@ async function saveWoreLogged(){
   woreDay=woreLogged?todayISO():null;   // stamped in memory as well as on disk
   await prefSet(WORE_KEY, woreLogged
     ? JSON.stringify({day:woreDay, map:woreLogged}) : "");
+}
+
+/* Read the day's record back from disk — at launch, and on returning to the
+   foreground, because the notification's "Wearing it" writes it natively. */
+async function readWoreRecord(){
+  try{
+    const raw=await prefGet(WORE_KEY,"");
+    const d=raw?JSON.parse(raw):null;
+    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
+    woreDay=woreLogged?d.day:null;
+  }catch(e){ woreLogged=null; woreDay=null; }
 }
 
 /* Today's record, or none. Everything that reads woreLogged goes through here, so a
@@ -5062,19 +5097,24 @@ $("lookSend").onclick=async()=>{
    over. Coordinates are still never stored — `place` is the label already on
    screen, which is what the RAM-only rule has always allowed. */
 const TODAY_KEY="oa.today";
+/* The oa.today this page last wrote or read, verbatim. Coming back to the
+   foreground, a different value means the morning push wrote one meanwhile. */
+let todaySeen=null;
 async function saveToday(res,how){
   if(!res||!res.weather) return;
   try{
-    await prefSet(TODAY_KEY, JSON.stringify({
+    const raw=JSON.stringify({
       day:todayISO(), at:(res&&res.at)||Date.now(), how:how||"app", place:state.place||"",
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
-      missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null}));
+      missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null});
+    await prefSet(TODAY_KEY, raw);
+    todaySeen=raw;
   }catch(e){}
 }
 async function loadToday(){
   let d=null;
-  try{ const raw=await prefGet(TODAY_KEY,""); d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
+  try{ const raw=await prefGet(TODAY_KEY,""); todaySeen=raw; d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
   if(!d||d.day!==todayISO()||!d.weather) return false;
   lastWeather=d.weather; lastOutfit=d.outfit||null;
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
@@ -5230,7 +5270,42 @@ async function refreshReadiness(){
       setTimeout(refreshReadiness,600); };
   });
 }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); } });
+/* Back in the foreground: re-read what the native side may have written while this
+   page sat in memory (2026-10-11). The notification's buttons rate the day
+   (oa.tempOffset, oa.feedback) and log the outfit as worn (oa.wearlog,
+   oa.woreToday), and the morning push writes oa.today. Left on the in-memory
+   copies, the next write from this page silently erased the notification's
+   action, and the card went on showing an older answer than the push's. */
+let sharedBusy=false;
+async function reloadShared(){
+  if(sharedBusy||woreBusy||fbBusy) return;
+  sharedBusy=true;
+  try{
+    await reloadFeedback();
+    let wl=[];
+    try{ wl=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wl=[]; }
+    const wearChanged=JSON.stringify(wl)!==JSON.stringify(wearLog);
+    wearLog=wl;
+    const recBefore=JSON.stringify(woreLogged);
+    await readWoreRecord();
+    let raw="";
+    try{ raw=await prefGet(TODAY_KEY,""); }catch(e){ raw=""; }
+    const fresh=raw!==todaySeen && await loadToday();
+    syncWearBtn();
+    // Only when something actually changed: a plain resume must not flip the card
+    // the wearer was looking at.
+    if(fresh||recBefore!==JSON.stringify(woreLogged)){
+      wornView=!!wearRecord();
+      refreshOutfitView();
+      syncWornNote();
+    }
+    renderFeedback();
+    if(wearChanged){ await renderCloset(); refreshUnwash(); refreshShopping(); await savePushPayload(); }
+  }catch(e){
+    // A failed re-read leaves the page as it was; it must never break resuming.
+  }finally{ sharedBusy=false; }
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); reloadShared(); } });
 
 /* ───────── the three sheets (2026-08-20) ─────────
    Everything used to live on one scrolling page in an order nobody chose. These
@@ -5871,6 +5946,16 @@ $("dWear").onclick=async()=>{
   if(!wornLogged){
     // Only the LOGGING half needs picks to log. Undo works from the record.
     if(!lastPickIds.length) return;
+    // The notification's "Wearing it" may have logged today while this page was
+    // open behind the shade. Logging again from memory would overwrite its wear
+    // log; adopt what it wrote instead (2026-10-11).
+    await readWoreRecord();
+    if(wearRecord()){
+      try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){}
+      syncWearBtn(); syncWornNote();
+      await renderCloset();
+      return toast("Already logged from the notification");
+    }
     lastPickIds.forEach(logWear); wornLogged=true;
     // Recorded like a correction is. Without this a restart lost the fact, and a
     // correction afterwards released nothing — the suggestion stayed in the laundry
@@ -5921,31 +6006,43 @@ $("updLater").onclick=async()=>{
 };
 
 /* ── thermal feedback wiring ── */
-$("fbRow").onclick=async e=>{
-  const b=e.target.closest("button"); if(!b) return;
-  const rating=+b.dataset.r;
-  // Re-tapping a different verdict on the SAME suggestion replaces it: revert the
-  // delta already applied, then apply the new one. Without this, changing your mind
-  // stacks two corrections for one morning.
-  if(ratedThisAdvice!==null){
-    fbRevert(ratedThisAdvice);
-    feedback.pop();
-    if(ratedThisAdvice===rating){        // tapping the same verdict again = undo
-      ratedThisAdvice=null; await saveFeedback(); renderFeedback();
+/* Taps are queued, not dropped: each one reads the shared pair back from disk
+   and writes it, with awaits in the middle, so two overlapping runs would both
+   start from the same state and the second would erase the first. In order, a
+   quick change of mind lands as the final verdict. */
+let fbChain=Promise.resolve(), fbBusy=0;
+async function rateDay(rating){
+  await reloadFeedback();              // the notification may have rated meanwhile
+  // A second verdict the SAME DAY replaces the first, whichever side gave it:
+  // revert the delta already applied, then apply the new one. Without this,
+  // changing your mind — or rating in the app after the notification — stacks two
+  // corrections for one morning.
+  const prev=todaysRating();
+  if(prev){
+    fbRevert(prev.rating);
+    feedback.splice(prev.i,1);
+    if(prev.rating===rating){            // tapping the same verdict again = undo
+      await saveFeedback(); renderFeedback();
       return toast("Rating removed");
     }
   }
   fbApply(rating);
   feedback.push({at:Date.now(),rating});
-  ratedThisAdvice=rating;
   await saveFeedback(); renderFeedback();
   const sign=tempOffset>0?"+":"";
-  toast(rating===0 ? "Noted — keeping this calibration"
-                   : `Noted (${FB_LABEL[String(rating)]}) — now ${sign}${tempOffset.toFixed(1)}°`);
+  toast(rating===0 ? (prev?"Changed — keeping this calibration":"Noted — keeping this calibration")
+                   : `${prev?"Changed":"Noted"} (${FB_LABEL[String(rating)]}) — now ${sign}${tempOffset.toFixed(1)}°`);
+}
+$("fbRow").onclick=e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const rating=+b.dataset.r;
+  fbBusy++;
+  fbChain=fbChain.then(()=>rateDay(rating)).catch(()=>{}).finally(()=>{ fbBusy--; });
+  return fbChain;
 };
 $("fbNote").onclick=async()=>{
   if(!feedback.length) return;
-  tempOffset=0; feedback=[]; ratedThisAdvice=null;
+  tempOffset=0; feedback=[];
   await saveFeedback(); renderFeedback();
   toast("Calibration reset");
 };
@@ -6152,12 +6249,7 @@ const appReady=(async()=>{
   await loadToday();
   // AFTER the render loadToday does, which reads woreLogged for the button state.
   // syncWearBtn below re-runs that read once the record is back.
-  try{
-    const raw=await prefGet(WORE_KEY,"");
-    const d=raw?JSON.parse(raw):null;
-    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
-    woreDay=woreLogged?d.day:null;
-  }catch(e){ woreLogged=null; woreDay=null; }
+  await readWoreRecord();
   syncWearBtn();
   // loadToday drew the advice before the record was readable. If today already has
   // one, the pictures should be of what was worn — that is what the card is for.

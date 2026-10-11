@@ -25,6 +25,11 @@ const page = () => new JSDOM(SRC, {
   runScripts: "dangerously", url: "https://localhost/", pretendToBeVisual: true,
 }).window;
 const drain = () => new Promise(r => setTimeout(r, 0));
+const WX = {lo:12, hi:20, desc:"Cloudy", rain:10, wind:3, code:3, emoji:"☁️",
+  swing:8, feelsLo:11, feelsHi:19, morning:13, midday:19, evening:15,
+  isRain:false, isSnow:false};
+const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
+  bottoms:"jeans", footwear:"sneakers", accessories:"", tip:""};
 
 (async () => {
   console.log("\n--- trips privacy wording is truthful ----------------------------");
@@ -96,6 +101,88 @@ const drain = () => new Promise(r => setTimeout(r, 0));
       ev("closetComplete") === true && w.localStorage.getItem("oa.closetComplete") === "1");
     check("the shopping note sends people to Settings for it",
       /in Settings/.test(SRC.match(/Tick \\u201cMy closet is complete\\u201d[^`"]*/)[0]));
+  }
+
+  console.log("\n--- one warmth rating a day, shared with the notification --------");
+  {
+    const w = page();
+    const d = w.document, ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const tap = async r => { d.querySelector(`#fbRow button[data-r="${r}"]`).click(); await ev("fbChain"); };
+    ls.setItem("oa.feedback", "[]"); ls.setItem("oa.tempOffset", "0");
+    ev("feedback=[]; tempOffset=0;");
+    await tap(2);
+    check("a first rating today is recorded", ev("feedback.length") === 1 && ev("tempOffset") === 0.75,
+      ev("JSON.stringify(feedback)"));
+    // The card is re-rendered (new advice, a restored push): the day is still rated.
+    ls.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), at: Date.now(), how: "app",
+      weather: WX, outfit: OUTFIT, outfit_text: "x", source: "llm", picks: null, closetUsed: false}));
+    await ev("loadToday()");
+    check("re-rendering the advice does not clear today's rating",
+      d.querySelector('#fbRow button[data-r="2"]').classList.contains("on"));
+    await tap(-2);
+    check("a second verdict the same day REPLACES the first (one entry)",
+      ev("feedback.length") === 1 && ev("feedback[0].rating") === -2, ev("JSON.stringify(feedback)"));
+    check("and the offset carries only the final verdict", ev("tempOffset") === -0.75, ev("tempOffset"));
+
+    // The notification rated while the page sat in memory with stale copies.
+    ls.setItem("oa.feedback", JSON.stringify([{at: Date.now(), rating: 2}]));
+    ls.setItem("oa.tempOffset", "0.75");
+    ev("feedback=[]; tempOffset=0;");
+    await tap(-1);
+    check("a rating after the notification's replaces it, read from disk not memory",
+      ev("feedback.length") === 1 && ev("feedback[0].rating") === -1 && ev("tempOffset") === -0.3,
+      { fb: ev("JSON.stringify(feedback)"), off: ev("tempOffset") });
+
+    // Yesterday's rating is yesterday's.
+    const y = Date.now() - 36 * 3600 * 1000;
+    ls.setItem("oa.feedback", JSON.stringify([{at: y, rating: 2}])); ls.setItem("oa.tempOffset", "0.75");
+    await tap(-2);
+    check("yesterday's rating is kept and today's added", ev("feedback.length") === 2 &&
+      ev("tempOffset") === 0, { fb: ev("JSON.stringify(feedback)"), off: ev("tempOffset") });
+
+    // Two quick taps queue rather than race or drop.
+    ls.setItem("oa.feedback", "[]"); ls.setItem("oa.tempOffset", "0");
+    const b2 = d.querySelector('#fbRow button[data-r="2"]'), b0 = d.querySelector('#fbRow button[data-r="0"]');
+    b2.click(); b0.click();
+    await ev("fbChain");
+    check("two quick taps land as the final verdict only",
+      ev("feedback.length") === 1 && ev("feedback[0].rating") === 0 && ev("tempOffset") === 0,
+      { fb: ev("JSON.stringify(feedback)"), off: ev("tempOffset") });
+
+    console.log("\n--- back in the foreground, the page re-reads what the native side wrote");
+    const today = ev("todayISO()");
+    ls.setItem("oa.tempOffset", "-1.5");
+    ls.setItem("oa.feedback", JSON.stringify([{at: Date.now(), rating: -2}]));
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "tee1", wornAt: Date.now()}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "tee1"}}));
+    ls.setItem("oa.today", JSON.stringify({day: today, at: Date.now() + 5, how: "push",
+      weather: WX, outfit: OUTFIT, outfit_text: "from the push", source: "llm",
+      picks: {base: "tee1"}, closetUsed: true}));
+    d.dispatchEvent(new w.Event("visibilitychange"));
+    for (let i = 0; i < 20 && ev("sharedBusy"); i++) await new Promise(r => setTimeout(r, 10));
+    await drain();
+    check("oa.tempOffset re-read", ev("tempOffset") === -1.5, ev("tempOffset"));
+    check("oa.feedback re-read", ev("feedback.length") === 1 && ev("feedback[0].rating") === -2);
+    check("oa.wearlog re-read", ev("wearLog.length") === 1 && ev("wearLog[0].itemId") === "tee1",
+      ev("JSON.stringify(wearLog)"));
+    check("oa.woreToday re-read", ev("JSON.stringify(woreLogged)") === '{"base":"tee1"}',
+      ev("JSON.stringify(woreLogged)"));
+    check("today's push advice is shown", ev("lastText") === "from the push", ev("lastText"));
+    check("and the wear button reports it as logged", ev("wornLogged") === true &&
+      /Logged/.test(d.getElementById("dWear").textContent), d.getElementById("dWear").textContent);
+  }
+
+  console.log("\n--- FeedbackReceiver.kt mirrors one-rating-a-day ------------------");
+  {
+    const kt = KT("FeedbackReceiver.kt");
+    check("it finds today's entry by local calendar day",
+      /dayOf\(e\.optLong\("at", 0L\)\) == today/.test(kt) && /SimpleDateFormat\("yyyy-MM-dd"/.test(kt));
+    check("reverts its step before applying the new one (twin of fbRevert)",
+      /current = clamp\(round2\(current - RATE \* prev\)\)/.test(kt) &&
+      kt.indexOf("current - RATE * prev") < kt.indexOf("current + RATE * delta"));
+    check("and drops it, so the day keeps one entry", /log\.remove\(prevIdx\)/.test(kt));
+    check("the new entry uses the same clock as the day test", /put\("at", now\)/.test(kt));
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

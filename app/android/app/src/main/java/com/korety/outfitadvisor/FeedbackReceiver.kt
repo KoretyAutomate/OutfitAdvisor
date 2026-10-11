@@ -25,7 +25,11 @@ import kotlin.math.min
  *   oa.tempOffset — the scalar, e.g. "-0.75"
  *   oa.feedback   — [{"at": epochMs, "rating": -2..2}], pruned to the last 60
  *
- * JS twin: fbApply() / saveFeedback() in app/www/index.html — change them together.
+ * ONE rating per calendar day across both writers (2026-10-11): a later verdict the
+ * same day replaces the earlier one instead of stacking a second correction.
+ *
+ * JS twin: fbApply() / fbRevert() / todaysRating() / rateDay() / saveFeedback() in
+ * app/www/index.html — change them together.
  */
 class FeedbackReceiver : BroadcastReceiver() {
 
@@ -36,17 +40,37 @@ class FeedbackReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
 
-        // ---- offset: incremental, damped, clamped (twin of fbApply) ----
-        val current = prefs.getString(KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
-        val updated = clamp(round2(current + RATE * delta))
-
-        // ---- history: append, prune to the newest KEEP entries (twin of saveFeedback) ----
         val log = try {
             JSONArray(prefs.getString(KEY_LOG, "[]") ?: "[]")
         } catch (e: Exception) {
             JSONArray()   // corrupt history must never cost the user their calibration
         }
-        log.put(JSONObject().put("at", System.currentTimeMillis()).put("rating", rating))
+
+        // ---- one rating per calendar day (twin of todaysRating / rateDay) ----
+        // The day's rating is the last entry stamped today, whether the app or this
+        // receiver wrote it. A later verdict REPLACES it: revert its step (twin of
+        // fbRevert), drop it, then apply the new one — never stack two for a morning.
+        val now = System.currentTimeMillis()
+        val today = dayOf(now)
+        var prevIdx = -1
+        for (i in 0 until log.length()) {
+            val e = log.optJSONObject(i) ?: continue
+            if (e.has("at") && dayOf(e.optLong("at", 0L)) == today) prevIdx = i
+        }
+        var current = prefs.getString(KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
+        current = clamp(current)   // the app clamps on read too
+        val replaced = prevIdx >= 0
+        if (replaced) {
+            val prev = DELTA[log.optJSONObject(prevIdx)?.optInt("rating", 0) ?: 0] ?: 0.0
+            current = clamp(round2(current - RATE * prev))
+            log.remove(prevIdx)
+        }
+
+        // ---- offset: incremental, damped, clamped (twin of fbApply) ----
+        val updated = clamp(round2(current + RATE * delta))
+
+        // ---- history: append, prune to the newest KEEP entries (twin of saveFeedback) ----
+        log.put(JSONObject().put("at", now).put("rating", rating))
         val pruned = JSONArray()
         for (i in max(0, log.length() - KEEP) until log.length()) pruned.put(log.get(i))
 
@@ -59,10 +83,15 @@ class FeedbackReceiver : BroadcastReceiver() {
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(OutfitNotification.OUTFIT_NOTIF_ID)
 
-        val msg = if (rating == 0) "Thanks — keeping this calibration"
-                  else "Noted — now ${if (updated > 0) "+" else ""}${fmt(updated)}°"
+        val verb = if (replaced) "Changed today's rating" else "Noted"
+        val msg = if (rating == 0) "$verb — keeping this calibration"
+                  else "$verb — now ${if (updated > 0) "+" else ""}${fmt(updated)}°"
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
+
+    /** Local calendar day — the JS twin compares localDay(at) the same way. */
+    private fun dayOf(ms: Long): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(ms))
 
     private fun clamp(v: Double) = max(-CLAMP, min(CLAMP, v))
 

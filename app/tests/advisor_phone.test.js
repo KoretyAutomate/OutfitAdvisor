@@ -65,6 +65,23 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   check("today's saved advice is shown with its own weather", off && off.source === "saved"
     && off.text === "• Navy polo" && off.weather && off.weather.hi === 20, off || error);
 
+  // Raised by the pre-push reviewer, 2026-10-11: with the forecast service UP, the
+  // saved outfit still shows the weather it was chosen for.
+  ev(`fetchWeatherLocal = async () => (${JSON.stringify({...WX, hi: 30, lo: 25})});`);
+  const off2 = await ev("getAdvice(40.3,-74.6)");
+  check("saved advice keeps the weather it was chosen for", off2.source === "saved" && off2.weather.hi === 20,
+    off2.weather);
+
+  // Raised by the pre-push reviewer, 2026-10-11: a notification wear survives ANY
+  // snapshot rebuild, not only a closet save.
+  ev(`closet=[{id:"itm-tee00001",label:"tee",category:"base",group:"tops",type:"t_shirt",roles:["base"],
+      colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]; wearLog=[]; wearSeen="[]";`);
+  w.localStorage.setItem("oa.wearlog", JSON.stringify([{itemId: "itm-tee00001", wornAt: Date.now() - 60000}]));
+  await ev("savePushPayload()");
+  const pay = JSON.parse(w.localStorage.getItem("oa.pushPayload") || "{}");
+  const tee = (pay.closet || []).find(i => i.id === "itm-tee00001");
+  check("the native wear holds the tee in the snapshot", !tee || tee.availableCount === 0, pay.closet);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

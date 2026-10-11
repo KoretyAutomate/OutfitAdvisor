@@ -3464,6 +3464,11 @@ function pushPayloadValidBefore(){
 }
 async function savePushPayload(){
   try{
+    // What the notification's "Wearing it" logged since this page last read the
+    // disk, FIRST — every rebuild (a rule saved, a trip, the tickbox), not only a
+    // closet save, or a stale page writes the worn garment back as clean
+    // (pre-push reviewer, 2026-10-11).
+    await mergeNativeWears();
     const cl=closetPayload(), held=heldUnits();
     const sent=new Set(cl.map(i=>i.id));
     // A garment with nothing free yet, in closetPayload's own shape at count 0.
@@ -3627,10 +3632,14 @@ async function getAdvice(lat,lon){
     // made today, if there is one, and otherwise says plainly that it could not ask.
     // Today's saved advice first: with no network at all the forecast fetch fails
     // too, and the saved record carries its own weather (pre-push reviewer).
+    // The saved outfit keeps the weather it was CHOSEN for — beside a newer forecast
+    // its "Dressed for" line would describe a day it was not chosen for (pre-push
+    // reviewer, 2026-10-11).
     const saved=await savedToday();
+    if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
-    catch(e2){ if(saved&&saved.weather) w=saved.weather; else throw new Error(friendly(e2)); }
+    catch(e2){ throw new Error(friendly(e2)); }
     if(saved) return {...saved,weather:w,source:"saved"};
     const none={};
     for(const k of CATS) none[k]="None — couldn't reach the advisor";

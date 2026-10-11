@@ -108,3 +108,13 @@ def test_a_banned_cooler_alternative_does_not_make_the_jeans_too_warm():
     ban = {"kind": "avoid_item", "a": {"type": "shorts"}}
     d = day(29, TEE, JEANS, SHORTS, SNEAK, hi=32, prefs=pk.Prefs(rules=(ban,)))
     assert "hot-bottoms" not in kinds(ids(base=TEE, bottoms=JEANS, footwear=SNEAK), d)
+
+
+def test_a_hot_day_wants_no_layer_not_even_an_open_shirt():
+    """Found by the live test days, 2026-10-11: tee + open linen shirt at 29-33C."""
+    from wardrobe_fixtures import g
+    linen = g("linen0001", "white linen shirt", "tops", "shirt", ["base", "mid", "outer"], 1)
+    hot = day(29, TEE, linen, SHORTS, SNEAK, hi=33)
+    assert "hot-mid" in kinds(ids(base=TEE, mid=linen, bottoms=SHORTS, footwear=SNEAK), hot)
+    mild = day(18, TEE, linen, SHORTS, SNEAK, hi=22)
+    assert "hot-mid" not in kinds(ids(base=TEE, mid=linen, bottoms=SHORTS, footwear=SNEAK), mild)

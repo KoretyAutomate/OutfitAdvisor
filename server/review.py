@@ -93,9 +93,13 @@ def _rank(result: dict, other: dict, wd: "pk.Wardrobe", w: dict, prefs) -> tuple
       1. unresolved: bare legs or feet though some are owned, nothing on top, or
          still nothing warm enough on top — a revision that loses warmth, a top or
          trousers never wins;
-      2. how many layer repairs the model's own answer needed;
-      3. the stylist's score, only when BOTH answers have one — an unreviewed
-         revision is no evidence either way.
+      2. the stylist's score, only when BOTH answers have a current one — an
+         unreviewed revision is no evidence either way, and a score whose swap was
+         applied describes the outfit BEFORE the swap;
+      3. how many layer repairs the model's own answer needed.
+
+    The score before the repairs: a 5/5 outfit a repair had to warm is better than
+    a 1/5 one that needed nothing. Raised by the pre-push reviewer, 2026-10-11.
     """
     picks = result["picks"]
     # Coverage by what they OWN, not by what suits these picks: a revision whose top
@@ -112,13 +116,15 @@ def _rank(result: dict, other: dict, wd: "pk.Wardrobe", w: dict, prefs) -> tuple
     cold = not torso or not _still_warm(picks, wd.by_item, _plan_temp(w))
     mine, theirs = _score(result), _score(other)
     return (bare + int(cold),
-            len((result.get("review") or Seen()).repairs),
-            -(mine if mine is not None and theirs is not None else 0))
+            -(mine if mine is not None and theirs is not None else 0),
+            len((result.get("review") or Seen()).repairs))
 
 
 def _score(result: dict) -> int | None:
+    """The stylist's score for the outfit as it now stands, or None: after an
+    applied swap the score is of the outfit before it."""
     v = (result.get("review") or Seen()).verdict
-    return v.score if v else None
+    return v.score if v and not v.swap else None
 
 
 async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> dict:

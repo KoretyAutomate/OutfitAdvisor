@@ -333,3 +333,28 @@ def test_lost_trousers_count_even_when_no_pair_suits_the_new_top():
     legless = {"picks": {"base": shirt["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
     p = Prefs(rules=(ban,))
     assert review._rank(legless, complete, wd, w, p) > review._rank(complete, legless, wd, w, p)
+
+
+def test_a_better_look_outranks_fewer_repairs():
+    """Raised by the pre-push reviewer, 2026-10-11: 5/5 after a warmth repair beats
+    1/5 that needed nothing."""
+    from picks import Prefs, _index
+    wd = _index(CLOSET)
+    w = {"morning": 10, "lo": 10, "hi": 15}
+    dressed = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]}
+    good = {"picks": dressed, "review": review.Seen(stylist.Verdict(5, ""), [("mid", SWEATER["id"], "warmth")])}
+    ugly = {"picks": dressed, "review": review.Seen(stylist.Verdict(1, "clashes"), [])}
+    assert review._rank(ugly, good, wd, w, Prefs()) > review._rank(good, ugly, wd, w, Prefs())
+
+
+def test_a_score_from_before_an_applied_swap_is_not_compared():
+    """Raised by the pre-push reviewer, 2026-10-11: the stylist's swap fixed the
+    revision, so its 1/5 is about an outfit that no longer exists."""
+    from picks import Prefs, _index
+    wd = _index(CLOSET)
+    w = {"morning": 15, "lo": 14, "hi": 18}
+    dressed = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]}
+    first = {"picks": dressed, "review": review.Seen(stylist.Verdict(2, "flat"), [])}
+    fixed = {"picks": dressed, "review": review.Seen(
+        stylist.Verdict(1, "wrong shoes", ("footwear", SHOES["id"], "wrong shoes")), [])}
+    assert review._rank(fixed, first, wd, w, Prefs()) <= review._rank(first, fixed, wd, w, Prefs())

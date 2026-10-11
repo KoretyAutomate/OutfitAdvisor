@@ -318,3 +318,18 @@ def test_a_topless_revision_loses():
                "review": review.Seen(None, [("base", POLO["id"])])}
     topless = {"picks": {"bottoms": PANTS["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
     assert review._rank(topless, dressed, wd, w, Prefs()) > review._rank(dressed, topless, wd, w, Prefs())
+
+
+def test_lost_trousers_count_even_when_no_pair_suits_the_new_top():
+    """Raised by the pre-push reviewer, 2026-10-11: a revised top that a rule forbids
+    with every pair of trousers made the missing trousers vanish from the ranking."""
+    from picks import Prefs, _index
+    shirt = g("itm-oxford001", "blue oxford", "tops", "shirt", ["base"], 2)
+    wd = _index([*CLOSET, shirt])
+    w = {"morning": 20, "lo": 18, "hi": 24}
+    ban = {"kind": "avoid_pair", "a": {"type": "shirt"}, "b": {"role": "bottoms"}, "id": "r1"}
+    complete = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+                "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
+    legless = {"picks": {"base": shirt["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
+    p = Prefs(rules=(ban,))
+    assert review._rank(legless, complete, wd, w, p) > review._rank(complete, legless, wd, w, p)

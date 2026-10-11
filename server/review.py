@@ -37,9 +37,6 @@ REVISE_BUDGET_S = 40.0
 # aborts at 90 s, and a revision that needs its own corrective retry can take two
 # more generations. Raised by the pre-push reviewer, 2026-10-11.
 DEADLINE_S = 80.0
-# Unresolved omissions: an outfit missing one of these is worse than any outfit a
-# repair completed, whatever the counts say.
-_BARE = ("it had no trousers", "it had no shoes")
 
 
 @dataclass(frozen=True)
@@ -101,14 +98,20 @@ def _rank(result: dict, other: dict, wd: "pk.Wardrobe", w: dict, prefs) -> tuple
          revision is no evidence either way.
     """
     picks = result["picks"]
-    found = problems(result, wd, w, prefs)
+    # Coverage by what they OWN, not by what suits these picks: a revision whose top
+    # clashes with every pair of trousers would otherwise lose the trousers and the
+    # problem together. Raised by the pre-push reviewer, 2026-10-11.
+    owned = {r for roles in wd.by_roles.values() for r in roles}
+    bare = sum(1 for slot in ("bottoms", "footwear")
+               if not picks.get(slot) and slot in owned
+               and not (slot == "bottoms" and wd.by_group.get(picks.get("base")) == "onepiece"))
     # Nothing above the waist is unresolved too, and "cold" cannot see it: with no
     # torso garment there is nothing to be warm enough. Raised by the pre-push
     # reviewer, 2026-10-11.
     torso = [picks.get(c) for c in ("base", "mid", "outer") if picks.get(c)]
     cold = not torso or not _still_warm(picks, wd.by_item, _plan_temp(w))
     mine, theirs = _score(result), _score(other)
-    return (sum(1 for f in found if f.startswith(_BARE)) + int(cold),
+    return (bare + int(cold),
             len((result.get("review") or Seen()).repairs),
             -(mine if mine is not None and theirs is not None else 0))
 

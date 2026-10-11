@@ -161,3 +161,16 @@ def test_a_worn_garment_always_has_a_line(api, monkeypatch):
     fake_model.install(monkeypatch, [a])
     d = post(api, closet=[UNDER, POLO, SWEATER, JEANS, SNEAK])
     assert "navy polo shirt" in d["outfit_text"] and d["source"] == "llm"
+
+
+def test_a_garment_the_fallback_took_off_is_not_recommended_by_another_line(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: the undershirt goes for a rule,
+    and the base line and the tip must stop recommending it."""
+    ban = {"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "polo"}}
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["base"] = "The navy polo over your grey v-neck inner."
+    a["tip"] = "Keep the grey v-neck inner on under it."
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, rules=[ban])
+    assert d["picks"]["inner"] is None
+    assert "grey v-neck inner" not in d["outfit_text"], d["outfit_text"]

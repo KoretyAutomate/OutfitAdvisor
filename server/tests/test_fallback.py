@@ -45,3 +45,24 @@ def test_unknown_and_twice_used_garments_are_dropped_before_anything_is_added():
     d = day(18, TEE, JEANS, SNEAK)
     fixed, _ = fallback.fix({"base": TEE["id"], "mid": TEE["id"], "bottoms": "i99", "footwear": SNEAK["id"]}, d)
     assert fixed["mid"] is None and fixed["bottoms"] == JEANS["id"]
+
+
+# ── raised by the pre-push reviewer, 2026-10-11 ────────────────────────────────
+
+def test_a_too_thin_layer_is_replaced_not_only_an_empty_slot_filled():
+    from wardrobe_fixtures import JACKET, OXFORD
+    d = day(3, TEE, OXFORD, JACKET, SWEATER, JEANS, SNEAK)
+    fixed, _ = fallback.fix(ids(base=TEE, mid=OXFORD, outer=JACKET, bottoms=JEANS, footwear=SNEAK), d)
+    assert SWEATER["id"] in fixed.values(), fixed
+
+
+def test_too_warm_is_better_than_no_top():
+    d = day(29, SWEATER, JEANS, SNEAK, hi=32)
+    fixed, _ = fallback.fix(ids(bottoms=JEANS, footwear=SNEAK), d)
+    assert fixed["base"] == SWEATER["id"] or fixed["mid"] == SWEATER["id"] or fixed["outer"] == SWEATER["id"]
+
+
+def test_a_dress_put_on_late_still_takes_the_trousers_off():
+    d = day(20, DRESS, JEANS, SNEAK)
+    fixed, _ = fallback.fix(ids(bottoms=JEANS, footwear=SNEAK), d)
+    assert fixed["base"] == DRESS["id"] and fixed["bottoms"] is None

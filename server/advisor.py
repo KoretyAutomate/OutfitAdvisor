@@ -271,6 +271,20 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
         elif slot in missing:
             final[slot] = "Nothing in your closet for this."
     tip = str(best.out.get("tip") or "").strip()
+    # The model's words describe ITS outfit. Whatever the fallback took off must not
+    # be recommended by another line or the tip — a banned pairing undone in the one
+    # place the wearer reads. Raised by the pre-push reviewer, 2026-10-11.
+    gone = [str(wd.by_item[i]["label"]).lower() for s_, i in best.picks.items()
+            if i in wd.by_item and s_ in changed and i not in picks.values()]
+    if gone:
+        for slot, t in list(final.items()):
+            if slot not in changed and any(g in t.lower() for g in gone):
+                if picks.get(slot):
+                    final[slot] = str(wd.by_item[picks[slot]]["label"])
+                else:
+                    del final[slot]
+        if any(g in tip.lower() for g in gone):
+            tip = ""
     if day.prefs.closet_only:
         # Their wardrobe is everything they own: a line recommending anything else
         # breaks that promise in the words the notification shows. A worn garment's

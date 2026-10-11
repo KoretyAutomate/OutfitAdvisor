@@ -67,6 +67,13 @@ class Day:
         """Do they own something unused, legal and warm enough for this slot?"""
         return pk._has_suitable_alternative(slot, {**picks, slot: None}, self.wd, self.plan, self.rules)
 
+    def owns_for(self, slot: str, picks: dict) -> bool:
+        """The same, ignoring pairing rules: a top that clashes with every pair of
+        trousers they own does not make the trousers optional — it makes the top the
+        wrong choice. Raised by the pre-push reviewer, 2026-10-11."""
+        outright = [r for r in self.rules if not rules.is_combination(r)]
+        return pk._has_suitable_alternative(slot, {**picks, slot: None}, self.wd, self.plan, outright)
+
 
 def issues(picks: dict, day: Day) -> list[Issue]:
     """Everything objectively wrong with these picks, worst first."""
@@ -113,7 +120,7 @@ def _dressed(worn: dict, day: Day) -> list[Issue]:
                          + (" — the undershirt cannot be worn on its own" if worn.get("inner") else ""), True))
     onepiece = day.wd.by_group.get(worn.get("base")) == "onepiece"
     for slot, what in (("bottoms", "trousers"), ("footwear", "shoes")):
-        if not worn.get(slot) and not (slot == "bottoms" and onepiece) and day.can_fill(slot, worn):
+        if not worn.get(slot) and not (slot == "bottoms" and onepiece) and day.owns_for(slot, worn):
             out.append(Issue(f"no-{slot}", f"no {what}, though they own suitable ones", True))
     return out
 

@@ -85,3 +85,11 @@ def test_soft_issues_never_block():
                          day(16, UNDER, TEE, CARDI, JACKET, JEANS, SNEAK))
     layers = next(i for i in found if i.kind == "layers")
     assert not layers.hard
+
+
+def test_missing_trousers_count_even_when_the_chosen_top_clashes_with_every_pair():
+    """Raised by the pre-push reviewer, 2026-10-11: the top is the wrong choice, not
+    the trousers optional."""
+    ban = {"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"role": "bottoms"}}
+    d = day(18, TEE, POLO, JEANS, SNEAK, prefs=pk.Prefs(rules=(ban,)))
+    assert "no-bottoms" in kinds(ids(base=TEE, footwear=SNEAK), d)

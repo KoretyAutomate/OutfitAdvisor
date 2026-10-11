@@ -55,14 +55,11 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
                 out[slot] = alt
             else:
                 out[slot] = before[slot]          # nothing cooler: better dressed than not
-    # 6. Dressed: a top, trousers, shoes — whatever they own that is legal.
+    # 6. Dressed: a top, trousers, shoes — whatever they own that is legal. A top
+    #    that suits the heat first; failing that any legal top, because too warm is
+    #    better than undressed (raised by the pre-push reviewer, 2026-10-11).
     if not any(out.get(c) for c in TORSO):
-        for slot in TORSO:
-            alt = pk._suitable_for(slot, out, wd, day.plan, day.rules,
-                                   hot_temp=pk._heat_temp(slot, day.plan, day.peak))
-            if alt:
-                out[slot] = alt
-                break
+        _put_on_a_top(out, day)
     for slot in ("bottoms", "footwear"):
         if not out.get(slot) and not (slot == "bottoms" and wd.by_group.get(out.get("base")) == "onepiece"):
             out[slot] = pk._suitable_for(slot, out, wd, day.plan, day.rules)
@@ -72,14 +69,31 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     # 8. An undershirt is never worn on its own.
     if out.get("inner") and not any(out.get(c) for c in TORSO):
         out["inner"] = None
+    # 9. A dress covers the legs — again, since steps 5 and 6 can put one on.
+    #    Raised by the pre-push reviewer, 2026-10-11.
+    if wd.by_group.get(out.get("base")) == "onepiece":
+        out["bottoms"] = None
     return out, {s: out.get(s) for s in set(out) | set(before) if out.get(s) != before.get(s)}
+
+
+def _put_on_a_top(out: dict, day: Day) -> None:
+    for heat in (True, False):
+        for slot in TORSO:
+            hot = pk._heat_temp(slot, day.plan, day.peak) if heat else None
+            alt = pk._suitable_for(slot, out, day.wd, day.plan, day.rules, hot_temp=hot)
+            if alt:
+                out[slot] = alt
+                return
 
 
 def _warm_up(out: dict, day: Day) -> None:
     wd = day.wd
     cands = []
     for slot in ("mid", "outer"):
-        if out.get(slot):
+        # An occupied layer is open too when it is itself too thin: a linen overshirt
+        # as the mid, a warmth-3 jacket at 3C, with a sweater owned and unworn.
+        # Raised by the pre-push reviewer, 2026-10-11.
+        if out.get(slot) and scale.warm_enough(wd.by_item[out[slot]], day.plan):
             continue
         for iid, item in wd.by_item.items():
             if iid in out.values() or slot not in (wd.by_roles.get(iid) or ()):

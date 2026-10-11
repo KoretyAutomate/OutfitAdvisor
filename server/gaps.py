@@ -8,8 +8,6 @@ already have. The phone reads `missing` (index.html recordGaps), and COLD_GAP
 ("warmth") when nothing they own is warm enough for the morning.
 """
 import layers
-import picks as pk
-import rules
 from check import TORSO, Day
 from vocab import CATEGORIES
 
@@ -28,11 +26,7 @@ def missing(picks: dict, day: Day, claimed: object, emptied: set) -> list[str]:
     # A pairing rule ("no undershirt with the white tee") empties a slot without the
     # wardrobe lacking anything: tomorrow the undershirt goes under another shirt.
     # Only an outright ban, or owning nothing that fits, makes it a gap.
-    outright = [r for r in day.rules if not rules.is_combination(r)]
-
-    def owned(slot: str) -> bool:
-        return pk._has_suitable_alternative(slot, {**picks, slot: None}, day.wd, day.plan, outright)
-    gaps = sorted((c for c in candidates if not owned(c)), key=CATEGORIES.index)
+    gaps = sorted((c for c in candidates if not day.owns_for(c, picks)), key=CATEGORIES.index)
     if layers.too_cold_for_outfit(picks, day.wd, day.plan, day.rules, day.peak):
         gaps.append(COLD_GAP)
     return gaps

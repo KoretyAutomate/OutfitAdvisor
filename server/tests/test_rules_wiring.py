@@ -35,8 +35,8 @@ def test_the_picks_are_CHECKED_against_the_rules():
     best answer still breaks it."""
     assert "rules.violations(" in CHECK_PY.read_text(), "nothing verifies the rules were followed"
     fb = FALLBACK_PY.read_text()
-    assert 'out[broken[0]["slot"]] = None' in fb, \
-        "a last failure must clear the slot rather than serve a banned outfit"
+    assert "issues(p, day)" in fb and "hard(found)" in fb, \
+        "the last resort ranks outfits by the same facts, broken rules among them"
 
 
 def test_advice_passes_the_phones_rules_through():

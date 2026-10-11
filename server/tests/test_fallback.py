@@ -166,3 +166,24 @@ def test_the_only_top_goes_back_on_even_if_too_warm():
     fixed, _ = fallback.fix(ids(base=hoodie, bottoms=SHORTS, footwear=SNEAK),
                             day(29, hoodie, SHORTS, SNEAK, hi=32))
     assert hoodie["id"] in (fixed.get("mid"), fixed.get("outer")), fixed
+
+
+# ── the search finds combinations a fixed order could not (pre-push reviewer, 2026-10-11)
+
+def test_two_sweaters_keep_the_warm_one_even_when_it_cannot_be_the_base():
+    import check
+    from wardrobe_fixtures import g
+    thin = g("thinswtr2", "thin grey sweater", "tops", "sweater", ["base", "mid", "outer"], 2)
+    warm = g("warmswtr1", "warm wool sweater", "tops", "sweater", ["mid", "outer"], 4)
+    d = day(3, thin, warm, JEANS, SNEAK)
+    fixed, _ = fallback.fix(ids(base=thin, mid=warm, bottoms=JEANS, footwear=SNEAK), d)
+    assert warm["id"] in fixed.values(), fixed
+    assert not {"cold", "stacked"} & check.hard(check.issues(fixed, d)), fixed
+
+
+def test_a_hot_sweater_base_becomes_a_tee_with_a_removable_layer():
+    import check
+    d = day(3, TEE, SWEATER, CARDI, JEANS, SNEAK, hi=25)
+    fixed, _ = fallback.fix(ids(base=SWEATER, bottoms=JEANS, footwear=SNEAK), d)
+    assert not check.hard(check.issues(fixed, d)), (fixed, check.hard(check.issues(fixed, d)))
+    assert fixed["base"] == TEE["id"], fixed

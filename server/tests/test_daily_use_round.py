@@ -238,7 +238,8 @@ def test_a_rule_that_clears_a_pick_never_reaches_the_journal_in_words(monkeypatc
     monkeypatch.setattr(advisor, "_chat", insists)
     with caplog.at_level(logging.INFO, logger="outfit.llm"):
         out = asyncio.run(advisor.dress(COLD, [TEE, FLEECE, SHORTS], pk.Prefs(rules=(rule,))))
-    assert out is not None and out["picks"]["mid"] is None, "the pair rule must have fired"
+    assert out is not None and not (out["picks"]["base"] == TEE["id"] and out["picks"]["mid"] == FLEECE["id"]), \
+        "the pair rule holds"
     said = caplog.text.lower()
     for word in ("tee", "white", "grey", "never"):
         assert word not in said, f"rule text leaked into the journal: {word!r}"

@@ -9,6 +9,7 @@ app.py.
 from dataclasses import dataclass
 
 import llm
+import rules
 import scale
 from llm import _parse_json
 from vocab import CATEGORIES, TYPE_LABEL
@@ -29,6 +30,7 @@ class Trip:
     # stops at ~15 days), and a list sized by the forecast under-packs a long trip
     # — the pre-push reviewer's finding, 2026-09-07. 0 = same as the forecast.
     days: int = 0
+    rules: tuple = ()         # the wearer's rules, cleaned (2026-10-11)
 
 
 def _pack_prompt(
@@ -105,6 +107,7 @@ def _pack_prompt(
         f"{basis}\n"
         "DAILY WEATHER:\n" + "\n".join(day_lines) + "\n"
         f"{travel_line}"
+        f"{rules.prompt_block(list(trip.rules))}"
         f"Trip range: {summary['loMin']}C-{summary['hiMax']}C, "
         f"{summary['rainDays']} of the {summary['nDays']} forecast days wet.\n"
         f"They need to dress {reg} on this trip"

@@ -5,7 +5,8 @@
  * Pinned:
  *   - recentWorn() counts LOCAL calendar days, the latest wear of each garment, last week only;
  *   - /advice from the app carries `recent`;
- *   - the push snapshot carries `recentAt` (times), for the worker to count at 06:45.
+ *   - the push snapshot carries `recentAt` (times), for the worker to count at 06:45;
+ *   - /packing carries the calibration and the rules too.
  *
  * Loads the REAL app/www/index.html in jsdom. Run: npm test
  */
@@ -80,6 +81,19 @@ const check = (name, cond, detail = "") => {
   w.eval(`lastWorn={}; wearLog=${JSON.stringify([{itemId: "d", wornAt: new Date(2026, 9, 28, 0, 30).getTime()}])}`);
   check("a wear 7 calendar days back, across the clock change, is 7",
     w.eval(`recentWorn(${nov4}).d`) === 7, w.eval(`recentWorn(${nov4})`));
+
+  // 2026-10-11: the suitcase gets what the daily advice learned.
+  const sent = [];
+  w.fetch = async (url, opts) => { sent.push(JSON.parse(opts.body));
+    return {ok: true, status: 200, json: async () => ({pack: [], gaps: [], plan: [], forecast: {days: [], summary: {}}})}; };
+  w.eval(`tempOffset=1.5; userRules=[{kind:"avoid_item",a:{type:"hoodie"},id:"r1",text:"no hoodies"}]`);
+  w.eval(`closet=[{id:"itm-tee00001",label:"tee",category:"base",group:"tops",type:"t_shirt",roles:["base"],
+          colors:["white"],warmth:1,formality:["casual"],waterproof:false,count:1}]`);
+  const trip = {id: "t1", lat: 35.7, lon: 139.7, start: "2026-10-20", end: "2026-10-22", type: "vacation",
+                styles: ["casual"], city: "Tokyo"};
+  try { await w.eval(`openPacking(${JSON.stringify(trip)})`); } catch (e) { /* rendering is not under test */ }
+  const pk = sent.find(b => b.start === "2026-10-20");
+  check("/packing carries tempOffset and the rules", pk && pk.tempOffset === 1.5 && pk.rules && pk.rules.length === 1, pk);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

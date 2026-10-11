@@ -460,6 +460,11 @@ class PackingRequest(BaseModel):
     # still yesterday evening on this server (the pre-push reviewer, 2026-09-10).
     # Optional; a date more than two days from the server's is ignored.
     today: dt.date | None = None
+    # What the wearer has taught the advisor, now for packing too (2026-10-11): how
+    # warm they run, and their rules. Bounded like /advice's; an invalid rule is
+    # dropped by rules.clean_rules, never a 422.
+    tempOffset: float = Field(0.0, ge=-6, le=6)
+    rules: list[dict] | None = Field(None, max_length=24)
 
     @field_validator("end")
     @classmethod

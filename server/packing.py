@@ -13,6 +13,7 @@ Split out of app.py, which sits at the line ceiling.
 import logging
 import math
 
+import rules
 import scale
 from vocab import CATEGORIES
 
@@ -197,3 +198,20 @@ def wash_days(n_days: int, have: int, want: int) -> int:
     if have <= 0 or have >= want:
         return 0
     return math.ceil(want / have) - 1
+
+
+def with_feedback(items: list[dict], days: list[dict], summary: dict, offset: float,
+                  user_rules: list[dict]) -> tuple[list[dict], tuple[list[dict], dict]]:
+    """What the wearer taught the daily advice, for the packing list too (2026-10-11):
+    a garment banned outright stays home, and the forecast the list is packed for is
+    shifted by how warm or cold they run — a COPY, the trip card still shows the real
+    forecast. Pairing rules travel to the prompt (packlist), since a suitcase holds
+    both halves of a pair without either being wrong."""
+    outright = [r for r in user_rules if not rules.is_combination(r)]
+    kept = [i for i in items if not rules.violations(outright, {i["category"]: i["id"]}, {i["id"]: i})]
+
+    def shift(v: object) -> object:
+        return math.floor(v + offset + 0.5) if isinstance(v, (int, float)) and offset else v
+    felt_days = [{**d, "lo": shift(d.get("lo")), "hi": shift(d.get("hi"))} for d in days]
+    felt = {**summary, **{k: shift(summary[k]) for k in ("loMin", "hiMax", "loMinEver", "hiMaxEver") if k in summary}}
+    return kept, (felt_days, felt)

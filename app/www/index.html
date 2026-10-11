@@ -4154,8 +4154,12 @@ async function openPacking(trip){
                 type:trip.type,gender:state.gender,styles:trip.styles,
                 // This phone's calendar date: at the destination it can be a day
                 // ahead of the server, and "the rest of the trip" starts here.
-                today:todayISO()};
+                today:todayISO(),
+                // What the daily advice has learned, for the suitcase too (2026-10-11):
+                // how warm they run, and their rules.
+                tempOffset};
     if(cl.length) body.closet=cl;
+    if(cl.length&&userRules.length) body.rules=userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text}));
     // How far from home, so the server knows whether day 1 is spent in a cabin
     // (user, 2026-09-07: the list ignored the flight). A distance, not a place —
     // the server still never learns where the trip goes.

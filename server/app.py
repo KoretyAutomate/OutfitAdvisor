@@ -317,10 +317,11 @@ async def packing(req: PackingRequest):
     # The trip involves a cabin at all; once there, only the journey home does.
     travel = trippack.is_travel(req.travelKm)
     if req.closet:
-        items = [i.model_dump() for i in req.closet]
+        items, felt = trippack.with_feedback([i.model_dump() for i in req.closet], days, summary,
+                                             req.tempOffset, rules.clean_rules(req.rules))
         trip = packlist.Trip(req.gender, tuple(req.styles), req.type, travel=travel, started=started,
-                             days=trip_days)
-        result = await packlist.packing_list(days, summary, trip, items)
+                             days=trip_days, rules=tuple(rules.clean_rules(req.rules)))
+        result = await packlist.packing_list(*felt, trip, items)
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
             closet_used = True
@@ -328,7 +329,7 @@ async def packing(req: PackingRequest):
             # short; the COUNT is made right here, from what the wardrobe has. A
             # 15-day trip went out with two pairs of bottoms before this
             # (user, 2026-09-07: "cannot be survived with 2 pants").
-            lo, hi = trippack.trip_range(summary)
+            lo, hi = trippack.trip_range(felt[1])
             before = trippack.counts(pack)
             pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
             # The bullets were written before the repair; say what changed, or the

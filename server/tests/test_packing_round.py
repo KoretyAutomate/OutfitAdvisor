@@ -337,3 +337,29 @@ def test_tip_carries_no_emoji():
     finally:
         llm._chat = orig
     assert r["text"].endswith("Tip: Pack light.")
+
+
+def test_packing_honours_the_rules_and_the_calibration(monkeypatch):
+    """2026-10-11: what the daily advice learned reaches the suitcase. A garment banned
+    outright stays home; the forecast the list is packed for runs warm or cold with the
+    wearer, while the trip card keeps the real one; pairing rules reach the prompt."""
+    import packing
+    items = [{"id": "itm-tee00001", "category": "base", "type": "t_shirt", "colors": ["white"]},
+             {"id": "itm-hood0001", "category": "mid", "type": "hoodie", "colors": ["grey"]}]
+    days = [{"lo": 10, "hi": 18}]
+    summary = {"loMin": 10, "hiMax": 18}
+    ban = {"kind": "avoid_item", "a": {"type": "hoodie"}}
+    pair = {"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"type": "jeans"}}
+    kept, (fdays, fsum) = packing.with_feedback(items, days, summary, 2.0, [ban, pair])
+    assert [i["id"] for i in kept] == ["itm-tee00001"]
+    assert fdays[0] == {"lo": 12, "hi": 20} and fsum["loMin"] == 12 and fsum["hiMax"] == 20
+    assert days[0] == {"lo": 10, "hi": 18}, "the real forecast is untouched"
+
+
+def test_a_pairing_rule_reaches_the_packing_prompt():
+    import packlist
+    pair = {"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"type": "jeans"}}
+    days = [{"date": "2026-10-20", "lo": 10, "hi": 18, "desc": "Cloudy", "rain": 0, "wind": 2}]
+    summary = {"mode": "forecast", "nDays": 1, "loMin": 10, "hiMax": 18, "rainDays": 0}
+    p = packlist._pack_prompt((days, summary), packlist.Trip("man", ("casual",), "vacation", rules=(pair,)), [])
+    assert "never use" in p and "together with" in p

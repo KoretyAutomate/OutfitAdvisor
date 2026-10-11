@@ -977,7 +977,6 @@ function recommend(w,gender,style){
   else if(t>=7) o.mid=pick(gender,"Wool sweater or fleece","Sweater or fleece","Wool sweater or fleece");
   else o.mid=pick(gender,"Heavy knit + insulating mid-layer","Heavy knit + insulating layer","Heavy knit / insulating layer");
   if(w.isSnow) o.outer="Insulated waterproof parka";
-  else if(w.isRain||w.rain>=50) o.outer=pick(gender,"Waterproof shell / trench","Waterproof coat or trench","Waterproof shell");
   else if(t>=24) o.outer="None — but pack a thin layer for AC indoors";
   else if(t>=16) o.outer=pick(gender,"Light jacket or blazer","Light jacket or trench","Light jacket");
   else if(t>=8) o.outer=pick(gender,"Wool coat or padded jacket","Wool coat or padded jacket","Insulated jacket");
@@ -989,7 +988,6 @@ function recommend(w,gender,style){
   else o.bottoms=pick(gender,"Lined trousers + base layer","Thermal-lined trousers or thick tights","Insulated / lined trousers");
   if(style==="active") o.bottoms="Stretch / technical trousers";
   if(w.isSnow) o.footwear="Insulated waterproof boots";
-  else if(w.isRain||w.rain>=50) o.footwear="Waterproof boots or shoes";
   else if(t>=24) o.footwear=pick(gender,"Loafers or breathable sneakers","Sandals or breathable flats","Breathable sneakers");
   else if(t>=10) o.footwear=style==="smart"?"Leather shoes / ankle boots":"Sneakers or casual shoes";
   else o.footwear="Insulated boots";

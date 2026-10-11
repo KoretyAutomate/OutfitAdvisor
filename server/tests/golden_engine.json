@@ -7497,10 +7497,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal / merino base layer",
     "bottoms": "Lined trousers + base layer",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
-    "outer": "Waterproof shell / trench",
+    "outer": "Heavy winter coat / down",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7527,10 +7527,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal or merino base layer",
     "bottoms": "Thermal-lined trousers or thick tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
-    "outer": "Waterproof coat or trench",
+    "outer": "Down coat or heavy wool coat",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7557,10 +7557,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal base layer",
     "bottoms": "Insulated / lined trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
-    "outer": "Waterproof shell",
+    "outer": "Heavy winter coat",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7587,10 +7587,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Jeans or wool trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell / trench",
+    "outer": "Wool coat or padded jacket",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7617,10 +7617,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve top",
     "bottoms": "Trousers or jeans (consider thermal tights)",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
-    "outer": "Waterproof coat or trench",
+    "outer": "Wool coat or padded jacket",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7647,10 +7647,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Warm trousers or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell",
+    "outer": "Insulated jacket",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7677,10 +7677,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
-    "outer": "Waterproof shell / trench",
+    "outer": "Light jacket or blazer",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7707,10 +7707,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Short-sleeve top or light blouse",
     "bottoms": "Jeans, trousers, or midi skirt + tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
-    "outer": "Waterproof coat or trench",
+    "outer": "Light jacket or trench",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7737,10 +7737,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
-    "outer": "Waterproof shell",
+    "outer": "Light jacket",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7767,10 +7767,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Breathable cotton/linen tee",
     "bottoms": "Light chinos or shorts",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Loafers or breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell / trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7797,10 +7797,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Light camisole or linen blouse",
     "bottoms": "Skirt, dress, or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sandals or breathable flats",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof coat or trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7827,10 +7827,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Lightweight breathable tee",
     "bottoms": "Shorts or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
@@ -7857,10 +7857,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal / merino base layer",
     "bottoms": "Lined trousers + base layer",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
-    "outer": "Waterproof shell / trench",
+    "outer": "Heavy winter coat / down",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -7887,10 +7887,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal or merino base layer",
     "bottoms": "Thermal-lined trousers or thick tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
-    "outer": "Waterproof coat or trench",
+    "outer": "Down coat or heavy wool coat",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -7917,10 +7917,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal base layer",
     "bottoms": "Insulated / lined trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
-    "outer": "Waterproof shell",
+    "outer": "Heavy winter coat",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -7947,10 +7947,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Jeans or wool trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell / trench",
+    "outer": "Wool coat or padded jacket",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -7977,10 +7977,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve top",
     "bottoms": "Trousers or jeans (consider thermal tights)",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
-    "outer": "Waterproof coat or trench",
+    "outer": "Wool coat or padded jacket",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8007,10 +8007,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Warm trousers or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell",
+    "outer": "Insulated jacket",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8037,10 +8037,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
-    "outer": "Waterproof shell / trench",
+    "outer": "Light jacket or blazer",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8067,10 +8067,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Short-sleeve top or light blouse",
     "bottoms": "Jeans, trousers, or midi skirt + tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
-    "outer": "Waterproof coat or trench",
+    "outer": "Light jacket or trench",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8097,10 +8097,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
-    "outer": "Waterproof shell",
+    "outer": "Light jacket",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8127,10 +8127,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Breathable cotton/linen tee",
     "bottoms": "Light chinos or shorts",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Loafers or breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell / trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8157,10 +8157,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Light camisole or linen blouse",
     "bottoms": "Skirt, dress, or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sandals or breathable flats",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof coat or trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8187,10 +8187,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Lightweight breathable tee",
     "bottoms": "Shorts or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell",
+    "outer": "None \u2014 but pack a thin layer for AC indoors",
     "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
@@ -8937,10 +8937,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal / merino base layer",
     "bottoms": "Lined trousers + base layer",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
-    "outer": "Waterproof shell / trench",
+    "outer": "Heavy winter coat / down",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -8967,10 +8967,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal or merino base layer",
     "bottoms": "Thermal-lined trousers or thick tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
-    "outer": "Waterproof coat or trench",
+    "outer": "Down coat or heavy wool coat",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -8997,10 +8997,10 @@
     "accessories": "Hat, gloves & scarf, umbrella",
     "base": "Thermal base layer",
     "bottoms": "Insulated / lined trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Insulated boots",
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
-    "outer": "Waterproof shell",
+    "outer": "Heavy winter coat (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9027,10 +9027,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Jeans or wool trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell / trench",
+    "outer": "Wool coat or padded jacket (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9057,10 +9057,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve top",
     "bottoms": "Trousers or jeans (consider thermal tights)",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
-    "outer": "Waterproof coat or trench",
+    "outer": "Wool coat or padded jacket (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9087,10 +9087,10 @@
     "accessories": "Umbrella",
     "base": "Long-sleeve shirt",
     "bottoms": "Warm trousers or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
-    "outer": "Waterproof shell",
+    "outer": "Insulated jacket (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9117,10 +9117,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
-    "outer": "Waterproof shell / trench",
+    "outer": "Light jacket or blazer (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9147,10 +9147,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Short-sleeve top or light blouse",
     "bottoms": "Jeans, trousers, or midi skirt + tights",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
-    "outer": "Waterproof coat or trench",
+    "outer": "Light jacket or trench (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9177,10 +9177,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Cotton T-shirt",
     "bottoms": "Chinos or jeans",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sneakers or casual shoes",
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
-    "outer": "Waterproof shell",
+    "outer": "Light jacket (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9207,10 +9207,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Breathable cotton/linen tee",
     "bottoms": "Light chinos or shorts",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Loafers or breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell / trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9237,10 +9237,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Light camisole or linen blouse",
     "bottoms": "Skirt, dress, or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Sandals or breathable flats",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof coat or trench",
+    "outer": "None \u2014 but pack a thin layer for AC indoors (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
@@ -9267,10 +9267,10 @@
     "accessories": "Umbrella, sunglasses",
     "base": "Lightweight breathable tee",
     "bottoms": "Shorts or light trousers",
-    "footwear": "Waterproof boots or shoes",
+    "footwear": "Breathable sneakers",
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
-    "outer": "Waterproof shell",
+    "outer": "None \u2014 but pack a thin layer for AC indoors (windproof)",
     "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },

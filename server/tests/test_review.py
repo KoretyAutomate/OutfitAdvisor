@@ -278,3 +278,31 @@ def test_the_listing_says_waterproof_only_on_snow():
     assert "| waterproof" in closet_prompt._closet_prompt(w, "man", "casual", items)
     assert "waterproof |" not in closet_prompt._closet_prompt({**w, "isSnow": False, "rain": 90},
                                                              "man", "casual", items)
+
+
+def test_a_revision_that_leaves_them_cold_loses():
+    """Raised by the pre-push reviewer, 2026-10-11: the first answer was made warm by
+    a repair; a revision that ends with nothing warm enough on top never wins, even
+    with no repairs of its own."""
+    from picks import Prefs, _index
+    wd = _index(CLOSET)
+    w = {"morning": 10, "lo": 10, "hi": 15}
+    warm = {"picks": {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"],
+                      "footwear": SHOES["id"]},
+            "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
+    cold = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+            "review": review.Seen(None, [])}
+    assert review._rank(cold, warm, wd, w, Prefs()) > review._rank(warm, cold, wd, w, Prefs())
+
+
+def test_an_unreviewed_revision_does_not_win_by_escaping_the_stylist(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: the first answer scored 2/5; the
+    revision got no review and needed a warmth repair (polo over polo). The poor
+    score is what asked for the revision — it is not evidence against the first."""
+    monkeypatch.setenv("OUTFIT_STYLIST", "1")
+    c = client(monkeypatch, [outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"],
+                                    footwear=SHOES["id"]),
+                             outfit(base=POLO["id"], bottoms=PANTS["id"], footwear=SHOES["id"])],
+               [{"score": 2, "issue": "flat", "swap": None}])
+    d = post(c)
+    assert len(c.seen["prompts"]) == 2 and d["picks"]["mid"] == SWEATER["id"]

@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass, field
 
 import picks as pk
+from layers import _still_warm
 from llm import _fenced, _plan_temp, log
 from stylist import POOR, Verdict
 from vocab import CATEGORIES
@@ -87,13 +88,24 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
             "from the wardrobe above, fixing exactly this and keeping what worked.\n")
 
 
-def _weight(found: list[str], result: dict, other: dict) -> tuple[int, int, int]:
-    """How bad: bare legs or feet first, then how many problems, then the stylist's
-    score — a 1/5 revision does not replace a 2/5 answer on an equal count. Raised
-    by the pre-push reviewer, 2026-10-11. A score only one side has (the stylist ran
-    out of time on the revision) is no evidence either way, so it counts as a tie."""
+def _rank(result: dict, other: dict, wd: "pk.Wardrobe", w: dict, prefs) -> tuple[int, int, int]:
+    """How bad the FINISHED outfit is, lower better — judged on its final state, the
+    same way for both answers, never by counting the sentences that triggered the
+    revision (two pre-push reviews, 2026-10-11, found ways to win that count):
+
+      1. unresolved: bare legs or feet though some are owned, or still nothing warm
+         enough on top — a revision that loses warmth or trousers never wins;
+      2. how many layer repairs the model's own answer needed;
+      3. the stylist's score, only when BOTH answers have one — an unreviewed
+         revision is no evidence either way.
+    """
+    picks = result["picks"]
+    found = problems(result, wd, w, prefs)
+    cold = any(picks.get(c) for c in ("base", "mid", "outer")) and not _still_warm(
+        picks, wd.by_item, _plan_temp(w))
     mine, theirs = _score(result), _score(other)
-    return (sum(1 for f in found if f.startswith(_BARE)), len(found),
+    return (sum(1 for f in found if f.startswith(_BARE)) + int(cold),
+            len((result.get("review") or Seen()).repairs),
             -(mine if mine is not None and theirs is not None else 0))
 
 
@@ -123,15 +135,11 @@ async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> 
     if second is None:
         log.info("review: no usable revision, the first answer stands")
         return _done(first)
-    left = problems(second, wd, w, prefs)
-    # The revision stands unless it is worse: it is the model's own answer, made
-    # knowing what went wrong, and the repairs have judged it like the first. Worse
-    # means bare legs or feet before anything else — a complete outfit a repair had
-    # to warm is better than one the model left without trousers. Raised by the
-    # pre-push reviewer, 2026-10-11.
-    keep = second if _weight(left, second, first) <= _weight(found, first, second) else first
-    log.info("review: %d → %d problem(s), %s answer stands", len(found), len(left),
-             "revised" if keep is second else "first")
+    # The revision stands unless it is worse (see _rank): it is the model's own
+    # answer, made knowing what went wrong, and the repairs have judged it too.
+    a, b = _rank(first, second, wd, w, prefs), _rank(second, first, wd, w, prefs)
+    keep = second if b <= a else first
+    log.info("review: %s → %s, %s answer stands", a, b, "revised" if keep is second else "first")
     return _done(keep)
 
 

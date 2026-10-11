@@ -74,7 +74,8 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
         # beam and prune the one different path (the tee, then a layer). Raised by
         # the pre-push reviewer, 2026-10-11.
         seen_sigs: set = set()
-        first, rest = [], []
+        first: list = []
+        rest: list = []
         for r in nxt:
             sig = frozenset(r[1])
             (rest if sig in seen_sigs else first).append(r)

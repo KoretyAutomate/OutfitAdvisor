@@ -212,6 +212,42 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
       { wl: ev("JSON.stringify(wearLog)"), rec: ev("JSON.stringify(woreLogged)") });
   }
 
+  console.log("\n--- review round 3: a closet write keeps the notification's wears --");
+  {
+    const w = page();
+    const ev = c => w.eval(c), ls = w.localStorage;
+    await ev("appReady");
+    const today = ev("todayISO()");
+    ev(`closet=[{id:"tee1",label:"Navy tee",category:"base",roles:["base"],count:2},
+               {id:"jean1",label:"Jeans",category:"bottoms",roles:["bottoms"],count:2}];
+        wearLog=[]; woreLogged=null; woreDay=null;`);
+    await ev("saveCloset()");               // the page's baseline: an empty wear log
+    // The notification logs tee1 while the page is in memory and has not re-read.
+    const t = Date.now() - 1000;
+    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "tee1", wornAt: t}]));
+    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "tee1"}}));
+    // The user logs jeans from the item sheet: memory changes, then saveCloset.
+    ev(`logWear("jean1")`);
+    await ev("saveCloset()");
+    const disk = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
+    check("the notification's wear survives a closet write from a stale page",
+      JSON.stringify(disk) === '["jean1","tee1"]', disk);
+    check("and its day record is adopted", ev("JSON.stringify(woreLogged)") === '{"base":"tee1"}',
+      ev("JSON.stringify(woreLogged)"));
+    // A garment the page has itself logged today is not counted twice.
+    ls.setItem("oa.wearlog", JSON.stringify([...JSON.parse(ls.getItem("oa.wearlog")),
+      {itemId: "jean1", wornAt: Date.now() - 500}]));
+    await ev("saveCloset()");
+    check("one wear per garment per day across both writers",
+      JSON.parse(ls.getItem("oa.wearlog")).filter(x => x.itemId === "jean1").length === 1,
+      ls.getItem("oa.wearlog"));
+    // What the page removed itself stays removed.
+    ev(`unlogWearToday("jean1")`);
+    await ev("saveCloset()");
+    check("a wear the page took back is not merged back in",
+      !JSON.parse(ls.getItem("oa.wearlog")).some(x => x.itemId === "jean1"), ls.getItem("oa.wearlog"));
+  }
+
   console.log("\n--- FeedbackReceiver.kt mirrors one-rating-a-day ------------------");
   {
     const kt = KT("FeedbackReceiver.kt");

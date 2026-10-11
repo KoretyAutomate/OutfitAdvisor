@@ -213,3 +213,16 @@ def test_four_banned_garments_all_come_off():
     slots = ("inner", "base", "bottoms", "footwear")
     fixed, _ = fallback.fix(dict(zip(slots, (w["id"] for w in white), strict=True)), d)
     assert not any(k.startswith("rule-") for k in check.hard(check.issues(fixed, d))), fixed
+
+
+def test_a_big_closet_does_not_hide_the_two_step_repair():
+    """Raised by the pre-push reviewer, 2026-10-11: many equally-ranked alternatives
+    must not prune away the tee-plus-layer answer."""
+    import check
+    from wardrobe_fixtures import g
+    sweaters = [g(f"swb{n:06d}", f"sweater {n}", "tops", "sweater", ["base"], 4) for n in range(25)]
+    shoes = [g(f"shoe{n:05d}", f"shoes {n}", "footwear", "sneakers", ["footwear"], 2) for n in range(15)]
+    warm_mid = g("warmmid01", "wool cardigan", "tops", "cardigan", ["mid", "outer"], 4)
+    d = day(3, *sweaters, *shoes, TEE, warm_mid, JEANS, hi=25)
+    fixed, _ = fallback.fix({"base": sweaters[0]["id"], "bottoms": JEANS["id"], "footwear": shoes[0]["id"]}, d)
+    assert not check.hard(check.issues(fixed, d)), (fixed, check.hard(check.issues(fixed, d)))

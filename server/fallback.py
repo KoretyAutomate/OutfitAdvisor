@@ -59,17 +59,20 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     for _ in range(depth):
         if best_rank[:4] == (0, 0, 0, 0):
             break
-        nxt = []
+        nxt, fresh = [], set()
         for p in beam:
             for q in _moves(p, day):
                 k = _key(q)
-                if k not in visited:
-                    visited.add(k)
+                if k not in visited and k not in fresh:
+                    fresh.add(k)
                     nxt.append((_rank(q, picks, day), q))
         if not nxt:
             break
         nxt.sort(key=lambda rq: rq[0])
         beam = [q for _, q in nxt[:BEAM]]
+        # Only what is KEPT is marked: an outfit pruned at this depth may be the one
+        # step a later path needs. Raised by the pre-push reviewer, 2026-10-11.
+        visited |= {_key(q) for q in beam}
         if nxt[0][0] < best_rank:
             best_rank, best = nxt[0]
     return best, {s: best.get(s) for s in CATEGORIES if best.get(s) != picks.get(s)}

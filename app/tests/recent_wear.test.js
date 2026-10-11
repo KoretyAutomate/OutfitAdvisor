@@ -9,6 +9,7 @@
  *
  * Loads the REAL app/www/index.html in jsdom. Run: npm test
  */
+process.env.TZ = "America/New_York";   // a clock change inside the window, below
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
@@ -72,6 +73,13 @@ const check = (name, cond, detail = "") => {
   check("worn today", w.eval("recentWorn().u") === 0, w.eval("recentWorn()"));
   w.eval('unlogWearToday("u")'); await w.eval("saveCloset()");
   check("…undone: the earlier wear is what remains", w.eval("recentWorn().u") === 2, w.eval("recentWorn()"));
+
+  // Raised by the pre-push reviewer, 2026-10-11: calendar days across a clock
+  // change (New York, 1 November 2026).
+  const nov4 = new Date(2026, 10, 4, 7, 0).getTime();
+  w.eval(`lastWorn={}; wearLog=${JSON.stringify([{itemId: "d", wornAt: new Date(2026, 9, 28, 0, 30).getTime()}])}`);
+  check("a wear 7 calendar days back, across the clock change, is 7",
+    w.eval(`recentWorn(${nov4}).d`) === 7, w.eval(`recentWorn(${nov4})`));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

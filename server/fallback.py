@@ -40,11 +40,19 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     # 3. A dress covers the legs.
     if wd.by_group.get(out.get("base")) == "onepiece":
         out["bottoms"] = None
-    # 4. Two tops: the one worn over the other comes off.
-    torso = [c for c in TORSO if out.get(c)]
-    tops = [c for c in torso if wd.by_item[out[c]].get("type") in TOPS]
-    for c in tops[1:]:
-        out[c] = None
+    # 4. Two tops, or two of the same kind (two shirts): the one worn over the other
+    #    comes off — the same condition check.py calls `stacked`.
+    seen_kinds: set = set()
+    tops = 0
+    for c in TORSO:
+        if not out.get(c):
+            continue
+        kind = wd.by_item[out[c]].get("type")
+        if (kind in TOPS and tops) or (kind and kind in seen_kinds):
+            out[c] = None
+            continue
+        tops += kind in TOPS
+        seen_kinds.add(kind)
     # 5. Far too warm: a cooler garment they own, or off if the slot can go.
     for slot in [s for s, i in out.items() if i]:
         if not out.get(slot):

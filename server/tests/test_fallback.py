@@ -108,3 +108,13 @@ def test_the_warmer_top_swap_respects_the_afternoon():
     fixed, _ = fallback.fix(ids(base=POLO, mid=KNIT_POLO, bottoms=JEANS, footwear=SNEAK),
                             day(10, POLO, KNIT_POLO, JEANS, SNEAK, hi=30))
     assert fixed["base"] != KNIT_POLO["id"], fixed
+
+
+def test_two_shirts_stacked_lose_the_upper_one():
+    """Raised by the pre-push reviewer, 2026-10-11: the check calls two of a kind
+    `stacked`; the fallback must resolve exactly that."""
+    from wardrobe_fixtures import OXFORD, g
+    flannel = g("flannel01", "red flannel shirt", "tops", "shirt", ["base", "mid", "outer"], 2)
+    fixed, _ = fallback.fix(ids(base=OXFORD, mid=flannel, bottoms=JEANS, footwear=SNEAK),
+                            day(15, OXFORD, flannel, JEANS, SNEAK, CARDI))
+    assert fixed["base"] == OXFORD["id"] and fixed["mid"] != flannel["id"], fixed

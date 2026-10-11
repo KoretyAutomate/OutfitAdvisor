@@ -27,7 +27,7 @@ import reroll
 import scale
 import prose
 import rules
-from llm import _chat, _fenced, _parse_json, _plan_temp, _weather_flags, log
+from llm import _chat, _fenced, _parse_json, _peak_temp, _plan_temp, _weather_flags, log
 from picks import Prefs
 from vocab import CATEGORIES, NON_SLOT_TYPES, TYPE_LABEL
 
@@ -108,8 +108,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
     # corrective retry that had already failed (2026-09-06). Stated per line, like
     # the empty-slot line, so the model is never left to infer it.
     plan = _plan_temp(w)
-    hi = w.get("hi")
-    peak = max(plan, float(hi)) if hi is not None else plan
+    peak = _peak_temp(w, plan)
     def hot_roles(i: dict) -> list[str]:
         return [r for r in (i.get("roles") or [i["category"]])
                 if scale.too_warm(i, pk._heat_temp(r, plan, peak))]
@@ -335,8 +334,7 @@ def _hold_to_the_rules(picks: dict, w: dict, prefs: "Prefs", wd: "pk.Wardrobe",
     # that covers the wearer.
     # The hottest hour the outfit has to survive. Already carries the wearer's
     # thermal offset, like plan, because both are read off the same adjusted day.
-    hi = w.get("hi")
-    peak = max(plan, float(hi)) if hi is not None else plan
+    peak = _peak_temp(w, plan)
     hot = pk._too_warm_slots(picks, wd.by_item, plan, peak)
     if hot:
         # No corrective retry here, unlike the checks above. The listing already

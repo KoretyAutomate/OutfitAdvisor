@@ -31,7 +31,7 @@ import layers
 import picks as pk
 import rules
 import scale
-from llm import _plan_temp, log
+from llm import _peak_temp, _plan_temp, log
 from sleeves import sleeve_clashes
 
 # The garments other people see, in the order a swap is tried: the mid layer is the
@@ -189,8 +189,7 @@ class Ctx:
 
 def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
     plan = _plan_temp(w)
-    hi = w.get("hi")
-    peak = max(plan, float(hi)) if hi is not None else plan
+    peak = _peak_temp(w, plan)
     wet = layers.is_wet(w)
     return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
                getattr(prefs, "look", None) or Look(), wet)

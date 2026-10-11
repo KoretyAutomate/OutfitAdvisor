@@ -358,7 +358,7 @@ async def fetch_weather(lat: float, lon: float, day: int = 0) -> dict:
                 "weather_code",
             ]
         ),
-        "hourly": "temperature_2m",
+        "hourly": "temperature_2m,apparent_temperature",
         "timezone": "auto",
         "forecast_days": 2,
         "wind_speed_unit": "ms",
@@ -386,6 +386,17 @@ async def fetch_weather(lat: float, lon: float, day: int = 0) -> dict:
         v = htemp[idx]
         return round(v) if v is not None else None
 
+    hfeel = d["hourly"].get("apparent_temperature") or []
+    hours = []
+    for h in range(PLAN_FROM, 24):
+        key = f"{date}T{h:02d}:00"
+        if key in htime:
+            k = htime.index(key)
+            air = htemp[k]
+            feel = hfeel[k] if k < len(hfeel) else None
+            if air is not None:
+                hours.append([h, round(air, 1), round(feel, 1) if feel is not None else None])
+
     lo = round(daily["temperature_2m_min"][i])
     hi = round(daily["temperature_2m_max"][i])
     emoji, desc = WMO.get(code, ("🌡️", "—"))
@@ -408,4 +419,35 @@ async def fetch_weather(lat: float, lon: float, day: int = 0) -> dict:
         "evening": hour_temp(19),
         "isSnow": code in SNOW_CODES,
         "isRain": code in RAIN_CODES,
+        "hours": hours,
     }
+
+
+# The day an outfit is dressed for (user, 2026-10-10): "feels like temperature
+# between 8am and 7pm, unless there is an event in our calendar" — then until the
+# event ends. JS twin: planWindow() in app/www/index.html.
+PLAN_FROM, PLAN_UNTIL = 8, 19
+# How far feels-like may move an hour away from the air temperature. The warmth
+# scale is measured against monthly AIR temperatures, so an unbounded feels-like
+# would move a windy city's whole wardrobe a level; and a gusty or sunny hour is a
+# short walk, not the day.
+FEELS_COLDER, FEELS_WARMER = 4.0, 3.0
+
+
+def felt(air: float, feel: float | None) -> float:
+    """One hour as the outfit is planned for it: feels-like, within the bounds."""
+    if feel is None:
+        return air
+    return air + max(-FEELS_COLDER, min(FEELS_WARMER, feel - air))
+
+
+def with_plan(w: dict, out_until: int | None = None) -> dict:
+    """The weather with the planning window added: planLo (coldest felt hour,
+    which decides warm enough) and planHi (warmest, which decides too warm), over
+    08:00 to 19:00 or to the end of an evening event. A day without hourly data
+    (an older fetch, a test) is returned unchanged and keeps the morning basis."""
+    until = out_until if out_until and out_until > PLAN_UNTIL else PLAN_UNTIL
+    felt_hours = [felt(air, feel) for h, air, feel in w.get("hours") or [] if PLAN_FROM <= h <= min(23, until)]
+    if not felt_hours:
+        return w
+    return {**w, "planLo": round(min(felt_hours), 1), "planHi": round(max(felt_hours), 1), "planUntil": until}

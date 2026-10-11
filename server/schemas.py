@@ -297,6 +297,12 @@ class AdviceRequest(BaseModel):
     # lighter. A bounded float, so it adds no prompt-injection surface. The phone
     # owns the rating history; the server stays stateless and just applies it.
     tempOffset: float = Field(0.0, ge=-6, le=6)
+    # The hour a calendar event keeps the wearer out until, read on the phone
+    # (user, 2026-10-10): the day is dressed for 08:00-19:00 unless an evening event
+    # runs later. An hour, nothing else — the event's title and place stay on the
+    # phone. Out of range is dropped, never a 422: the morning push must not fail
+    # over a calendar.
+    outUntil: int | None = None
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
@@ -331,6 +337,15 @@ class AdviceRequest(BaseModel):
     # from an older build costs the re-roll, never the morning.
     shown: dict[str, str] = Field(default_factory=dict)
     styleVotes: StyleVotes | None = None
+
+    @field_validator("outUntil", mode="before")
+    @classmethod
+    def _evening_hour(cls, v):
+        try:
+            h = int(v)
+        except (TypeError, ValueError):
+            return None
+        return h if 20 <= h <= 24 else None
 
     # `before`, so an explicit null from a build that sends the field unset reaches
     # this instead of pydantic's dict_type rejection. That would have been a 422 on

@@ -23,14 +23,13 @@ corrective retry; and what survives that is swapped here in code.
 """
 
 import picks as pk
-from llm import _plan_temp, log
+from llm import _peak_temp, _plan_temp, log
 from vocab import CATEGORIES
 
 def peak_temp(w: dict, plan_temp: float) -> float:
     """The hottest hour the outfit has to survive, already carrying the wearer's
     thermal offset because it is read off the same adjusted day."""
-    hi = w.get("hi")
-    return max(plan_temp, float(hi)) if hi is not None else plan_temp
+    return _peak_temp(w, plan_temp)
 
 
 def swap_repeats(picks: dict, repeated: list[str], wd: "pk.Wardrobe",

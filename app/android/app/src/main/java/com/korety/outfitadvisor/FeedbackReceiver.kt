@@ -210,6 +210,12 @@ class FeedbackReceiver : BroadcastReceiver() {
                     o.put("freeAt", still)
                 }
             }
+            // The advisor's wear HISTORY too (`recentAt`, read by AdviceWorker): worn
+            // today, so tomorrow's advice knows. Raised by the pre-push reviewer,
+            // 2026-10-11.
+            val recent = p.optJSONObject("recentAt") ?: JSONObject()
+            for (id in ids) if (recent.optLong(id, 0L) < now) recent.put(id, now)
+            p.put("recentAt", recent)
             p.toString()
         } catch (e: Exception) { null }
     }

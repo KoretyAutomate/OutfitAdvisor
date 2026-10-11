@@ -347,3 +347,14 @@ def test_a_none_needed_line_for_a_gap_becomes_the_missing_marker(api, monkeypatc
     d = post(api, closet=[UNDER, POLO, CARDI])
     assert d["outfit"]["bottoms"].startswith("None — nothing in your closet")
     assert d["outfit"]["footwear"] == "Plain white sneakers (not in your closet yet)."
+
+
+def test_wearing_it_from_the_notification_updates_the_push_wear_history():
+    """Raised by the pre-push reviewer, 2026-10-11: the push reads recent wears only
+    from the snapshot's `recentAt`, so the notification's "Wearing it" writes it."""
+    from pathlib import Path
+    kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+          / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
+    body = kt[kt.index("private fun holdInPayload"):]
+    body = body[:body.index("\n    private fun ", 10)]
+    assert 'optJSONObject("recentAt")' in body and 'p.put("recentAt", recent)' in body

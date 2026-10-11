@@ -3625,10 +3625,12 @@ async function getAdvice(lat,lon){
     // ONE advisor (2026-10-11): offline, the phone does not invent an outfit from a
     // catalogue that knows nothing about this wardrobe. It shows the advice already
     // made today, if there is one, and otherwise says plainly that it could not ask.
+    // Today's saved advice first: with no network at all the forecast fetch fails
+    // too, and the saved record carries its own weather (pre-push reviewer).
+    const saved=await savedToday();
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
-    catch(e2){ throw new Error(friendly(e2)); }
-    const saved=await savedToday();
+    catch(e2){ if(saved&&saved.weather) w=saved.weather; else throw new Error(friendly(e2)); }
     if(saved) return {...saved,weather:w,source:"saved"};
     const none={};
     for(const k of CATS) none[k]="None — couldn't reach the advisor";
@@ -4220,6 +4222,7 @@ function renderSuitcase(trip,pack){
 }
 
 /* ───────── main flow ───────── */
+let runSeq=0;   // the latest run(); an older one's answer is discarded
 async function run(){
   err("");
   const btn=$("goBtn"); btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
@@ -4242,7 +4245,11 @@ async function run(){
       state.city=""; state.useGps=true; await persist();
     }
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
+    const myRun=++runSeq;
     const res=await getAdvice(state.lat,state.lon);
+    // A newer request (a second Style tap) has started since: its answer is the one
+    // that matches the settings, so this one is dropped (pre-push reviewer, 2026-10-11).
+    if(myRun!==runSeq) return;
     res.at=res.at||Date.now();    // when it was made (request time), for the suitcase note
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
@@ -5173,7 +5180,7 @@ async function savedToday(){
     const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
     if(!d||d.day!==todayISO()||!d.outfit) return null;
     return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
-            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[]};
+            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null};
   }catch(e){ return null; }
 }
 async function loadToday(){
@@ -5496,7 +5503,9 @@ async function load(){
    no longer re-dresses from its own catalogue, which threw away a closet-backed
    answer for generic clothing. With no advice on screen yet, the next request
    simply uses the new setting. */
-function reaskAdvisor(){ if(lastRes&&state.lat!=null) run(); }
+// run() resolves the saved city or the GPS itself: after a restart the coordinates
+// are not kept, and a profile change must still re-ask (pre-push reviewer).
+function reaskAdvisor(){ if(lastRes) run(); }
 // Tapping the option you are already on changes nothing — and must therefore cost
 // nothing. Without this guard it threw away a closet-backed answer, replaced it
 // with generic on-device clothing, and saved that over the day's advice.

@@ -194,7 +194,7 @@ def _tip(w: dict) -> str:
             "by midday and add back in the evening."
         )
     if _is_wet(w):
-        return f"Rain likely ({w['rain']}%). Prioritise the waterproof outer + footwear."
+        return f"Rain likely ({w['rain']}%) — take an umbrella."
     if w["wind"] >= 8:
         return f"Strong wind ({w['wind']} m/s) — a windproof outer makes a real difference."
     if w["hi"] >= 28:

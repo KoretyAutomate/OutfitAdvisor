@@ -15,6 +15,25 @@ from picks import Prefs
 from vocab import CATEGORIES, TYPE_LABEL
 
 
+# Common sense, said once, so the MODEL judges the outfit as a whole (user,
+# 2026-10-11: "no human would wear such outfit ... shouldn't we approach it with
+# the prompt?"). A polo over a polo was not a missing rule: a code repair had put it
+# there with nobody looking. The model is asked to picture the person; review.py
+# sends an answer back when the checks or the stylist find it wanting.
+DRESS_LIKE_A_PERSON = (
+    "DRESS LIKE A PERSON: picture them walking out of the door, then choose. Layers "
+    "go outward from thin to thick — undershirt, then ONE top (tee, polo, shirt), then "
+    "knitwear (sweater, cardigan, hoodie, fleece), then a jacket or coat. Never two "
+    "tops on top of each other and never two of the same kind of garment: a polo or "
+    "a tee is a top, not a layer over another top (an open button-up shirt over a "
+    "tee is fine). Warmth comes from adding knitwear or a jacket, never from stacking "
+    "tops. Keep the pieces in one register — the trousers and shoes as casual or as "
+    "smart as the top — with at most one bold piece. Shoes always, when they own "
+    "any. Good: tee + cardigan + jeans + sneakers. Wrong: polo over polo; tee over a "
+    "shirt; a hoodie under a shirt.\n"
+)
+
+
 def _pref_handle(p: dict, handles: dict | None) -> str:
     """`[i7]` when the garment is in today's wardrobe, nothing when it is not —
     a habit can name something in the wash, and a handle that is not in the listing
@@ -85,7 +104,6 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
            " | sleeveless" if s == "none" else "")
         + f" | colors: {','.join(i['colors'])}"
         f" | {scale.warmth_phrase(i)} | fits: {','.join(i['formality'])}"
-        f" | {'waterproof' if i['waterproof'] else 'not waterproof'}"
         f" | {i['availableCount']} available"
         + (f" | TOO WARM today as: {','.join(hr)}" if (hr := hot_roles(i)) else "")
         for i in closet
@@ -130,6 +148,7 @@ def _closet_prompt(w: dict, gender: str, style: str, closet: list[dict],
         f"{flag_line}"
         f"{empty_line}"
         f"Dress a {gender}, {style} style, ONLY from their wardrobe below.\n"
+        f"{DRESS_LIKE_A_PERSON}"
         "Slots: inner=UNDERSHIRT (torso underwear worn on skin, NEVER visible — "
         "never the outfit's top), base=the visible shirt/tee worn over the inner "
         "(never null just because it is hot — pick a lighter base instead), "

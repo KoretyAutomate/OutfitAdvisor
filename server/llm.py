@@ -144,7 +144,10 @@ def _weather_flags(w: dict) -> list[str]:
     if w["swing"] >= 10:
         flags.append(f"Big {w['swing']}C swing — say when to shed/add a layer.")
     if w["rain"] >= 50 or w["isRain"]:
-        flags.append(f"Rain likely ({w['rain']}%) — waterproof outer + footwear.")
+        # They carry an umbrella (user, 2026-10-11: "Rain gear doesn't matter, it can
+        # go with an umbrella"). Rain never chooses a garment.
+        flags.append(f"Rain likely ({w['rain']}%) — they carry an umbrella; dress for the "
+                     "temperature and never choose a garment because of the rain.")
     if w["isSnow"]:
         flags.append("Snow — insulated waterproof boots.")
     if w["wind"] >= 8:

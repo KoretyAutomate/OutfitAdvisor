@@ -308,13 +308,13 @@ def test_a_colour_fix_never_brings_in_a_pairing_they_voted_down():
     assert picks["mid"] != NAVY_CARDI["id"]
 
 
-def test_on_a_wet_day_the_waterproof_jacket_stays():
+def test_being_waterproof_does_not_protect_a_clash():
+    """Rain never chooses a garment — they carry an umbrella (user, 2026-10-11) — so
+    a waterproof jacket is judged on its look like any other."""
     wet_plaid = {**PLAID_JACKET, "waterproof": True}
     base = ctx(STRIPE_SHIRT, wet_plaid, NAVY_JACKET, CHINOS)
     picks = {"base": STRIPE_SHIRT["id"], "outer": wet_plaid["id"], "bottoms": CHINOS["id"]}
-    style.repair(style.Ctx(base.wd, 14, 18, (), {}, base.look, True), picks, set())
-    assert picks["outer"] == wet_plaid["id"]
-    style.repair(base, picks, set())               # dry: the pattern rule may change it
+    style.repair(base, picks, set())
     assert picks["outer"] == NAVY_JACKET["id"]
 
 

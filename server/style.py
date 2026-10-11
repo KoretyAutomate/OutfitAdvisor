@@ -183,16 +183,13 @@ class Ctx:
     rules: tuple
     shown: dict
     look: Look
-    #: rain likely today — a waterproof garment is never swapped for one that is not
-    wet: bool = False
 
 
 def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
     plan = _plan_temp(w)
     peak = _peak_temp(w, plan)
-    wet = layers.is_wet(w)
     return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
-               getattr(prefs, "look", None) or Look(), wet)
+               getattr(prefs, "look", None) or Look())
 
 
 def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True) -> bool:
@@ -214,10 +211,6 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
     if wd.by_group.get(picks[slot]) == "onepiece":
         return False
     if slot == "outer" and not scale.warm_enough(item, ctx.plan):
-        return False
-    # A wet day: the waterproof jacket or boots stay waterproof. A style rule is not
-    # worth getting soaked for. Raised by the pre-push reviewer, 2026-10-07.
-    if ctx.wet and (wd.by_item.get(picks[slot]) or {}).get("waterproof") and not item.get("waterproof"):
         return False
     if scale.too_warm(item, pk._heat_temp(slot, ctx.plan, ctx.peak)):
         return False

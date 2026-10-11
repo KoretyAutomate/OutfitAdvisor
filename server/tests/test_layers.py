@@ -450,12 +450,14 @@ def test_the_coolest_garment_that_does_the_job_is_chosen():
     assert picks.get("mid") == CARDI["id"] and not picks.get("outer")
 
 
-def test_on_a_wet_cold_day_the_waterproof_layer_is_preferred():
+def test_rain_does_not_choose_the_layer():
+    """They carry an umbrella (user, 2026-10-11): a cold wet morning gets the same
+    cardigan as a cold dry one, not the waterproof shell."""
     shell = g("itm-shell00001", "waterproof shell", "outerwear", "jacket", ["outer"], 3,
               waterproof=True)
     picks = _bare({})
-    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, shell), 5, [], peak_temp=9, day=layers.Day(wet=True))
-    assert picks.get("outer") == shell["id"]
+    layers.tidy(picks, wd(TEE, JEANS, SNEAK, CARDI, shell), 5, [], peak_temp=9)
+    assert picks.get("mid") == CARDI["id"] and not picks.get("outer")
 
 
 def test_a_garment_that_does_not_suit_the_morning_is_not_forced_on():

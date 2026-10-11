@@ -7501,7 +7501,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7531,7 +7531,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7561,7 +7561,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7591,7 +7591,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7621,7 +7621,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7651,7 +7651,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7681,7 +7681,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7711,7 +7711,7 @@
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7741,7 +7741,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7771,7 +7771,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7801,7 +7801,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7831,7 +7831,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (80%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (80%) \u2014 take an umbrella."
    }
   },
   {
@@ -7861,7 +7861,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -7891,7 +7891,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -7921,7 +7921,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -7951,7 +7951,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -7981,7 +7981,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8011,7 +8011,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8041,7 +8041,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8071,7 +8071,7 @@
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8101,7 +8101,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8131,7 +8131,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8161,7 +8161,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8191,7 +8191,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (50%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (50%) \u2014 take an umbrella."
    }
   },
   {
@@ -8941,7 +8941,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating mid-layer",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -8971,7 +8971,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit + insulating layer",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9001,7 +9001,7 @@
     "inner": "Heavyweight thermal inner",
     "mid": "Heavy knit / insulating layer",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9031,7 +9031,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9061,7 +9061,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Sweater or fleece",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9091,7 +9091,7 @@
     "inner": "Warm inner (Heattech-type)",
     "mid": "Wool sweater or fleece",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9121,7 +9121,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light overshirt or thin knit",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9151,7 +9151,7 @@
     "inner": "Light inner camisole or undershirt (worn under the top)",
     "mid": "Light cardigan or knit",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9181,7 +9181,7 @@
     "inner": "Light cotton undershirt",
     "mid": "Light layer / thin knit",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9211,7 +9211,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell / trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9241,7 +9241,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof coat or trench",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {
@@ -9271,7 +9271,7 @@
     "inner": "Sweat-wicking breathable inner (AIRism-type)",
     "mid": "None needed",
     "outer": "Waterproof shell",
-    "tip": "Rain likely (60%). Prioritise the waterproof outer + footwear."
+    "tip": "Rain likely (60%) \u2014 take an umbrella."
    }
   },
   {

@@ -1000,7 +1000,7 @@ function recommend(w,gender,style){
   o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
   if(w.swing>=10){ const span=(w.morning!=null&&w.midday!=null)?` (${w.morning}° → ${w.midday}°)`:"";
     o.tip=`Big ${w.swing}° swing today${span}. Dress in layers you can shed by midday and add back in the evening.`; }
-  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%). Prioritise the waterproof outer + footwear.`;
+  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%) — take an umbrella.`;
   else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
   else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
   else o.tip="Comfortable conditions — the layers above keep you flexible through the day.";

@@ -281,9 +281,9 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
     gone = [wd.by_item[i] for s_, i in best.picks.items()
             if i in wd.by_item and s_ in changed and i not in picks.values()]
     if gone:
-        terms = _terms(gone, [wd.by_item[i] for i in picks.values() if i in wd.by_item])
+        pats = _patterns(gone, [wd.by_item[i] for i in picks.values() if i in wd.by_item])
         for slot, t in list(final.items()):
-            if slot not in changed and any(re.search(rf"\b{re.escape(w)}\b", t.lower()) for w in terms):
+            if slot not in changed and any(p.search(t.lower()) for p in pats):
                 if picks.get(slot):
                     final[slot] = str(wd.by_item[picks[slot]]["label"])
                 else:
@@ -307,7 +307,12 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
         if tip and prose._names_something_unowned(tip, owned):
             tip = ""
     bullets = [f"• {t}" for s in CATEGORIES if (t := final.get(s))]
-    again = reroll.same_again_line(picks, day.prefs.shown_map) if day.prefs.shown else None
+    # "Nothing else you own suits today" only when that is TRUE: repeats are a soft
+    # issue now, and a model can repeat with alternatives owned. Raised by the
+    # pre-push reviewer, 2026-10-11.
+    again = (reroll.same_again_line(picks, day.prefs.shown_map) if day.prefs.shown
+             and not reroll.repeated_slots(picks, day.prefs.shown_map, wd, day.plan, day.rules, day.peak)
+             else None)
     if again:
         bullets.insert(0, f"• {again}")
     text = "\n".join(bullets) + (f"\n\n💡 {tip}" if tip else "")
@@ -315,13 +320,22 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
             "missing": missing, "cleared": sorted(emptied - set(missing))}
 
 
-def _terms(gone: list[dict], worn: list[dict]) -> set[str]:
-    """How a line might refer to a garment that came off: its name, or its kind
-    ("your white undershirt" for one named "Airism") — the kind only while nothing
-    still worn is of that kind. Raised by the pre-push reviewer, 2026-10-11."""
+def _patterns(gone: list[dict], worn: list[dict]) -> list["re.Pattern[str]"]:
+    """How a line might refer to a garment that came off (raised twice by the
+    pre-push reviewer, 2026-10-11): its name; its colour and kind together ("your
+    white T-shirt" for one named "Airism"); its kind alone, while nothing still worn
+    is of that kind."""
     kept = {w for it in worn for w in _kind_words(it)}
-    out = {str(it.get("label") or "").lower().strip() for it in gone} - {""}
-    out |= {w for it in gone for w in _kind_words(it)} - kept
+    out = []
+    for it in gone:
+        label = str(it.get("label") or "").lower().strip()
+        if label:
+            out.append(re.compile(rf"\b{re.escape(label)}\b"))
+        for k in _kind_words(it):
+            if k not in kept:
+                out.append(re.compile(rf"\b{re.escape(k)}\b"))
+            for c in it.get("colors") or []:
+                out.append(re.compile(rf"\b{re.escape(str(c).lower())}[\s-]+(?:\w+[\s-]+){{0,2}}{re.escape(k)}\b"))
     return out
 
 

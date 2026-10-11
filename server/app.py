@@ -162,7 +162,11 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
                     outfit[slot] = ("None — nothing in your closet for this"
                                     if slot in result["missing"] else "None needed")
                 else:
-                    outfit[slot] = result["lines"].get(slot) or "None needed"
+                    # A slot the wardrobe could not fill carries the advisor's generic
+                    # suggestion; any other empty slot is the phone's "None…" marker,
+                    # or it would be drawn as a garment to wear.
+                    outfit[slot] = (result["lines"].get(slot) or "None needed") if slot in result["missing"] \
+                        else "None needed"
             outfit["tip"] = result["tip"] or outfit.get("tip")
             missing = result["missing"]
             # IDs are already validated against the sent closet — echo them so

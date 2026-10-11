@@ -15,7 +15,7 @@ import fake_model
 import picks as pk
 import style
 from fake_model import outfit
-from wardrobe_fixtures import CARDI, JEANS, KNIT_POLO, POLO, SNEAK, SWEATER, UNDER, weather
+from wardrobe_fixtures import CARDI, JEANS, KNIT_POLO, POLO, SNEAK, SWEATER, TEE, UNDER, weather
 
 CLOSET = [UNDER, POLO, KNIT_POLO, CARDI, JEANS, SNEAK]
 
@@ -149,7 +149,7 @@ def test_the_notification_reads_the_advisors_own_words(api, monkeypatch):
     a["tip"] = "Push the sleeves up by noon."
     fake_model.install(monkeypatch, [a])
     d = post(api)
-    assert d["outfit"]["outer"] == "None needed — the cardigan is enough."
+    assert d["outfit"]["outer"] == "None needed", "the phone's empty marker, not a garment tile"
     assert d["outfit"]["tip"] == "Push the sleeves up by noon."
     assert d["outfit"]["base"] == "navy polo shirt"
     assert "peakTemp" in d and "planTemp" in d
@@ -207,3 +207,35 @@ def test_a_garment_the_fallback_moved_is_not_a_gap(api, monkeypatch):
     fake_model.install(monkeypatch, [wrong] * 3)
     d = post(api, closet=[hoodie, JEANS, SNEAK], closetOnly=True)
     assert hoodie["id"] in d["picks"].values() and "base" not in d["missing"], d["missing"]
+
+
+def test_a_replaced_garment_named_by_colour_and_kind_is_not_recommended(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: "Airism" (a white tee) banned and
+    replaced by a black tee — "your white T-shirt" must go too."""
+    from wardrobe_fixtures import g
+    airism = g("airism001", "Airism", "tops", "t_shirt", ["base"], 1, colors=["white"])
+    black = g("blacktee1", "black tee", "tops", "t_shirt", ["base"], 1, colors=["black"])
+    ban = {"kind": "avoid_item", "a": {"type": "t_shirt", "color": "white"}}
+    a = outfit(base=airism["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["bottoms"] = "Blue jeans go with your white T-shirt."
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, closet=[airism, black, JEANS, SNEAK], rules=[ban])
+    assert d["picks"]["base"] == black["id"] and "white t-shirt" not in d["outfit_text"].lower(), d["outfit_text"]
+
+
+def test_an_unneeded_slot_reaches_the_phone_as_its_empty_marker(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: the phone draws anything not
+    starting "None" as a garment tile."""
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["outer"] = "No jacket needed in the mild morning."
+    fake_model.install(monkeypatch, [a])
+    assert post(api)["outfit"]["outer"] == "None needed"
+
+
+def test_same_again_is_only_blamed_on_the_wardrobe_when_true(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: a suitable polo sat unused."""
+    same = outfit(inner=UNDER["id"], base=TEE["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    fake_model.install(monkeypatch, [same] * 3)
+    shown = {s: v for s, v in same["picks"].items() if v}
+    d = post(api, closet=[UNDER, TEE, POLO, CARDI, JEANS, SNEAK], shown=shown)
+    assert "nothing else you own suits today" not in d["outfit_text"]

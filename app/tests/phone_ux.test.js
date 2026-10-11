@@ -40,7 +40,6 @@ const drain = () => new Promise(r => setTimeout(r, 0));
     check("it says title and location text go to the user's own server",
       /title, location text/.test(note) && /your own advisor server/.test(note), note);
     check("and that the server does not store them", /does not store them/.test(note), note);
-    w.close();
   }
 
   console.log("\n--- the push sends an empty closet only when it is complete ------");
@@ -60,6 +59,43 @@ const drain = () => new Promise(r => setTimeout(r, 0));
       /if \(complete\) body\.put\("closet", closet\)\s*\n\s*return/.test(block), block);
     check("a non-empty closet is still sent",
       /\}\s*\n\s*body\.put\("closet", closet\)/.test(body.slice(empty)));
+  }
+
+  console.log("\n--- one profile settings place -----------------------------------");
+  {
+    const w = page();
+    const d = w.document, ev = c => w.eval(c);
+    await ev("appReady");
+    const set = d.getElementById("setWrap");
+    const head = set.querySelector("h3:nth-of-type(2)");
+    check("the Settings sheet opens on a Profile section", head && head.id === "profileHead",
+      head && head.textContent);
+    for (const id of ["genderSeg", "styleSeg", "closetDone"]) {
+      check(`${id} is in Settings → Profile`, !!d.querySelector(`#profileBox #${id}`));
+      check(`and only there (one ${id} in the page)`, d.querySelectorAll(`#${id}`).length === 1);
+    }
+    check("none of them is left on the Advice card or the Closet tab",
+      !d.querySelector("#pane-advice #genderSeg, #pane-advice #styleSeg, #pane-closet #closetDone"));
+    check("trip settings stay on the Trips tab",
+      ["homeBtn", "calPickBtn"].every(id => d.querySelector(`#pane-calendar #${id}`)));
+
+    // Behaviour unchanged: same handlers, same state, same keys.
+    d.querySelector('#genderSeg button[data-g="woman"]').click();
+    await drain(); await drain();
+    check("Gender still sets state and oa.gender", ev("state.gender") === "woman" &&
+      w.localStorage.getItem("oa.gender") === "woman", ev("state.gender"));
+    check("and paints the segment", d.querySelector('#genderSeg button[data-g="woman"]').classList.contains("on"));
+    d.querySelector('#styleSeg button[data-s="smart"]').click();
+    await drain(); await drain();
+    check("Style still sets state and oa.style", ev("state.style") === "smart" &&
+      w.localStorage.getItem("oa.style") === "smart", ev("state.style"));
+    const cb = d.getElementById("closetDone");
+    cb.checked = true; cb.dispatchEvent(new w.Event("change"));
+    await drain(); await drain();
+    check("My closet is complete still sets closetComplete and oa.closetComplete",
+      ev("closetComplete") === true && w.localStorage.getItem("oa.closetComplete") === "1");
+    check("the shopping note sends people to Settings for it",
+      /in Settings/.test(SRC.match(/Tick \\u201cMy closet is complete\\u201d[^`"]*/)[0]));
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

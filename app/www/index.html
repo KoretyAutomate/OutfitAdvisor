@@ -297,22 +297,14 @@
   <section class="pane" id="pane-advice">
     <!-- Profile / location -->
     <div class="card">
-      <h2>Location &amp; style</h2>
+      <h2>Location</h2>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="city" placeholder="City">
         <button class="ghost" id="geoBtn" title="Use my location" aria-label="Use my location" style="width:44px;padding:0;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 1 1 12 0c0 5.7-6 11-6 11z"></path><circle cx="12" cy="10" r="2.2"></circle></svg></button>
         <button class="primary" id="goBtn">Get advice</button>
       </div>
-      <div class="seg" id="genderSeg">
-        <button data-g="man">Man</button>
-        <button data-g="woman">Woman</button>
-        <button data-g="neutral">Neutral</button>
-      </div>
-      <div class="seg" id="styleSeg" style="margin-top:8px">
-        <button data-s="casual">Casual</button>
-        <button data-s="smart">Smart</button>
-        <button data-s="active">Active</button>
-      </div>
+      <!-- Gender and Style live in Settings → Profile since 2026-10-11: they are
+           set once, not every morning, and sat between the city and the advice. -->
       <div id="err" class="err"></div>
     </div>
 
@@ -426,16 +418,7 @@
       <button class="ghost" id="unwashBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem"></button>
       <!-- Only shown when something in the closet has no Kind. An item saved before
            2026-08-14 has none, and its folder can only file it under "Other". -->
-      <!-- "That is everything I own." Until the user says so, an unfillable slot
-           gets a generic suggestion, which answers a real complaint (2026-07-15).
-           Once they say it, that suggestion is a garment they cannot put on
-           (user, 2026-08-27). -->
-      <label class="calRow" style="padding-left:0;margin-top:10px">
-        <input type="checkbox" id="closetDone">
-        <span>My closet is complete
-          <br><span class="note">Only recommend what I own — leave a slot empty
-          rather than suggesting something I don't have.</span></span>
-      </label>
+      <!-- "My closet is complete" lives in Settings → Profile since 2026-10-11. -->
       <div id="rescanRow" style="display:none;margin:10px 0 0">
         <button class="ghost" id="rescanBtn" style="width:100%;padding:9px"><span id="rescanTxt">Identify kinds from the photos</span></button>
         <p class="note" id="rescanNote" style="margin:5px 0 0"></p>
@@ -706,6 +689,36 @@
     <h3 style="display:flex;align-items:center">Settings
       <button class="ghost" id="setDone" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Done</button>
     </h3>
+
+    <!-- Profile: who the advice is for (2026-10-11). One place for the settings
+         that describe the wearer, instead of two on the Advice card and one on
+         the Closet tab. Same ids, handlers and keys as before — only moved. Trip
+         settings (home, place codes, calendars) stay on the Trips tab. -->
+    <h3 id="profileHead">Profile</h3>
+    <div id="profileBox" style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)">
+      <label class="lbl">Gender</label>
+      <div class="seg" id="genderSeg">
+        <button data-g="man">Man</button>
+        <button data-g="woman">Woman</button>
+        <button data-g="neutral">Neutral</button>
+      </div>
+      <label class="lbl" style="margin-top:10px">Style</label>
+      <div class="seg" id="styleSeg">
+        <button data-s="casual">Casual</button>
+        <button data-s="smart">Smart</button>
+        <button data-s="active">Active</button>
+      </div>
+      <!-- "That is everything I own." Until the user says so, an unfillable slot
+           gets a generic suggestion, which answers a real complaint (2026-07-15).
+           Once they say it, that suggestion is a garment they cannot put on
+           (user, 2026-08-27). -->
+      <label class="calRow" style="padding-left:0;margin-top:10px">
+        <input type="checkbox" id="closetDone">
+        <span>My closet is complete
+          <br><span class="note">Only recommend what I own — leave a slot empty
+          rather than suggesting something I don't have.</span></span>
+      </label>
+    </div>
 
     <h3>Morning push</h3>
     <div class="switch" style="margin-bottom:12px">
@@ -4715,12 +4728,12 @@ function refreshShopping(){
   note.textContent=!closet.length
     ? "Photograph your clothes first — there is nothing to compare against."
     : !closetComplete
-      ? `Tick \u201cMy closet is complete\u201d first — until then an empty slot `+
+      ? `Tick \u201cMy closet is complete\u201d in Settings (the gear) first — until then an empty slot `+
         `means \u201cnot photographed yet\u201d, not \u201cyou don't own one\u201d.`
     : ready
       ? `From ${days} mornings your closet came up short, across ${n} ${n===1?"slot":"slots"}.`
       : `Needs about a week of mornings to argue from — ${days} so far. `+
-        "Tick \u201cMy closet is complete\u201d and the advisor starts noticing the gaps.";
+        "Tick \u201cMy closet is complete\u201d in Settings and the advisor starts noticing the gaps.";
 }
 async function askShopping(){
   if(shopBusy) return;

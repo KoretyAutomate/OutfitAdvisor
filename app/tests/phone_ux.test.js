@@ -43,6 +43,25 @@ const drain = () => new Promise(r => setTimeout(r, 0));
     w.close();
   }
 
+  console.log("\n--- the push sends an empty closet only when it is complete ------");
+  {
+    const kt = KT("AdviceWorker.kt");
+    const fn = kt.slice(kt.indexOf("private fun attachWardrobe"));
+    const body = fn.slice(0, fn.indexOf("\n    }\n"));
+    const empty = body.indexOf("if (closet.length() == 0) {");
+    const firstPut = body.indexOf('body.put("closet", closet)');
+    check("the app sends [] only under a complete closet (the rule being mirrored)",
+      /if\(cl\.length\|\|closetComplete\) body\.closet=cl;/.test(SRC));
+    check("the worker reads the tickbox into a value it can test later",
+      /val complete = prefs\.getString\(KEY_CLOSET_COMPLETE, "0"\) == "1"/.test(body));
+    check("no closet is put before the empty check", empty > 0 && firstPut > empty, { empty, firstPut });
+    const block = body.slice(empty, body.indexOf("}", empty));
+    check("an empty closet goes only when complete, then stops",
+      /if \(complete\) body\.put\("closet", closet\)\s*\n\s*return/.test(block), block);
+    check("a non-empty closet is still sent",
+      /\}\s*\n\s*body\.put\("closet", closet\)/.test(body.slice(empty)));
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

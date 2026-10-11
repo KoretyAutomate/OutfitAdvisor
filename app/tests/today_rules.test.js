@@ -557,7 +557,7 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
   check("the worker forwards it", /body\.put\("closetOnly", true\)/.test(kt));
   check("before every early return, so no rejection below can drop it",
     ["KEY_PUSH_PAYLOAD, null) ?: return", "today() >= validBefore",
-     "if (closet.length() == 0) return"].every(
+     "if (closet.length() == 0) {"].every(
        marker => kt.indexOf('body.put("closetOnly", true)') < kt.indexOf(marker)),
     "closetOnly is dropped on one of the early-return paths");
 

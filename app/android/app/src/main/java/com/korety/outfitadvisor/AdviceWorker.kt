@@ -435,8 +435,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // payload, too old, past a trip boundary, nothing wearable) is a
             // morning when generic catalogue advice would break the promise most
             // quietly. The app writes this key whenever the tickbox changes.
-            if (prefs.getString(KEY_CLOSET_COMPLETE, "0") == "1")
-                body.put("closetOnly", true)
+            val complete = prefs.getString(KEY_CLOSET_COMPLETE, "0") == "1"
+            if (complete) body.put("closetOnly", true)
             val raw = prefs.getString(KEY_PUSH_PAYLOAD, null) ?: return
             val p = JSONObject(raw)
             val age = System.currentTimeMillis() - p.optLong("at", 0L)
@@ -457,11 +457,20 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val closet = freedBy(System.currentTimeMillis(),
                 p.optJSONArray("closet") ?: return, p.optJSONArray("pending"))
             // A valid payload with NOTHING wearable is sent as an EMPTY closet, not
-            // omitted: the server tells "everything is in the wash" ([]) apart from
-            // "the phone did not send its closet" (absent) — the refusals above stay
-            // absent, and this must not read like one of them (2026-09-08).
+            // omitted, ONLY when the closet is marked complete: then the server
+            // tells "everything is in the wash" ([]) apart from "the phone did not
+            // send its closet" (absent) — the refusals above stay absent, and this
+            // must not read like one of them (2026-09-08).
+            // Not complete, an empty list says nothing — the wardrobe may simply
+            // not be photographed yet — and the app's own request (getAdvice:
+            // `if(cl.length||closetComplete) body.closet=cl`) omits it. The push
+            // sent [] regardless, so the same morning could get different advice
+            // depending on which of the two asked (2026-10-11). Twin of that line.
+            if (closet.length() == 0) {
+                if (complete) body.put("closet", closet)
+                return
+            }
             body.put("closet", closet)
-            if (closet.length() == 0) return
             // Remember WHICH items went. A gap only excuses itself when something
             // that could have filled the slot was held back, and the app drains this
             // queue later — by which time the laundry has moved on. Judging an old

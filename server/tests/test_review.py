@@ -207,3 +207,47 @@ def test_a_revision_that_runs_past_the_deadline_keeps_the_first(monkeypatch):
     monkeypatch.setattr(closet_llm, "_chat", stall)
     d = post(c)
     assert d["picks"]["mid"] == SWEATER["id"] and not d["picks"]["footwear"]
+
+
+def test_the_clock_starts_with_the_request_not_after_the_weather(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: a slow forecast counts against
+    the budget, or a revision starts that the phone will not wait for."""
+    import asyncio
+    monkeypatch.setattr(review, "REVISE_BUDGET_S", 0.1)
+    c = client(monkeypatch, [outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"]),
+                             outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"],
+                                    footwear=SHOES["id"])])
+    quick = srv.weather.fetch_weather
+
+    async def slow_weather(*a):
+        await asyncio.sleep(0.3)
+        return await quick(*a)
+    monkeypatch.setattr(srv.weather, "fetch_weather", slow_weather)
+    post(c)
+    assert len(c.seen["prompts"]) == 1, "the weather used the budget up"
+
+
+def test_a_lower_scored_revision_does_not_replace_the_first(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: 2/5 then 1/5 is one problem each,
+    and the score decides."""
+    monkeypatch.setenv("OUTFIT_STYLIST", "1")
+    c = client(monkeypatch, [outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"], footwear=SHOES["id"]),
+                             outfit(base=KNIT_POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"],
+                                    footwear=SHOES["id"])],
+               [{"score": 2, "issue": "flat", "swap": None}, {"score": 1, "issue": "worse", "swap": None}])
+    d = post(c)
+    assert len(c.seen["prompts"]) == 2 and d["picks"]["base"] == POLO["id"]
+
+
+def test_on_snow_waterproof_boots_are_never_swapped_for_ones_that_are_not():
+    """Raised by the pre-push reviewer, 2026-10-11: rain stopped choosing garments,
+    snow did not."""
+    from picks import Prefs, _index
+    boots = g("itm-snowboot1", "snow boots", "footwear", "boots", ["footwear"], 4, waterproof=True)
+    plain = g("itm-plainbt1", "suede boots", "footwear", "boots", ["footwear"], 4)
+    wardrobe = _index([POLO, SWEATER, PANTS, boots, plain])
+    picks = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": boots["id"]}
+    snowy = style.ctx_of({"morning": -2, "lo": -4, "hi": 1, "isSnow": True}, wardrobe, Prefs())
+    rainy = style.ctx_of({"morning": -2, "lo": -4, "hi": 1, "isRain": True}, wardrobe, Prefs())
+    assert not style.legal_swap(snowy, picks, "footwear", plain["id"], improve=False)
+    assert style.legal_swap(rainy, picks, "footwear", plain["id"], improve=False)

@@ -87,9 +87,19 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
             "from the wardrobe above, fixing exactly this and keeping what worked.\n")
 
 
-def _weight(found: list[str]) -> tuple[int, int]:
-    """How bad: bare legs or feet first, then everything else."""
-    return sum(1 for f in found if f.startswith(_BARE)), len(found)
+def _weight(found: list[str], result: dict, other: dict) -> tuple[int, int, int]:
+    """How bad: bare legs or feet first, then how many problems, then the stylist's
+    score — a 1/5 revision does not replace a 2/5 answer on an equal count. Raised
+    by the pre-push reviewer, 2026-10-11. A score only one side has (the stylist ran
+    out of time on the revision) is no evidence either way, so it counts as a tie."""
+    mine, theirs = _score(result), _score(other)
+    return (sum(1 for f in found if f.startswith(_BARE)), len(found),
+            -(mine if mine is not None and theirs is not None else 0))
+
+
+def _score(result: dict) -> int | None:
+    v = (result.get("review") or Seen()).verdict
+    return v.score if v else None
 
 
 async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> dict:
@@ -119,7 +129,7 @@ async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> 
     # means bare legs or feet before anything else — a complete outfit a repair had
     # to warm is better than one the model left without trousers. Raised by the
     # pre-push reviewer, 2026-10-11.
-    keep = second if _weight(left) <= _weight(found) else first
+    keep = second if _weight(left, second, first) <= _weight(found, first, second) else first
     log.info("review: %d → %d problem(s), %s answer stands", len(found), len(left),
              "revised" if keep is second else "first")
     return _done(keep)

@@ -111,13 +111,17 @@ def _pairs(xs: list | None) -> tuple:
     return tuple(tuple(p) for p in (xs or []))
 
 
-def look_of(prefs: pk.Prefs, req) -> pk.Prefs:
-    """Prefs with the request's Look attached — app.py's one call."""
+def look_of(prefs: pk.Prefs, req, t0: float | None = None) -> pk.Prefs:
+    """Prefs with the request's Look attached — app.py's one call. `t0` is when the
+    REQUEST began: the stylist's and the review's time budgets count the weather
+    fetch too, or a slow forecast pushes the answer past the phone's 90 s. Raised
+    by the pre-push reviewer, 2026-10-11."""
     v = req.styleVotes
     pairs = _pairs
     look = Look(req.style, req.gender,
                 pairs(v.disliked if v else None), pairs(v.hint if v else None),
-                pairs(v.liked if v else None), tuple(v.notes) if v else ())
+                pairs(v.liked if v else None), tuple(v.notes) if v else (),
+                t0=t0 if t0 is not None else time.monotonic())
     return replace(prefs, look=look)
 
 
@@ -183,13 +187,16 @@ class Ctx:
     rules: tuple
     shown: dict
     look: Look
+    #: snow today — waterproof boots or coat are never swapped for ones that are not.
+    #: Rain is not here: they carry an umbrella (user, 2026-10-11). Snow is not rain.
+    snow: bool = False
 
 
 def ctx_of(w: dict, wd: pk.Wardrobe, prefs: pk.Prefs) -> Ctx:
     plan = _plan_temp(w)
     peak = _peak_temp(w, plan)
     return Ctx(wd, plan, peak, tuple(prefs.rules), prefs.shown_map,
-               getattr(prefs, "look", None) or Look())
+               getattr(prefs, "look", None) or Look(), bool(w.get("isSnow")))
 
 
 def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True) -> bool:
@@ -211,6 +218,10 @@ def legal_swap(ctx: Ctx, picks: dict, slot: str, cand: str, improve: bool = True
     if wd.by_group.get(picks[slot]) == "onepiece":
         return False
     if slot == "outer" and not scale.warm_enough(item, ctx.plan):
+        return False
+    # Snow: what keeps feet and back dry stays. Raised by the pre-push reviewer,
+    # 2026-10-11, when the rain guard this replaces went.
+    if ctx.snow and (wd.by_item.get(picks[slot]) or {}).get("waterproof") and not item.get("waterproof"):
         return False
     if scale.too_warm(item, pk._heat_temp(slot, ctx.plan, ctx.peak)):
         return False

@@ -145,7 +145,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     if req.closet:
         items = [i.model_dump() for i in req.closet]
         prefs = style.look_of(closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
-                              [p.model_dump() for p in req.prefers], req.shown), req)
+                              [p.model_dump() for p in req.prefers], req.shown), req, t0)
         result = await closet_llm.closet_outfit(wc, req.gender, req.style, items, prefs)
         if result is not None:
             text = result["text"]

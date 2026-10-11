@@ -325,7 +325,10 @@ def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
     said = given if isinstance(given, dict) else {}
     out = {s: str(day.wd.by_item[i]["label"]) for s in CATEGORIES if (i := picks.get(s))}
     for s in (s for s in missing if s in CATEGORIES):
-        generic = str(said.get(s) or "").strip()
+        # Only a slot the MODEL left empty carries a generic suggestion; a slot the
+        # fallback emptied holds a line about the garment it took off. Raised by
+        # the pre-push reviewer, 2026-10-11.
+        generic = "" if best.picks.get(s) else str(said.get(s) or "").strip()
         out[s] = ("Nothing in your closet for this." if day.prefs.closet_only or not generic else generic)
     return out
 

@@ -82,3 +82,14 @@ def test_missing_trousers_are_filled_with_what_suits_the_heat():
     """Raised by the pre-push reviewer, 2026-10-11: jeans listed first, shorts owned."""
     fixed, _ = fallback.fix(ids(base=TEE, footwear=SNEAK), day(29, TEE, JEANS, SHORTS, SNEAK, hi=32))
     assert fixed["bottoms"] == SHORTS["id"]
+
+
+def test_a_dress_put_on_mid_fallback_takes_the_trousers_off_at_once():
+    """Raised by the pre-push reviewer, 2026-10-11: under a dress/jeans ban, the
+    trousers left on until the end blocked the shoes swap."""
+    import picks as pk
+    from wardrobe_fixtures import BOOTS
+    ban = {"kind": "avoid_pair", "a": {"type": "dress"}, "b": {"type": "jeans"}}
+    d = day(29, SWEATER, DRESS, JEANS, BOOTS, SNEAK, hi=32, prefs=pk.Prefs(rules=(ban,)))
+    fixed, _ = fallback.fix(ids(base=SWEATER, bottoms=JEANS, footwear=BOOTS), d)
+    assert fixed["base"] == DRESS["id"] and fixed["bottoms"] is None and fixed["footwear"] == SNEAK["id"], fixed

@@ -280,3 +280,14 @@ def test_after_a_fallback_a_half_registered_closet_keeps_its_generic_suggestion(
     d = post(api, closet=[UNDER, POLO, KNIT_POLO, CARDI, JEANS])
     assert d["picks"]["mid"] == CARDI["id"], "the fallback ran"
     assert "White leather sneakers (not in your closet yet)." in d["outfit_text"]
+
+
+def test_a_garment_the_fallback_banned_is_not_kept_as_a_generic_suggestion(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    ban = {"kind": "avoid_item", "a": {"type": "undershirt"}}
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    a["lines"]["inner"] = "Wear your grey v-neck inner."
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, rules=[ban])
+    assert d["picks"]["inner"] is None and "grey v-neck inner" not in d["outfit_text"]
+    assert "grey v-neck inner" not in str(d["outfit"]["inner"])

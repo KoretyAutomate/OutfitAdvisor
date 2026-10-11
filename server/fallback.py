@@ -47,12 +47,14 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
         out[c] = None
     # 5. Far too warm: a cooler garment they own, or off if the slot can go.
     for slot in [s for s, i in out.items() if i]:
+        if not out.get(slot):
+            continue                              # a dress put on above took it off
         if layers.overdressed(wd.by_item[out[slot]], slot, wd, day.plan, day.peak):
             out[slot] = None
             alt = pk._suitable_for(slot, out, wd, day.plan, day.rules,
                                    hot_temp=pk._heat_temp(slot, day.plan, day.peak))
             if alt or slot in pk._SHEDDABLE:
-                out[slot] = alt
+                _put(out, slot, alt, wd)
             else:
                 out[slot] = before[slot]          # nothing cooler: better dressed than not
     # 6. Dressed: a top, trousers, shoes — whatever they own that is legal. A top
@@ -84,6 +86,15 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     return out, {s: out.get(s) for s in set(out) | set(before) if out.get(s) != before.get(s)}
 
 
+def _put(out: dict, slot: str, iid: str | None, wd) -> None:
+    """Put a garment on; a dress in `base` takes the trousers off AT ONCE, so every
+    later search judges the outfit that will actually be worn. Raised by the
+    pre-push reviewer, 2026-10-11."""
+    out[slot] = iid
+    if slot == "base" and iid and wd.by_group.get(iid) == "onepiece":
+        out["bottoms"] = None
+
+
 def _snow_proof(out: dict, day: Day) -> None:
     wd = day.wd
     for slot in ("footwear", "outer"):
@@ -105,7 +116,7 @@ def _put_on_a_top(out: dict, day: Day) -> None:
             hot = pk._heat_temp(slot, day.plan, day.peak) if heat else None
             alt = pk._suitable_for(slot, out, day.wd, day.plan, day.rules, hot_temp=hot)
             if alt:
-                out[slot] = alt
+                _put(out, slot, alt, day.wd)
                 return
 
 

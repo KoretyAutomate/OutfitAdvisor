@@ -284,7 +284,7 @@ def test_a_revision_that_leaves_them_cold_loses():
     """Raised by the pre-push reviewer, 2026-10-11: the first answer was made warm by
     a repair; a revision that ends with nothing warm enough on top never wins, even
     with no repairs of its own."""
-    from picks import Prefs, _index
+    from picks import _index
     wd = _index(CLOSET)
     w = {"morning": 10, "lo": 10, "hi": 15}
     warm = {"picks": {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"],
@@ -292,7 +292,7 @@ def test_a_revision_that_leaves_them_cold_loses():
             "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
     cold = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
             "review": review.Seen(None, [])}
-    assert review._rank(cold, warm, wd, w, Prefs()) > review._rank(warm, cold, wd, w, Prefs())
+    assert not review.better(cold, warm, wd, w) and review.better(warm, cold, wd, w)
 
 
 def test_an_unreviewed_revision_does_not_win_by_escaping_the_stylist(monkeypatch):
@@ -311,50 +311,58 @@ def test_an_unreviewed_revision_does_not_win_by_escaping_the_stylist(monkeypatch
 def test_a_topless_revision_loses():
     """Raised by the pre-push reviewer, 2026-10-11: with nothing above the waist
     there is nothing to be cold IN, so 'still too cold' alone let it through."""
-    from picks import Prefs, _index
+    from picks import _index
     wd = _index(CLOSET)
     w = {"morning": 20, "lo": 18, "hi": 24}
     dressed = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
                "review": review.Seen(None, [("base", POLO["id"])])}
     topless = {"picks": {"bottoms": PANTS["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
-    assert review._rank(topless, dressed, wd, w, Prefs()) > review._rank(dressed, topless, wd, w, Prefs())
+    assert not review.better(topless, dressed, wd, w) and review.better(dressed, topless, wd, w)
 
 
 def test_lost_trousers_count_even_when_no_pair_suits_the_new_top():
     """Raised by the pre-push reviewer, 2026-10-11: a revised top that a rule forbids
-    with every pair of trousers made the missing trousers vanish from the ranking."""
-    from picks import Prefs, _index
+    with every pair of trousers made the missing trousers vanish from the ranking.
+    Coverage is now judged by what they own, so no rule can hide it — the shirt
+    with no trousers loses whatever rules there are."""
+    from picks import _index
     shirt = g("itm-oxford001", "blue oxford", "tops", "shirt", ["base"], 2)
     wd = _index([*CLOSET, shirt])
     w = {"morning": 20, "lo": 18, "hi": 24}
-    ban = {"kind": "avoid_pair", "a": {"type": "shirt"}, "b": {"role": "bottoms"}, "id": "r1"}
     complete = {"picks": {"base": POLO["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
                 "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
     legless = {"picks": {"base": shirt["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
-    p = Prefs(rules=(ban,))
-    assert review._rank(legless, complete, wd, w, p) > review._rank(complete, legless, wd, w, p)
+    assert not review.better(legless, complete, wd, w) and review.better(complete, legless, wd, w)
 
 
 def test_a_better_look_outranks_fewer_repairs():
     """Raised by the pre-push reviewer, 2026-10-11: 5/5 after a warmth repair beats
     1/5 that needed nothing."""
-    from picks import Prefs, _index
+    from picks import _index
     wd = _index(CLOSET)
     w = {"morning": 10, "lo": 10, "hi": 15}
     dressed = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]}
     good = {"picks": dressed, "review": review.Seen(stylist.Verdict(5, ""), [("mid", SWEATER["id"], "warmth")])}
     ugly = {"picks": dressed, "review": review.Seen(stylist.Verdict(1, "clashes"), [])}
-    assert review._rank(ugly, good, wd, w, Prefs()) > review._rank(good, ugly, wd, w, Prefs())
+    assert not review.better(ugly, good, wd, w) and review.better(good, ugly, wd, w)
 
 
 def test_a_score_from_before_an_applied_swap_is_not_compared():
     """Raised by the pre-push reviewer, 2026-10-11: the stylist's swap fixed the
     revision, so its 1/5 is about an outfit that no longer exists."""
-    from picks import Prefs, _index
+    from picks import _index
     wd = _index(CLOSET)
     w = {"morning": 15, "lo": 14, "hi": 18}
     dressed = {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]}
     first = {"picks": dressed, "review": review.Seen(stylist.Verdict(2, "flat"), [])}
     fixed = {"picks": dressed, "review": review.Seen(
         stylist.Verdict(1, "wrong shoes", ("footwear", SHOES["id"], "wrong shoes")), [])}
-    assert review._rank(fixed, first, wd, w, Prefs()) <= review._rank(first, fixed, wd, w, Prefs())
+    assert review.better(fixed, first, wd, w)
+
+
+def test_trading_bare_feet_for_bare_legs_is_a_loss(monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: one lack never cancels another."""
+    c = client(monkeypatch, [outfit(base=POLO["id"], mid=SWEATER["id"], bottoms=PANTS["id"]),
+                             outfit(base=POLO["id"], mid=SWEATER["id"], footwear=SHOES["id"])])
+    d = post(c)
+    assert len(c.seen["prompts"]) == 2 and d["picks"]["bottoms"] == PANTS["id"]

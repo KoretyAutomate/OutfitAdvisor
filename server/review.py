@@ -85,39 +85,44 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
             "from the wardrobe above, fixing exactly this and keeping what worked.\n")
 
 
-def _rank(result: dict, other: dict, wd: "pk.Wardrobe", w: dict, prefs) -> tuple[int, int, int]:
-    """How bad the FINISHED outfit is, lower better — judged on its final state, the
-    same way for both answers, never by counting the sentences that triggered the
-    revision (two pre-push reviews, 2026-10-11, found ways to win that count):
+def unresolved(result: dict, wd: "pk.Wardrobe", w: dict) -> set[str]:
+    """What the FINISHED outfit still lacks: legs or feet bare though they own
+    trousers or shoes, nothing on top, or nothing warm enough on top.
 
-      1. unresolved: bare legs or feet though some are owned, nothing on top, or
-         still nothing warm enough on top — a revision that loses warmth, a top or
-         trousers never wins;
-      2. the stylist's score, only when BOTH answers have a current one — an
-         unreviewed revision is no evidence either way, and a score whose swap was
-         applied describes the outfit BEFORE the swap;
-      3. how many layer repairs the model's own answer needed.
-
-    The score before the repairs: a 5/5 outfit a repair had to warm is better than
-    a 1/5 one that needed nothing. Raised by the pre-push reviewer, 2026-10-11.
+    Coverage is judged by what they OWN, not by what suits these picks: a top that
+    clashes with every pair of trousers would otherwise lose the trousers and the
+    problem together. And nothing on top is its own lack — with no torso garment
+    there is nothing to be cold in. Each raised by the pre-push reviewer, 2026-10-11.
     """
     picks = result["picks"]
-    # Coverage by what they OWN, not by what suits these picks: a revision whose top
-    # clashes with every pair of trousers would otherwise lose the trousers and the
-    # problem together. Raised by the pre-push reviewer, 2026-10-11.
     owned = {r for roles in wd.by_roles.values() for r in roles}
-    bare = sum(1 for slot in ("bottoms", "footwear")
-               if not picks.get(slot) and slot in owned
-               and not (slot == "bottoms" and wd.by_group.get(picks.get("base")) == "onepiece"))
-    # Nothing above the waist is unresolved too, and "cold" cannot see it: with no
-    # torso garment there is nothing to be warm enough. Raised by the pre-push
-    # reviewer, 2026-10-11.
-    torso = [picks.get(c) for c in ("base", "mid", "outer") if picks.get(c)]
-    cold = not torso or not _still_warm(picks, wd.by_item, _plan_temp(w))
+    out = {slot for slot in ("bottoms", "footwear")
+           if not picks.get(slot) and slot in owned
+           and not (slot == "bottoms" and wd.by_group.get(picks.get("base")) == "onepiece")}
+    if not any(picks.get(c) for c in ("base", "mid", "outer")):
+        out.add("top")
+    elif not _still_warm(picks, wd.by_item, _plan_temp(w)):
+        out.add("warmth")
+    return out
+
+
+def _rank(result: dict, other: dict) -> tuple[int, int]:
+    """Between two answers with the same lacks, lower is better: the stylist's score
+    (only when BOTH have a current one — an unreviewed revision is no evidence, and
+    a score whose swap was applied describes the outfit before the swap), then how
+    many layer repairs the model's own answer needed. The score first: a 5/5 outfit
+    a repair had to warm beats a 1/5 one that needed nothing. Raised by the pre-push
+    reviewer, 2026-10-11."""
     mine, theirs = _score(result), _score(other)
-    return (bare + int(cold),
-            -(mine if mine is not None and theirs is not None else 0),
+    return (-(mine if mine is not None and theirs is not None else 0),
             len((result.get("review") or Seen()).repairs))
+
+
+def better(revised: dict, first: dict, wd: "pk.Wardrobe", w: dict) -> bool:
+    """Does the revision stand? Only if it lacks nothing the first did not, and
+    then if it fixed a lack or ranks no worse."""
+    lack1, lack2 = unresolved(first, wd, w), unresolved(revised, wd, w)
+    return lack2 < lack1 or (lack2 == lack1 and _rank(revised, first) <= _rank(first, revised))
 
 
 def _score(result: dict) -> int | None:
@@ -148,11 +153,14 @@ async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> 
     if second is None:
         log.info("review: no usable revision, the first answer stands")
         return _done(first)
-    # The revision stands unless it is worse (see _rank): it is the model's own
-    # answer, made knowing what went wrong, and the repairs have judged it too.
-    a, b = _rank(first, second, wd, w, prefs), _rank(second, first, wd, w, prefs)
-    keep = second if b <= a else first
-    log.info("review: %s → %s, %s answer stands", a, b, "revised" if keep is second else "first")
+    # The revision stands unless it is worse: it is the model's own answer, made
+    # knowing what went wrong, and the repairs have judged it too. Worse means first
+    # that it lacks something the first did not — one lack never cancels another,
+    # so trading bare feet for bare legs is a loss (raised by the pre-push reviewer,
+    # 2026-10-11) — then _rank.
+    keep = second if better(second, first, wd, w) else first
+    log.info("review: lacks %s → %s, %s answer stands", sorted(unresolved(first, wd, w)) or "none",
+             sorted(unresolved(second, wd, w)) or "none", "revised" if keep is second else "first")
     return _done(keep)
 
 

@@ -291,3 +291,24 @@ def test_a_garment_the_fallback_banned_is_not_kept_as_a_generic_suggestion(api, 
     d = post(api, rules=[ban])
     assert d["picks"]["inner"] is None and "grey v-neck inner" not in d["outfit_text"]
     assert "grey v-neck inner" not in str(d["outfit"]["inner"])
+
+
+def test_an_absence_reaches_the_phone_as_its_empty_marker(api, monkeypatch):
+    """Raised by the pre-push reviewer, 2026-10-11: the only undershirt banned — the
+    phone must not draw "nothing in your closet" as a garment tile."""
+    ban = {"kind": "avoid_item", "a": {"type": "undershirt"}}
+    a = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    fake_model.install(monkeypatch, [a] * 3)
+    d = post(api, rules=[ban])
+    assert "inner" in d["missing"] and d["outfit"]["inner"].startswith("None"), d["outfit"]["inner"]
+
+
+def test_snow_never_demands_boots_they_have_banned():
+    """Raised by the pre-push reviewer, 2026-10-11: an impossible correction asked
+    three times."""
+    import check
+    from wardrobe_fixtures import BOOTS, day, ids
+    ban = {"kind": "avoid_item", "a": {"type": "boots"}}
+    d = day(-3, UNDER, SWEATER, JEANS, SNEAK, BOOTS, isSnow=True, prefs=pk.Prefs(rules=(ban,)))
+    found = check.issues(ids(inner=UNDER, base=SWEATER, bottoms=JEANS, footwear=SNEAK), d)
+    assert not any(i.kind == "snow-footwear" for i in found)

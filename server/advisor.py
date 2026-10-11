@@ -39,6 +39,9 @@ from vocab import CATEGORIES, NON_SLOT_TYPES, TYPE_LABEL
 DEADLINE_S = 75.0
 REVISE_BY_S = 40.0
 STYLIST_MIN_LEFT_S = 20.0
+# The phone draws any slot not starting "None" as a garment to wear (slotIsEmpty in
+# index.html), so an absence is always said this way.
+NOTHING_OWNED = "None — nothing in your closet for this"
 MAX_REVISIONS = 2
 
 SYSTEM = (
@@ -119,7 +122,7 @@ def prompt(day: check.Day, closet: list[dict], handles: dict) -> str:
     person = f"THE PERSON: a {who} who wants a {look.style} look today."
     if prefs.closet_only:
         person += (" This wardrobe is EVERYTHING they own: a slot nothing suits stays empty, its "
-                   'line "Nothing in your closet for this".')
+                   f'line "{NOTHING_OWNED}".')
     else:
         person += (" A slot they own nothing suitable for stays empty; its line suggests a generic "
                    'garment, ending "(not in your closet yet)".')
@@ -277,7 +280,7 @@ def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
         # line falls back to its name; an empty slot's line goes.
         owned = _owned_words(picks, wd)
         for slot, t in list(final.items()):
-            if t and not t.startswith("Nothing in your") and prose._names_something_unowned(t, owned):
+            if t and not t.startswith(NOTHING_OWNED) and prose._names_something_unowned(t, owned):
                 if picks.get(slot):
                     final[slot] = str(wd.by_item[picks[slot]]["label"])
                 else:
@@ -312,7 +315,7 @@ def _model_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
         elif not day.prefs.closet_only:
             out[slot] = said
         elif slot in missing:
-            out[slot] = "Nothing in your closet for this."
+            out[slot] = NOTHING_OWNED
     return out
 
 
@@ -329,7 +332,7 @@ def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
         # fallback emptied holds a line about the garment it took off. Raised by
         # the pre-push reviewer, 2026-10-11.
         generic = "" if best.picks.get(s) else str(said.get(s) or "").strip()
-        out[s] = ("Nothing in your closet for this." if day.prefs.closet_only or not generic else generic)
+        out[s] = (NOTHING_OWNED if day.prefs.closet_only or not generic else generic)
     return out
 
 

@@ -149,6 +149,8 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
                 for slot in ("footwear", "outer")
                 if not (wd.by_item.get(worn.get(slot)) or {}).get("waterproof") and any(
                     it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in worn.values()
+                    # a pair they have banned cannot be demanded (pre-push reviewer, 2026-10-11)
+                    and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
                     for i, it in wd.by_item.items())]
     return out
 

@@ -36,7 +36,7 @@ def test_the_prompt_stops_suggesting_what_they_cannot_wear():
     slot is reported empty instead (user, 2026-08-27).
     """
     prompt = advisor.prompt_for(COLD, [ITEM], pk.Prefs(closet_only=True))
-    assert "Nothing in your closet for this" in prompt
+    assert "None — nothing in your closet for this" in prompt
     assert "not in your closet yet" not in prompt, \
         "a complete wardrobe must not be offered garments it does not contain"
 

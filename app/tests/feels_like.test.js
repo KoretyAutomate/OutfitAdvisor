@@ -5,7 +5,6 @@
  * Pinned (twin of server/tests/test_feels_like.py, same hours, same answers):
  *   - an hour counts as it feels, at most 4° colder / 3° warmer than the air;
  *   - the day is 08:00-19:00; an evening event the phone reads stretches it;
- *   - the offline recommender dresses for the coldest felt hour;
  *   - /advice is told the evening hour (and nothing else), only when there is one;
  *   - the weather card says what the outfit was dressed for.
  *
@@ -44,16 +43,6 @@ const day = (extra = {}) => ({date: "2026-10-10", code: 3, emoji: "☁", desc: "
   check("to midnight reaches 23:00", ev(`planWindow(${J(day())},24).planLo`) === 8);
   check("no hourly data: the morning still decides",
     ev(`planTemp(planWindow(${J(day({hours: []}))}))`) === 14);
-  check("the thermal offset moves the window too",
-    ev(`applyTempOffset(planWindow(${J(day())}),2).planLo`) === 12);
-
-  console.log("\n--- 2. the offline recommender ---------------------------------------");
-  const mild = day({morning: 16, hours: [[8, 16, 16], [19, 16, 16]]});
-  const raw = day({morning: 16, hours: [[8, 16, 10], [19, 8, 4]]});
-  check("a mild felt day gets a light inner",
-    /Light/.test(ev(`recommend(planWindow(${J(mild)}),"man","casual").inner`)));
-  check("the same 16° morning that feels raw, cooling to 4°, gets a thermal",
-    /thermal/i.test(ev(`recommend(planWindow(${J(raw)}),"man","casual").inner`)));
 
   console.log("\n--- 3. the calendar hour reaches /advice ------------------------------");
   const bodies = [];

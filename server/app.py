@@ -45,7 +45,7 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-import closet as closet_llm
+import advisor
 import cutout
 import engine
 import llm
@@ -54,7 +54,7 @@ import packlist
 import rules
 import ruleparse
 import scale
-import reroll
+import picks as pk
 import shopping as shopping_llm
 import style
 import updates
@@ -144,31 +144,30 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     missing: list[str] = []
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        prefs = style.look_of(closet_llm.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
+        prefs = style.look_of(pk.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
                               [p.model_dump() for p in req.prefers], req.shown), req, t0)
-        result = await closet_llm.closet_outfit(wc, req.gender, req.style, items, prefs)
+        result = await advisor.dress(wc, items, prefs, req.recent)
         if result is not None:
             text = result["text"]
             closet_used = True
-            # Structured outfit mirrors the validated picks so the notification
-            # renders the ACTUAL items. A null pick keeps the engine's GENERIC
-            # recommendation (user feedback 2026-07-15): "None" told a user with
-            # three registered shirts nothing about what bottoms to wear. The
-            # engine value is also honest when the weather nulls a slot — it
-            # already says "None needed" in heat.
+            # ONE advisor answers (2026-10-11): the notification's structured outfit
+            # is the advisor's own — the garment's name, or the advisor's line for
+            # an empty slot — never the catalogue engine's guess beside it.
             by_id = {i["id"]: i for i in items}
-            for slot, item_id in result["picks"].items():
+            for slot in vocab.CATEGORIES:
+                item_id = result["picks"].get(slot)
                 if item_id:
                     outfit[slot] = by_id[item_id]["label"]
                 elif req.closetOnly or slot in result["cleared"]:
-                    # Cleared by layers.py (filler would re-add it), or the wardrobe
-                    # is declared COMPLETE, so the engine's generic
-                    # suggestion is not a helpful hint — it is a garment the user
-                    # has told us they do not own and cannot put on (2026-08-27).
-                    # An empty slot is an empty slot, and which KIND of empty is
-                    # what the model reported in `missing`.
                     outfit[slot] = ("None — nothing in your closet for this"
                                     if slot in result["missing"] else "None needed")
+                else:
+                    # A slot the wardrobe could not fill carries the advisor's generic
+                    # suggestion; any other empty slot is the phone's "None…" marker,
+                    # or it would be drawn as a garment to wear.
+                    outfit[slot] = (result["lines"].get(slot) or "None — nothing in your closet for this") \
+                        if slot in result["missing"] else "None needed"
+            outfit["tip"] = result["tip"] or outfit.get("tip")
             missing = result["missing"]
             # IDs are already validated against the sent closet — echo them so
             # the app can wear-log the exact items (plan amendment 2).
@@ -259,7 +258,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         # The temperatures the outfit was planned around (morning; afternoon for all-day
         # layers): the phone judges a bought garment with THIS server's numbers.
         "planTemp": round(llm._plan_temp(wc), 1),
-        "peakTemp": round(reroll.peak_temp(wc, llm._plan_temp(wc)), 1),
+        "peakTemp": round(llm._peak_temp(wc, llm._plan_temp(wc)), 1),
         "picks": picks,
         "tempOffset": req.tempOffset,
     }
@@ -318,18 +317,17 @@ async def packing(req: PackingRequest):
     # The trip involves a cabin at all; once there, only the journey home does.
     travel = trippack.is_travel(req.travelKm)
     if req.closet:
-        items = [i.model_dump() for i in req.closet]
+        items, felt = trippack.with_feedback([i.model_dump() for i in req.closet], days, summary,
+                                             req.tempOffset, rules.clean_rules(req.rules))
         trip = packlist.Trip(req.gender, tuple(req.styles), req.type, travel=travel, started=started,
-                             days=trip_days)
-        result = await packlist.packing_list(days, summary, trip, items)
+                             days=trip_days, rules=tuple(rules.clean_rules(req.rules)))
+        result = await packlist.packing_list(*felt, trip, items)
         if result is not None:
             pack, gaps, text = result["pack"], result["gaps"], result["text"]
             closet_used = True
-            # The model is capped at two entries per category so its JSON stays
-            # short; the COUNT is made right here, from what the wardrobe has. A
-            # 15-day trip went out with two pairs of bottoms before this
-            # (user, 2026-09-07: "cannot be survived with 2 pants").
-            lo, hi = trippack.trip_range(summary)
+            # The model lists at most two per category; the COUNT is made here, from the
+            # wardrobe (user, 2026-09-07: "cannot be survived with 2 pants").
+            lo, hi = trippack.trip_range(felt[1])
             before = trippack.counts(pack)
             pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
             # The bullets were written before the repair; say what changed, or the
@@ -338,6 +336,7 @@ async def packing(req: PackingRequest):
             if added and text:
                 text = f"• {added}\n{text}"
             plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)
+            plan = trippack.keep_rules(plan, rules.clean_rules(req.rules), items)
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day
@@ -363,8 +362,7 @@ async def packing(req: PackingRequest):
         # result None -> honest generic fallback below, closetUsed stays False.
 
     if not text:
-        # Generic packing advice: dress the trip's WORST case (coldest low, wettest
-        # day) via the existing rule engine, so the user still gets something useful.
+        # Generic packing: the trip's WORST case via the rule engine, calibrated too.
         worst = {
             "morning": None,
             "lo": summary["loMin"],
@@ -376,7 +374,8 @@ async def packing(req: PackingRequest):
             "isRain": summary["isRain"],
             "code": max(days, key=lambda d: d["rain"])["code"],
         }
-        text = engine.outfit_to_bullets(engine.recommend(worst, req.gender, req.styles[0]))
+        text = engine.outfit_to_bullets(engine.recommend(engine.apply_temp_offset(worst, req.tempOffset),
+                                                         req.gender, req.styles[0]))
 
     dt_s = round(time.monotonic() - t0, 2)
     # Coarse log ONLY. No coords (as /advice). And no DATES — a real date range plus

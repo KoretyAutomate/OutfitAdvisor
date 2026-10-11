@@ -186,6 +186,9 @@ object OutfitNotification {
         val i = Intent(context, FeedbackReceiver::class.java)
             .setAction(FeedbackReceiver.ACTION_FEEDBACK)
             .putExtra(FeedbackReceiver.EXTRA_RATING, rating)
+            // The day this advice was FOR: a tap on yesterday's notification must not
+            // replace today's rating (pre-push reviewer, 2026-10-11).
+            .putExtra(FeedbackReceiver.EXTRA_DAY, FeedbackReceiver.dayOf(System.currentTimeMillis()))
         val pi = PendingIntent.getBroadcast(
             context, requestCode, i,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

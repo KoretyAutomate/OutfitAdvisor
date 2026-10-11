@@ -13,6 +13,7 @@ Split out of app.py, which sits at the line ceiling.
 import logging
 import math
 
+import rules
 import scale
 from vocab import CATEGORIES
 
@@ -192,8 +193,54 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
     return out
 
 
+def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict]) -> list[dict]:
+    """The planned mornings held to the wearer's rules (pre-push reviewer, 2026-10-11):
+    packing both halves of a banned pair is fine, wearing them together on a planned
+    morning is not — the blamed garment comes off that morning; a morning with
+    nothing left is dropped."""
+    by_item = {i["id"]: i for i in items}
+    out = []
+    for day in plan:
+        picks = dict(day["picks"])
+        for _ in CATEGORIES:
+            broken = rules.violations(user_rules, picks, by_item)
+            if not broken:
+                break
+            picks[broken[0]["slot"]] = None
+        if any(picks.values()):
+            out.append({**day, "picks": picks})
+    return out
+
+
 def wash_days(n_days: int, have: int, want: int) -> int:
     """How many washes a shortfall implies — for a test to reason about, mostly."""
     if have <= 0 or have >= want:
         return 0
     return math.ceil(want / have) - 1
+
+
+def with_feedback(items: list[dict], days: list[dict], summary: dict, offset: float,
+                  user_rules: list[dict]) -> tuple[list[dict], tuple[list[dict], dict]]:
+    """What the wearer taught the daily advice, for the packing list too (2026-10-11):
+    a garment banned outright stays home, and the forecast the list is packed for is
+    shifted by how warm or cold they run — a COPY, the trip card still shows the real
+    forecast. Pairing rules travel to the prompt (packlist), since a suitcase holds
+    both halves of a pair without either being wrong."""
+    outright = [r for r in user_rules if not rules.is_combination(r)]
+    # Banned only where EVERY role it can play is banned: "no sweater as the base"
+    # still packs it as a mid layer — and is then FILED as one, so the counting, the
+    # top-up and the plan, which all read `category`, never use it in the banned
+    # role (pre-push reviewer, 2026-10-11).
+    kept = []
+    for i in items:
+        allowed = [r for r in (i.get("roles") or [i["category"]])
+                   if not rules.violations(outright, {r: i["id"]}, {i["id"]: i})]
+        if allowed:
+            kept.append({**i, "roles": allowed,
+                         "category": i["category"] if i["category"] in allowed else allowed[0]})
+
+    def shift(v: object) -> object:
+        return math.floor(v + offset + 0.5) if isinstance(v, (int, float)) and offset else v
+    felt_days = [{**d, "lo": shift(d.get("lo")), "hi": shift(d.get("hi"))} for d in days]
+    felt = {**summary, **{k: shift(summary[k]) for k in ("loMin", "hiMax", "loMinEver", "hiMaxEver") if k in summary}}
+    return kept, (felt_days, felt)

@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app as srv
-import closet as closet_llm
+import advisor
 import llm
 
 # base64 of a sentence — long enough to clear the endpoint's min_length.
@@ -56,9 +56,10 @@ def client(monkeypatch):
     seen: dict = {}
 
     async def fake_chat(messages, max_tokens, timeout=45, **kw):
-        content = messages[0]["content"]
+        content = messages[-1]["content"]
         prompt = content if isinstance(content, str) else content[0]["text"]
-        seen["prompt"] = prompt
+        if not prompt.startswith("Checking that outfit"):     # keep the outfit prompt, not a revision
+            seen["prompt"] = prompt
         if "Classify the clothing item" in prompt:
             # The user's complaint, verbatim: a Top that is also underwear. And a
             # type, which is the field this round added.
@@ -80,7 +81,7 @@ def client(monkeypatch):
                 "midday": 25, "evening": 21, "isSnow": False, "isRain": False}
 
     monkeypatch.setattr(llm, "_chat", fake_chat)
-    monkeypatch.setattr(closet_llm, "_chat", fake_chat)
+    monkeypatch.setattr(advisor, "_chat", fake_chat)
     monkeypatch.setattr(srv.weather, "fetch_weather", fake_weather)
     c = TestClient(srv.app)
     c.seen = seen
@@ -129,7 +130,7 @@ def test_a_legacy_closet_is_accepted_not_422d(client):
 def test_the_wardrobe_the_model_sees_has_no_contradictions_left(client):
     client.post("/advice", json={"lat": 40.7, "lon": -74.0, "closet": LEGACY_CLOSET})
     wardrobe = client.seen["prompt"].split("WARDROBE", 1)[1].split("```")[1]
-    assert "can be worn as: mid/outer" in wardrobe      # the ex-knitwear sweater
+    assert "can be: mid/outer" in wardrobe      # the ex-knitwear sweater
     assert "inner" not in wardrobe, wardrobe
 
 
@@ -155,12 +156,12 @@ def test_the_dress_arrives_as_a_one_piece_not_as_trousers(client):
     client.post("/advice", json={"lat": 40.7, "lon": -74.0, "closet": LEGACY_CLOSET})
     wardrobe = client.seen["prompt"].split("WARDROBE", 1)[1].split("```")[1]
     dress_line = next(ln for ln in wardrobe.splitlines() if "summer dress" in ln)
-    assert "can be worn as: base" in dress_line, dress_line
+    assert "can be: base" in dress_line, dress_line
 
 
-def test_the_prompt_states_the_one_piece_rule(client):
-    client.post("/advice", json={"lat": 40.7, "lon": -74.0, "closet": LEGACY_CLOSET})
-    assert "ONE-PIECE RULE" in client.seen["prompt"]
+def test_the_advisor_knows_the_one_piece_rule():
+    """Said once, in the stylist's own principles (2026-10-11); check.py makes it hard."""
+    assert "a dress or jumpsuit covers the legs" in advisor.SYSTEM
 
 
 def test_a_closet_of_nothing_but_socks_falls_back_rather_than_dressing_you_in_them(client):

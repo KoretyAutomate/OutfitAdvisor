@@ -7,7 +7,7 @@ does with it, which a stub cannot show — so every prompt change runs these day
 against the resident model before it ships, and every odd outfit the wearer
 reports becomes one more day here.
 
-In-process (closet.closet_outfit against vLLM on :8000), so it checks the code in
+In-process (advisor.dress against vLLM on :8000), so it checks the code in
 this checkout, not whatever the service happens to be running.
 
 Not named test_*: it needs vLLM resident, and it sys.exit()s.
@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import closet
+import advisor
 import style
 from picks import Prefs
 
@@ -38,10 +38,11 @@ def g(iid, label, kind, roles, warmth, **kw):
 
 
 def day(morning, rain=0):
+    snow = morning < 0
     return {"date": "2026-10-11", "code": 61 if rain >= 50 else 2, "desc": "Rain" if rain >= 50 else "Cloudy",
             "lo": morning, "hi": morning + 5, "swing": 5, "feelsLo": morning, "feelsHi": morning + 5,
             "rain": rain, "wind": 3, "morning": morning, "midday": morning + 4, "evening": morning + 2,
-            "isSnow": False, "isRain": rain >= 50}
+            "isSnow": snow, "isRain": rain >= 50}
 
 
 POLO = g("navypolo", "navy polo shirt", "tops/polo", ("base", "mid", "outer"), 2)
@@ -58,19 +59,28 @@ PANTS = g("drawstr", "beige drawstring pants", "bottoms/trousers", ("bottoms",),
 JEANS = g("jeans", "blue jeans", "bottoms/jeans", ("bottoms",), 3, colors=["blue"])
 SNEAK = g("sneaker", "white sneakers", "footwear/sneakers", ("footwear",), 2, colors=["white"])
 LOAFER = g("loafer", "brown loafers", "footwear/loafers", ("footwear",), 2, colors=["brown"])
+LINEN = g("linen", "white linen shirt", "tops/shirt", ("base", "mid", "outer"), 1, colors=["white"])
+SHORTS = g("shorts", "khaki shorts", "bottoms/shorts", ("bottoms",), 1, colors=["khaki"])
+CHINOS = g("chinos", "navy chinos", "bottoms/trousers", ("bottoms",), 2)
+BLAZER = g("blazer", "grey wool blazer", "outerwear/blazer", ("mid", "outer"), 3, colors=["grey"], formality=["smart"])
+PUFFER = g("puffer", "black down puffer", "outerwear/puffer", ("outer",), 5, colors=["black"])
+BOOTS = g("snowboot", "brown snow boots", "footwear/boots", ("footwear",), 4, colors=["brown"], waterproof=True)
 
-# name: (weather, wardrobe). Add the wearer's next odd outfit here.
-DAYS = {
+# name: (weather, wardrobe, register). Add the wearer's next odd outfit here.
+DAYS: dict[str, tuple[dict, list[dict], str]] = {
     # 2026-10-11, the morning push: a polo over a polo.
-    "polo-on-polo, 10C": (day(10), [POLO, KNIT_POLO, TEE, CARDI, PANTS, JEANS, SNEAK]),
+    "polo-on-polo, 10C": (day(10), [POLO, KNIT_POLO, TEE, CARDI, PANTS, JEANS, SNEAK], "casual"),
     # 2026-10-11, 07:55: no shoes on a 93% rain day. Rain gear is NOT required.
-    "rain 93%, 15C": (day(15, 93), [INNER, POLO, OXFORD, SWEATER, RAIN, PANTS, JEANS, SNEAK, LOAFER]),
-    "tee on a cold morning, 6C": (day(6), [TEE, OXFORD, HOODIE, JACKET, JEANS, SNEAK]),
-    "mild, many tops, 18C": (day(18), [TEE, POLO, KNIT_POLO, OXFORD, CARDI, JEANS, PANTS, SNEAK, LOAFER]),
+    "rain 93%, 15C": (day(15, 93), [INNER, POLO, OXFORD, SWEATER, RAIN, PANTS, JEANS, SNEAK, LOAFER], "casual"),
+    "tee on a cold morning, 6C": (day(6), [TEE, OXFORD, HOODIE, JACKET, JEANS, SNEAK], "casual"),
+    "mild, many tops, 18C": (day(18), [TEE, POLO, KNIT_POLO, OXFORD, CARDI, JEANS, PANTS, SNEAK, LOAFER], "casual"),
+    "hot, 31C": (day(29), [TEE, LINEN, POLO, CARDI, JACKET, SHORTS, JEANS, SNEAK], "casual"),
+    "smart, 14C": (day(14), [INNER, OXFORD, POLO, SWEATER, BLAZER, CHINOS, JEANS, LOAFER, SNEAK], "smart"),
+    "snow, -3C": (day(-3), [INNER, TEE, SWEATER, HOODIE, PUFFER, JEANS, BOOTS, SNEAK], "casual"),
 }
 
 
-def nonsense(picks: dict, by_id: dict, owned: list) -> list[str]:
+def nonsense(picks: dict, by_id: dict, owned: list, w: dict, register: str) -> list[str]:
     """What no person would wear. The EVAL's oracle — never used to dress anyone."""
     torso = [by_id[picks[c]] for c in ("base", "mid", "outer") if picks.get(c)]
     out = []
@@ -84,8 +94,16 @@ def nonsense(picks: dict, by_id: dict, owned: list) -> list[str]:
         out.append("no shoes")
     if not picks.get("bottoms") and (by_id.get(picks.get("base")) or {}).get("group") != "onepiece":
         out.append("no trousers")
-    if not picks.get("base"):
+    if not torso:
         out.append("no top")
+    worn = [by_id[i] for i in picks.values() if i]
+    if w["morning"] >= 24 and any(picks.get(c) for c in ("mid", "outer")):
+        out.append("a layer on a hot day")
+    if any(i.get("waterproof") for i in owned if i["category"] == "footwear") and w["isSnow"] and \
+            not (by_id.get(picks.get("footwear")) or {}).get("waterproof"):
+        out.append("snow without the snow boots")
+    if register == "smart" and any(i["type"] in ("sneakers", "hoodie", "shorts") for i in worn):
+        out.append("sporty piece on a smart day")
     return out
 
 
@@ -94,20 +112,20 @@ async def main(runs: int) -> int:
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     bad = total = 0
-    for name, (w, wardrobe) in DAYS.items():
+    for name, (w, wardrobe, register) in DAYS.items():
         by_id = {i["id"]: i for i in wardrobe}
         print(f"\n== {name}")
         for n in range(runs):
             t = time.monotonic()
-            prefs = replace(Prefs(), look=style.Look("casual", "man"))
-            r = await closet.closet_outfit(w, "man", "casual", wardrobe, prefs)
+            prefs = replace(Prefs(), look=style.Look(register, "man"))
+            r = await advisor.dress(w, wardrobe, prefs)
             total += 1
             if r is None:
                 bad += 1
                 print(f"  run {n + 1}: NO OUTFIT")
                 continue
             worn = {c: by_id[i]["label"] for c, i in r["picks"].items() if i}
-            wrong = nonsense(r["picks"], by_id, wardrobe)
+            wrong = nonsense(r["picks"], by_id, wardrobe, w, register)
             bad += bool(wrong)
             print(f"  run {n + 1} ({time.monotonic() - t:.0f}s): {'FAIL ' + '; '.join(wrong) if wrong else 'ok'}"
                   f"  {worn}")

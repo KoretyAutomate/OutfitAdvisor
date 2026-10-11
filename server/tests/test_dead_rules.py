@@ -22,7 +22,7 @@ in that rule is legal. These tests are the missing half.
 import asyncio
 import json
 
-import closet as closet_mod
+import advisor
 import picks as pk
 import rules
 
@@ -193,16 +193,16 @@ def _run(closet, handles):
         "Bottoms: the blue jeans.", "Footwear: sneakers."],
         "missing": [], "tip": "Nice day."})
 
-    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4):
+    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4, **kw):
         return reply
 
-    real, closet_mod._chat = closet_mod._chat, fake_chat
+    real, advisor._chat = advisor._chat, fake_chat
     try:
         prefs = pk.Prefs.of([AS_MEANT], False, None, None)
         return asyncio.run(
-            closet_mod.closet_outfit(WARM, "man", "casual", closet, prefs))
+            advisor.dress(WARM, closet, prefs))
     finally:
-        closet_mod._chat = real
+        advisor._chat = real
 
 
 def test_the_wearer_keeps_the_shirt_and_loses_the_undershirt():
@@ -240,16 +240,15 @@ def test_a_garment_banned_OUTRIGHT_is_still_a_wardrobe_gap():
                                     "Bottoms: jeans.", "Footwear: sneakers."],
                         "missing": [], "tip": "Nice day."})
 
-    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4):
+    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4, **kw):
         return reply
 
-    real, closet_mod._chat = closet_mod._chat, fake_chat
+    real, advisor._chat = advisor._chat, fake_chat
     try:
         prefs = pk.Prefs.of([ban_item], False, None, None)
-        out = asyncio.run(closet_mod.closet_outfit(
-            WARM, "man", "casual", [UNDERSHIRT, WHITE_TEE, JEANS, SNEAKERS], prefs))
+        out = asyncio.run(advisor.dress(WARM, [UNDERSHIRT, WHITE_TEE, JEANS, SNEAKERS], prefs))
     finally:
-        closet_mod._chat = real
+        advisor._chat = real
     assert out is not None
     assert out["picks"]["inner"] is None
     assert "inner" in out["missing"], "an outright ban on the only one IS a gap"
@@ -274,16 +273,15 @@ def test_an_outright_ban_wins_when_a_slot_breaks_both_kinds():
                                     "Bottoms: jeans.", "Footwear: sneakers."],
                         "missing": [], "tip": "Nice day."})
 
-    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4):
+    async def fake_chat(messages, max_tokens, timeout=45, temperature=0.4, **kw):
         return reply
 
-    real, closet_mod._chat = closet_mod._chat, fake_chat
+    real, advisor._chat = advisor._chat, fake_chat
     try:
-        out = asyncio.run(closet_mod.closet_outfit(
-            WARM, "man", "casual", [grey, WHITE_TEE, JEANS, SNEAKERS],
+        out = asyncio.run(advisor.dress(WARM, [grey, WHITE_TEE, JEANS, SNEAKERS],
             pk.Prefs.of(both, False, None, None)))
     finally:
-        closet_mod._chat = real
+        advisor._chat = real
     assert out is not None
     assert out["picks"]["inner"] is None
     # The only undershirt they own is banned outright, so they really are without
@@ -291,18 +289,18 @@ def test_an_outright_ban_wins_when_a_slot_breaks_both_kinds():
     assert "inner" in out["missing"], out["missing"]
 
 
-def test_the_unit_reports_only_the_slots_where_every_reason_was_a_combination():
-    """The seam itself, so the rule above cannot be satisfied by accident."""
-    by = {"u": {"id": "u", "type": "undershirt", "group": "underwear",
-                "colors": ["grey"]},
-          "t": {"id": "t", "type": "t_shirt", "group": "tops", "colors": ["white"]}}
-    picks_combo = {"inner": "u", "base": "t"}
-    _n, _c, combo = pk._enforce_user_rules(dict(picks_combo), by, [AS_MEANT], 1)
-    assert combo == {"inner"}
-    _n, _c, mixed = pk._enforce_user_rules(
-        dict(picks_combo), by,
-        [AS_MEANT, {"kind": "avoid_item", "a": {"type": "undershirt"}}], 1)
-    assert mixed == set(), "one outright ban is enough to make it a real gap"
+def test_the_fallback_clears_the_undershirt_side_of_a_pair_rule():
+    """The seam itself: when the advisor's best answer still breaks a pair rule, the
+    garment the outfit is built around stays and the optional layer goes."""
+    import check
+    import fallback
+    closet = [UNDERSHIRT, WHITE_TEE, JEANS, SNEAKERS]
+    day = check.Day.of(WARM, pk._index(closet), pk.Prefs.of([AS_MEANT], False, None, None))
+    picks = {"inner": UNDERSHIRT["id"], "base": WHITE_TEE["id"], "bottoms": JEANS["id"],
+             "footwear": SNEAKERS["id"]}
+    assert any(k.startswith("rule-") for k in check.hard(check.issues(picks, day)))
+    fixed, changed = fallback.fix(picks, day)
+    assert fixed["inner"] is None and fixed["base"] == WHITE_TEE["id"] and changed == {"inner": None}
 
 
 def test_only_underwear_can_occupy_inner():

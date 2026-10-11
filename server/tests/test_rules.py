@@ -12,11 +12,9 @@ Verified live on 2026-08-24 against the real 122B: with the banned pair as the o
 all-white option, it was served 3 times out of 3 without the rule and 0 times out
 of 3 with it.
 """
-import prose as prose_mod
 import pytest
 
 import rules
-import picks as picks_mod
 
 WHITE_INNER = {"id": "i1", "type": "undershirt", "group": "underwear",
                "category": "inner", "colors": ["White"]}
@@ -123,62 +121,6 @@ def test_no_rules_adds_nothing_to_the_prompt():
 def test_a_rule_about_clothes_nobody_is_wearing_does_not_fire():
     assert not rules.violations([BAN], {"footwear": "i3"}, {"i3": NAVY_TEE})
     assert not rules.violations([BAN], {}, BY_ITEM)
-
-
-def test_a_brand_named_garment_is_still_removed_from_the_prose():
-    """The label is not the only way the prose names a garment.
-
-    A user labels an item "Airism"; the model writes "your white V-neck undershirt".
-    Same garment, no shared word — and the line survives to recommend exactly what
-    was just banned. Raised by the pre-push reviewer, 2026-08-24.
-    """
-    item = {"label": "Airism", "type": "undershirt", "colors": ["white"],
-            "group": "underwear"}
-    kept = prose_mod._drop_banned_bullets(
-        ["Start with your white V-neck undershirt.", "Navy chinos work today."], [item])
-    assert not any("undershirt" in b for b in kept)
-    assert "Navy chinos work today." in kept
-
-
-def test_a_colour_alone_does_not_delete_unrelated_advice():
-    """Both words must appear. An outfit missing lines it should keep is its own bug."""
-    item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
-    kept = prose_mod._drop_banned_bullets(["White trainers finish it."], [item])
-    assert "White trainers finish it." in kept
-
-
-def test_a_cleared_garment_is_dropped_from_the_prose_too():
-    """The bullets are what the user reads, in the app and in the notification.
-
-    Nulling the structured pick and leaving the prose saying "your white undershirt
-    under the white tee" keeps the ban's promise in the data and breaks it on the
-    screen — which is the half that matters. Raised by the pre-push reviewer.
-    """
-    bullets = [
-        "Start with the white v-neck undershirt.",
-        "Navy chinos work today.",
-        "Trainers are fine in this.",
-    ]
-    kept = prose_mod._drop_banned_bullets(
-        bullets, [{"label": "white v-neck undershirt", "type": "undershirt",
-                   "colors": ["white"]}])
-    assert not any("undershirt" in b for b in kept)
-    assert "Navy chinos work today." in kept
-    assert any("your own rules" in b for b in kept), \
-        "a gap in the advice must explain itself, not just be shorter"
-
-
-def test_nothing_cleared_leaves_the_prose_untouched():
-    bullets = ["Navy chinos work today."]
-    assert prose_mod._drop_banned_bullets(bullets, []) == bullets
-
-
-def test_the_label_test_is_case_insensitive():
-    """The classifier writes "White V-neck", the bullet says "white v-neck"."""
-    kept = prose_mod._drop_banned_bullets(
-        ["Wear the White V-Neck Undershirt."],
-        [{"label": "white v-neck undershirt", "type": "undershirt", "colors": ["white"]}])
-    assert not any("Undershirt" in b for b in kept)
 
 
 # ── every match, not just the first (pre-push reviewer, 2026-08-24) ────────────
@@ -336,92 +278,9 @@ def test_a_colour_that_normalises_away_is_not_a_shared_colour():
                             {"a": good_a, "b": good_b})
 
 
-def test_the_tip_is_held_to_the_rules_too():
-    """The tip is prose, and just as visible as a bullet.
-
-    "Bring the white tee" undoes a ban as thoroughly as a bullet would, and it is
-    the line the notification shows. Raised by the pre-push reviewer, 2026-08-24.
-    """
-    item = {"label": "Airism", "type": "undershirt", "colors": ["white"]}
-    assert prose_mod._names_banned("Bring the white undershirt.", [item])
-    assert not prose_mod._names_banned("Take a brolly, rain later.", [item])
-
-
 # ── every cleared garment must be recognisable in the prose ────────────────────
-
-def test_an_item_with_a_tiny_label_and_no_colours_is_still_recognised():
-    """The gap that let prose survive a repair.
-
-    A label under three characters produced no term, and an item with no colours
-    produced no colour+type term either — so _names_banned could not see the
-    garment at all and the bullets went on recommending what had just been cleared.
-    Raised by the pre-push reviewer, 2026-08-24.
-    """
-    item = {"label": "PJ", "type": "sleepwear", "colors": [], "group": "underwear"}
-    assert prose_mod._ban_terms(item), "no way to recognise this garment in prose"
-    assert prose_mod._names_banned("Your pyjamas are the warm option.", [item])
-
-
-def test_a_garment_with_nothing_but_a_short_label_falls_back_to_it():
-    item = {"label": "PJ", "type": None, "colors": [], "group": None}
-    assert prose_mod._names_banned("Take the PJ with you.", [item])
-
-
-def test_a_short_label_matches_as_a_WORD_not_a_substring():
-    """"PJ" must not fire inside an unrelated word by accident of spelling."""
-    item = {"label": "PJ", "type": None, "colors": [], "group": None}
-    assert not prose_mod._names_banned("Projections look fine today.", [item])
-
-
-def test_every_valid_closet_item_yields_at_least_one_term():
-    """A garment nothing can name is a garment the prose can keep recommending."""
-    for item in (
-        {"label": "a", "type": "t_shirt", "colors": []},
-        {"label": "a", "type": None, "colors": [], "group": "tops"},
-        {"label": "navy merino crew-neck", "type": None, "colors": []},
-        {"label": "x", "type": None, "colors": [], "group": None},
-    ):
-        assert prose_mod._ban_terms(item), item
 
 
 # ── trousers under a dress, when the retry has already been spent ──────────────
 
-def test_a_onepiece_clears_bottoms_on_BOTH_attempts():
-    """The reviewer read this as unrepaired on the last attempt. It is not.
 
-    _onepiece_conflicts repairs as it tests and is the left operand of the guard, so
-    it runs and clears whichever attempt this is. The retry only ever bought the
-    BULLETS — a regeneration is the only thing that can rewrite the line that
-    recommended the trousers.
-    """
-    for attempt in (0, 1):
-        picks = {"base": "d1", "bottoms": "b1"}
-        picks_mod._enforce_onepiece(picks, {"d1": "onepiece", "b1": "bottoms"},
-                                     {"b1": {"label": "navy chinos"}}, [], attempt)
-        assert picks["bottoms"] is None, attempt
-
-
-def test_the_first_attempt_retries_and_the_last_one_bans_the_prose():
-    """Out of retries, the cleared trousers join the banned list.
-
-    Otherwise the picks are right and the bullets still say "navy chinos" — the
-    same split between the data and the words that the rule repair had to close.
-    """
-    by_item = {"b1": {"label": "navy chinos", "type": "trousers", "colors": ["navy"]}}
-    note, banned = picks_mod._enforce_onepiece(
-        {"base": "d1", "bottoms": "b1"}, {"d1": "onepiece", "b1": "bottoms"},
-        by_item, [], 0)
-    assert note and banned == [], "the first failure must be retried, not papered over"
-
-    note, banned = picks_mod._enforce_onepiece(
-        {"base": "d1", "bottoms": "b1"}, {"d1": "onepiece", "b1": "bottoms"},
-        by_item, [], 1)
-    assert not note
-    assert prose_mod._names_banned("Navy chinos work today.", banned)
-
-
-def test_no_conflict_changes_nothing():
-    picks = {"base": "t1", "bottoms": "b1"}
-    note, banned = picks_mod._enforce_onepiece(
-        picks, {"t1": "tops", "b1": "bottoms"}, {}, [], 1)
-    assert not note and banned == [] and picks["bottoms"] == "b1"

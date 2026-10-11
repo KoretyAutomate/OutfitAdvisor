@@ -8,43 +8,35 @@ read the seams.
 import re
 from pathlib import Path
 
-import closet_prompt as prompt_mod
-import picks as picks_mod
+import advisor as advisor_mod
+import check as check_mod
+import fallback as fallback_mod
 import rules
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 INDEX = ROOT / "app" / "www" / "index.html"
-# The prompt moved to closet_prompt.py on 2026-10-11, when closet.py reached the
-# ceiling again.
-PROMPT_PY = Path(prompt_mod.__file__)
-# The validation moved to picks.py on 2026-08-27, when closet.py crossed the
-# line ceiling. closet.py builds the prompt; picks.py judges the answer.
-PICKS_PY = Path(picks_mod.__file__)
+# Since the 2026-10-11 refactor: advisor.py asks, check.py judges, fallback.py is
+# the last resort.
+ADVISOR_PY = Path(advisor_mod.__file__)
+CHECK_PY = Path(check_mod.__file__)
+FALLBACK_PY = Path(fallback_mod.__file__)
 
 
 def test_the_generator_is_given_the_rules():
-    src = PROMPT_PY.read_text()
-    prompt = src[src.index("def _closet_prompt("):]
-    # _closet_prompt is now the last plain `def` in the module — closet_outfit
-    # follows it as an `async def` — so the slice runs to the end rather than to a
-    # marker that may not be there. A missing marker used to raise ValueError,
-    # which reads as a broken test rather than as the thing it was checking.
-    for marker in ("\ndef ", "\nasync def "):
-        if marker in prompt:
-            prompt = prompt[:prompt.index(marker)]
-            break
+    src = ADVISOR_PY.read_text()
+    prompt = src[src.index("def prompt("):]
+    prompt = prompt[:prompt.index("\n\n\n")]
     assert "rules.prompt_block" in prompt, "the rules never reach the prompt"
 
 
 def test_the_picks_are_CHECKED_against_the_rules():
-    """The prompt is a hint. This is the part that makes the ban a ban."""
-    src = PICKS_PY.read_text()
-    assert "rules.violations(" in src, "nothing verifies the rules were followed"
-    body = src[src.index("def _enforce_user_rules("):]
-    body = body[:body.index("\ndef _enforce_one_slot_each")]
-    assert "attempt == 0" in body, "a first failure must be retried, not just repaired"
-    assert "picks[b[\"slot\"]] = None" in body, \
-        "a second failure must clear the slot rather than serve a banned outfit"
+    """The prompt is a hint. The check makes the ban a ban: a broken rule is a HARD
+    issue the advisor is told about, and the fallback clears the blamed slot if its
+    best answer still breaks it."""
+    assert "rules.violations(" in CHECK_PY.read_text(), "nothing verifies the rules were followed"
+    fb = FALLBACK_PY.read_text()
+    assert "issues(p, day)" in fb and "hard(found)" in fb, \
+        "the last resort ranks outfits by the same facts, broken rules among them"
 
 
 def test_advice_passes_the_phones_rules_through():
@@ -55,7 +47,7 @@ def test_advice_passes_the_phones_rules_through():
     app_src = (ROOT / "server" / "app.py").read_text()
     assert re.search(r"Prefs\.of\(rules\.clean_rules\(req\.rules\)", app_src), \
         "the request's rules never reach the generator"
-    assert re.search(r"closet_outfit\([^)]*prefs", app_src, re.S), \
+    assert re.search(r"advisor\.dress\([^)]*prefs", app_src, re.S), \
         "the preferences are built but never passed"
 
 

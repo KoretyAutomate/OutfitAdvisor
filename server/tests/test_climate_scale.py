@@ -27,9 +27,8 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app as srv
-import closet as closet_llm
+import advisor
 import llm
-import picks as pk
 import scale as sc
 import weather
 from schemas import ClimateAnchors
@@ -277,13 +276,9 @@ def test_a_garment_says_WHICH_year_it_was_graded_against():
 
 def test_the_guard_reads_the_scale_when_there_is_one():
     """The whole point: a garment GRADED on a wearer's year and found too thin for
-    it is cleared, where the absolute table would have let it stand."""
-    assert pk._warmth_violations({"outer": "i1"}, {"i1": {"warmth": 4}}, 2.0) == []
-    assert pk._warmth_violations({"outer": "i1"}, {"i1": graded(4)}, 2.0) == ["outer"]
-
-
-def test_an_empty_outer_slot_is_never_a_warmth_violation():
-    assert pk._warmth_violations({"outer": None}, {}, -30.0) == []
+    it is not warm enough, where the absolute table would have let it stand."""
+    assert sc.warm_enough({"warmth": 4}, 2.0)
+    assert not sc.warm_enough(graded(4), 2.0)
 
 
 # ── the wiring ────────────────────────────────────────────────────────────────
@@ -314,7 +309,7 @@ def client(monkeypatch):
     seen: dict = {}
 
     async def fake_chat(messages, max_tokens, timeout=45, **kw):
-        content = messages[0]["content"]
+        content = messages[-1]["content"]
         prompt = content if isinstance(content, str) else content[0]["text"]
         seen.setdefault("prompts", []).append(prompt)
         if "Classify the clothing item" in prompt:
@@ -332,7 +327,7 @@ def client(monkeypatch):
                 "midday": 5, "evening": 3, "isSnow": False, "isRain": False}
 
     monkeypatch.setattr(llm, "_chat", fake_chat)
-    monkeypatch.setattr(closet_llm, "_chat", fake_chat)
+    monkeypatch.setattr(advisor, "_chat", fake_chat)
     async def fake_range(lat, lon, start, end):
         days = [{"date": "2026-09-10", "code": 3, "emoji": "⛅", "desc": "Cloudy",
                  "lo": 10, "hi": 18, "rain": 10, "wind": 3, "isSnow": False,

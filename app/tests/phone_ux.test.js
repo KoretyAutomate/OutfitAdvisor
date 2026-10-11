@@ -21,6 +21,17 @@ const check = (name, cond, detail = "") => {
   if (cond) { passed++; console.log(`[PASS] ${name}`); }
   else { failed++; console.log(`[FAIL] ${name}  ${JSON.stringify(detail)}`); }
 };
+// The notification's "Wearing it", as FeedbackReceiver writes it since 2026-10-11:
+// its OWN queue (oa.nativeWears, appended) and day record (oa.nativeWore) — never the
+// app's keys. One writer per key.
+let natSeq = 0;
+const notify = (ls, entries, record) => {
+  const q = JSON.parse(ls.getItem("oa.nativeWears") || "[]");
+  for (const e of entries) q.push({...e, key: `n${++natSeq}-${e.itemId}`});
+  ls.setItem("oa.nativeWears", JSON.stringify(q));
+  if (record) ls.setItem("oa.nativeWore", JSON.stringify(record));
+};
+
 const page = () => new JSDOM(SRC, {
   runScripts: "dangerously", url: "https://localhost/", pretendToBeVisual: true,
 }).window;
@@ -224,8 +235,7 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     await ev("saveCloset()");               // the page's baseline: an empty wear log
     // The notification logs tee1 while the page is in memory and has not re-read.
     const t = Date.now() - 1000;
-    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "tee1", wornAt: t}]));
-    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "tee1"}}));
+    notify(ls, [{itemId: "tee1", wornAt: t}], {day: today, map: {base: "tee1"}});
     // The user logs jeans from the item sheet: memory changes, then saveCloset.
     ev(`logWear("jean1")`);
     await ev("saveCloset()");
@@ -235,8 +245,7 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     check("and its day record is adopted", ev("JSON.stringify(woreLogged)") === '{"base":"tee1"}',
       ev("JSON.stringify(woreLogged)"));
     // A garment the page has itself logged today is not counted twice.
-    ls.setItem("oa.wearlog", JSON.stringify([...JSON.parse(ls.getItem("oa.wearlog")),
-      {itemId: "jean1", wornAt: Date.now() - 500}]));
+    notify(ls, [{itemId: "jean1", wornAt: Date.now() - 500}]);
     await ev("saveCloset()");
     check("one wear per garment per day across both writers",
       JSON.parse(ls.getItem("oa.wearlog")).filter(x => x.itemId === "jean1").length === 1,
@@ -263,8 +272,7 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     await ev("saveCloset()");               // baseline: nothing worn
     // The notification logs outfit A; the page has not re-read.
     const t = Date.now() - 1000;
-    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}]));
-    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    notify(ls, [{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}], {day: today, map: {base: "teeA", bottoms: "jean1"}});
     // The user corrects to B through the sheet.
     ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
     await ev("saveWore()");
@@ -284,8 +292,8 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     // button showing the record (wornLogged) from an earlier read.
     ev(`wearLog=[]; woreLogged=null; woreDay=null;`);
     await ev("saveCloset()");
-    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}]));
-    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA"}}));
+    ls.removeItem("oa.nativeWears"); ev("nativeSeen=new Set()");
+    notify(ls, [{itemId: "teeA", wornAt: t}], {day: today, map: {base: "teeA"}});
     ev(`woreLogged={base:"teeA"}; woreDay=todayISO(); wornLogged=true;`);
     d.getElementById("dWear").click();
     for (let i = 0; i < 30 && ev("woreBusy"); i++) await new Promise(r => setTimeout(r, 10));
@@ -311,19 +319,19 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     await ev("saveCloset()");
     ev(`woreLogged={base:"teeB"}; woreDay="2000-01-01";`);
     const t = Date.now() - 1000;
-    ls.setItem("oa.wearlog", JSON.stringify([{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}]));
-    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    notify(ls, [{itemId: "teeA", wornAt: t}, {itemId: "jean1", wornAt: t}], {day: today, map: {base: "teeA", bottoms: "jean1"}});
     ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
     await ev("saveWore()");
     let ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
     check("a stale page's old record does not erase the notification's, and the correction releases A",
       JSON.stringify(ids) === '["jean1","teeB"]', ids);
-    // (b) The notification writes the record with the wear log unchanged.
+    // (b) The notification writes the record with the wear log unchanged — a fresh
+    // start, so the page has not adopted any receiver record yet.
     setup();
-    ls.setItem("oa.woreToday", "");
+    ls.setItem("oa.woreToday", ""); ls.removeItem("oa.nativeWoreSeen"); ev(`nativeWoreSeen=""`);
     ev(`wearLog=[]; logWear("teeA"); logWear("jean1"); woreLogged=null; woreDay=null;`);
     await ev("saveCloset()");               // both on disk, logged from their sheets
-    ls.setItem("oa.woreToday", JSON.stringify({day: today, map: {base: "teeA", bottoms: "jean1"}}));
+    notify(ls, [], {day: today, map: {base: "teeA", bottoms: "jean1"}});
     ev(`woreDraft={base:"teeB",bottoms:"jean1"};`);
     await ev("saveWore()");
     ids = JSON.parse(ls.getItem("oa.wearlog")).map(x => x.itemId).sort();
@@ -360,20 +368,25 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     const manifest = fs.readFileSync(path.join(__dirname, "..", "android", "app", "src", "main",
       "AndroidManifest.xml"), "utf8");
     const kconst = name => (fb.match(new RegExp(`const val ${name} = "([^"]+)"`)) || [])[1];
-    check("the receiver writes the app's wear-log key",
-      kconst("KEY_WEARLOG") === "oa.wearlog" && /prefSet\("oa\.wearlog"/.test(SRC), kconst("KEY_WEARLOG"));
-    check("and the app's day-record key",
+    // One writer per key (2026-10-11): the receiver writes ONLY its own queue and day
+    // record, which the app reads; never the app's wear log, record or snapshot.
+    const onWear = fb.slice(fb.indexOf("private fun onWear"), fb.indexOf("private fun loggedToday"));
+    check("the receiver writes only its own keys, which the app reads",
+      kconst("KEY_NATIVE_WEARS") === "oa.nativeWears" && /prefGet\("oa\.nativeWears"/.test(SRC) &&
+      kconst("KEY_NATIVE_WORE") === "oa.nativeWore" && /prefGet\("oa\.nativeWore"/.test(SRC) &&
+      !/putString\(KEY_WEARLOG|putString\(KEY_WORE\b|KEY_PUSH_PAYLOAD/.test(onWear), onWear.slice(-300));
+    check("and still knows the app's day-record key, to stay idempotent",
       kconst("KEY_WORE") === (SRC.match(/const WORE_KEY="([^"]+)"/) || [])[1], kconst("KEY_WORE"));
     check("an unwashed wear is held as long as the app holds it",
       +(fb.match(/COOLDOWN_DAYS = (\d+)/) || [])[1] === +(SRC.match(/COOLDOWN_DAYS=(\d+)/) || [])[1]);
     check("wear entries have the app's fields",
-      /put\("itemId", id\)\.put\("wornAt", now\)/.test(fb) && /wearLog\.push\(\{itemId:id,wornAt:Date\.now\(\)\}\)/.test(SRC));
+      /put\("itemId", id\)\.put\("wornAt", now\)\.put\("key"/.test(fb) && /wearLog\.push\(\{itemId:e\.itemId,wornAt:e\.wornAt\}\)/.test(SRC));
     check("the day record has the app's fields",
       /put\("day", today\)\.put\("map", picks\)/.test(fb) && /JSON\.stringify\(\{day:woreDay, map:woreLogged\}\)/.test(SRC));
     check("one wear per garment per day, like logWear",
       /e\.optString\("itemId"\) == id && dayOf\(e\.optLong\("wornAt", 0L\)\) == today/.test(fb));
     check("idempotent: an existing record for today means nothing is written",
-      fb.indexOf("if (loggedToday(prefs, today))") < fb.indexOf("putString(KEY_WEARLOG"));
+      fb.indexOf("if (loggedToday(prefs, today))") < fb.indexOf("putString(KEY_NATIVE_WEARS"));
     check("a tap on another day's notification logs nothing",
       /intent\.getStringExtra\(EXTRA_DAY\) != today/.test(fb));
     check("null slots are not logged as a garment called \"null\"",
@@ -394,10 +407,10 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
       /res&&res\.closetUsed&&res\.picks/.test(SRC));
     // Raised by the pre-push reviewer, 2026-10-11: the snapshot hold must count
     // only NEW wears, and must see a unit that came back from `pending`.
-    check("only garments newly logged today are held in the push snapshot",
-      /if \(!already\) \{\s*log\.put\([^\n]*\)\s*held\.add\(id\)/.test(fb) &&
-      /holdInPayload\(prefs\.getString\(AdviceWorker\.KEY_PUSH_PAYLOAD, null\), held, now\)/.test(fb));
-    const hold = fb.slice(fb.indexOf("private fun holdInPayload"), fb.indexOf("private fun clamp"));
+    check("the worker holds only queue wears the snapshot has not folded in",
+      /e\.optString\("key"\) in seen/.test(fb) && /FeedbackReceiver\.applyNativeWears\(/.test(worker) &&
+      /nativeSeen:\[\.\.\.nativeSeen\]/.test(SRC));
+    const hold = fb.slice(fb.indexOf("fun applyNativeWears"), fb.indexOf("fun applyNativeWears") + 3000);
     check("the hold reads both snapshot arrays, as freedBy does",
       /listOfNotNull\(p\.optJSONArray\("closet"\), p\.optJSONArray\("pending"\)\)/.test(hold) &&
       /listOfNotNull\(closet, pending\)/.test(worker));

@@ -941,13 +941,9 @@ const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Par
   81:["🌧️","Rain showers"],82:["⛈️","Violent showers"],85:["🌨️","Snow showers"],86:["❄️","Snow showers"],
   95:["⛈️","Thunderstorm"],96:["⛈️","Storm w/ hail"],99:["⛈️","Storm w/ hail"]};
 const SNOW=[71,73,75,77,85,86], RAIN=[51,53,55,61,63,65,66,67,80,81,82,95,96,99];
-function pick(g,m,w,n){ return g==="man"?m:g==="woman"?w:n; }
-/* Personal thermal calibration. Twin: apply_temp_offset() in server/engine.py.
-   `offset` is ADDED to the temps the recommender sees — felt too warm ⇒ positive
-   ⇒ we plan for a warmer day ⇒ lighter clothes. Only temperatures move; swing
-   (= hi−lo) is invariant under a uniform shift. Returns a COPY: the caller keeps
-   the real forecast for display. */
-const TEMP_KEYS=["lo","hi","feelsLo","feelsHi","morning","midday","evening","planLo","planHi"];
+/* The phone dresses nobody itself (2026-10-11): the catalogue twin of the server's
+   engine.py — recommend(), applyTempOffset(), outfitToBullets() — was removed with
+   the advisor refactor. Offline, the day's saved advice is shown instead. */
 /* Dress for how the day FEELS, 08:00-19:00, or until an evening event ends (user,
    2026-10-10). Twin of weather.with_plan / engine.plan_temp. Feels-like moves an
    hour at most 4° colder or 3° warmer than the air: the warmth scale is measured
@@ -969,58 +965,6 @@ async function eveningOut(){
   try{ const P=Plugins.OutfitAlarm; if(!P||!P.eveningOut) return null;
        const r=await P.eveningOut(); return r&&r.until>=20&&r.until<=24?r.until:null; }
   catch(e){ return null; }
-}
-function applyTempOffset(w,offset){
-  if(!offset) return w;
-  const o={...w};
-  for(const k of TEMP_KEYS) if(o[k]!=null) o[k]=Math.round(o[k]+offset);
-  return o;
-}
-function recommend(w,gender,style){
-  const t = planTemp(w); const o={};
-  /* inner layer — always worn (user feedback 2026-07-15); twin: engine.py */
-  if(t>=24) o.inner="Sweat-wicking breathable inner (AIRism-type)";
-  else if(t>=15) o.inner=pick(gender,"Light cotton undershirt","Light inner camisole or undershirt (worn under the top)","Light cotton undershirt");
-  else if(t>=5) o.inner="Warm inner (Heattech-type)";
-  else o.inner="Heavyweight thermal inner";
-  if(t>=26) o.base=pick(gender,"Breathable cotton/linen tee","Light camisole or linen blouse","Lightweight breathable tee");
-  else if(t>=18) o.base=pick(gender,"Cotton T-shirt","Short-sleeve top or light blouse","Cotton T-shirt");
-  else if(t>=10) o.base=pick(gender,"Long-sleeve shirt","Long-sleeve top","Long-sleeve shirt");
-  else o.base=pick(gender,"Thermal / merino base layer","Thermal or merino base layer","Thermal base layer");
-  if(t>=22) o.mid="None needed";
-  else if(t>=15) o.mid=pick(gender,"Light overshirt or thin knit","Light cardigan or knit","Light layer / thin knit");
-  else if(t>=7) o.mid=pick(gender,"Wool sweater or fleece","Sweater or fleece","Wool sweater or fleece");
-  else o.mid=pick(gender,"Heavy knit + insulating mid-layer","Heavy knit + insulating layer","Heavy knit / insulating layer");
-  if(w.isSnow) o.outer="Insulated waterproof parka";
-  else if(t>=24) o.outer="None — but pack a thin layer for AC indoors";
-  else if(t>=16) o.outer=pick(gender,"Light jacket or blazer","Light jacket or trench","Light jacket");
-  else if(t>=8) o.outer=pick(gender,"Wool coat or padded jacket","Wool coat or padded jacket","Insulated jacket");
-  else o.outer=pick(gender,"Heavy winter coat / down","Down coat or heavy wool coat","Heavy winter coat");
-  if(w.wind>=8 && !/waterproof|shell|parka|down/i.test(o.outer)) o.outer+=" (windproof)";
-  if(t>=26) o.bottoms=pick(gender,"Light chinos or shorts","Skirt, dress, or light trousers","Shorts or light trousers");
-  else if(t>=16) o.bottoms=pick(gender,"Chinos or jeans","Jeans, trousers, or midi skirt + tights","Chinos or jeans");
-  else if(t>=6) o.bottoms=pick(gender,"Jeans or wool trousers","Trousers or jeans (consider thermal tights)","Warm trousers or jeans");
-  else o.bottoms=pick(gender,"Lined trousers + base layer","Thermal-lined trousers or thick tights","Insulated / lined trousers");
-  if(style==="active") o.bottoms="Stretch / technical trousers";
-  if(w.isSnow) o.footwear="Insulated waterproof boots";
-  else if(t>=24) o.footwear=pick(gender,"Loafers or breathable sneakers","Sandals or breathable flats","Breathable sneakers");
-  else if(t>=10) o.footwear=style==="smart"?"Leather shoes / ankle boots":"Sneakers or casual shoes";
-  else o.footwear="Insulated boots";
-  const acc=[]; if(t<5) acc.push("hat, gloves & scarf"); else if(t<10) acc.push("scarf");
-  if(w.rain>=40||w.isRain) acc.push("umbrella");
-  if(w.hi>=24 && [0,1,2].includes(w.code)) acc.push("sunglasses");
-  if(w.swing>=10) acc.push("a packable layer for the temp swing");
-  o.accessories=acc.length?acc.join(", ").replace(/^./,c=>c.toUpperCase()):"None essential";
-  if(w.swing>=10){ const span=(w.morning!=null&&w.midday!=null)?` (${w.morning}° → ${w.midday}°)`:"";
-    o.tip=`Big ${w.swing}° swing today${span}. Dress in layers you can shed by midday and add back in the evening.`; }
-  else if(w.isRain||w.rain>=50) o.tip=`Rain likely (${w.rain}%) — take an umbrella.`;
-  else if(w.wind>=8) o.tip=`Strong wind (${w.wind} m/s) — a windproof outer makes a real difference.`;
-  else if(w.hi>=28) o.tip="Hot day — favour breathable, light-coloured fabrics and stay hydrated.";
-  else o.tip="Comfortable conditions — the layers above keep you flexible through the day.";
-  return o;
-}
-function outfitToBullets(o){
-  return `• Inner: ${o.inner}\n• Base: ${o.base}\n• Mid: ${o.mid}\n• Outer: ${o.outer}\n• Bottoms: ${o.bottoms}\n• Footwear: ${o.footwear}\n• Accessories: ${o.accessories}\n\nTip: ${o.tip}`;
 }
 
 /* ───────── geocoding + on-device weather (offline path) ───────── */
@@ -1498,6 +1442,7 @@ function reconcileItem(it,inferFromLabel=false){
 function migrateItem(it){ return reconcileItem(it,true); }
 let closet=[];   // {id,label,brand?,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms), washedAt?(epoch-ms)}
+let lastWorn={}; // {itemId: [wornAt…]} — wear HISTORY for the advisor; survives the wash
 let closetFolded=new Set();   // collapsed folder groups, remembered across launches
 const uuid=()=> (crypto.randomUUID ? crypto.randomUUID()
   : [8,8,8,8].map(n=>Math.random().toString(36).slice(2,2+n)).join("-"));
@@ -1663,53 +1608,69 @@ function logWear(id){ const today=localDay(Date.now());          // idempotent p
   if(wearLog.some(w=>w.itemId===id && localDay(w.wornAt)===today)) return;
   wearLog.push({itemId:id,wornAt:Date.now()}); }
 function unlogWearToday(id){ const today=localDay(Date.now());
-  wearLog=wearLog.filter(w=>!(w.itemId===id && localDay(w.wornAt)===today)); }
-/* The oa.wearlog this page last read or wrote, verbatim (2026-10-11). The
-   notification's "Wearing it" (FeedbackReceiver.kt) also writes the wear log, and
-   only ever APPENDS. So when the disk differs from this, the entries on disk that
-   were not here last time are the native side's, and they are merged into memory
-   before this page writes — otherwise any closet write from a page that has not
-   yet re-read the disk (an item-sheet wear during the resume reads, say) erased
-   them. Entries this page removed itself (undo, a wash) were in the baseline, so
-   they stay removed. Raised by the pre-push reviewer, 2026-10-11. */
-let wearSeen="[]";
+  wearLog=wearLog.filter(w=>!(w.itemId===id && localDay(w.wornAt)===today));
+  // An undo is a statement that it was NOT worn today — the history forgets it too,
+  // keeping any earlier wear (raised by the pre-push reviewer, 2026-10-11).
+  if(lastWorn[id]){ lastWorn[id]=lastWorn[id].filter(t=>localDay(t)!==today); if(!lastWorn[id].length) delete lastWorn[id]; } }
+/* The notification's "Wearing it" (FeedbackReceiver.kt) writes ONLY its own keys —
+   oa.nativeWears (a queue it appends to and prunes) and oa.nativeWore (its day
+   record) — and this page owns oa.wearlog, oa.woreToday and the push snapshot. One
+   writer per key, so neither can overwrite the other's write mid-save (pre-push
+   reviewer, 2026-10-11). Queue entries are folded into the wear log once each, by
+   key; `nativeSeen` (this page's own oa.nativeSeen) remembers which, and travels in
+   the push snapshot so the morning worker applies only what is still unfolded. */
+let nativeSeen=new Set();
+let nativeWoreSeen="";   // the receiver's day record last adopted (oa.nativeWoreSeen)
 async function mergeNativeWears(){
-  let disk, rawWore;
-  try{ disk=await prefGet("oa.wearlog","[]"); rawWore=await prefGet(WORE_KEY,""); }catch(e){ return; }
-  if(disk!==wearSeen){
-    let onDisk=null, base;
-    try{ onDisk=JSON.parse(disk)||[]; }catch(e){ onDisk=null; }
-    if(onDisk){
-      try{ base=JSON.parse(wearSeen)||[]; }catch(e){ base=[]; }
-      const key=w=>w&&(w.itemId+"@"+w.wornAt);
-      // logWear's own rule as well: one wear per garment per day, so a garment this
-      // page has logged today since is not counted a second time.
-      const day=w=>w&&(w.itemId+"@"+localDay(w.wornAt));
-      const had=new Set(base.map(key)), mine=new Set(wearLog.map(key)), mineDay=new Set(wearLog.map(day));
-      for(const w of onDisk)
-        if(w&&!had.has(key(w))&&!mine.has(key(w))&&!mineDay.has(day(w))) wearLog.push(w);
-      // Memory now includes this disk state, so it is the new baseline: a later
-      // merge must not take what this page has since removed for a native addition.
-      wearSeen=disk;
-    }
+  let rawQ, rawWore;
+  try{ rawQ=await prefGet("oa.nativeWears","[]"); rawWore=await prefGet("oa.nativeWore",""); }catch(e){ return; }
+  let q=[];
+  try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
+  const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
+  const mine=new Set(wearLog.map(dayKey));
+  let folded=false;
+  for(const e of q){
+    if(nativeSeen.has(e.key)) continue;          // folded before — an undo since must stand
+    if(!mine.has(dayKey(e))){ wearLog.push({itemId:e.itemId,wornAt:e.wornAt}); folded=true; }
+    nativeSeen.add(e.key);
   }
-  // The day's record, on its own: the notification can write it with the wear log
-  // unchanged (every garment already logged today from its sheet). Adopted when
-  // memory has none for TODAY — judged without wearRecord(), whose expiry of a
-  // stale record WRITES to storage and would erase the native one first. Raised by
-  // the pre-push reviewer, 2026-10-11.
-  if(!(woreLogged&&woreDay===todayISO())) applyWoreRaw(rawWore);
+  const live=new Set(q.map(e=>e.key));
+  for(const k of [...nativeSeen]) if(!live.has(k)) nativeSeen.delete(k);   // the receiver pruned it
+  // The wear log is SAVED before the queue entries are acknowledged: the other way
+  // round, a reload in between restores the old log and skips the acknowledged
+  // entries, and the wear is gone for good (pre-push reviewer, 2026-10-11, P1).
+  try{
+    if(folded) await prefSet("oa.wearlog",JSON.stringify(wearLog));
+    await prefSet("oa.nativeSeen",JSON.stringify([...nativeSeen]));
+  }catch(e){}
+  // The day's record: adopted ONCE (the same record is not taken again after an
+  // explicit undo — pre-push reviewer, 2026-10-11), and only when this page has
+  // none for today.
+  if(rawWore&&rawWore!==nativeWoreSeen){
+    if(!(woreLogged&&woreDay===todayISO())){
+      applyWoreRaw(rawWore);
+      // Saved into this page's OWN record before it is acknowledged — or a reload
+      // reads an empty record and the acknowledged one is never taken again
+      // (pre-push reviewer, 2026-10-11, P1).
+      if(woreLogged&&woreDay===todayISO()) await saveWoreLogged();
+    }
+    nativeWoreSeen=rawWore;
+    try{ await prefSet("oa.nativeWoreSeen",nativeWoreSeen); }catch(e){}
+  }
 }
 async function saveCloset(){
   await mergeNativeWears();
   // Prune wears that no longer hold anything, on every write. By freeAt, not by
   // wornAt: a shirt worn five days ago and washed this morning is still drying.
   const now=Date.now();
+  // Remember when each garment was last WORN before the laundry forgets it: the
+  // advisor's "worn yesterday" must survive the wash (pre-push reviewer, 2026-10-11).
+  noteWorn(now);
+  await prefSet("oa.lastWorn",JSON.stringify(lastWorn));
   wearLog=wearLog.filter(w=>freeAt(w)>now);
   await prefSet("oa.closet",JSON.stringify(closet));
   const wl=JSON.stringify(wearLog);
   await prefSet("oa.wearlog",wl);
-  wearSeen=wl;
   renderCloset();
   refreshRescan(); refreshTidy(); refreshBrands(); refreshUnwash(); paintLoads();
   refreshShopping();
@@ -1741,7 +1702,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.43";
+const WEB_BUILD="1.44";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3334,6 +3295,9 @@ function packPayload(trip){
   // group/type travel with the item: the packing prompt prints the type, and a trip
   // list that cannot tell a shirt from a tee packs the wrong one for a business day.
   return closet.map(i=>({id:i.id,label:i.label,category:i.category,group:i.group,
+    // Roles too: a ban "no sweater as a base" must still pack it as a mid layer,
+    // and the server can only see that from the roles (pre-push reviewer, 2026-10-11).
+    roles:normRoles(i.roles,i.category),
     type:normType(i.type,i.group),colors:i.colors,
     warmth:i.warmth,...itemScale(i),
     formality:i.formality,waterproof:i.waterproof,...(i.sleeve?{sleeve:i.sleeve}:{}),
@@ -3512,6 +3476,11 @@ function pushPayloadValidBefore(){
 }
 async function savePushPayload(){
   try{
+    // What the notification's "Wearing it" logged since this page last read the
+    // disk, FIRST — every rebuild (a rule saved, a trip, the tickbox), not only a
+    // closet save, or a stale page writes the worn garment back as clean
+    // (pre-push reviewer, 2026-10-11).
+    await mergeNativeWears();
     const cl=closetPayload(), held=heldUnits();
     const sent=new Set(cl.map(i=>i.id));
     // A garment with nothing free yet, in closetPayload's own shape at count 0.
@@ -3534,7 +3503,13 @@ async function savePushPayload(){
       // reviewer, 2026-10-03.
       prefers:cl.length||pending.length?swapSummary([...cl,...pending]):[],
       // How outfits looked (style.py): the worker forwards this as it stands.
-      styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null}));
+      styleVotes:cl.length||pending.length?styleSummary([...cl,...pending].map(i=>i.id)):null,
+      // When each garment was last worn, as a time: the worker turns it into "days
+      // ago" at 06:45, so a snapshot written last night still counts right.
+      recentAt:lastWornAt(),
+      // Which notification wears this snapshot already counts — the worker applies
+      // the rest of oa.nativeWears itself at fire time.
+      nativeSeen:[...nativeSeen]}));
   }catch(e){}
 }
 
@@ -3572,7 +3547,45 @@ function syncGoBtn(){
 }
 
 /* ───────── advice (DGX primary, on-device fallback) ───────── */
+/* What they wore lately (2026-10-11): {itemId: local days ago} over the last week,
+   for the advisor's "avoid repeating yesterday". Days by the local calendar, so a
+   wear at 23:00 is "yesterday" the next morning. Twin: daysAgo in AdviceWorker.kt. */
+const RECENT_DAYS=7;
+function dayStart(t,back=0){ const d=new Date(t); d.setHours(0,0,0,0); d.setDate(d.getDate()-back); return d.getTime(); }
+/* `lastWorn` {itemId: wornAt} is the history; `wearLog` is the LAUNDRY, pruned once
+   a garment is clean and dry. Every wear passes through wearLog, so folding it in
+   here (and in saveCloset, before it is pruned) keeps the history whole. */
+function noteWorn(now=Date.now()){
+  for(const w of wearLog){
+    if(!w||!w.itemId||!(w.wornAt<=now)) continue;
+    const ts=Array.isArray(lastWorn[w.itemId])?lastWorn[w.itemId]:[];
+    if(!ts.includes(w.wornAt)) ts.push(w.wornAt);
+    lastWorn[w.itemId]=ts;
+  }
+  const since=dayStart(now,RECENT_DAYS+1);   // calendar days, right across a clock change
+  for(const id of Object.keys(lastWorn)){
+    const ts=(Array.isArray(lastWorn[id])?lastWorn[id]:[]).filter(t=>t>=since);
+    if(ts.length) lastWorn[id]=ts; else delete lastWorn[id];
+  }
+}
+function lastWornAt(now=Date.now()){
+  noteWorn(now);
+  const out={}, since=dayStart(now,RECENT_DAYS);
+  for(const [id,ts] of Object.entries(lastWorn)){
+    const t=Math.max(...ts.filter(x=>x>=since&&x<=now));
+    if(isFinite(t)) out[id]=t;
+  }
+  return out;
+}
+function recentWorn(now=Date.now()){
+  const out={}, today=dayStart(now);
+  for(const [id,t] of Object.entries(lastWornAt(now))) out[id]=Math.round((today-dayStart(t))/DAY_MS);
+  return out;
+}
 async function getAdvice(lat,lon){
+  // What the notification logged, folded in BEFORE the closet and the recent wears
+  // are read for the request (pre-push reviewer, 2026-10-11).
+  await mergeNativeWears();
   // Stamped when the wardrobe snapshot is taken, not when the answer lands: a
   // suitcase declared while the request is in flight is NEWER than this advice,
   // whatever the clock says at completion (the pre-push reviewer, 2026-09-10).
@@ -3590,6 +3603,9 @@ async function getAdvice(lat,lon){
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
     const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
     if(outUntil) body.outUntil=outUntil;
+    // What they wore lately, {id: days ago}, so the advisor can avoid yesterday's
+    // outfit when something else of theirs suits as well (2026-10-11).
+    const rec=recentWorn(); if(Object.keys(rec).length) body.recent=rec;
     // No scale on the REQUEST: each garment carries the year its own number was
     // graded against, in closetPayload above. What has to be known at 06:45 is what
     // each number meant when it was written, and that does not change when the
@@ -3629,28 +3645,36 @@ async function getAdvice(lat,lon){
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
             missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null};
   }catch(e){
-    // fallback: compute everything on-device. The calibration applies here too —
-    // recommend against shifted temps, but return the REAL weather for display.
+    // ONE advisor (2026-10-11): offline, the phone does not invent an outfit from a
+    // catalogue that knows nothing about this wardrobe. It shows the advice already
+    // made today, if there is one, and otherwise says plainly that it could not ask.
+    // Today's saved advice first: with no network at all the forecast fetch fails
+    // too, and the saved record carries its own weather (pre-push reviewer).
+    // The saved outfit keeps the weather it was CHOSEN for — beside a newer forecast
+    // its "Dressed for" line would describe a day it was not chosen for (pre-push
+    // reviewer, 2026-10-11).
+    // With the closet declared complete, only advice made FROM the closet may be
+    // shown again — a generic answer saved earlier names clothes they do not own
+    // (pre-push reviewer, 2026-10-11).
+    const kept=await savedToday();
+    // …and only for the SAME place: after a change of city, another city's advice
+    // and forecast would be shown under the new name (pre-push reviewer).
+    // A record with no place is the morning push's, which dresses wherever the phone
+    // IS — it matches only when advice is for "my location", never a typed city
+    // (pre-push reviewer, 2026-10-11).
+    const samePlace=!kept||(kept.place?kept.place===state.place:!state.city);
+    const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?closetOnlyView(kept):null;
+    if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
     catch(e2){ throw new Error(friendly(e2)); }
-    // The on-device recommender dresses from a catalogue and knows nothing about
-    // this wardrobe. With the closet declared complete that is precisely what must
-    // not happen, and an outage is where a broken promise is hardest to notice —
-    // everything else on the screen looks normal. The server's own failure path
-    // answers this way; so does this one.
-    if(closetComplete){
-      const none={};
-      for(const k of CATS) none[k]="None — couldn't reach the advisor";
-      none.tip="";
-      return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
-              closetSent:cl.length>0,missing:[],
-              text:"• Nothing to suggest — couldn't reach the advisor.\n"+
-                   "• Your closet is set to 'complete', so nothing outside it is offered."};
-    }
-    const o=recommend(applyTempOffset(w,tempOffset),state.gender,state.style);
-    return {at,weather:w,outfit:o,text:outfitToBullets(o),source:"offline",
-            closetUsed:false,picks:null,closetSent:cl.length>0};
+    if(saved) return {...saved,weather:w,source:"saved"};
+    const none={};
+    for(const k of CATS) none[k]="None — couldn't reach the advisor";
+    none.tip="";
+    return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
+            closetSent:cl.length>0,missing:[],
+            text:"• Couldn't reach your advisor just now — try again in a moment."};
   }
 }
 
@@ -3690,7 +3714,8 @@ function renderOutfit(o,text,source,res){
   $("outfitCard").style.display="block";
   $("aiText").textContent=text||"";
   const b=$("srcBadge"); b.style.display="inline-block";
-  if(source==="offline"){ b.textContent="offline estimate"; b.className="chip off"; }
+  if(source==="offline"){ b.textContent="offline"; b.className="chip off"; }
+  else if(source==="saved"){ b.textContent="saved earlier today"; b.className="chip off"; }
   // Re-dressed on the phone after a gender or style change. Not the LLM's answer
   // any more, and not a connection failure either — saying "AI · 122B" over an
   // outfit the on-device recommender produced credits the wrong author.
@@ -4088,6 +4113,7 @@ function syncCityToGeo(){
 /* ── packing list ── */
 let lastPack=null; // {trip, pack[]}
 async function openPacking(trip){
+  await mergeNativeWears();     // the suitcase counts what is clean NOW
   lastPack=null;
   $("pkTitle").textContent=trip.place;
   $("pkWhen").textContent=`${fmtRange(trip.start,trip.end)} · ${nightsBetween(trip.start,trip.end)+1} days`;
@@ -4105,8 +4131,12 @@ async function openPacking(trip){
                 type:trip.type,gender:state.gender,styles:trip.styles,
                 // This phone's calendar date: at the destination it can be a day
                 // ahead of the server, and "the rest of the trip" starts here.
-                today:todayISO()};
+                today:todayISO(),
+                // What the daily advice has learned, for the suitcase too (2026-10-11):
+                // how warm they run, and their rules.
+                tempOffset};
     if(cl.length) body.closet=cl;
+    if(cl.length&&userRules.length) body.rules=userRules.map(r=>({kind:r.kind,a:r.a,b:r.b||null,id:r.id,text:r.text}));
     // How far from home, so the server knows whether day 1 is spent in a cabin
     // (user, 2026-09-07: the list ignored the flight). A distance, not a place —
     // the server still never learns where the trip goes.
@@ -4230,6 +4260,7 @@ function renderSuitcase(trip,pack){
 }
 
 /* ───────── main flow ───────── */
+let runSeq=0;   // the latest run(); an older one's answer is discarded
 async function run(){
   err("");
   const btn=$("goBtn"); btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
@@ -4252,13 +4283,18 @@ async function run(){
       state.city=""; state.useGps=true; await persist();
     }
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
+    const myRun=++runSeq;
     const res=await getAdvice(state.lat,state.lon);
+    // A newer request (a second Style tap) has started since: its answer is the one
+    // that matches the settings, so this one is dropped (pre-push reviewer, 2026-10-11).
+    if(myRun!==runSeq) return;
     res.at=res.at||Date.now();    // when it was made (request time), for the suitcase note
     lastWeather=res.weather; lastOutfit=res.outfit; lastText=res.text; lastSource=res.source; lastRes=res;
     renderWeather(res.weather); renderOutfit(res.outfit,res.text,res.source,res);
-    await saveToday(res,"app");
+    // Only a fresh answer replaces the day's advice: offline, the morning's stands.
+    if(res.source!=="offline"&&res.source!=="saved") await saveToday(res,"app");
     if($("todayFrom")) $("todayFrom").style.display="none";
-    if(res.source==="offline") toast("Can't reach the DGX — check Tailscale is connected");
+    if(res.source==="offline"||res.source==="saved") toast("Can't reach the DGX — check Tailscale is connected");
     $("wxCard").scrollIntoView({behavior:"smooth",block:"nearest"});
   }catch(e){ err(friendly(e)); }
   // Restored from what is NOW on screen, not from the label captured before the
@@ -5175,6 +5211,28 @@ async function saveToday(res,how){
     todaySeen=raw;
   }catch(e){}
 }
+/* Saved advice, held to "My closet is complete" as it stands NOW: it may have been
+   made before the tick, with generic suggestions for slots nothing owned fills.
+   Those become the empty-slot marker and their lines go (pre-push reviewer). */
+function closetOnlyView(rec){
+  if(!closetComplete||!rec) return rec;
+  const outfit={...rec.outfit};
+  for(const k of CATS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
+    outfit[k]="None — nothing in your closet for this";
+  const text=String(rec.text||"").split("\n").filter(l=>!/not in your closet yet/i.test(l)).join("\n");
+  return {...rec,outfit,text};
+}
+/* Today's advice as saved (the morning push, or this page earlier) — what the
+   offline path shows instead of inventing an outfit. Null when there is none. */
+async function savedToday(){
+  try{
+    const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
+    if(!d||d.day!==todayISO()||!d.outfit) return null;
+    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
+            closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
+            place:d.place||null};
+  }catch(e){ return null; }
+}
 async function loadToday(){
   let d=null;
   try{ const raw=await prefGet(TODAY_KEY,""); todaySeen=raw; d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
@@ -5363,9 +5421,11 @@ async function reloadShared(){
       let wl=[];
       try{ wl=JSON.parse(rawWl)||[]; }catch(e){ wl=[]; }
       wearChanged=JSON.stringify(wl)!==JSON.stringify(wearLog);
-      wearLog=wl; wearSeen=rawWl;
+      wearLog=wl;
       applyWoreRaw(rawWore);
     }
+    // And whatever the notification queued while the page was away.
+    if(!woreBusy){ const n=wearLog.length; await mergeNativeWears(); if(wearLog.length!==n) wearChanged=true; }
     const fresh=raw!==todaySeen && await loadToday();
     syncWearBtn();
     // Only when something actually changed: a plain resume must not flip the card
@@ -5425,7 +5485,10 @@ async function load(){
              splits:cleanSplits(l.splits),loads:cleanLoads(l.loads)}; }
   catch(e){ laundry={dryHours:24,splits:["colour"],loads:cleanLoads(null)}; }
   try{ closet=(JSON.parse(await prefGet("oa.closet","[]"))||[]).map(migrateItem); }catch(e){ closet=[]; }
-  try{ const wl=await prefGet("oa.wearlog","[]"); wearLog=JSON.parse(wl)||[]; wearSeen=wl; }catch(e){ wearLog=[]; }
+  try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
+  try{ nativeSeen=new Set(JSON.parse(await prefGet("oa.nativeSeen","[]"))||[]); }catch(e){ nativeSeen=new Set(); }
+  try{ nativeWoreSeen=await prefGet("oa.nativeWoreSeen","")||""; }catch(e){ nativeWoreSeen=""; }
+  try{ lastWorn=JSON.parse(await prefGet("oa.lastWorn","{}"))||{}; }catch(e){ lastWorn={}; }
   try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
          .filter(x=>x&&typeof x.day==="string"&&Array.isArray(x.ids)&&(x.v===1||x.v===-1)); }
   catch(e){ styleVotes=[]; }
@@ -5490,29 +5553,24 @@ async function load(){
    Wrong on both counts, and convincing. The re-render is generic, so it says so:
    no picks, no closet ownership, and every tile falls back to its icon.
    Raised by the pre-push reviewer, 2026-08-26. */
-function rerenderLocalOutfit(){
-  if(!lastWeather) return;
-  lastOutfit=recommend(applyTempOffset(lastWeather,tempOffset),state.gender,state.style);
-  lastText=outfitToBullets(lastOutfit);
-  lastSource="local";
-  lastRes={weather:lastWeather,outfit:lastOutfit,text:lastText,source:lastSource,
-           picks:null,closetUsed:false,closetSent:false};
-  renderOutfit(lastOutfit,lastText,lastSource,lastRes);
-  // Kept, so reopening the app shows what is on screen rather than the LLM answer
-  // this replaced.
-  saveToday(lastRes,"app");
-}
+/* A profile change (gender, style) asks the ADVISOR again (2026-10-11) — the phone
+   no longer re-dresses from its own catalogue, which threw away a closet-backed
+   answer for generic clothing. With no advice on screen yet, the next request
+   simply uses the new setting. */
+// run() resolves the saved city or the GPS itself: after a restart the coordinates
+// are not kept, and a profile change must still re-ask (pre-push reviewer).
+function reaskAdvisor(){ if(lastRes) run(); }
 // Tapping the option you are already on changes nothing — and must therefore cost
 // nothing. Without this guard it threw away a closet-backed answer, replaced it
 // with generic on-device clothing, and saved that over the day's advice.
 $("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
   if(b.dataset.g===state.gender) return;
-  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");rerenderLocalOutfit();};
+  state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");reaskAdvisor();};
 // Style feeds the same recommender, so it re-dresses the same way. It used only to
 // repaint the segment and leave yesterday's outfit on screen under the new label.
 $("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
   if(b.dataset.s===state.style) return;
-  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");rerenderLocalOutfit();};
+  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");reaskAdvisor();};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");
@@ -6334,6 +6392,9 @@ const appReady=(async()=>{
   // AFTER the render loadToday does, which reads woreLogged for the button state.
   // syncWearBtn below re-runs that read once the record is back.
   await readWoreRecord();
+  // What the notification queued while the app was closed, BEFORE the button, the
+  // card and the closet are drawn from it (pre-push reviewer, 2026-10-11).
+  await mergeNativeWears();
   syncWearBtn();
   // loadToday drew the advice before the record was readable. If today already has
   // one, the pictures should be of what was worn — that is what the card is for.

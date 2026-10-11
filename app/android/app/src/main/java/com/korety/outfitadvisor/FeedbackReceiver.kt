@@ -55,6 +55,12 @@ class FeedbackReceiver : BroadcastReceiver() {
         // fbRevert), drop it, then apply the new one — never stack two for a morning.
         val now = System.currentTimeMillis()
         val today = dayOf(now)
+        // A rating belongs to the morning it was advised for. A notification left over
+        // from an earlier day is about clothes already off, and replacing today's
+        // verdict with it would be wrong — so it is ignored (pre-push reviewer,
+        // 2026-10-11). Older builds' buttons carry no day and keep the old behaviour.
+        val advised = intent.getStringExtra(EXTRA_DAY)
+        if (advised != null && advised != today) return
         var prevIdx = -1
         for (i in 0 until log.length()) {
             val e = log.optJSONObject(i) ?: continue
@@ -132,36 +138,44 @@ class FeedbackReceiver : BroadcastReceiver() {
             Toast.makeText(context, "Already logged for today", Toast.LENGTH_SHORT).show()
             return
         }
-        val log = try {
-            JSONArray(prefs.getString(KEY_WEARLOG, "[]") ?: "[]")
-        } catch (e: Exception) {
-            // Unreadable: writing a fresh one would be guessing. The app can do it.
-            Toast.makeText(context, "Couldn't log it here — open the app", Toast.LENGTH_SHORT).show()
-            return
+        // ONE WRITER PER KEY (2026-10-11). The app owns oa.wearlog, oa.woreToday and
+        // the push snapshot; this receiver only APPENDS to its own queue and day
+        // record, which the app folds in (mergeNativeWears) and the morning worker
+        // applies to the snapshot (AdviceWorker.attachWardrobe). Writing the app's
+        // keys from here raced the open app's saves and lost wears — raised by the
+        // pre-push reviewer, 2026-10-11.
+        val appLog = try { JSONArray(prefs.getString(KEY_WEARLOG, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
+        val queue = nativeQueue(prefs)
+        // Queue entries the app has folded in are the APP's to keep or undo: only the
+        // unacknowledged ones still count here, so a wear undone in the app can be
+        // logged again (pre-push reviewer, 2026-10-11).
+        val acked = try { JSONArray(prefs.getString(KEY_NATIVE_SEEN, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
+            .let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
+        val pending = JSONArray()
+        for (i in 0 until queue.length()) queue.optJSONObject(i)?.let { if (it.optString("key") !in acked) pending.put(it) }
+        val kept = JSONArray()
+        for (i in 0 until queue.length()) {
+            val e = queue.optJSONObject(i) ?: continue
+            if (now - e.optLong("wornAt", 0L) < QUEUE_DAYS * DAY_MS) kept.put(e)   // native prunes its own
         }
-        // Only garments whose wear is NEW today get held in the push snapshot: one
-        // already logged today (the item sheet, say) was held when the app wrote it.
-        val held = ArrayList<String>()
         for (id in ids) {
-            var already = false
-            for (i in 0 until log.length()) {
-                val e = log.optJSONObject(i) ?: continue
-                if (e.optString("itemId") == id && dayOf(e.optLong("wornAt", 0L)) == today) {
-                    already = true
-                    break
+            val wornToday = listOf(appLog, pending).any { arr ->
+                (0 until arr.length()).any { i ->
+                    val e = arr.optJSONObject(i)
+                    e != null && e.optString("itemId") == id && dayOf(e.optLong("wornAt", 0L)) == today
                 }
             }
-            if (!already) {
-                log.put(JSONObject().put("itemId", id).put("wornAt", now))
-                held.add(id)
+            if (!wornToday) {
+                kept.put(JSONObject().put("itemId", id).put("wornAt", now).put("key", "n$now-$id"))
             }
         }
-        val edit = prefs.edit()
-            .putString(KEY_WEARLOG, log.toString())
-            .putString(KEY_WORE, JSONObject().put("day", today).put("map", picks).toString())
-        holdInPayload(prefs.getString(AdviceWorker.KEY_PUSH_PAYLOAD, null), held, now)
-            ?.let { edit.putString(AdviceWorker.KEY_PUSH_PAYLOAD, it) }
-        edit.apply()
+        prefs.edit()
+            .putString(KEY_NATIVE_WEARS, kept.toString())
+            // `at` makes every record a distinct EVENT: the same outfit logged again
+            // after an undo in the app is a new record, not one already acknowledged
+            // (pre-push reviewer, 2026-10-11).
+            .putString(KEY_NATIVE_WORE, JSONObject().put("day", today).put("map", picks).put("at", now).toString())
+            .apply()
 
         OutfitNotification.afterWear(context)
         Toast.makeText(context, "Rotation updated — these go to the laundry pile",
@@ -169,49 +183,20 @@ class FeedbackReceiver : BroadcastReceiver() {
     }
 
     /** Twin of the launch-time read of oa.woreToday: today's day AND a map. */
-    private fun loggedToday(prefs: android.content.SharedPreferences, today: String): Boolean = try {
-        val raw = prefs.getString(KEY_WORE, "") ?: ""
-        if (raw.isEmpty()) false
-        else JSONObject(raw).let { it.optString("day") == today && it.optJSONObject("map") != null }
-    } catch (e: Exception) { false }
-
     /**
-     * The push snapshot with each newly worn garment held: one unit fewer available,
-     * and that unit's return time (worn + COOLDOWN_DAYS, the app's freeAt for an
-     * unwashed wear) added to `freeAt`, which AdviceWorker.freedBy already reads.
-     *
-     * Both arrays, and units already back first: freedBy restores a garment from
-     * `pending` (or a held unit in `closet`) once its time has passed, so a shirt
-     * that was drying at the last snapshot can be the one worn today. Counting the
-     * elapsed returns in before subtracting is what freedBy would have done at fire
-     * time; skipping them left that unit free for the next push.
-     *
-     * Null when there is nothing to hold, or no snapshot, or it cannot be read —
-     * then nothing is written and the app re-stamps it on next open, as it always does.
+     * Today already logged? The app's record decides once the app has ACKNOWLEDGED
+     * this receiver's record (oa.nativeWoreSeen): an undo in the app empties the app's
+     * record and must re-open "Wearing it" here. An unacknowledged receiver record
+     * still counts — the app has not seen it yet. Raised by the pre-push reviewer,
+     * 2026-10-11.
      */
-    private fun holdInPayload(raw: String?, ids: List<String>, now: Long): String? {
-        if (raw == null || ids.isEmpty()) return null
-        return try {
-            val p = JSONObject(raw)
-            for (arr in listOfNotNull(p.optJSONArray("closet"), p.optJSONArray("pending"))) {
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    if (o.optString("id") !in ids) continue
-                    var n = o.optInt("availableCount", 0)
-                    val still = JSONArray()
-                    val times = o.optJSONArray("freeAt")
-                    if (times != null) for (k in 0 until times.length()) {
-                        val t = times.optLong(k, Long.MAX_VALUE)
-                        if (t <= now) n++ else still.put(t)
-                    }
-                    if (n < 1) continue   // nothing free to have worn: leave it as written
-                    still.put(now + COOLDOWN_DAYS * DAY_MS)
-                    o.put("availableCount", n - 1)
-                    o.put("freeAt", still)
-                }
-            }
-            p.toString()
-        } catch (e: Exception) { null }
+    private fun loggedToday(prefs: android.content.SharedPreferences, today: String): Boolean {
+        fun isToday(raw: String) = try {
+            raw.isNotEmpty() && JSONObject(raw).let { it.optString("day") == today && it.optJSONObject("map") != null }
+        } catch (e: Exception) { false }
+        val native = prefs.getString(KEY_NATIVE_WORE, "") ?: ""
+        val acknowledged = native == (prefs.getString(KEY_NATIVE_WORE_SEEN, "") ?: "")
+        return isToday(prefs.getString(KEY_WORE, "") ?: "") || (!acknowledged && isToday(native))
     }
 
     private fun clamp(v: Double) = max(-CLAMP, min(CLAMP, v))
@@ -243,6 +228,69 @@ class FeedbackReceiver : BroadcastReceiver() {
         const val EXTRA_DAY = "day"
         const val KEY_WEARLOG = "oa.wearlog"
         const val KEY_WORE = "oa.woreToday"
+        // This receiver's OWN keys — the only ones it writes for a wear (2026-10-11).
+        const val KEY_NATIVE_WEARS = "oa.nativeWears"
+        const val KEY_NATIVE_WORE = "oa.nativeWore"
+        // The app's acknowledgements, READ here, never written.
+        const val KEY_NATIVE_SEEN = "oa.nativeSeen"
+        const val KEY_NATIVE_WORE_SEEN = "oa.nativeWoreSeen"
+        private const val QUEUE_DAYS = 14
+        private const val RECENT_DAYS = 7     // twin of RECENT_DAYS in index.html
+
+        fun nativeQueue(prefs: android.content.SharedPreferences): JSONArray =
+            try { JSONArray(prefs.getString(KEY_NATIVE_WEARS, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
+
+        /**
+         * The push snapshot with the native queue's wears that the app has not folded
+         * in yet (the snapshot's `nativeSeen`) applied: each garment one unit fewer
+         * available until worn + COOLDOWN_DAYS, and its time in `recentAt`. Units
+         * already back (freeAt passed) are counted first, as AdviceWorker.freedBy does.
+         * Null when there is nothing to apply.
+         */
+        fun applyNativeWears(raw: String?, queue: JSONArray, now: Long): String? {
+            if (raw == null) return null
+            return try {
+                val p = JSONObject(raw)
+                val seen = p.optJSONArray("nativeSeen")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
+                    ?: emptySet()
+                val recent = p.optJSONObject("recentAt") ?: JSONObject()
+                var changed = false
+                for (q in 0 until queue.length()) {
+                    val e = queue.optJSONObject(q) ?: continue
+                    val id = e.optString("itemId")
+                    val worn = e.optLong("wornAt", 0L)
+                    if (e.optString("key") in seen) continue
+                    // Recent-wear HISTORY for a week, independent of the laundry hold
+                    // below, which ends after COOLDOWN_DAYS (pre-push reviewer, 2026-10-11).
+                    if (worn > now - RECENT_DAYS * DAY_MS && recent.optLong(id, 0L) < worn) {
+                        recent.put(id, worn)
+                        changed = true
+                    }
+                    if (worn + COOLDOWN_DAYS * DAY_MS <= now) continue
+                    for (arr in listOfNotNull(p.optJSONArray("closet"), p.optJSONArray("pending"))) {
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            if (o.optString("id") != id) continue
+                            var n = o.optInt("availableCount", 0)
+                            val still = JSONArray()
+                            val times = o.optJSONArray("freeAt")
+                            if (times != null) for (k in 0 until times.length()) {
+                                val t = times.optLong(k, Long.MAX_VALUE)
+                                if (t <= now) n++ else still.put(t)
+                            }
+                            if (n < 1) continue
+                            still.put(worn + COOLDOWN_DAYS * DAY_MS)
+                            o.put("availableCount", n - 1)
+                            o.put("freeAt", still)
+                        }
+                    }
+                    changed = true
+                }
+                if (!changed) return null
+                p.put("recentAt", recent)
+                p.toString()
+            } catch (e: Exception) { null }
+        }
         // Twin of COOLDOWN_DAYS / DAY_MS in index.html: an unwashed wear holds a unit
         // for this long.
         private const val COOLDOWN_DAYS = 4

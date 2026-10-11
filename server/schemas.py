@@ -303,6 +303,9 @@ class AdviceRequest(BaseModel):
     # phone. Out of range is dropped, never a 422: the morning push must not fail
     # over a calendar.
     outUntil: int | None = None
+    # What they wore lately, {item id: days ago}, from the phone's wear log
+    # (2026-10-11): the advisor avoids repeating yesterday when something else suits.
+    recent: dict[str, int] = Field(default_factory=dict, max_length=80)
     # Phone-side closet: AVAILABLE items only (rotation already applied on the
     # phone — items in the laundry are never sent). Absent/empty = generic advice.
     closet: list[ClosetItem] | None = Field(None, max_length=100)
@@ -337,6 +340,14 @@ class AdviceRequest(BaseModel):
     # from an older build costs the re-roll, never the morning.
     shown: dict[str, str] = Field(default_factory=dict)
     styleVotes: StyleVotes | None = None
+
+    @field_validator("recent", mode="before")
+    @classmethod
+    def _recent_days(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        return {str(k)[:80]: int(d) for k, d in list(v.items())[:80]
+                if isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 14}
 
     @field_validator("outUntil", mode="before")
     @classmethod
@@ -449,6 +460,11 @@ class PackingRequest(BaseModel):
     # still yesterday evening on this server (the pre-push reviewer, 2026-09-10).
     # Optional; a date more than two days from the server's is ignored.
     today: dt.date | None = None
+    # What the wearer has taught the advisor, now for packing too (2026-10-11): how
+    # warm they run, and their rules. Bounded like /advice's; an invalid rule is
+    # dropped by rules.clean_rules, never a 422.
+    tempOffset: float = Field(0.0, ge=-6, le=6)
+    rules: list[dict] | None = Field(None, max_length=24)
 
     @field_validator("end")
     @classmethod

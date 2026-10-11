@@ -397,3 +397,11 @@ def test_an_undo_in_the_app_reopens_wearing_it_on_the_notification():
     assert 'val wornToday = listOf(appLog, pending)' in kt and '!in acked' in kt
     assert 'const val KEY_NATIVE_SEEN = "oa.nativeSeen"' in kt
     assert 'const val KEY_NATIVE_WORE_SEEN = "oa.nativeWoreSeen"' in kt
+
+
+def test_each_native_day_record_is_a_distinct_event():
+    """Raised by the pre-push reviewer, 2026-10-11."""
+    from pathlib import Path
+    kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
+          / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
+    assert '.put("map", picks).put("at", now)' in kt

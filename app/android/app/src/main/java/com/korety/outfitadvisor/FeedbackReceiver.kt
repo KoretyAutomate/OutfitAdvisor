@@ -171,7 +171,10 @@ class FeedbackReceiver : BroadcastReceiver() {
         }
         prefs.edit()
             .putString(KEY_NATIVE_WEARS, kept.toString())
-            .putString(KEY_NATIVE_WORE, JSONObject().put("day", today).put("map", picks).toString())
+            // `at` makes every record a distinct EVENT: the same outfit logged again
+            // after an undo in the app is a new record, not one already acknowledged
+            // (pre-push reviewer, 2026-10-11).
+            .putString(KEY_NATIVE_WORE, JSONObject().put("day", today).put("map", picks).put("at", now).toString())
             .apply()
 
         OutfitNotification.afterWear(context)

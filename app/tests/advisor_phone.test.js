@@ -177,6 +177,18 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   check("…and does not offer the worn tee as clean", b && !(b.closet || []).some(i => i.id === "itm-tee00003"),
     b && b.closet);
 
+  // Raised by the pre-push reviewer, 2026-10-11: the same outfit logged again from
+  // the notification after an undo is a NEW record (it carries `at`).
+  ev(`woreLogged=null; woreDay=null; nativeWoreSeen="";`);
+  const rec1 = {day: ev("todayISO()"), map: {base: "itm-p3"}, at: 1};
+  w.localStorage.setItem("oa.nativeWore", JSON.stringify(rec1));
+  await ev("mergeNativeWears()");
+  ev(`woreLogged=null; woreDay=null;`);                       // undone in the app
+  w.localStorage.setItem("oa.nativeWore", JSON.stringify({...rec1, at: 2}));   // logged again
+  await ev("mergeNativeWears()");
+  check("re-logging the same outfit after an undo is adopted again",
+    ev("JSON.stringify(woreLogged)") === '{"base":"itm-p3"}', ev("JSON.stringify(woreLogged)"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

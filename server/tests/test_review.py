@@ -332,7 +332,8 @@ def test_lost_trousers_count_even_when_no_pair_suits_the_new_top():
     complete = {"picks": {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"],
                           "footwear": SHOES["id"]},
                 "review": review.Seen(None, [("mid", SWEATER["id"], "warmth")])}
-    legless = {"picks": {"base": shirt["id"], "mid": SWEATER["id"], "footwear": SHOES["id"]}, "review": review.Seen(None, [])}
+    legless = {"picks": {"base": shirt["id"], "mid": SWEATER["id"], "footwear": SHOES["id"]},
+               "review": review.Seen(None, [])}
     assert not review.better(legless, complete, wd, w) and review.better(complete, legless, wd, w)
 
 
@@ -396,3 +397,18 @@ def test_a_revision_that_overheats_loses():
            "review": review.Seen(None, [])}
     assert "cooler base" in review.unresolved(hot, wd, w)
     assert not review.better(hot, light, wd, w)
+
+
+def test_a_revision_that_brings_in_a_disliked_pairing_loses():
+    """Raised by the pre-push reviewer, 2026-10-11: the style repair keeps a pairing
+    it has no legal swap for, so the review must not accept one the first answer
+    did not have."""
+    from picks import _index
+    wd = _index(CLOSET)
+    w = {"morning": 10, "lo": 9, "hi": 12}
+    look = style.Look("casual", "man", disliked=((KNIT_POLO["id"], PANTS["id"]),))
+    ok = {"picks": {"base": POLO["id"], "mid": SWEATER["id"], "bottoms": PANTS["id"], "footwear": SHOES["id"]},
+          "review": review.Seen(stylist.Verdict(2, "flat"), [])}
+    voted_down = {"picks": {**ok["picks"], "base": KNIT_POLO["id"]},
+                  "review": review.Seen(stylist.Verdict(2, "flat"), [])}
+    assert not review.better(voted_down, ok, wd, w, look)

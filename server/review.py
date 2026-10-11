@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass, field
 
 import picks as pk
+import style
 from layers import _still_warm
 from llm import _fenced, _peak_temp, _plan_temp, log
 from stylist import POOR, Verdict
@@ -85,10 +86,14 @@ def revision_note(result: dict, wd: "pk.Wardrobe", found: list[str]) -> str:
             "from the wardrobe above, fixing exactly this and keeping what worked.\n")
 
 
-def unresolved(result: dict, wd: "pk.Wardrobe", w: dict) -> set[str]:
+def unresolved(result: dict, wd: "pk.Wardrobe", w: dict, look=None) -> set[str]:
     """What the FINISHED outfit still lacks: legs or feet bare though they own
     trousers or shoes, nothing on top, nothing warm enough on top, something too
-    warm for the day, or on snow the waterproof boots or coat they own.
+    warm for the day, on snow the waterproof boots or coat they own — or a style
+    rule broken, a pairing they voted down above all (style.violations, with the
+    wearer's own Look). The style repair keeps a violation it has no legal swap
+    for, so a revision could bring one in that nothing then removes. Raised by the
+    pre-push reviewer, 2026-10-11.
 
     Coverage is judged by what they OWN, not by what suits these picks: a top that
     clashes with every pair of trousers would otherwise lose the trousers and the
@@ -115,6 +120,8 @@ def unresolved(result: dict, wd: "pk.Wardrobe", w: dict) -> set[str]:
             if not worn.get("waterproof") and any(
                     slot in (wd.by_roles.get(i) or ()) and it.get("waterproof") for i, it in wd.by_item.items()):
                 out.add(f"waterproof {slot}")
+    out |= {f"style: {why}" for _slot, why in style.violations(picks, wd.by_item, look or style.Look(),
+                                                                one_per_slot=False)}
     return out
 
 
@@ -130,10 +137,10 @@ def _rank(result: dict, other: dict) -> tuple[int, int]:
             len((result.get("review") or Seen()).repairs))
 
 
-def better(revised: dict, first: dict, wd: "pk.Wardrobe", w: dict) -> bool:
+def better(revised: dict, first: dict, wd: "pk.Wardrobe", w: dict, look=None) -> bool:
     """Does the revision stand? Only if it lacks nothing the first did not, and
     then if it fixed a lack or ranks no worse."""
-    lack1, lack2 = unresolved(first, wd, w), unresolved(revised, wd, w)
+    lack1, lack2 = unresolved(first, wd, w, look), unresolved(revised, wd, w, look)
     return lack2 < lack1 or (lack2 == lack1 and _rank(revised, first) <= _rank(first, revised))
 
 
@@ -170,9 +177,9 @@ async def second_look(first: dict, again, wd: "pk.Wardrobe", w: dict, prefs) -> 
     # that it lacks something the first did not — one lack never cancels another,
     # so trading bare feet for bare legs is a loss (raised by the pre-push reviewer,
     # 2026-10-11) — then _rank.
-    keep = second if better(second, first, wd, w) else first
-    log.info("review: lacks %s → %s, %s answer stands", sorted(unresolved(first, wd, w)) or "none",
-             sorted(unresolved(second, wd, w)) or "none", "revised" if keep is second else "first")
+    keep = second if better(second, first, wd, w, look) else first
+    log.info("review: lacks %s → %s, %s answer stands", sorted(unresolved(first, wd, w, look)) or "none",
+             sorted(unresolved(second, wd, w, look)) or "none", "revised" if keep is second else "first")
     return _done(keep)
 
 

@@ -63,21 +63,19 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   console.log("\n--- 3. the Today screen ------------------------------------------");
   ev(`state.officeDays=[${dow}]; dayKindOverride=null; window.__asked=0; window.__realRun=run;
       run=async()=>{window.__asked++;}; lastRes={weather:{},outfit:{},text:"x",occasion:"office",style:"smart"}; paintDay();`);
-  check("Office is lit, with the office style", ev(`$("kindSeg").querySelector(".on").dataset.k`) === "office"
-    && ev(`$("todayStyleSeg").querySelector(".on").dataset.s`) === "smart");
+  check("Office is lit, and the note names the office style", ev(`$("kindSeg").querySelector(".on").dataset.k`) === "office"
+    && /Dressed smart/.test(ev(`$("kindNote").textContent`)));
+  check("one row on the Today screen: no style row beside the kind of day (user, 2026-10-12)",
+    ev(`document.getElementById("todayStyleSeg")`) === null
+    && ev(`$("pane-advice").querySelectorAll(".seg").length`) === 1);
   ev(`$("kindSeg").querySelector('[data-k="wfh"]').click()`);
   await new Promise(r => setTimeout(r, 20));
   check("tapping WFH makes today WFH, with the home style", ev("dayKind()") === "wfh"
-    && ev(`$("todayStyleSeg").querySelector(".on").dataset.s`) === "casual");
+    && /Dressed casual/.test(ev(`$("kindNote").textContent`)));
   check("…and asks the advisor again", ev("window.__asked") === 1);
   check("…for today only", JSON.parse(ls.getItem("oa.dayKind")).day === ev("todayISO()"));
   check("tomorrow is still what the schedule says", ev(`scheduledKind(new Date(Date.now()+864e5))`) !== "" );
   check("the note says it is a one-day change", /Today only/.test(ev(`$("kindNote").textContent`)));
-  ev(`$("todayStyleSeg").querySelector('[data-s="smart"]').click()`);
-  await new Promise(r => setTimeout(r, 20));
-  check("the style row edits today's kind's style (home), not the office one",
-    ev("state.style") === "smart" && ev("state.styleOffice") === "smart" && ls.getItem("oa.style") === "smart");
-  ev(`state.style="casual";`);
   ev(`$("kindSeg").querySelector('[data-k="office"]').click()`);
   await new Promise(r => setTimeout(r, 20));
   check("choosing the schedule's own kind clears the override", ev("dayKindOverride") === null

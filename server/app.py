@@ -215,7 +215,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     if text:
         source = "llm" if closet_used else "none"
     else:
-        text = await llm.outfit_text(wc, req.gender, req.style)
+        text = await llm.outfit_text(wc, req.gender, req.style, req.occasion)
         source = "llm"
     if not text:
         text = engine.outfit_to_bullets(outfit)

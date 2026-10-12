@@ -120,6 +120,8 @@ def prompt(day: check.Day, closet: list[dict], handles: dict) -> str:
     today += " (These temperatures already allow for how warm or cold this person runs.)"
     who = look.gender if look.gender != "neutral" else "person"
     person = f"THE PERSON: a {who} who wants a {look.style} look today."
+    if occ := style.occasion_line(look.occasion):
+        person += f" {occ}"
     if prefs.closet_only:
         person += (" This wardrobe is EVERYTHING they own: a slot nothing suits stays empty, its "
                    f'line "{NOTHING_OWNED}".')

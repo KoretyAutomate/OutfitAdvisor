@@ -91,6 +91,21 @@ def accent_of(item: dict) -> str | None:
     return next((fam for pat, fam in _ACCENT if pat.search(c)), None)
 
 
+# What each kind of day asks of the outfit (user, 2026-10-12: a look that is right
+# for the office is wrong for a day working from home).
+OCCASION = {
+    "office": "It is an office day: they are at work in person, so dress for the office.",
+    "wfh": ("They work from home today: comfortable and relaxed — nothing dressed up for "
+            "a day at home — but neat enough for a video call."),
+    "off": "A day off: relaxed and easy.",
+}
+
+
+def occasion_line(occasion: str | None) -> str:
+    """One sentence on the kind of day, or "" when the phone sent none."""
+    return OCCASION.get(occasion or "", "")
+
+
 @dataclass(frozen=True)
 class Look:
     """What the style pass needs that the rest of the pipeline does not: the day's
@@ -99,6 +114,7 @@ class Look:
 
     style: str = "casual"
     gender: str = "neutral"
+    occasion: str = ""              # "office" | "wfh" | "off" | "" (no schedule)
     disliked: tuple = ()            # ((a, b), ...) — enforced
     hint: tuple = ()                # voted down once — prompt only
     liked: tuple = ()
@@ -117,7 +133,7 @@ def look_of(prefs: pk.Prefs, req, t0: float | None = None) -> pk.Prefs:
     by the pre-push reviewer, 2026-10-11."""
     v = req.styleVotes
     pairs = _pairs
-    look = Look(req.style, req.gender,
+    look = Look(req.style, req.gender, getattr(req, "occasion", None) or "",
                 pairs(v.disliked if v else None), pairs(v.hint if v else None),
                 pairs(v.liked if v else None), tuple(v.notes) if v else (),
                 t0=t0 if t0 is not None else time.monotonic())

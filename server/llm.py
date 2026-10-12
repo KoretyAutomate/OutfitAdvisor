@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 import engine
+import style as style_mod
 
 from vocab import CATEGORIES, FABRICS, GROUPS, STYLES, TYPES
 
@@ -155,15 +156,18 @@ def _weather_flags(w: dict) -> list[str]:
     return flags
 
 
-def build_prompt(w: dict, gender: str, style: str) -> str:
+def build_prompt(w: dict, gender: str, style: str, occasion: str | None = None) -> str:
     flags = _weather_flags(w)
     flag_line = (" " + " ".join(flags)) if flags else ""
+    # Office, WFH or a day off, when the phone keeps a schedule (user, 2026-10-12).
+    occ = f"{style_mod.occasion_line(occasion)} " if occasion else ""
 
     return (
         f"Today: {w['lo']}C-{w['hi']}C (feels {w['feelsLo']}-{w['feelsHi']}C), "
         f"{w['desc'].lower()}, rain {w['rain']}%, wind {w['wind']} m/s. "
         f"Morning {w['morning']}C, midday {w['midday']}C, evening {w['evening']}C.{flag_line} "
-        f"Outfit for a {gender}, {style} style. Exactly 6 short bullets: "
+        f"Outfit for a {gender}, {style} style. {occ}"
+        f"Exactly 6 short bullets: "
         f"inner, base, mid, outer, bottoms, footwear. One concise line each, "
         f"name fabric/material. inner is an UNDERSHIRT (torso underwear worn "
         f"on skin, never visible — not briefs) — always include one, never "
@@ -178,9 +182,9 @@ def build_prompt(w: dict, gender: str, style: str) -> str:
     )
 
 
-async def outfit_text(w: dict, gender: str, style: str) -> str | None:
+async def outfit_text(w: dict, gender: str, style: str, occasion: str | None = None) -> str | None:
     return await _chat(
-        [{"role": "user", "content": build_prompt(w, gender, style)}],
+        [{"role": "user", "content": build_prompt(w, gender, style, occasion)}],
         # 130 was sized for 5 bullets; the inner bullet needs ~30 more.
         max_tokens=160,
         timeout=30,

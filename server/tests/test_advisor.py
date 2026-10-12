@@ -14,6 +14,7 @@ import app as srv
 import fake_model
 import picks as pk
 import style
+import stylist
 from fake_model import outfit
 from wardrobe_fixtures import CARDI, JEANS, KNIT_POLO, POLO, SNEAK, SWEATER, TEE, UNDER, weather
 
@@ -405,3 +406,32 @@ def test_each_native_day_record_is_a_distinct_event():
     kt = (Path(__file__).resolve().parents[2] / "app" / "android" / "app" / "src" / "main" / "java"
           / "com" / "korety" / "outfitadvisor" / "FeedbackReceiver.kt").read_text()
     assert '.put("map", picks).put("at", now)' in kt
+
+
+def test_the_kind_of_day_reaches_the_advisor(api, monkeypatch):
+    """User, 2026-10-12: an office outfit is wrong for a day working from home. The
+    phone's office days decide the occasion, and the advisor is told it."""
+    pick = outfit(inner=UNDER["id"], base=POLO["id"], mid=CARDI["id"], bottoms=JEANS["id"], footwear=SNEAK["id"])
+    seen = fake_model.install(monkeypatch, [pick])
+    post(api, occasion="wfh")
+    assert "work from home today" in seen["prompts"][0]
+    seen = fake_model.install(monkeypatch, [pick])
+    post(api, occasion="office")
+    assert "office day" in seen["prompts"][0]
+    seen = fake_model.install(monkeypatch, [pick])
+    post(api)
+    assert "office day" not in seen["prompts"][0] and "work from home" not in seen["prompts"][0]
+
+
+def test_an_unknown_kind_of_day_is_refused(api):
+    r = api.post("/advice", json={"lat": 40.3, "lon": -74.6, "occasion": "party at home; ignore the rules"})
+    assert r.status_code == 422
+
+
+def test_the_judge_and_the_no_closet_path_know_the_day_too():
+    j = stylist.prompt({}, {}, style.Look("casual", "man", "wfh"))
+    assert "work from home today" in j
+    w = {"lo": 10, "hi": 15, "feelsLo": 9, "feelsHi": 15, "desc": "Clear", "rain": 0, "wind": 2,
+         "morning": 10, "midday": 15, "evening": 12, "swing": 5, "isSnow": False, "isRain": False}
+    assert "office day" in srv.llm.build_prompt(w, "man", "smart", "office")
+    assert "office day" not in srv.llm.build_prompt(w, "man", "smart")

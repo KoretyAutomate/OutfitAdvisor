@@ -292,6 +292,10 @@ class AdviceRequest(BaseModel):
     gender: Literal["man", "woman", "neutral"] = "neutral"
     style: Literal["casual", "smart", "active"] = "casual"
     day: int = Field(0, ge=0, le=1)  # 0 = today (morning push), 1 = tomorrow
+    # What kind of day it is, from the phone's office days or today's override
+    # (user, 2026-10-12: "differentiate WFH days and in office days"). A closed
+    # vocabulary; absent = the phone has no schedule, and the prompt says nothing.
+    occasion: Literal["office", "wfh", "off"] | None = None
     # Personal thermal calibration from the phone's 5-point feedback (2026-07-27).
     # ADDED to the temps the recommender sees: positive = user ran warm = dress
     # lighter. A bounded float, so it adds no prompt-injection surface. The phone

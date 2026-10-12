@@ -46,6 +46,8 @@
   .seg button{flex:1;background:transparent;border:none;border-right:1px solid var(--line);
     border-radius:0;color:var(--muted);padding:11px;font-weight:500}
   .seg button:last-child{border-right:none}
+  /* Seven days in one row must fit a 320px phone (pre-push reviewer, 2026-10-12). */
+  #officeDaysSeg button{padding:11px 0;min-width:0;font-size:13px}
   .seg button.on{background:var(--card2);color:var(--txt);font-weight:600}
   label.lbl{font-size:.8rem;text-transform:none;letter-spacing:0;color:var(--muted);display:block;margin:0 0 6px}
   .switch{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -303,8 +305,20 @@
         <button class="ghost" id="geoBtn" title="Use my location" aria-label="Use my location" style="width:44px;padding:0;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 1 1 12 0c0 5.7-6 11-6 11z"></path><circle cx="12" cy="10" r="2.2"></circle></svg></button>
         <button class="primary" id="goBtn">Get advice</button>
       </div>
-      <!-- Gender and Style live in Settings → Profile since 2026-10-11: they are
-           set once, not every morning, and sat between the city and the advice. -->
+      <!-- What kind of day, and the style for it (user, 2026-10-12: "I go to the
+           office three times a week … differentiate WFH days and in office days").
+           Set from the office days in Settings → Profile; a tap changes TODAY only. -->
+      <div class="seg" id="kindSeg" style="margin-bottom:8px">
+        <button data-k="office">Office</button>
+        <button data-k="wfh">WFH</button>
+        <button data-k="off">Day off</button>
+      </div>
+      <div class="seg" id="todayStyleSeg">
+        <button data-s="casual">Casual</button>
+        <button data-s="smart">Smart</button>
+        <button data-s="active">Active</button>
+      </div>
+      <p class="note" id="kindNote" style="margin:6px 0 0"></p>
       <div id="err" class="err"></div>
     </div>
 
@@ -702,7 +716,19 @@
         <button data-g="woman">Woman</button>
         <button data-g="neutral">Neutral</button>
       </div>
-      <label class="lbl" style="margin-top:10px">Style</label>
+      <label class="lbl" style="margin-top:10px">Office days</label>
+      <div class="seg" id="officeDaysSeg">
+        <button data-d="1">Mon</button><button data-d="2">Tue</button><button data-d="3">Wed</button>
+        <button data-d="4">Thu</button><button data-d="5">Fri</button><button data-d="6">Sat</button><button data-d="0">Sun</button>
+      </div>
+      <p class="note" style="margin:4px 0 0">The other weekdays are WFH, weekends are days off. Change a single day from the Today screen.</p>
+      <label class="lbl" style="margin-top:10px">Style at the office</label>
+      <div class="seg" id="styleOfficeSeg">
+        <button data-s="casual">Casual</button>
+        <button data-s="smart">Smart</button>
+        <button data-s="active">Active</button>
+      </div>
+      <label class="lbl" style="margin-top:10px">Style for WFH and days off</label>
       <div class="seg" id="styleSeg">
         <button data-s="casual">Casual</button>
         <button data-s="smart">Smart</button>
@@ -932,6 +958,42 @@ function friendly(e){
 }
 function paintSeg(seg, kind){ [...seg.children].forEach(b=>
   b.classList.toggle("on", b.dataset[kind]===state[kind==="g"?"gender":"style"])); }
+
+/* ───────── Office, WFH or a day off (user, 2026-10-12) ─────────
+   state.officeDays: weekdays at the office, as Date.getDay() numbers (0 = Sunday).
+   None set = no schedule: the advisor is told nothing about the day, as before.
+   oa.dayKind {day, kind}: the Today screen's override, for that date only.
+   Style: state.styleOffice on office days, state.style on every other day.
+   Twin: AdviceWorker.dayKind() — change them together. */
+const DAY_KINDS={office:"an office day",wfh:"a WFH day",off:"a day off"};
+let dayKindOverride=null;   // {day, kind} | null
+function scheduledKind(d=new Date()){
+  if(!state.officeDays||!state.officeDays.length) return "";
+  const dow=d.getDay();
+  return state.officeDays.includes(dow)?"office":(dow===0||dow===6?"off":"wfh");
+}
+function dayKind(){
+  const o=dayKindOverride;
+  return (o&&o.day===todayISO()&&DAY_KINDS[o.kind])?o.kind:scheduledKind();
+}
+function styleFor(kind){ return kind==="office"?state.styleOffice:state.style; }
+/* Was this saved advice made for `kind` and its style? A record from before office
+   days has neither field, and fits only while no schedule is set. */
+function fitsKind(rec,kind,style=styleFor(kind)){
+  return (rec.occasion||"")===kind&&(rec.style||state.style)===style;
+}
+function paintDay(){
+  const k=dayKind(), st=styleFor(k);
+  [...$("kindSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.k===k));
+  [...$("todayStyleSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.s===st));
+  [...$("officeDaysSeg").children].forEach(b=>b.classList.toggle("on",(state.officeDays||[]).includes(+b.dataset.d)));
+  [...$("styleOfficeSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.s===state.styleOffice));
+  paintSeg($("styleSeg"),"s");
+  const o=dayKindOverride, changed=o&&o.day===todayISO()&&o.kind!==scheduledKind();
+  $("kindNote").textContent=!k?"Set your office days in Settings → Profile."
+    :changed?`Today only: ${DAY_KINDS[k]}. Tap the other kind to change it.`
+    :`${DAY_KINDS[k][0].toUpperCase()+DAY_KINDS[k].slice(1)}, from your office days.`;
+}
 
 /* ───────── WMO map + rule engine (offline fallback — mirrors server/engine.py) ───── */
 const WMO = {0:["☀️","Clear sky"],1:["🌤️","Mainly clear"],2:["⛅","Partly cloudy"],3:["☁️","Overcast"],
@@ -1702,7 +1764,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.44";
+const WEB_BUILD="1.45";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3593,6 +3655,8 @@ async function getAdvice(lat,lon){
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
   const cl=closetPayload();
   const outUntil=await eveningOut();
+  // Taken with the closet: the kind of day this request is FOR (and its saved copy).
+  const kind=dayKind(), kindStyle=styleFor(kind);
   try{
     // closet requests generate ~2x the tokens — give them a longer leash
     // A closet request can legitimately take 35s+: a 17-item wardrobe that trips
@@ -3601,7 +3665,8 @@ async function getAdvice(lat,lon){
     // "advice ok ... 34.99s" while the user saw "offline estimate" and concluded
     // the LLM was down (2026-08-13). Match the native worker's 90s ceiling.
     const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
-    const body={lat,lon,gender:state.gender,style:state.style,day:0,tempOffset};
+    const body={lat,lon,gender:state.gender,style:kindStyle,day:0,tempOffset};
+    if(kind) body.occasion=kind;
     if(outUntil) body.outUntil=outUntil;
     // What they wore lately, {id: days ago}, so the advisor can avoid yesterday's
     // outfit when something else of theirs suits as well (2026-10-11).
@@ -3643,7 +3708,8 @@ async function getAdvice(lat,lon){
     recordGaps(d.missing,d.weather,d.planTemp,undefined,undefined,d.peakTemp);
     return {at,weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
-            missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null};
+            missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null,
+            occasion:kind,style:kindStyle};
   }catch(e){
     // ONE advisor (2026-10-11): offline, the phone does not invent an outfit from a
     // catalogue that knows nothing about this wardrobe. It shows the advice already
@@ -3663,7 +3729,11 @@ async function getAdvice(lat,lon){
     // IS — it matches only when advice is for "my location", never a typed city
     // (pre-push reviewer, 2026-10-11).
     const samePlace=!kept||(kept.place?kept.place===state.place:!state.city);
-    const saved=kept&&samePlace&&(!closetComplete||kept.closetUsed)?closetOnlyView(kept):null;
+    // …and for the SAME kind of day and style: an office outfit is not a WFH one
+    // (user, 2026-10-12). A record from before office days has neither and matches
+    // only while no schedule is set.
+    const sameDay=!kept||fitsKind(kept,kind,kindStyle);
+    const saved=kept&&samePlace&&sameDay&&(!closetComplete||kept.closetUsed)?closetOnlyView(kept):null;
     if(saved&&saved.weather) return {...saved,source:"saved"};
     let w;
     try{ w=planWindow(await fetchWeatherLocal(lat,lon),outUntil); }
@@ -4261,6 +4331,10 @@ function renderSuitcase(trip,pack){
 
 /* ───────── main flow ───────── */
 let runSeq=0;   // the latest run(); an older one's answer is discarded
+let runPending=0;   // runSeq of a run still waiting for its answer, 0 = none
+let adviceWanted=false;   // advice was shown or asked for since this page started
+let runPendingFor="";     // the kind|style that pending run is for
+function dayPair(){ const k=dayKind(); return k+"|"+styleFor(k); }
 async function run(){
   err("");
   const btn=$("goBtn"); btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
@@ -4284,7 +4358,10 @@ async function run(){
     }
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
     const myRun=++runSeq;
-    const res=await getAdvice(state.lat,state.lon);
+    runPending=myRun; runPendingFor=dayPair(); adviceWanted=true;
+    let res;
+    try{ res=await getAdvice(state.lat,state.lon); }
+    finally{ if(runPending===myRun) runPending=0; }
     // A newer request (a second Style tap) has started since: its answer is the one
     // that matches the settings, so this one is dropped (pre-push reviewer, 2026-10-11).
     if(myRun!==runSeq) return;
@@ -5204,6 +5281,7 @@ async function saveToday(res,how){
   try{
     const raw=JSON.stringify({
       day:todayISO(), at:(res&&res.at)||Date.now(), how:how||"app", place:state.place||"",
+      occasion:res.occasion??dayKind(), style:res.style??styleFor(dayKind()),
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
       missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null});
@@ -5230,18 +5308,22 @@ async function savedToday(){
     if(!d||d.day!==todayISO()||!d.outfit) return null;
     return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
             closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
-            place:d.place||null};
+            place:d.place||null,occasion:d.occasion||"",style:d.style||null};
   }catch(e){ return null; }
 }
 async function loadToday(){
   let d=null;
   try{ const raw=await prefGet(TODAY_KEY,""); todaySeen=raw; d=raw?JSON.parse(raw):null; }catch(e){ d=null; }
   if(!d||d.day!==todayISO()||!d.weather) return false;
+  // Only advice made for TODAY's kind of day and its style is shown again — at
+  // launch and on resume as offline (pre-push reviewer, 2026-10-12).
+  if(!fitsKind(d,dayKind())) return false;
+  adviceWanted=true;
   lastWeather=d.weather; lastOutfit=d.outfit||null;
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
   lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
            at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
-           picks:d.picks||null,closetUsed:!!d.closetUsed};
+           picks:d.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and
   // recording only in the foreground path meant somebody who reads the notification
@@ -5441,7 +5523,13 @@ async function reloadShared(){
     // A failed re-read leaves the page as it was; it must never break resuming.
   }finally{ sharedBusy=false; }
 }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion(); reloadShared(); } });
+// paintDay first: a WebView kept alive overnight still shows yesterday's kind of
+// day and style otherwise (pre-push reviewer, 2026-10-12).
+// …and the day's advice is re-checked only AFTER reloadShared: the morning push
+// may already have saved advice for today's kind of day, which is then kept
+// rather than asked for again (pre-push reviewer, 2026-10-12).
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ paintDay(); refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion();
+  (async()=>{ try{ await reloadShared(); }catch(e){} refreshForDay(false); })(); } });
 
 /* ───────── the three sheets (2026-08-20) ─────────
    Everything used to live on one scrolling page in an order nobody chose. These
@@ -5466,12 +5554,19 @@ function showTab(name,remember){
 async function persist(){
   await prefSet("oa.city",state.city);
   await prefSet("oa.gender",state.gender); await prefSet("oa.style",state.style);
+  await prefSet("oa.styleOffice",state.styleOffice);
+  await prefSet("oa.officeDays",JSON.stringify(state.officeDays||[]));
+  await prefSet("oa.dayKind",dayKindOverride?JSON.stringify(dayKindOverride):"");
   await prefSet("oa.baseUrl",state.baseUrl); await prefSet("oa.pushTime",state.pushTime); await prefSet("oa.pushEnabled",state.pushEnabled?"1":"0");
   await prefSet("oa.useGps",state.useGps?"1":"0");
 }
 async function load(){
   state.city=await prefGet("oa.city","");
   state.gender=await prefGet("oa.gender","man"); state.style=await prefGet("oa.style","casual");
+  state.styleOffice=await prefGet("oa.styleOffice","smart");
+  try{ state.officeDays=(JSON.parse(await prefGet("oa.officeDays","[]"))||[]).filter(n=>Number.isInteger(n)&&n>=0&&n<=6); }
+  catch(e){ state.officeDays=[]; }
+  try{ dayKindOverride=JSON.parse(await prefGet("oa.dayKind","")||"null"); }catch(e){ dayKindOverride=null; }
   state.baseUrl=await prefGet("oa.baseUrl",DEFAULT_BASE); state.pushTime=await prefGet("oa.pushTime","06:45");
   state.pushEnabled=(await prefGet("oa.pushEnabled","0"))==="1";
   // remembers the CHOICE (GPS vs a typed city), never the location itself
@@ -5559,7 +5654,9 @@ async function load(){
    simply uses the new setting. */
 // run() resolves the saved city or the GPS itself: after a restart the coordinates
 // are not kept, and a profile change must still re-ask (pre-push reviewer).
-function reaskAdvisor(){ if(lastRes) run(); }
+// Also while the FIRST request is still out: with no answer yet it would otherwise
+// arrive for the old settings and stand (pre-push reviewer, 2026-10-12).
+function reaskAdvisor(){ if(lastRes||runPending||adviceWanted) run(); }
 // Tapping the option you are already on changes nothing — and must therefore cost
 // nothing. Without this guard it threw away a closet-backed answer, replaced it
 // with generic on-device clothing, and saved that over the day's advice.
@@ -5568,9 +5665,59 @@ $("genderSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return
   state.gender=b.dataset.g;await persist();paintSeg($("genderSeg"),"g");reaskAdvisor();};
 // Style feeds the same recommender, so it re-dresses the same way. It used only to
 // repaint the segment and leave yesterday's outfit on screen under the new label.
-$("styleSeg").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
-  if(b.dataset.s===state.style) return;
-  state.style=b.dataset.s;await persist();paintSeg($("styleSeg"),"s");reaskAdvisor();};
+/* One path for every edit that can change TODAY's kind of day or its style
+   (pre-push reviewer, 2026-10-12): only a change in that effective pair re-asks
+   — editing the office style on a WFH day, or a weekday that is not today, keeps
+   today's advice — and advice for the old pair comes OFF the screen at once, so a
+   failed re-ask cannot leave an office outfit under "WFH". */
+async function changeDay(edit){
+  const k0=dayKind(), s0=styleFor(k0);
+  edit();
+  await persist(); paintDay();
+  const k=dayKind();
+  if(k===k0&&styleFor(k)===s0) return;
+  await refreshForDay(true);
+}
+/* The advice on screen, held to today's kind of day and style. Kept if it fits;
+   otherwise taken down, then today's SAVED advice for this pair is shown if there
+   is one, else the advisor is asked — when advice was wanted at all today
+   (adviceWanted outlives a failed request, so a later change still asks: pre-push
+   reviewer, 2026-10-12). `changed`: the pair just changed, so an in-flight request
+   for the old one is superseded too. */
+async function refreshForDay(changed){
+  const k=dayKind();
+  // Advice that does not say its style cannot be shown to fit a style just changed.
+  const fits=!!lastRes&&fitsKind(lastRes,k)&&!(changed&&!lastRes.style);
+  // A request already out for exactly this pair is the answer coming: keep it
+  // rather than start a second model call (pre-push reviewer, 2026-10-12).
+  if(runPending&&runPendingFor===dayPair()) return;
+  if(fits&&!runPending) return;
+  if(lastRes) adviceWanted=true;    // advice on screen is advice wanted
+  if(lastRes&&!fits){
+    lastRes=null; lastOutfit=null; lastText="";
+    $("outfitCard").style.display="none";
+  }
+  // Saved advice comes back through run(): offline, getAdvice's saved path holds it
+  // to the same place, kind, style and complete-closet checks as any other reuse
+  // (pre-push reviewer, 2026-10-12).
+  if(adviceWanted||runPending) run();
+}
+$("styleSeg").onclick=e=>{const b=e.target.closest("button");if(!b||b.dataset.s===state.style)return;
+  changeDay(()=>{ state.style=b.dataset.s; });};
+$("styleOfficeSeg").onclick=e=>{const b=e.target.closest("button");if(!b||b.dataset.s===state.styleOffice)return;
+  changeDay(()=>{ state.styleOffice=b.dataset.s; });};
+$("officeDaysSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  const d=+b.dataset.d;
+  changeDay(()=>{ const set=new Set(state.officeDays||[]); set.has(d)?set.delete(d):set.add(d);
+    state.officeDays=[...set].sort(); });};
+// Today only. Choosing what the schedule already says clears the override.
+$("kindSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  const k=b.dataset.k; if(k===dayKind()) return;
+  changeDay(()=>{ dayKindOverride=k===scheduledKind()?null:{day:todayISO(),kind:k}; });};
+// The Today screen's style row edits the style of TODAY's kind of day.
+$("todayStyleSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  const k=dayKind(); if(b.dataset.s===styleFor(k)) return;
+  changeDay(()=>{ if(k==="office") state.styleOffice=b.dataset.s; else state.style=b.dataset.s; });};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");
@@ -6380,7 +6527,7 @@ $("pkPacked").onclick=async()=>{
 const appReady=(async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
-  paintSeg($("genderSeg"),"g"); paintSeg($("styleSeg"),"s");
+  paintSeg($("genderSeg"),"g"); paintDay();
   showTab(tab,false);   // false: restoring where you were is not a new choice
   // renderCloset is async — it reads a photo per item off disk. Awaiting it is what
   // makes appReady mean "the page is painted": without it the promise resolves with

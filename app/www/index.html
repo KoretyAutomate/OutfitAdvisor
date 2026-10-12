@@ -3742,7 +3742,9 @@ async function getAdvice(lat,lon){
     const none={};
     for(const k of CATS) none[k]="None — couldn't reach the advisor";
     none.tip="";
-    return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,
+    // Stamped with what was asked for, like a fresh answer: an unchanged resume must
+    // not take it for another day's advice and ask again (pre-push reviewer, 2026-10-12).
+    return {at,weather:w,outfit:none,source:"offline",closetUsed:false,picks:null,occasion:kind,style:kindStyle,
             closetSent:cl.length>0,missing:[],
             text:"• Couldn't reach your advisor just now — try again in a moment."};
   }

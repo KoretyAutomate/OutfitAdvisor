@@ -255,6 +255,18 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   check("the push's advice for today is shown", w7.eval("lastText") === "• WFH push", w7.eval("lastText"));
   check("…and nothing new is asked for", w7.eval("window.__n") === 0, w7.eval("window.__n"));
 
+  console.log("\n--- 14. an offline answer is for the day it was asked for (pre-push reviewer) --");
+  const w8 = new JSDOM(fs.readFileSync(HTML, "utf8"), {
+    runScripts: "dangerously", url: "https://localhost/", pretendToBeVisual: true,
+  }).window;
+  await w8.eval("appReady");
+  w8.localStorage.removeItem("oa.today");
+  w8.eval(`state.lat=40.3; state.lon=-74.6; state.officeDays=[${dow}]; dayKindOverride=null;
+    fetch = async () => { throw new Error("offline"); }; fetchWeatherLocal = async () => (${JSON.stringify(WX)});`);
+  const off = await w8.eval("getAdvice(40.3,-74.6)");
+  check("the offline answer carries its kind and style", off.source === "offline"
+    && off.occasion === "office" && off.style === w8.eval("state.styleOffice"), off);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

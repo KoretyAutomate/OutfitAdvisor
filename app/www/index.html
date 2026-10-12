@@ -307,16 +307,15 @@
       </div>
       <!-- What kind of day, and the style for it (user, 2026-10-12: "I go to the
            office three times a week … differentiate WFH days and in office days").
-           Set from the office days in Settings → Profile; a tap changes TODAY only. -->
+           Set from the office days in Settings → Profile; a tap changes TODAY only.
+           The style follows the kind of day, set per kind in Settings → Profile. The
+           Today screen had a style row too, and the user chose one row: the kind of
+           day is a fact they know each morning, the style is the advisor's job
+           (user, 2026-10-12). -->
       <div class="seg" id="kindSeg" style="margin-bottom:8px">
         <button data-k="office">Office</button>
         <button data-k="wfh">WFH</button>
         <button data-k="off">Day off</button>
-      </div>
-      <div class="seg" id="todayStyleSeg">
-        <button data-s="casual">Casual</button>
-        <button data-s="smart">Smart</button>
-        <button data-s="active">Active</button>
       </div>
       <p class="note" id="kindNote" style="margin:6px 0 0"></p>
       <div id="err" class="err"></div>
@@ -985,14 +984,14 @@ function fitsKind(rec,kind,style=styleFor(kind)){
 function paintDay(){
   const k=dayKind(), st=styleFor(k);
   [...$("kindSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.k===k));
-  [...$("todayStyleSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.s===st));
   [...$("officeDaysSeg").children].forEach(b=>b.classList.toggle("on",(state.officeDays||[]).includes(+b.dataset.d)));
   [...$("styleOfficeSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.s===state.styleOffice));
   paintSeg($("styleSeg"),"s");
   const o=dayKindOverride, changed=o&&o.day===todayISO()&&o.kind!==scheduledKind();
   $("kindNote").textContent=!k?"Set your office days in Settings → Profile."
-    :changed?`Today only: ${DAY_KINDS[k]}. Tap the other kind to change it.`
-    :`${DAY_KINDS[k][0].toUpperCase()+DAY_KINDS[k].slice(1)}, from your office days.`;
+    :(changed?`Today only: ${DAY_KINDS[k]}. Tap the other kind to change it.`
+      :`${DAY_KINDS[k][0].toUpperCase()+DAY_KINDS[k].slice(1)}, from your office days.`)
+     +` Dressed ${st} — set in Settings → Profile.`;
 }
 
 /* ───────── WMO map + rule engine (offline fallback — mirrors server/engine.py) ───── */
@@ -1764,7 +1763,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.45";
+const WEB_BUILD="1.46";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -5716,10 +5715,6 @@ $("officeDaysSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
 $("kindSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
   const k=b.dataset.k; if(k===dayKind()) return;
   changeDay(()=>{ dayKindOverride=k===scheduledKind()?null:{day:todayISO(),kind:k}; });};
-// The Today screen's style row edits the style of TODAY's kind of day.
-$("todayStyleSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
-  const k=dayKind(); if(b.dataset.s===styleFor(k)) return;
-  changeDay(()=>{ if(k==="office") state.styleOffice=b.dataset.s; else state.style=b.dataset.s; });};
 $("goBtn").onclick=run;
 $("city").addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 $("geoBtn").onclick=async()=>{ toast("Locating…");

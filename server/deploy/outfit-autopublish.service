@@ -1,0 +1,15 @@
+[Unit]
+Description=Outfit Advisor: publish the newest green CI APK to the in-app update channel
+Documentation=file:///home/korety/Project/outfit-advisor/PLAN.md
+# A merge from anywhere but this box (cloud session, GitHub app) builds in CI but
+# was never published: release step 3 only runs here. See server/autopublish.py.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/korety/Project/outfit-advisor/server
+ExecStart=/home/korety/miniconda3/bin/python3 /home/korety/Project/outfit-advisor/server/autopublish.py
+# Downloading a ~15 MB artifact plus apksigner; anything longer is a hang.
+TimeoutStartSec=600
+Nice=10

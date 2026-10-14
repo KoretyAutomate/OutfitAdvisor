@@ -64,6 +64,10 @@ max-nested-blocks = 4
 # the local Android SDK — a fixed build tool, not untrusted input. The argv is a
 # list (no shell), so there is nothing to inject through.
 "**/publish_apk.py" = ["S603"]
+# S603 in autopublish.py: it runs gh, notify_telegram.sh and publish_apk.py, each a
+# fixed local program, with list argv (no shell). The only GitHub-derived argument is
+# the PR title passed as --notes, a single argv element that nothing parses as code.
+"**/autopublish.py" = ["S603"]
 # S310 in the live packing check: it drives the real server over http:// on the
 # tailnet. urllib is the point of the check; the URL is built in-check, not taken
 # from input. (check_reroll_live.py needs no exception — it uses httpx.)

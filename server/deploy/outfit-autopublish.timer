@@ -1,0 +1,14 @@
+[Unit]
+Description=Check for a new Outfit Advisor APK build every 10 minutes
+
+[Timer]
+# CI takes ~3 minutes after a merge, so a merge reaches the phone within ~15.
+# The idle tick is one GitHub API call.
+OnBootSec=5min
+OnUnitActiveSec=10min
+Persistent=true
+AccuracySec=1min
+Unit=outfit-autopublish.service
+
+[Install]
+WantedBy=timers.target

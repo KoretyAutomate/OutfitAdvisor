@@ -74,7 +74,7 @@ class _Client:
 
 
 def _response(status, body):
-    req = httpx.Request("POST", llm.VLLM_URL)
+    req = httpx.Request("POST", "http://127.0.0.1:8000/v1/chat/completions")
     return httpx.Response(status, json=body, request=req)
 
 

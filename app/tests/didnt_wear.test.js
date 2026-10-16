@@ -235,6 +235,21 @@ function capture(w) {
   await ev("skipChain");
   check("B's reason survives a render", JSON.parse(await ev(`prefGet("oa.skipped","[]")`)).some(x => x.reason === "about B"));
 
+  console.log("\n--- 16. the correction sheet: as suggested withdraws, different keeps -");
+  for (const [swap, keep] of [[false, false], [true, true]]) {
+    const wx = page(); await wx.eval("appReady");
+    await wx.eval(`closet=${JSON.stringify([...CLOSET, item("tee2", "white tee", "base")])}; wearLog=[]; lastWorn={}; saveCloset()`);
+    wx.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+    capture(wx); await wx.eval("run()"); await drain();
+    await wx.eval(`skipLog=[{at:Date.now(),day:todayISO(),reason:"Plans changed"}]; saveSkips()`);
+    wx.document.getElementById("dWore").onclick(); await drain(); await drain();
+    if (swap) { const sel = wx.document.querySelector('#woreList select[data-wore="base"]'); sel.value = "tee2"; sel.onchange(); }
+    await wx.document.getElementById("woreSave").onclick(); await drain(); await drain();
+    await wx.eval("skipChain");
+    const has = JSON.parse(await wx.eval(`prefGet("oa.skipped","[]")`)).length === 1;
+    check(swap ? "a different outfit keeps the reason" : "saved as suggested withdraws it", has === keep);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

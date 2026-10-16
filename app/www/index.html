@@ -4850,6 +4850,9 @@ async function saveWore(){
   await saveCloset();
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
   await saveWoreLogged();
+  // Saved as suggested is "Wearing it" by another route: today's reason is withdrawn.
+  // A genuinely different outfit keeps it — the suggestion still went unworn.
+  if(!wornDiffers()) await dropTodaysSkip();
   $("woreWrap").classList.remove("show");
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
   syncWearBtn();   // owns the label, the visibility and wornLogged

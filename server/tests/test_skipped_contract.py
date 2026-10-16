@@ -12,8 +12,9 @@ from schemas import AdviceRequest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 JS = (ROOT / "app" / "www" / "index.html").read_text()
-KT = (ROOT / "app" / "android" / "app" / "src" / "main" / "java" / "com" / "korety"
-      / "outfitadvisor" / "AdviceWorker.kt").read_text()
+PKG = ROOT / "app" / "android" / "app" / "src" / "main" / "java" / "com" / "korety" / "outfitadvisor"
+KT = (PKG / "AdviceWorker.kt").read_text()
+RECEIVER = (PKG / "FeedbackReceiver.kt").read_text()
 
 
 def _num(pattern: str, src: str) -> int:
@@ -46,3 +47,9 @@ def test_the_caps_agree_with_the_server():
     long = AdviceRequest(lat=0, lon=0, skipped=["x" * 500]).skipped[0]
     assert _js_const("SKIP_SEND") == _kt_const("SKIP_SEND") == len(many)
     assert _js_const("SKIP_MAX") == _kt_const("SKIP_MAX") == len(long)
+
+
+def test_a_reason_expires_with_the_evidence_that_could_cancel_it():
+    """Past the notification's wear queue, a cancelled reason could revive."""
+    queue = _num(r"QUEUE_DAYS = (\d+)", RECEIVER)
+    assert _js_const("SKIP_DAYS") == _kt_const("SKIP_DAYS") == queue

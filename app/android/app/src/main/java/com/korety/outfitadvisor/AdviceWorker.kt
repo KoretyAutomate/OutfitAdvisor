@@ -610,6 +610,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val day = s.optString("day")
             val at = s.optLong("at")
             if (reason.isEmpty() || day.isEmpty()) continue
+            // Past the window the cancelling evidence lives in, nothing is sent.
+            if (System.currentTimeMillis() - at >= SKIP_DAYS * 86_400_000L) continue
             val ratedLater = (0 until ratings.length()).any { j ->
                 val f = ratings.optJSONObject(j) ?: return@any false
                 val fa = f.optLong("at")
@@ -671,6 +673,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         /** Twins of SKIP_SEND / SKIP_MAX in index.html; the server keeps the newest 5. */
         const val SKIP_SEND = 5
         const val SKIP_MAX = 80
+        /** Twin of SKIP_DAYS in index.html — FeedbackReceiver's QUEUE_DAYS window. */
+        const val SKIP_DAYS = 14
         /** Twin of PUSH_PAYLOAD_KEY in index.html — the app writes it, this reads it. */
         const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
         /** Twin of "oa.closetComplete" in index.html — the tickbox, read directly. */

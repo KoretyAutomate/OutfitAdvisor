@@ -192,6 +192,40 @@ function capture(w) {
   check("the withdrawn reason stays gone", w5.eval("liveSkips().length") === 0 &&
     JSON.parse(await w5.eval(`prefGet("oa.skipped","[]")`)).length === 0);
 
+  console.log("\n--- 13. settling and saving at once: neither loses ---------------");
+  const w6 = page(); await w6.eval("appReady");
+  await w6.eval(`closet=${JSON.stringify(CLOSET)}; saveCloset()`);
+  w6.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(w6); await w6.eval("run()"); await drain();
+  const y6 = w6.eval("dayISO(Date.now()-86400000)"), s6 = Date.now() - 86400000;
+  await w6.eval(`skipLog=[{at:${s6},day:"${y6}",reason:"old"}]; saveSkips()`);
+  await w6.eval(`prefSet("oa.feedback",JSON.stringify([{at:${s6 + 60000},rating:0}])); reloadFeedback()`);
+  // A resume's settle stalls on its feedback read (the reviewer's reproduction)
+  // while a reason is saved; then it resumes.
+  w6.eval(`window.__gate=new Promise(r=>window.__open=r); window.__held=false;
+    const realGet=prefGet; prefGet=async(k,d)=>{
+      if(k==="oa.feedback"&&!window.__held){ window.__held=true; await window.__gate; }
+      return realGet(k,d); }`);
+  const settling = w6.eval("settleSkips()");
+  await drain();
+  w6.document.getElementById("fbSkip").onclick();
+  w6.document.getElementById("skFree").value = "new";
+  const saving = w6.document.getElementById("skSave").onclick();
+  for (let i = 0; i < 20; i++) await drain();
+  w6.eval("window.__open()");
+  await settling; await saving; await w6.eval("skipChain");
+  const disk6 = JSON.parse(await w6.eval(`prefGet("oa.skipped","[]")`)).map(x => x.reason);
+  check("the new reason survives the settle", JSON.stringify(disk6) === JSON.stringify(["new"]), disk6);
+
+  console.log("\n--- 14. a reason older than 14 days is not sent ------------------");
+  const w7 = page(); await w7.eval("appReady");
+  const sent7 = capture(w7);
+  w7.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  await w7.eval(`closet=[]; skipLog=[{at:Date.now()-15*86400000,day:dayISO(Date.now()-15*86400000),reason:"stale"},
+    {at:Date.now()-13*86400000,day:dayISO(Date.now()-13*86400000),reason:"fresh"}]`);
+  await w7.eval("run()"); await drain();
+  check("only the fresh one", JSON.stringify(sent7[0] && sent7[0].skipped) === JSON.stringify(["fresh"]), sent7[0] && sent7[0].skipped);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -2022,6 +2022,11 @@ function renderFeedback(){
    them (one writer per key) but read as dead: liveSkips() is what is shown and sent.
    Kotlin twin: AdviceWorker.recentSkips(). */
 const SKIP_KEEP=20, SKIP_SEND=5, SKIP_MAX=80;
+/* A reason has a shelf life, the same 14 days the notification keeps its wears: past
+   that, the evidence that would cancel it may be pruned, so it is not sent at all —
+   and a reason from three weeks ago is stale advice anyway (pre-push reviewer,
+   2026-10-16). Kotlin twin: AdviceWorker.SKIP_DAYS. */
+const SKIP_DAYS=14;
 const SKIP_REASONS=["Too formal for my day","Too casual for my day","Plans changed","Didn't feel like it"];
 let skipLog=[];     // {at: epoch-ms, day: "YYYY-MM-DD", reason}
 let skipPick=null;  // preset chosen in the open sheet
@@ -2031,7 +2036,8 @@ function skipDead(s){
   // So does wearing today's suggestion as it was suggested.
   return s.day===todayISO()&&!!wearRecord()&&!wornDiffers();
 }
-function liveSkips(){ return skipLog.filter(s=>s&&s.reason&&!skipDead(s)); }
+function liveSkips(){ const since=Date.now()-SKIP_DAYS*DAY_MS;
+  return skipLog.filter(s=>s&&s.reason&&s.at>since&&!skipDead(s)); }
 function todaysSkip(){ return liveSkips().find(s=>s.day===todayISO())||null; }
 /* Delete, for good, every skip that something later that day contradicted: a rating
    given after it, or a notification "Wearing it" tapped after it. Hiding them was not
@@ -2042,29 +2048,39 @@ function todaysSkip(){ return liveSkips().find(s=>s.day===todayISO())||null; }
    notification wears not folded yet. Read from disk, so a page that has not loaded
    oa.skipped yet cannot write it empty. */
 async function settleSkips(queue=[]){
-  let log=[], fb=[];
-  try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ return; }
-  if(!log.length) return;
-  try{ fb=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ fb=[]; }
-  const later=(at,x)=>Number.isFinite(at)&&at>x.at&&dayISO(at)===x.day;
-  const kept=log.filter(x=>!(x&&(fb.some(f=>f&&later(f.at,x))||queue.some(e=>later(e.wornAt,x)))));
-  if(kept.length===log.length) return;
-  skipLog=kept;
-  try{ await prefSet("oa.skipped",JSON.stringify(kept)); }catch(e){}
+  return editSkips(async log=>{
+    if(!log.length) return null;
+    let fb=[]; try{ fb=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ fb=[]; }
+    const later=(at,x)=>Number.isFinite(at)&&at>x.at&&dayISO(at)===x.day;
+    const kept=log.filter(x=>!(x&&(fb.some(f=>f&&later(f.at,x))||queue.some(e=>later(e.wornAt,x)))));
+    return kept.length===log.length?null:kept;
+  });
 }
-async function saveSkips(){
-  skipLog=skipLog.slice(-SKIP_KEEP);
-  await prefSet("oa.skipped",JSON.stringify(skipLog));
+/* EVERY change to oa.skipped goes through here, one at a time, starting from what is
+   on disk: settling runs from resume and from advice requests, and with its own awaits
+   it could otherwise commit an older snapshot over a reason saved meanwhile (pre-push
+   reviewer, 2026-10-16). `fn(log)` returns the new log, or null for no change. */
+let skipChain=Promise.resolve();
+function editSkips(fn){
+  skipChain=skipChain.then(async()=>{
+    let log=[]; try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ log=[]; }
+    const next=await fn(log);
+    if(!next) return;
+    skipLog=next.slice(-SKIP_KEEP);
+    await prefSet("oa.skipped",JSON.stringify(skipLog));
+  }).catch(()=>{});
+  return skipChain;
 }
+const dropTodaysSkip=()=>editSkips(log=>log.some(s=>s&&s.day===todayISO())
+  ?log.filter(s=>s&&s.day!==todayISO()):null);
+function saveSkips(){ const mine=skipLog; return editSkips(()=>mine); }
 function renderSkip(){
   const btn=$("fbSkip"), note=$("skipNote"); if(!btn||!note) return;
   // Not once the suggestion is logged as worn: "Wearing it" already answered.
   const wore=!!wearRecord()&&!wornDiffers();
   // And today's reason goes for good: the wear record is retired at midnight, and a
   // reason only read as dead would come back tomorrow (this page owns the key).
-  if(wore&&skipLog.some(s=>s&&s.day===todayISO())){
-    skipLog=skipLog.filter(s=>s&&s.day!==todayISO()); saveSkips();
-  }
+  if(wore&&skipLog.some(s=>s&&s.day===todayISO())) dropTodaysSkip();
   btn.style.display=lastOutfit&&!wore?"":"none";
   const sk=todaysSkip();
   btn.textContent=sk?"Marked as not worn — change":"I didn't wear this";
@@ -2101,17 +2117,16 @@ function saveSkip(){
     await reloadFeedback();
     const prev=todaysRating();
     if(prev){ fbTakeBack(prev); feedback.splice(prev.i,1); await saveFeedback(); }
-    skipLog=skipLog.filter(s=>s&&s.day!==todayISO());
-    skipLog.push({at:Date.now(),day:todayISO(),reason});
-    await saveSkips(); renderFeedback();
+    const entry={at:Date.now(),day:todayISO(),reason};
+    await editSkips(log=>[...log.filter(s=>s&&s.day!==entry.day),entry]);
+    renderFeedback();
     toast(prev?"Noted — and today's warm/cold rating taken back":"Noted — the advisor will take that into account");
   }).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 }
 async function clearSkip(){
   $("skipWrap").classList.remove("show");
-  skipLog=skipLog.filter(s=>s&&s.day!==todayISO());
-  await saveSkips(); renderFeedback();
+  await dropTodaysSkip(); renderFeedback();
   toast("Cleared");
 }
 
@@ -6610,9 +6625,7 @@ async function rateDay(rating){
   fbApply(rating);
   feedback.push({at:Date.now(),rating,from});
   // Rating how it felt means it was worn: today's "didn't wear this" goes.
-  if(skipLog.some(s=>s&&s.day===todayISO())){
-    skipLog=skipLog.filter(s=>s&&s.day!==todayISO()); await saveSkips();
-  }
+  await dropTodaysSkip();
   await saveFeedback(); renderFeedback();
   const sign=tempOffset>0?"+":"";
   toast(rating===0 ? (prev?"Changed — keeping this calibration":"Noted — keeping this calibration")

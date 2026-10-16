@@ -139,8 +139,8 @@ function capture(w) {
   await $("dWear").onclick(); await drain(); await drain();
   check("a wear is recorded", !!ev("wearRecord()"));
   check("the button hides", $("fbSkip").style.display === "none");
-  check("today's skip is dead", ev("todaysSkip()") === null && ev("liveSkips().length") === 0);
-  await drain();
+  await ev("skipChain");
+  check("today's skip is gone", ev("todaysSkip()") === null && ev("liveSkips().length") === 0);
   check("…and deleted, not just hidden, so it cannot come back tomorrow",
     !(await stored()).some(x => x.day === ev("todayISO()")), await stored());
 
@@ -225,6 +225,15 @@ function capture(w) {
     {at:Date.now()-13*86400000,day:dayISO(Date.now()-13*86400000),reason:"fresh"}]`);
   await w7.eval("run()"); await drain();
   check("only the fresh one", JSON.stringify(sent7[0] && sent7[0].skipped) === JSON.stringify(["fresh"]), sent7[0] && sent7[0].skipped);
+
+  console.log("\n--- 15. a re-roll onto an outfit already worn is not a wear --------");
+  /* Pre-push reviewer, 2026-10-16: A logged, B rejected with a reason, a re-roll
+     shows A again — B's reason must stay. */
+  await ev(`skipLog=[{at:Date.now(),day:todayISO(),reason:"about B"}]; saveSkips()`);
+  await ev("skipChain");
+  ev("renderFeedback(); syncWearBtn()");          // the card shows A, which is logged
+  await ev("skipChain");
+  check("B's reason survives a render", JSON.parse(await ev(`prefGet("oa.skipped","[]")`)).some(x => x.reason === "about B"));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

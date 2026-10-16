@@ -2017,9 +2017,9 @@ function renderFeedback(){
    saying it again in words would correct twice.
 
    One reason per calendar day, replaceable. It is exclusive with the day's rating and
-   with wearing the suggestion — whichever came LATER stands. The notification can rate
-   or log "Wearing it" while this page is closed, so a stale skip is not deleted by
-   them (one writer per key) but read as dead: liveSkips() is what is shown and sent.
+   with wearing the suggestion — whichever came LATER stands. A later rating or
+   "Wearing it" deletes the reason: here at once, or, from the notification (which
+   never writes this key), by settleSkips() when the page next folds its evidence.
    Kotlin twin: AdviceWorker.recentSkips(). */
 const SKIP_KEEP=20, SKIP_SEND=5, SKIP_MAX=80;
 /* A reason has a shelf life, the same 14 days the notification keeps its wears: past
@@ -2032,9 +2032,8 @@ let skipLog=[];     // {at: epoch-ms, day: "YYYY-MM-DD", reason}
 let skipPick=null;  // preset chosen in the open sheet
 function skipDead(s){
   // A rating the same day, given after the skip, says the outfit was worn after all.
-  if(feedback.some(f=>f&&Number.isFinite(f.at)&&f.at>s.at&&dayISO(f.at)===s.day)) return true;
-  // So does wearing today's suggestion as it was suggested.
-  return s.day===todayISO()&&!!wearRecord()&&!wornDiffers();
+  // (Read as dead until settleSkips() deletes it; wears are settled on the tap.)
+  return feedback.some(f=>f&&Number.isFinite(f.at)&&f.at>s.at&&dayISO(f.at)===s.day);
 }
 function liveSkips(){ const since=Date.now()-SKIP_DAYS*DAY_MS;
   return skipLog.filter(s=>s&&s.reason&&s.at>since&&!skipDead(s)); }
@@ -2078,9 +2077,6 @@ function renderSkip(){
   const btn=$("fbSkip"), note=$("skipNote"); if(!btn||!note) return;
   // Not once the suggestion is logged as worn: "Wearing it" already answered.
   const wore=!!wearRecord()&&!wornDiffers();
-  // And today's reason goes for good: the wear record is retired at midnight, and a
-  // reason only read as dead would come back tomorrow (this page owns the key).
-  if(wore&&skipLog.some(s=>s&&s.day===todayISO())) dropTodaysSkip();
   btn.style.display=lastOutfit&&!wore?"":"none";
   const sk=todaysSkip();
   btn.textContent=sk?"Marked as not worn — change":"I didn't wear this";
@@ -6557,6 +6553,10 @@ $("dWear").onclick=async()=>{
     // and the corrected outfit was added beside it.
     woreLogged={...((lastRes&&lastRes.picks)||{})};
     await saveWoreLogged();
+    // Wearing it, AFTER saying it went unworn: today's reason is withdrawn. Here, on
+    // the tap, and never on a render — a re-roll that lands on an outfit already
+    // logged is not a wear (pre-push reviewer, 2026-10-16).
+    await dropTodaysSkip();
     syncWearBtn();
     // The record now exists, but it IS the advice — so the card needs no redraw,
     // only the banner asked whether there is a correction to announce.

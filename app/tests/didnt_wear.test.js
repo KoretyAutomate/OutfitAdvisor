@@ -286,6 +286,39 @@ function capture(w) {
   check("and the reason it came after is withdrawn",
     JSON.parse(await w9.eval(`prefGet("oa.skipped","[]")`)).length === 0 && w9.eval("liveSkips().length") === 0);
 
+  console.log("\n--- 19. a rating still saving, then a reason: the reason is newer --");
+  const wa = page(); await wa.eval("appReady");
+  await wa.eval(`closet=${JSON.stringify(CLOSET)}; saveCloset()`);
+  wa.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(wa); await wa.eval("run()"); await drain();
+  wa.eval(`window.__gate=new Promise(r=>window.__open=r); window.__held=false;
+    const realGetA=prefGet; prefGet=async(k,d)=>{
+      if(k==="oa.feedback"&&!window.__held){ window.__held=true; await window.__gate; }
+      return realGetA(k,d); }`);
+  const rating = wa.document.getElementById("fbRow").onclick({target: wa.document.querySelector('#fbRow button[data-r="1"]')});
+  await drain();
+  wa.document.getElementById("fbSkip").onclick();
+  wa.document.getElementById("skFree").value = "Plans changed";
+  const savingA = wa.document.getElementById("skSave").onclick();
+  for (let i = 0; i < 20; i++) await drain();
+  wa.eval("window.__open()");
+  await rating; await savingA; await wa.eval("skipChain");
+  check("the newer reason stands", JSON.parse(await wa.eval(`prefGet("oa.skipped","[]")`)).length === 1 && wa.eval("liveSkips().length") === 1);
+  check("the earlier rating is taken back", wa.eval("todaysRating()") === null);
+
+  console.log("\n--- 20. a notification rating newer than the tap is not taken back --");
+  const wb = page(); await wb.eval("appReady");
+  await wb.eval(`closet=${JSON.stringify(CLOSET)}; saveCloset()`);
+  wb.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(wb); await wb.eval("run()"); await drain();
+  wb.document.getElementById("fbSkip").onclick();
+  wb.document.getElementById("skFree").value = "Plans changed";
+  // Lands on disk after the tap, before the save reads it back.
+  await wb.eval(`prefSet("oa.feedback",JSON.stringify([{at:Date.now()+5000,rating:-1}]))`);
+  await wb.document.getElementById("skSave").onclick(); await wb.eval("skipChain");
+  check("the later rating stands", wb.eval("todaysRating()") && wb.eval("todaysRating().rating") === -1);
+  check("and the reason is withdrawn", JSON.parse(await wb.eval(`prefGet("oa.skipped","[]")`)).length === 0);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

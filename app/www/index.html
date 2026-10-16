@@ -2070,8 +2070,17 @@ function editSkips(fn){
   }).catch(()=>{});
   return skipChain;
 }
-const dropTodaysSkip=()=>editSkips(log=>log.some(s=>s&&s.day===todayISO())
-  ?log.filter(s=>s&&s.day!==todayISO()):null);
+/* Withdraw today's reason — only one saved BEFORE `tapAt`, the moment the withdrawing
+   action was tapped. Rating, wearing and saving all queue work behind awaits, and
+   finishing order is not tap order: an earlier rating still saving must not delete
+   a reason saved after it (pre-push reviewer, 2026-10-16). */
+/* Tap times that never tie: two taps in one millisecond still have an order. */
+let lastTap=0;
+function tapClock(){ lastTap=Math.max(Date.now(),lastTap+1); return lastTap; }
+const dropTodaysSkip=(tapAt=tapClock())=>editSkips(log=>{
+  const gone=s=>s&&s.day===todayISO()&&s.at<tapAt;
+  return log.some(gone)?log.filter(s=>!gone(s)):null;
+});
 function saveSkips(){ const mine=skipLog; return editSkips(()=>mine); }
 function renderSkip(){
   const btn=$("fbSkip"), note=$("skipNote"); if(!btn||!note) return;
@@ -2112,22 +2121,27 @@ function saveSkip(){
   // Queued NOW, at the tap, so a "Wearing it" tapped after it is ordered after it
   // and withdraws it — queued behind the rating work, the wear could land first
   // (pre-push reviewer, 2026-10-16).
-  const entry={at:Date.now(),day:todayISO(),reason};
+  const entry={at:tapClock(),day:todayISO(),reason};
   const saved=editSkips(log=>[...log.filter(s=>s&&s.day!==entry.day),entry]);
   fbBusy++;
   fbChain=fbChain.then(async()=>{
     await reloadFeedback();
-    const prev=todaysRating();
-    if(prev){ fbTakeBack(prev); feedback.splice(prev.i,1); await saveFeedback(); }
+    // Only a rating from BEFORE the tap. One given after it (from the notification)
+    // is the later verdict: it stands, and the reason is the one withdrawn.
+    const prev=todaysRating(), prevAt=prev?feedback[prev.i].at:0;
+    if(prev&&prevAt<entry.at){ fbTakeBack(prev); feedback.splice(prev.i,1); await saveFeedback(); }
+    else if(prev) await settleSkips();
     await saved;
     renderFeedback();
-    toast(prev?"Noted — and today's warm/cold rating taken back":"Noted — the advisor will take that into account");
+    toast(prev&&prevAt<entry.at?"Noted — and today's warm/cold rating taken back"
+                               :"Noted — the advisor will take that into account");
   }).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 }
 async function clearSkip(){
+  const tapAt=tapClock();
   $("skipWrap").classList.remove("show");
-  await dropTodaysSkip(); renderFeedback();
+  await dropTodaysSkip(tapAt); renderFeedback();
   toast("Cleared");
 }
 
@@ -4806,6 +4820,7 @@ function syncWearBtn(){
    emptied and the record still saying logged, which the next launch restored. */
 let woreBusy=false;
 async function saveWore(){
+  const tapAt=tapClock();
   if(woreBusy) return;
   if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
   // One garment is worn in ONE place. A shirt that can play base or mid appears in
@@ -4860,7 +4875,7 @@ async function saveWore(){
   await saveWoreLogged();
   // Saved as suggested is "Wearing it" by another route: today's reason is withdrawn.
   // A genuinely different outfit keeps it — the suggestion still went unworn.
-  if(!wornDiffers()) await dropTodaysSkip();
+  if(!wornDiffers()) await dropTodaysSkip(tapAt);
   $("woreWrap").classList.remove("show");
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
   syncWearBtn();   // owns the label, the visibility and wornLogged
@@ -6542,6 +6557,7 @@ $("inWashCancel").onclick=()=>$("inWashWrap").classList.remove("show");
 $("inWashWrap").onclick=e=>{ if(e.target===$("inWashWrap")) $("inWashWrap").classList.remove("show"); };
 $("inWashSave").onclick=()=>saveInWash();
 $("dWear").onclick=async()=>{
+  const tapAt=tapClock();
   if(woreBusy) return;
   woreBusy=true;
   try{
@@ -6567,7 +6583,7 @@ $("dWear").onclick=async()=>{
     // Wearing it, AFTER saying it went unworn: today's reason is withdrawn. Here, on
     // the tap, and never on a render — a re-roll that lands on an outfit already
     // logged is not a wear (pre-push reviewer, 2026-10-16).
-    await dropTodaysSkip();
+    await dropTodaysSkip(tapAt);
     syncWearBtn();
     // The record now exists, but it IS the advice — so the card needs no redraw,
     // only the banner asked whether there is a correction to announce.
@@ -6617,7 +6633,7 @@ $("updLater").onclick=async()=>{
    start from the same state and the second would erase the first. In order, a
    quick change of mind lands as the final verdict. */
 let fbChain=Promise.resolve(), fbBusy=0;
-async function rateDay(rating){
+async function rateDay(rating,tapAt=tapClock()){
   await reloadFeedback();              // the notification may have rated meanwhile
   // A second verdict the SAME DAY replaces the first, whichever side gave it:
   // revert the delta already applied, then apply the new one. Without this,
@@ -6634,9 +6650,11 @@ async function rateDay(rating){
   }
   const from=tempOffset;
   fbApply(rating);
-  feedback.push({at:Date.now(),rating,from});
+  // Stamped at the TAP: a reason saved while this was queued is newer, and must
+  // neither be withdrawn by it nor read as contradicted by it.
+  feedback.push({at:tapAt,rating,from});
   // Rating how it felt means it was worn: today's "didn't wear this" goes.
-  await dropTodaysSkip();
+  await dropTodaysSkip(tapAt);
   await saveFeedback(); renderFeedback();
   const sign=tempOffset>0?"+":"";
   toast(rating===0 ? (prev?"Changed — keeping this calibration":"Noted — keeping this calibration")
@@ -6644,9 +6662,9 @@ async function rateDay(rating){
 }
 $("fbRow").onclick=e=>{
   const b=e.target.closest("button"); if(!b) return;
-  const rating=+b.dataset.r;
+  const rating=+b.dataset.r, tapAt=tapClock();
   fbBusy++;
-  fbChain=fbChain.then(()=>rateDay(rating)).catch(()=>{}).finally(()=>{ fbBusy--; });
+  fbChain=fbChain.then(()=>rateDay(rating,tapAt)).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 };
 /* Through the same queue as the ratings: a reset tapped while a rating is still

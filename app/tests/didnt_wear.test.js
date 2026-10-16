@@ -161,7 +161,11 @@ function capture(w) {
   await w3.eval(`prefSet("oa.skipped",JSON.stringify([{at:${yAt},day:"${y}",reason:"Plans changed"},
     {at:${yAt - 86400000},day:dayISO(${yAt - 86400000}),reason:"Too casual for my day"}]))`);
   await w3.eval(`skipLog=[]`);   // a page that has not loaded oa.skipped yet
-  await w3.eval(`prefSet("oa.nativeWore",JSON.stringify({day:"${y}",map:{base:"tee"},at:${yAt + 60000}}))`);
+  // Two days of notification wears, the app closed throughout: oa.nativeWore holds
+  // only today's, the queue holds both.
+  await w3.eval(`prefSet("oa.nativeWears",JSON.stringify([
+    {key:"k1",itemId:"tee",wornAt:${yAt + 60000}}, {key:"k2",itemId:"tee",wornAt:Date.now()}]))`);
+  await w3.eval(`prefSet("oa.nativeWore",JSON.stringify({day:todayISO(),map:{base:"tee"},at:Date.now()}))`);
   await w3.eval("mergeNativeWears()");
   const left = JSON.parse(await w3.eval(`prefGet("oa.skipped","[]")`));
   check("yesterday's withdrawn reason is deleted", !left.some(x => x.day === y), left);
@@ -176,6 +180,17 @@ function capture(w) {
   await w4.eval("mergeNativeWears()");
   check("an acknowledged (undone) wear does not cancel a newer skip",
     w4.eval("liveSkips().length") === 1 && JSON.parse(await w4.eval(`prefGet("oa.skipped","[]")`)).length === 1);
+
+  console.log("\n--- 12. a calibration reset does not bring a withdrawn reason back -");
+  const w5 = page(); await w5.eval("appReady");
+  const y5 = w5.eval("dayISO(Date.now()-86400000)"), s5 = Date.now() - 86400000;
+  await w5.eval(`skipLog=[{at:${s5},day:"${y5}",reason:"Plans changed"}]; saveSkips()`);
+  // The notification rated that day after the skip (it writes oa.feedback directly).
+  await w5.eval(`prefSet("oa.feedback",JSON.stringify([{at:${s5 + 60000},rating:1}])); reloadFeedback()`);
+  await w5.eval(`document.getElementById("fbNote").onclick()`); await drain(); await drain();
+  check("the ratings are reset", w5.eval("feedback.length") === 0);
+  check("the withdrawn reason stays gone", w5.eval("liveSkips().length") === 0 &&
+    JSON.parse(await w5.eval(`prefGet("oa.skipped","[]")`)).length === 0);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

@@ -583,8 +583,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
      * very thing that was turned down.
      *
      * Read only: the app writes oa.skipped. A skip the notification has since
-     * contradicted — a rating that day given after it, or a "Wearing it" on that day's
-     * push the app has not adopted yet — is left out here, never deleted. With or without a
+     * contradicted — a rating that day given after it, or a "Wearing it" tapped after
+     * it that the app has not folded yet — is left out here; the app deletes it. With or without a
      * closet: "too formal for my day" applies to generic advice too. A corrupt log
      * costs the reasons, never the morning.
      */
@@ -593,11 +593,15 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val log = JSONArray(prefs.getString(KEY_SKIPPED, "[]") ?: "[]")
         val ratings = try { JSONArray(prefs.getString(FeedbackReceiver.KEY_LOG, "[]") ?: "[]") }
                       catch (e: Exception) { JSONArray() }
-        // Only a record the app has NOT adopted yet: once acknowledged (oa.nativeWoreSeen)
-        // the app owns it, and has already settled the skip, or the wearer undid the wear.
-        val rawWore = prefs.getString(FeedbackReceiver.KEY_NATIVE_WORE, "") ?: ""
-        val wore = if (rawWore.isEmpty() || rawWore == prefs.getString(FeedbackReceiver.KEY_NATIVE_WORE_SEEN, "")) null
-                   else try { JSONObject(rawWore) } catch (e: Exception) { null }
+        // Notification wears the app has not folded yet. Once folded (oa.nativeSeen)
+        // the app has already settled the day's skip against them, or the wearer undid
+        // the wear — either way they are the app's, not evidence here.
+        val seen = try { JSONArray(prefs.getString(FeedbackReceiver.KEY_NATIVE_SEEN, "[]") ?: "[]") }
+                   catch (e: Exception) { JSONArray() }
+        val folded = (0 until seen.length()).map { seen.optString(it) }.toSet()
+        val queue = FeedbackReceiver.nativeQueue(prefs)
+        val wears = (0 until queue.length()).mapNotNull { queue.optJSONObject(it) }
+            .filter { it.optString("key") !in folded }.map { it.optLong("wornAt") }
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         val live = ArrayList<String>()
         for (i in 0 until log.length()) {
@@ -606,14 +610,14 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val day = s.optString("day")
             val at = s.optLong("at")
             if (reason.isEmpty() || day.isEmpty()) continue
-            // "Wearing it" on that day's push, tapped after the skip
-            if (wore != null && wore.optString("day") == day && wore.optLong("at") > at) continue
             val ratedLater = (0 until ratings.length()).any { j ->
                 val f = ratings.optJSONObject(j) ?: return@any false
                 val fa = f.optLong("at")
                 fa > at && fmt.format(java.util.Date(fa)) == day
             }
-            if (!ratedLater) live.add(reason)
+            // "Wearing it" on that day's push, tapped after the skip
+            val woreLater = wears.any { it > at && fmt.format(java.util.Date(it)) == day }
+            if (!ratedLater && !woreLater) live.add(reason)
         }
         JSONArray(live.takeLast(SKIP_SEND))
     } catch (e: Exception) {

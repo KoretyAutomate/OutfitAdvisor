@@ -1752,6 +1752,8 @@ async function mergeNativeWears(){
   try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
   const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
   const mine=new Set(wearLog.filter(w=>!w.marked).map(dayKey));
+  // Before they are marked seen: once folded, an undo may stand against them.
+  await settleSkips(q.filter(e=>!nativeSeen.has(e.key)));
   let folded=false;
   for(const e of q){
     if(nativeSeen.has(e.key)) continue;          // folded before — an undo since must stand
@@ -1771,7 +1773,6 @@ async function mergeNativeWears(){
   // explicit undo — pre-push reviewer, 2026-10-11), and only when this page has
   // none for today.
   if(rawWore&&rawWore!==nativeWoreSeen){
-    await retireSkipsWornSince(rawWore);
     if(!(woreLogged&&woreDay===todayISO())){
       applyWoreRaw(rawWore);
       // Saved into this page's OWN record before it is acknowledged — or a reload
@@ -1983,6 +1984,7 @@ function fbRevert(rating){
     Math.round((tempOffset-FB_RATE*d)*100)/100));
 }
 async function saveFeedback(){
+  await settleSkips();                          // before old ratings are pruned
   feedback=feedback.slice(-FB_KEEP);            // same hygiene rule as the wear-log
   await prefSet("oa.tempOffset",String(tempOffset));
   await prefSet("oa.feedback",JSON.stringify(feedback));
@@ -2031,16 +2033,21 @@ function skipDead(s){
 }
 function liveSkips(){ return skipLog.filter(s=>s&&s.reason&&!skipDead(s)); }
 function todaysSkip(){ return liveSkips().find(s=>s.day===todayISO())||null; }
-/* The notification's "Wearing it", given AFTER a skip that day, says it was worn
-   after all. Settled here, while the record is still unacknowledged and whatever day
-   it is for: once adopted it is retired at midnight, and a page reopened tomorrow
-   would otherwise send the withdrawn reason (pre-push reviewer, 2026-10-16). Read
-   from disk, so a page that has not loaded oa.skipped yet cannot write it empty. */
-async function retireSkipsWornSince(rawWore){
-  let d=null; try{ d=JSON.parse(rawWore); }catch(e){ return; }
-  if(!d||typeof d.day!=="string"||!d.map) return;
-  let log=[]; try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ return; }
-  const kept=log.filter(x=>!(x&&x.day===d.day&&(!Number.isFinite(d.at)||d.at>x.at)));
+/* Delete, for good, every skip that something later that day contradicted: a rating
+   given after it, or a notification "Wearing it" tapped after it. Hiding them was not
+   enough — the evidence that hid them does not last (a calibration reset clears the
+   ratings, the queue and the day record are pruned or overwritten) and the reason came
+   back (pre-push reviewer, 2026-10-16). Run before that evidence can go: before the
+   ratings are saved or reset, and before native wears are folded. `queue` is the
+   notification wears not folded yet. Read from disk, so a page that has not loaded
+   oa.skipped yet cannot write it empty. */
+async function settleSkips(queue=[]){
+  let log=[], fb=[];
+  try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ return; }
+  if(!log.length) return;
+  try{ fb=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ fb=[]; }
+  const later=(at,x)=>Number.isFinite(at)&&at>x.at&&dayISO(at)===x.day;
+  const kept=log.filter(x=>!(x&&(fb.some(f=>f&&later(f.at,x))||queue.some(e=>later(e.wornAt,x)))));
   if(kept.length===log.length) return;
   skipLog=kept;
   try{ await prefSet("oa.skipped",JSON.stringify(kept)); }catch(e){}
@@ -6625,6 +6632,7 @@ $("fbNote").onclick=()=>{
   if(!feedback.length) return;
   fbBusy++;
   fbChain=fbChain.then(async()=>{
+    await settleSkips();                // the ratings being cleared still say "worn"
     tempOffset=0; feedback=[];
     await saveFeedback(); renderFeedback();
     toast("Calibration reset");

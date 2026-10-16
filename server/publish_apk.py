@@ -22,8 +22,10 @@ build can never reach the phone as an "update".
 
 import argparse
 import datetime as dt
+import fcntl
 import hashlib
 import json
+import os
 import re
 import shutil
 import struct
@@ -214,6 +216,27 @@ def main() -> None:
                  f"itself as current.")
     print(f"bundled UI stamp matches ({web})")
 
+    DIST.mkdir(exist_ok=True)
+    # autopublish.timer now publishes unattended, so a hand-run publish can land in
+    # the same moment. The lock covers the downgrade check AND the writes, or both
+    # read the same "previous" and the last writer wins even if it is the older one.
+    with open(DIST / ".publish.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _publish(args.apk, code, name, args.notes)
+
+
+def _replace_atomically(target: Path, write) -> None:
+    """Write next to the target, then rename over it. The server serves dist/ the
+    whole time; an in-place copy lets /apk stream half an APK, and a crash mid-copy
+    leaves version.json describing bytes that are no longer there."""
+    tmp = target.with_name(f".{target.name}.tmp")
+    write(tmp)
+    with open(tmp, "rb") as f:
+        os.fsync(f.fileno())
+    os.replace(tmp, target)
+
+
+def _publish(apk: Path, code: int, name: str, notes: str) -> None:
     # Refuse to go backwards: the updater compares versionCode, so republishing an
     # older APK would offer every phone a "update" that downgrades them, and Android
     # rejects downgrades — leaving a banner that can never be satisfied.
@@ -226,9 +249,10 @@ def main() -> None:
         if code < prev:
             sys.exit(f"REFUSING: {code} is older than the published {prev}.")
 
-    DIST.mkdir(exist_ok=True)
     target = DIST / "outfit-advisor.apk"
-    shutil.copy2(args.apk, target)
+    # APK first, then the manifest: in the gap between the two renames the phone
+    # sees new bytes under the old sha256, rejects them, and simply retries later.
+    _replace_atomically(target, lambda t: shutil.copy2(apk, t))
 
     data = target.read_bytes()
     meta = {
@@ -238,9 +262,9 @@ def main() -> None:
         "size": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
         "publishedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "notes": args.notes,
+        "notes": notes,
     }
-    (DIST / "version.json").write_text(json.dumps(meta, indent=2) + "\n")
+    _replace_atomically(meta_path, lambda t: t.write_text(json.dumps(meta, indent=2) + "\n"))
     print(json.dumps(meta, indent=2))
     print(f"\npublished -> {target}  ({len(data) / 1e6:.1f} MB)")
 

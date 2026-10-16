@@ -1771,6 +1771,7 @@ async function mergeNativeWears(){
   // explicit undo — pre-push reviewer, 2026-10-11), and only when this page has
   // none for today.
   if(rawWore&&rawWore!==nativeWoreSeen){
+    await retireSkipsWornSince(rawWore);
     if(!(woreLogged&&woreDay===todayISO())){
       applyWoreRaw(rawWore);
       // Saved into this page's OWN record before it is acknowledged — or a reload
@@ -2030,6 +2031,20 @@ function skipDead(s){
 }
 function liveSkips(){ return skipLog.filter(s=>s&&s.reason&&!skipDead(s)); }
 function todaysSkip(){ return liveSkips().find(s=>s.day===todayISO())||null; }
+/* The notification's "Wearing it", given AFTER a skip that day, says it was worn
+   after all. Settled here, while the record is still unacknowledged and whatever day
+   it is for: once adopted it is retired at midnight, and a page reopened tomorrow
+   would otherwise send the withdrawn reason (pre-push reviewer, 2026-10-16). Read
+   from disk, so a page that has not loaded oa.skipped yet cannot write it empty. */
+async function retireSkipsWornSince(rawWore){
+  let d=null; try{ d=JSON.parse(rawWore); }catch(e){ return; }
+  if(!d||typeof d.day!=="string"||!d.map) return;
+  let log=[]; try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ return; }
+  const kept=log.filter(x=>!(x&&x.day===d.day&&(!Number.isFinite(d.at)||d.at>x.at)));
+  if(kept.length===log.length) return;
+  skipLog=kept;
+  try{ await prefSet("oa.skipped",JSON.stringify(kept)); }catch(e){}
+}
 async function saveSkips(){
   skipLog=skipLog.slice(-SKIP_KEEP);
   await prefSet("oa.skipped",JSON.stringify(skipLog));

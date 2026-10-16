@@ -16,12 +16,18 @@ KT = (ROOT / "app" / "android" / "app" / "src" / "main" / "java" / "com" / "kore
       / "outfitadvisor" / "AdviceWorker.kt").read_text()
 
 
+def _num(pattern: str, src: str) -> int:
+    m = re.search(pattern, src)
+    assert m, f"{pattern} not found"
+    return int(m.group(1))
+
+
 def _js_const(name: str) -> int:
-    return int(re.search(rf"\b{name}=(\d+)", JS).group(1))
+    return _num(rf"\b{name}=(\d+)", JS)
 
 
 def _kt_const(name: str) -> int:
-    return int(re.search(rf"const val {name} = (\d+)", KT).group(1))
+    return _num(rf"const val {name} = (\d+)", KT)
 
 
 def test_both_sides_use_one_key():

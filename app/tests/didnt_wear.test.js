@@ -153,6 +153,30 @@ function capture(w) {
   check("no closet, reasons sent", sent2[0] && !sent2[0].closet &&
     JSON.stringify(sent2[0].skipped) === JSON.stringify(["Too casual for my day"]), sent2[0]);
 
+  console.log("\n--- 11. the notification's 'Wearing it', settled across midnight --");
+  /* Pre-push reviewer, 2026-10-16: skip yesterday, tap "Wearing it" on yesterday's
+     push afterwards, open the app today — the reason must not come back. */
+  const w3 = page(); await w3.eval("appReady");
+  const y = w3.eval("dayISO(Date.now()-86400000)"), yAt = Date.now() - 86400000;
+  await w3.eval(`prefSet("oa.skipped",JSON.stringify([{at:${yAt},day:"${y}",reason:"Plans changed"},
+    {at:${yAt - 86400000},day:dayISO(${yAt - 86400000}),reason:"Too casual for my day"}]))`);
+  await w3.eval(`skipLog=[]`);   // a page that has not loaded oa.skipped yet
+  await w3.eval(`prefSet("oa.nativeWore",JSON.stringify({day:"${y}",map:{base:"tee"},at:${yAt + 60000}}))`);
+  await w3.eval("mergeNativeWears()");
+  const left = JSON.parse(await w3.eval(`prefGet("oa.skipped","[]")`));
+  check("yesterday's withdrawn reason is deleted", !left.some(x => x.day === y), left);
+  check("the older day's reason is kept (no empty write)", left.length === 1 && left[0].reason === "Too casual for my day", left);
+
+  /* Undo leaves oa.nativeWore in place, acknowledged: a skip saved after it stands. */
+  const w4 = page(); await w4.eval("appReady");
+  const t0 = Date.now();
+  const raw = JSON.stringify({day: w4.eval("todayISO()"), map: {base: "tee"}, at: t0 - 3600000});
+  await w4.eval(`prefSet("oa.nativeWore",${JSON.stringify(raw)}); prefSet("oa.nativeWoreSeen",${JSON.stringify(raw)}); nativeWoreSeen=${JSON.stringify(raw)}`);
+  await w4.eval(`skipLog=[{at:${t0},day:todayISO(),reason:"Plans changed"}]; saveSkips()`);
+  await w4.eval("mergeNativeWears()");
+  check("an acknowledged (undone) wear does not cancel a newer skip",
+    w4.eval("liveSkips().length") === 1 && JSON.parse(await w4.eval(`prefGet("oa.skipped","[]")`)).length === 1);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

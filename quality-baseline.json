@@ -21,7 +21,7 @@
       "limit": 0
     },
     "min:tests": {
-      "limit": 858
+      "limit": 886
     },
     "ruff:PLR0913": {
       "limit": 1
@@ -35,6 +35,6 @@
   },
   "rebaselined_at": "2026-08-08T15:07:42+00:00",
   "tool": "quality-ceiling",
-  "updated_at": "2026-10-16T13:15:21+00:00",
+  "updated_at": "2026-10-16T21:45:46+00:00",
   "version": 1
 }

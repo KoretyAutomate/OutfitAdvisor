@@ -583,8 +583,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
      * very thing that was turned down.
      *
      * Read only: the app writes oa.skipped. A skip the notification has since
-     * contradicted — a rating that day given after it, or "Wearing it" on that day's
-     * push — is skipped here rather than deleted, as the app does. With or without a
+     * contradicted — a rating that day given after it, or a "Wearing it" on that day's
+     * push the app has not adopted yet — is left out here, never deleted. With or without a
      * closet: "too formal for my day" applies to generic advice too. A corrupt log
      * costs the reasons, never the morning.
      */
@@ -593,8 +593,11 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val log = JSONArray(prefs.getString(KEY_SKIPPED, "[]") ?: "[]")
         val ratings = try { JSONArray(prefs.getString(FeedbackReceiver.KEY_LOG, "[]") ?: "[]") }
                       catch (e: Exception) { JSONArray() }
-        val woreDay = try { JSONObject(prefs.getString(FeedbackReceiver.KEY_NATIVE_WORE, "") ?: "").optString("day") }
-                      catch (e: Exception) { "" }
+        // Only a record the app has NOT adopted yet: once acknowledged (oa.nativeWoreSeen)
+        // the app owns it, and has already settled the skip, or the wearer undid the wear.
+        val rawWore = prefs.getString(FeedbackReceiver.KEY_NATIVE_WORE, "") ?: ""
+        val wore = if (rawWore.isEmpty() || rawWore == prefs.getString(FeedbackReceiver.KEY_NATIVE_WORE_SEEN, "")) null
+                   else try { JSONObject(rawWore) } catch (e: Exception) { null }
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         val live = ArrayList<String>()
         for (i in 0 until log.length()) {
@@ -602,7 +605,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val reason = s.optString("reason").trim().take(SKIP_MAX)
             val day = s.optString("day")
             val at = s.optLong("at")
-            if (reason.isEmpty() || day.isEmpty() || day == woreDay) continue
+            if (reason.isEmpty() || day.isEmpty()) continue
+            // "Wearing it" on that day's push, tapped after the skip
+            if (wore != null && wore.optString("day") == day && wore.optLong("at") > at) continue
             val ratedLater = (0 until ratings.length()).any { j ->
                 val f = ratings.optJSONObject(j) ?: return@any false
                 val fa = f.optLong("at")

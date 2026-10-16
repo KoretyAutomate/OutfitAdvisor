@@ -367,6 +367,12 @@
            this lists only what is on the card, where the problem is noticed. -->
       <button class="ghost" id="dLaundry" style="display:none;width:100%;padding:9px;margin-top:7px">
         Some of these are in the laundry</button>
+      <!-- Not worn, and why (user, 2026-10-16, rebuilt from August's keepscan). The
+           reason goes to the advisor; the thermal row is left alone, because an
+           outfit nobody put on has no "how did it feel". -->
+      <button class="ghost" id="fbSkip" style="display:none;width:100%;padding:9px;margin-top:7px">
+        I didn't wear this</button>
+      <p class="note" id="skipNote" style="display:none;margin:5px 0 0"></p>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
            the LLM plan against. Never shifts the weather shown above. -->
       <div class="fb">
@@ -863,6 +869,25 @@
     <div id="inWashList"></div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="inWashSave" style="flex:2">Save &amp; re-plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- "I didn't wear this" — and why. The reason is the payload. -->
+<div class="modal" id="skipWrap">
+  <div class="sheet">
+    <div class="shHead"><b>Why didn't you wear it?</b>
+      <button class="ghost" id="skCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
+    <p class="note" style="margin:0 0 10px">The advisor sees your last few reasons and stops
+      repeating the same miss. Your warm/cold calibration is left alone — an outfit you
+      didn't put on has no "how did it feel".</p>
+    <div class="row" id="skReasons" style="flex-wrap:wrap;gap:6px"></div>
+    <input type="text" id="skFree" maxlength="80" style="width:100%;margin-top:10px"
+           placeholder="Or in your own words, e.g. had to dress up for dinner">
+    <p class="note err" id="skErr" style="margin:6px 0 0"></p>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="skSave" style="flex:2">Save</button>
+      <button class="ghost" id="skClear" style="flex:1;display:none">I did wear it</button>
     </div>
   </div>
 </div>
@@ -1727,6 +1752,8 @@ async function mergeNativeWears(){
   try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
   const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
   const mine=new Set(wearLog.filter(w=>!w.marked).map(dayKey));
+  // Before they are marked seen: once folded, an undo may stand against them.
+  await settleSkips(q.filter(e=>!nativeSeen.has(e.key)));
   let folded=false;
   for(const e of q){
     if(nativeSeen.has(e.key)) continue;          // folded before — an undo since must stand
@@ -1801,7 +1828,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.48";
+const WEB_BUILD="1.49";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1957,6 +1984,7 @@ function fbRevert(rating){
     Math.round((tempOffset-FB_RATE*d)*100)/100));
 }
 async function saveFeedback(){
+  await settleSkips();                          // before old ratings are pruned
   feedback=feedback.slice(-FB_KEEP);            // same hygiene rule as the wear-log
   await prefSet("oa.tempOffset",String(tempOffset));
   await prefSet("oa.feedback",JSON.stringify(feedback));
@@ -1977,6 +2005,144 @@ function renderFeedback(){
   const t=todaysRating();
   [...document.querySelectorAll("#fbRow button")].forEach(b=>
     b.classList.toggle("on", t!==null && +b.dataset.r===t.rating));
+  renderSkip();
+}
+
+/* ───────── "I didn't wear this" — and why (user, 2026-10-16) ─────────
+   Rebuilt from August's keepscan "not taken". A SECOND channel beside the thermal
+   row, not a sixth point on it: the offset is tuned from how a WORN outfit felt, and
+   "too formal for my day" is not a temperature. The reason goes to the advisor as
+   words, `skipped` on /advice; the phone keeps the history, the server stays
+   stateless. No cold/warm presets: the offset already moves the temperatures, and
+   saying it again in words would correct twice.
+
+   One reason per calendar day, replaceable. It is exclusive with the day's rating and
+   with wearing the suggestion — whichever came LATER stands. A later rating or
+   "Wearing it" deletes the reason: here at once, or, from the notification (which
+   never writes this key), by settleSkips() when the page next folds its evidence.
+   Kotlin twin: AdviceWorker.recentSkips(). */
+const SKIP_KEEP=20, SKIP_SEND=5, SKIP_MAX=80;
+/* A reason has a shelf life, the same 14 days the notification keeps its wears: past
+   that, the evidence that would cancel it may be pruned, so it is not sent at all —
+   and a reason from three weeks ago is stale advice anyway (pre-push reviewer,
+   2026-10-16). Kotlin twin: AdviceWorker.SKIP_DAYS. */
+const SKIP_DAYS=14;
+const SKIP_REASONS=["Too formal for my day","Too casual for my day","Plans changed","Didn't feel like it"];
+let skipLog=[];     // {at: epoch-ms, day: "YYYY-MM-DD", reason}
+let skipPick=null;  // preset chosen in the open sheet
+function skipDead(s){
+  // A rating the same day, given after the skip, says the outfit was worn after all.
+  // (Read as dead until settleSkips() deletes it; wears are settled on the tap.)
+  return feedback.some(f=>f&&Number.isFinite(f.at)&&f.at>s.at&&dayISO(f.at)===s.day);
+}
+function liveSkips(){ const since=Date.now()-SKIP_DAYS*DAY_MS;
+  return skipLog.filter(s=>s&&s.reason&&s.at>since&&!skipDead(s)); }
+function todaysSkip(){ return liveSkips().find(s=>s.day===todayISO())||null; }
+/* Delete, for good, every skip that something later that day contradicted: a rating
+   given after it, or a notification "Wearing it" tapped after it. Hiding them was not
+   enough — the evidence that hid them does not last (a calibration reset clears the
+   ratings, the queue and the day record are pruned or overwritten) and the reason came
+   back (pre-push reviewer, 2026-10-16). Run before that evidence can go: before the
+   ratings are saved or reset, and before native wears are folded. `queue` is the
+   notification wears not folded yet. Read from disk, so a page that has not loaded
+   oa.skipped yet cannot write it empty. */
+async function settleSkips(queue=[]){
+  return editSkips(async log=>{
+    if(!log.length) return null;
+    let fb=[]; try{ fb=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ fb=[]; }
+    const later=(at,x)=>Number.isFinite(at)&&at>x.at&&dayISO(at)===x.day;
+    const kept=log.filter(x=>!(x&&(fb.some(f=>f&&later(f.at,x))||queue.some(e=>later(e.wornAt,x)))));
+    return kept.length===log.length?null:kept;
+  });
+}
+/* EVERY change to oa.skipped goes through here, one at a time, starting from what is
+   on disk: settling runs from resume and from advice requests, and with its own awaits
+   it could otherwise commit an older snapshot over a reason saved meanwhile (pre-push
+   reviewer, 2026-10-16). `fn(log)` returns the new log, or null for no change. */
+let skipChain=Promise.resolve();
+function editSkips(fn){
+  skipChain=skipChain.then(async()=>{
+    let log=[]; try{ log=JSON.parse(await prefGet("oa.skipped","[]"))||[]; }catch(e){ log=[]; }
+    const next=await fn(log);
+    if(!next) return;
+    skipLog=next.slice(-SKIP_KEEP);
+    await prefSet("oa.skipped",JSON.stringify(skipLog));
+  }).catch(()=>{});
+  return skipChain;
+}
+/* Withdraw today's reason — only one saved BEFORE `tapAt`, the moment the withdrawing
+   action was tapped. Rating, wearing and saving all queue work behind awaits, and
+   finishing order is not tap order: an earlier rating still saving must not delete
+   a reason saved after it (pre-push reviewer, 2026-10-16). */
+/* Tap times that never tie: two taps in one millisecond still have an order. */
+let lastTap=0;
+function tapClock(){ lastTap=Math.max(Date.now(),lastTap+1); return lastTap; }
+const dropTodaysSkip=(tapAt=tapClock())=>editSkips(log=>{
+  const gone=s=>s&&s.day===todayISO()&&s.at<tapAt;
+  return log.some(gone)?log.filter(s=>!gone(s)):null;
+});
+function saveSkips(){ const mine=skipLog; return editSkips(()=>mine); }
+function renderSkip(){
+  const btn=$("fbSkip"), note=$("skipNote"); if(!btn||!note) return;
+  // Not once the suggestion is logged as worn: "Wearing it" already answered.
+  const wore=!!wearRecord()&&!wornDiffers();
+  const sk=todaysSkip();
+  // …unless a reason for today stands: then this is its only editor.
+  btn.style.display=lastOutfit&&(!wore||sk)?"":"none";
+  btn.textContent=sk?"Marked as not worn — change":"I didn't wear this";
+  note.style.display=sk?"":"none";
+  note.textContent=sk?`Noted: “${sk.reason}”. The advisor sees your last ${SKIP_SEND} reasons.`:"";
+}
+function paintSkipReasons(){
+  $("skReasons").innerHTML=SKIP_REASONS.map(r=>
+    `<button class="ghost${skipPick===r?" on":""}" data-sk="${esc(r)}" style="padding:7px 11px">${esc(r)}</button>`).join("");
+}
+function openSkip(){
+  if(!lastOutfit) return;
+  const sk=todaysSkip(), prev=sk?sk.reason:null;
+  skipPick=SKIP_REASONS.includes(prev)?prev:null;
+  $("skFree").value=prev&&!skipPick?prev:"";
+  $("skErr").textContent="";
+  $("skClear").style.display=sk?"":"none";
+  paintSkipReasons();
+  $("skipWrap").classList.add("show");
+}
+/* Through the ratings' queue, reading the shared pair back first, as rateDay does:
+   the notification may have rated while the page was open, and taking back a rating
+   from memory would erase that one (plan review, 2026-10-16). */
+function saveSkip(){
+  const reason=($("skFree").value.trim().slice(0,SKIP_MAX)||skipPick||"").trim();
+  if(!reason){
+    // The reason is the whole point: "not worn" alone teaches the advisor nothing.
+    $("skErr").textContent="Pick a reason or write one — that's what the advisor learns from.";
+    return Promise.resolve();
+  }
+  $("skipWrap").classList.remove("show");
+  // Queued NOW, at the tap, so a "Wearing it" tapped after it is ordered after it
+  // and withdraws it — queued behind the rating work, the wear could land first
+  // (pre-push reviewer, 2026-10-16).
+  const entry={at:tapClock(),day:todayISO(),reason};
+  const saved=editSkips(log=>[...log.filter(s=>s&&s.day!==entry.day),entry]);
+  fbBusy++;
+  fbChain=fbChain.then(async()=>{
+    await reloadFeedback();
+    // Only a rating from BEFORE the tap. One given after it (from the notification)
+    // is the later verdict: it stands, and the reason is the one withdrawn.
+    const prev=todaysRating(), prevAt=prev?feedback[prev.i].at:0;
+    if(prev&&prevAt<entry.at){ fbTakeBack(prev); feedback.splice(prev.i,1); await saveFeedback(); }
+    else if(prev) await settleSkips();
+    await saved;
+    renderFeedback();
+    toast(prev&&prevAt<entry.at?"Noted — and today's warm/cold rating taken back"
+                               :"Noted — the advisor will take that into account");
+  }).catch(()=>{}).finally(()=>{ fbBusy--; });
+  return fbChain;
+}
+async function clearSkip(){
+  const tapAt=tapClock();
+  $("skipWrap").classList.remove("show");
+  await dropTodaysSkip(tapAt); renderFeedback();
+  toast("Cleared");
 }
 
 /* photos: app-private Filesystem on device, localStorage in a plain browser */
@@ -3688,6 +3854,9 @@ async function getAdvice(lat,lon){
   // What the notification logged, folded in BEFORE the closet and the recent wears
   // are read for the request (pre-push reviewer, 2026-10-11).
   await mergeNativeWears();
+  // A rating or a reason still being written belongs in THIS request: the sheet
+  // closes before its save finishes (pre-push reviewer, 2026-10-16).
+  await fbChain; await skipChain;
   // Stamped when the wardrobe snapshot is taken, not when the answer lands: a
   // suitcase declared while the request is in flight is NEWER than this advice,
   // whatever the clock says at completion (the pre-push reviewer, 2026-09-10).
@@ -3739,6 +3908,10 @@ async function getAdvice(lat,lon){
     // `shown` would also push away the picks they were happy with.
     if(cl.length&&!replanFromLaundry){ const sn=shownNow(); if(sn) body.shown=sn; }
     if(cl.length){ const sv=styleSummary(cl.map(i=>i.id)); if(sv) body.styleVotes=sv; }
+    // Why recent suggestions went unworn, newest last — with or without a closet,
+    // since "too formal for my day" applies to generic advice just as well.
+    const sk=liveSkips().slice(-SKIP_SEND).map(s=>String(s.reason).slice(0,SKIP_MAX));
+    if(sk.length) body.skipped=sk;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -4637,6 +4810,7 @@ function syncWearBtn(){
   wb.style.display=(lastPickIds.length||wornLogged)?"":"none";
   wb.textContent=wornLogged?"Logged — tap to undo"
                            :"Wearing it — update my rotation";
+  renderSkip();   // "I didn't wear this" hides once the suggestion is logged as worn
 }
 
 /* One writer at a time for the day's record. Both this sheet and the button toggle
@@ -4646,6 +4820,7 @@ function syncWearBtn(){
    emptied and the record still saying logged, which the next launch restored. */
 let woreBusy=false;
 async function saveWore(){
+  const tapAt=tapClock();
   if(woreBusy) return;
   if(!woreDraft){ $("woreWrap").classList.remove("show"); return; }
   // One garment is worn in ONE place. A shirt that can play base or mid appears in
@@ -4698,6 +4873,9 @@ async function saveWore(){
   await saveCloset();
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
   await saveWoreLogged();
+  // Saved as suggested is "Wearing it" by another route: today's reason is withdrawn.
+  // A genuinely different outfit keeps it — the suggestion still went unworn.
+  if(!wornDiffers()) await dropTodaysSkip(tapAt);
   $("woreWrap").classList.remove("show");
   lastPickIds=[...new Set(CATS.map(c=>woreDraft[c]).filter(Boolean))];
   syncWearBtn();   // owns the label, the visibility and wornLogged
@@ -5653,6 +5831,9 @@ async function load(){
   const off=parseFloat(await prefGet("oa.tempOffset","0"));
   tempOffset=Number.isFinite(off)?Math.max(-FB_CLAMP,Math.min(FB_CLAMP,off)):0;
   try{ feedback=JSON.parse(await prefGet("oa.feedback","[]"))||[]; }catch(e){ feedback=[]; }
+  try{ skipLog=(JSON.parse(await prefGet("oa.skipped","[]"))||[])
+         .filter(s=>s&&Number.isFinite(s.at)&&typeof s.day==="string"&&typeof s.reason==="string"); }
+  catch(e){ skipLog=[]; }
   try{ closetFolded=new Set(JSON.parse(await prefGet("oa.closetFolded","[]"))||[]); }catch(e){ closetFolded=new Set(); }
   try{ calAcctOpen=new Set(JSON.parse(await prefGet("oa.calAcctOpen","[]"))||[]); }catch(e){ calAcctOpen=new Set(); }
   try{ const h=await prefGet("oa.home",""); home=h?JSON.parse(h):null; }catch(e){ home=null; }
@@ -6376,6 +6557,7 @@ $("inWashCancel").onclick=()=>$("inWashWrap").classList.remove("show");
 $("inWashWrap").onclick=e=>{ if(e.target===$("inWashWrap")) $("inWashWrap").classList.remove("show"); };
 $("inWashSave").onclick=()=>saveInWash();
 $("dWear").onclick=async()=>{
+  const tapAt=tapClock();
   if(woreBusy) return;
   woreBusy=true;
   try{
@@ -6398,6 +6580,10 @@ $("dWear").onclick=async()=>{
     // and the corrected outfit was added beside it.
     woreLogged={...((lastRes&&lastRes.picks)||{})};
     await saveWoreLogged();
+    // Wearing it, AFTER saying it went unworn: today's reason is withdrawn. Here, on
+    // the tap, and never on a render — a re-roll that lands on an outfit already
+    // logged is not a wear (pre-push reviewer, 2026-10-16).
+    await dropTodaysSkip(tapAt);
     syncWearBtn();
     // The record now exists, but it IS the advice — so the card needs no redraw,
     // only the banner asked whether there is a correction to announce.
@@ -6447,7 +6633,7 @@ $("updLater").onclick=async()=>{
    start from the same state and the second would erase the first. In order, a
    quick change of mind lands as the final verdict. */
 let fbChain=Promise.resolve(), fbBusy=0;
-async function rateDay(rating){
+async function rateDay(rating,tapAt=tapClock()){
   await reloadFeedback();              // the notification may have rated meanwhile
   // A second verdict the SAME DAY replaces the first, whichever side gave it:
   // revert the delta already applied, then apply the new one. Without this,
@@ -6464,7 +6650,11 @@ async function rateDay(rating){
   }
   const from=tempOffset;
   fbApply(rating);
-  feedback.push({at:Date.now(),rating,from});
+  // Stamped at the TAP: a reason saved while this was queued is newer, and must
+  // neither be withdrawn by it nor read as contradicted by it.
+  feedback.push({at:tapAt,rating,from});
+  // Rating how it felt means it was worn: today's "didn't wear this" goes.
+  await dropTodaysSkip(tapAt);
   await saveFeedback(); renderFeedback();
   const sign=tempOffset>0?"+":"";
   toast(rating===0 ? (prev?"Changed — keeping this calibration":"Noted — keeping this calibration")
@@ -6472,9 +6662,9 @@ async function rateDay(rating){
 }
 $("fbRow").onclick=e=>{
   const b=e.target.closest("button"); if(!b) return;
-  const rating=+b.dataset.r;
+  const rating=+b.dataset.r, tapAt=tapClock();
   fbBusy++;
-  fbChain=fbChain.then(()=>rateDay(rating)).catch(()=>{}).finally(()=>{ fbBusy--; });
+  fbChain=fbChain.then(()=>rateDay(rating,tapAt)).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 };
 /* Through the same queue as the ratings: a reset tapped while a rating is still
@@ -6484,12 +6674,27 @@ $("fbNote").onclick=()=>{
   if(!feedback.length) return;
   fbBusy++;
   fbChain=fbChain.then(async()=>{
+    await settleSkips();                // the ratings being cleared still say "worn"
     tempOffset=0; feedback=[];
     await saveFeedback(); renderFeedback();
     toast("Calibration reset");
   }).catch(()=>{}).finally(()=>{ fbBusy--; });
   return fbChain;
 };
+
+/* ── "I didn't wear this" wiring ── */
+$("fbSkip").onclick=openSkip;
+$("skReasons").onclick=e=>{
+  const b=e.target.closest("button[data-sk]"); if(!b) return;
+  skipPick=skipPick===b.dataset.sk?null:b.dataset.sk;   // tap again to deselect
+  if(skipPick) $("skFree").value="";                    // one reason, not two competing
+  $("skErr").textContent=""; paintSkipReasons();
+};
+$("skFree").oninput=()=>{ if($("skFree").value.trim()&&skipPick){ skipPick=null; paintSkipReasons(); } };
+$("skSave").onclick=()=>saveSkip();
+$("skClear").onclick=()=>clearSkip();
+$("skCancel").onclick=()=>$("skipWrap").classList.remove("show");
+$("skipWrap").onclick=e=>{ if(e.target===$("skipWrap")) $("skipWrap").classList.remove("show"); };
 
 /* ── trips wiring ── */
 $("homeBtn").onclick=setHomeFromHere;

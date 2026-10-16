@@ -356,7 +356,7 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     check("and drops it, so the day keeps one entry", /log\.remove\(prevIdx\)/.test(kt));
     check("the new entry uses the same clock as the day test", /put\("at", now\)/.test(kt));
     check("it records the offset a rating started from, as the app does",
-      /\.put\("from", round2\(current\)\)/.test(kt) && /feedback\.push\(\{at:Date\.now\(\),rating,from\}\)/.test(SRC));
+      /\.put\("from", round2\(current\)\)/.test(kt) && /feedback\.push\(\{at:(Date\.now\(\)|tapAt),rating,from\}\)/.test(SRC));   // tapAt: stamped at the tap (2026-10-16)
     check("and replaces by restoring it, falling back to the step for old entries",
       /optDouble\("from", Double\.NaN\)/.test(kt) && /if \(!from\.isNaN\(\)\) clamp\(from\)/.test(kt));
   }

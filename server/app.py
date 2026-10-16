@@ -139,7 +139,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     if req.closet:
         items = [i.model_dump() for i in req.closet]
         prefs = style.look_of(pk.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
-                              [p.model_dump() for p in req.prefers], req.shown), req, t0)
+                              [p.model_dump() for p in req.prefers], req.shown, req.skipped), req, t0)
         result = await advisor.dress(wc, items, prefs, req.recent)
         if result is not None:
             text = result["text"]
@@ -209,7 +209,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     if text:
         source = "llm" if closet_used else "none"
     else:
-        text = await llm.outfit_text(wc, req.gender, req.style, req.occasion)
+        text = await llm.outfit_text(wc, req.gender, req.style, req.occasion, req.skipped)
         source = "llm"
     if not text:
         text = engine.outfit_to_bullets(outfit)
@@ -227,7 +227,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         # diagnosing this very endpoint on 2026-08-30, who took `closet=1/15` for
         # "one item of fifteen made it through".
         "advice ok src=%s day=%s tz=%s lo=%s hi=%s off=%s source=%s closetUsed=%s "
-        "items=%s %.2fs",
+        "items=%s skipped=%s %.2fs",
         _clean(x_oa_client, 24) or "?",
         req.day,
         w.get("timezone"),
@@ -237,6 +237,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         source,
         "yes" if closet_used else "no",
         len(req.closet or []),
+        len(req.skipped),  # a count only: the reasons are the wearer's own words
         dt,
     )
 

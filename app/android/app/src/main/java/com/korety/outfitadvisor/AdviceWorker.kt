@@ -294,6 +294,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 .put("tempOffset", tempOffset.coerceIn(-6.0, 6.0))
                 .also { b -> EveningOut.until(applicationContext)?.let { b.put("outUntil", it) } }
                 .also { attachWardrobe(it) }
+                .also { b -> recentSkips().takeIf { it.length() > 0 }?.let { b.put("skipped", it) } }
                 .toString()
             conn = (URL("$base/advice").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -575,6 +576,56 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         if (occasion == "office") prefs.getString("oa.styleOffice", "smart") ?: "smart"
         else prefs.getString("oa.style", "casual") ?: "casual"
 
+    /**
+     * Why recent suggestions went unworn, newest last — twin of liveSkips() in
+     * index.html (user, 2026-10-16). The morning push is the request made most days,
+     * so a reason given yesterday has to reach it, or tomorrow's push proposes the
+     * very thing that was turned down.
+     *
+     * Read only: the app writes oa.skipped. A skip the notification has since
+     * contradicted — a rating that day given after it, or a "Wearing it" tapped after
+     * it that the app has not folded yet — is left out here; the app deletes it. With or without a
+     * closet: "too formal for my day" applies to generic advice too. A corrupt log
+     * costs the reasons, never the morning.
+     */
+    private fun recentSkips(): JSONArray = try {
+        val prefs = applicationContext.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+        val log = JSONArray(prefs.getString(KEY_SKIPPED, "[]") ?: "[]")
+        val ratings = try { JSONArray(prefs.getString(FeedbackReceiver.KEY_LOG, "[]") ?: "[]") }
+                      catch (e: Exception) { JSONArray() }
+        // Notification wears the app has not folded yet. Once folded (oa.nativeSeen)
+        // the app has already settled the day's skip against them, or the wearer undid
+        // the wear — either way they are the app's, not evidence here.
+        val seen = try { JSONArray(prefs.getString(FeedbackReceiver.KEY_NATIVE_SEEN, "[]") ?: "[]") }
+                   catch (e: Exception) { JSONArray() }
+        val folded = (0 until seen.length()).map { seen.optString(it) }.toSet()
+        val queue = FeedbackReceiver.nativeQueue(prefs)
+        val wears = (0 until queue.length()).mapNotNull { queue.optJSONObject(it) }
+            .filter { it.optString("key") !in folded }.map { it.optLong("wornAt") }
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val live = ArrayList<String>()
+        for (i in 0 until log.length()) {
+            val s = log.optJSONObject(i) ?: continue
+            val reason = s.optString("reason").trim().take(SKIP_MAX)
+            val day = s.optString("day")
+            val at = s.optLong("at")
+            if (reason.isEmpty() || day.isEmpty()) continue
+            // Past the window the cancelling evidence lives in, nothing is sent.
+            if (System.currentTimeMillis() - at >= SKIP_DAYS * 86_400_000L) continue
+            val ratedLater = (0 until ratings.length()).any { j ->
+                val f = ratings.optJSONObject(j) ?: return@any false
+                val fa = f.optLong("at")
+                fa > at && fmt.format(java.util.Date(fa)) == day
+            }
+            // "Wearing it" on that day's push, tapped after the skip
+            val woreLater = wears.any { it > at && fmt.format(java.util.Date(it)) == day }
+            if (!ratedLater && !woreLater) live.add(reason)
+        }
+        JSONArray(live.takeLast(SKIP_SEND))
+    } catch (e: Exception) {
+        JSONArray()
+    }
+
     private fun today(): String =
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             .format(java.util.Date())
@@ -617,6 +668,13 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         const val KEY_UPD_NOTIFIED = "oa.updNotified"
         /** Twin of TODAY_KEY in index.html — both sides write this one key. */
         const val KEY_TODAY = "oa.today"
+        /** Twin of "oa.skipped" in index.html — the app writes it, this reads it. */
+        const val KEY_SKIPPED = "oa.skipped"
+        /** Twins of SKIP_SEND / SKIP_MAX in index.html; the server keeps the newest 5. */
+        const val SKIP_SEND = 5
+        const val SKIP_MAX = 80
+        /** Twin of SKIP_DAYS in index.html — FeedbackReceiver's QUEUE_DAYS window. */
+        const val SKIP_DAYS = 14
         /** Twin of PUSH_PAYLOAD_KEY in index.html — the app writes it, this reads it. */
         const val KEY_PUSH_PAYLOAD = "oa.pushPayload"
         /** Twin of "oa.closetComplete" in index.html — the tickbox, read directly. */

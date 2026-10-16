@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import publish_apk
@@ -39,6 +40,26 @@ STATE = STATE_DIR / "last_run"
 FAILS = STATE_DIR / "consecutive_failures"
 ALERT_AFTER = 6  # ticks: an hour at the timer's 10 minutes
 REMIND_EVERY = 144  # ticks: a day
+# Every child process shares one budget, kept well inside the unit's
+# TimeoutStartSec (1200s). If systemd's kill came first, a hung publish (waiting on
+# a hand-run publisher's lock, say) would die before guarded_run() counted it, and
+# the failure alert would never fire. apk_cert's own 120s apksigner call fits in
+# the margin as well.
+BUDGET_S = 900
+_deadline = time.monotonic() + BUDGET_S
+
+
+def _run(argv: list[str], timeout: float, check: bool = True,
+         budgeted: bool = True) -> subprocess.CompletedProcess:
+    """The one place this script starts a process: each call gets its own timeout,
+    clipped to whatever is left of the run's budget. Telegram is unbudgeted, since
+    the alert about a spent budget is exactly the message that must still go out."""
+    if budgeted:
+        left = _deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"run budget of {BUDGET_S}s spent before {Path(argv[0]).name}")
+        timeout = min(timeout, left)
+    return subprocess.run(argv, check=check, capture_output=True, text=True, timeout=timeout)
 
 
 def gh(*args: str) -> str:
@@ -46,7 +67,7 @@ def gh(*args: str) -> str:
     exe = shutil.which("gh")
     if exe is None:
         raise FileNotFoundError("gh is not on PATH")
-    return subprocess.run([exe, *args], check=True, capture_output=True, text=True, timeout=300).stdout
+    return _run([exe, *args], timeout=300).stdout
 
 
 def latest_green_run() -> dict | None:
@@ -95,7 +116,10 @@ def decide(run_id: int, last_run: int | None, apk_code: int | None, live_code: i
 
 def notify(text: str) -> None:
     # A failed notification must not undo a publish that already happened.
-    subprocess.run([str(NOTIFY), text], check=False, timeout=60)
+    try:
+        _run([str(NOTIFY), text], timeout=60, check=False, budgeted=False)
+    except (subprocess.SubprocessError, TimeoutError) as e:
+        print(f"telegram notification failed: {e}", file=sys.stderr)
 
 
 def read_state() -> int | None:
@@ -149,8 +173,8 @@ def run() -> int:
             return 1
 
         notes = release_notes(run_info["headSha"], run_info["displayTitle"])
-        res = subprocess.run([sys.executable, str(Path(__file__).with_name("publish_apk.py")),
-                              str(apk), "--notes", notes], capture_output=True, text=True, timeout=600)
+        res = _run([sys.executable, str(Path(__file__).with_name("publish_apk.py")),
+                    str(apk), "--notes", notes], timeout=600, check=False)
     print(res.stdout, res.stderr, sep="")
     if res.returncode != 0:
         tail = (res.stderr.strip() or res.stdout.strip()).splitlines()[-1:] or ["no output"]
@@ -186,6 +210,8 @@ def guarded_run() -> int:
     """run(), with failures counted. Without this a timer that can no longer reach
     GitHub (token revoked, keyring locked after a reboot) fails silently forever,
     which is the very failure this script exists to end."""
+    global _deadline
+    _deadline = time.monotonic() + BUDGET_S
     before = read_fails()
     try:
         rc = run()

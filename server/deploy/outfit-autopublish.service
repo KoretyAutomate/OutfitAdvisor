@@ -10,6 +10,7 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=/home/korety/Project/outfit-advisor/server
 ExecStart=/home/korety/miniconda3/bin/python3 /home/korety/Project/outfit-advisor/server/autopublish.py
-# Downloading a ~15 MB artifact plus apksigner; anything longer is a hang.
-TimeoutStartSec=600
+# autopublish.py stops its own children at 900s (BUDGET_S) so it can still count
+# and report the failure; this is only the backstop for a hang in Python itself.
+TimeoutStartSec=1200
 Nice=10

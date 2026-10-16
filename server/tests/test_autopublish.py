@@ -1,4 +1,10 @@
 """autopublish.py (2026-10-14): when a green CI build reaches the phone, and when it must not."""
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+
 import autopublish
 
 
@@ -89,3 +95,30 @@ def test_a_bad_apk_that_exits_is_a_counted_failure_not_a_crash(monkeypatch, tmp_
     monkeypatch.setattr(autopublish, "run", bad)
     assert autopublish.guarded_run() == 1
     assert autopublish.read_fails() == 1
+
+
+def test_a_spent_budget_stops_the_next_step_but_never_the_alert(monkeypatch):
+    """systemd's TimeoutStartSec kills the whole unit; the budget must run out first
+    so guarded_run() can still count the failure and send the alert (Codex, 2026-10-16)."""
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append((argv[0], kw["timeout"])))
+    monkeypatch.setattr(autopublish, "_deadline", time.monotonic() - 1)
+    with pytest.raises(TimeoutError):
+        autopublish._run(["gh", "run", "list"], timeout=300)
+    autopublish.notify("budget spent")
+    assert calls == [(str(autopublish.NOTIFY), 60)]
+
+
+def test_a_step_never_outlives_the_budget(monkeypatch):
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: seen.append(kw["timeout"]))
+    monkeypatch.setattr(autopublish, "_deadline", time.monotonic() + 30)
+    autopublish._run(["gh"], timeout=300)
+    assert 0 < seen[0] <= 30
+
+
+def test_the_budget_leaves_room_inside_the_unit_timeout():
+    unit = (Path(autopublish.__file__).parent / "deploy" / "outfit-autopublish.service").read_text()
+    stop = int(next(ln.split("=")[1] for ln in unit.splitlines() if ln.startswith("TimeoutStartSec=")))
+    # + apksigner's own 120s, + one Telegram call
+    assert stop > autopublish.BUDGET_S + 120 + 60

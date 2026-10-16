@@ -49,6 +49,7 @@ import advisor
 import cutout
 import engine
 import llm
+import local_llm
 import packing as trippack  # the route below is itself named `packing`
 import packlist
 import rules
@@ -107,14 +108,7 @@ app.include_router(cutout.router)
 
 @app.get("/health")
 async def health():
-    vllm_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get("http://127.0.0.1:8000/v1/models")
-            vllm_ok = r.status_code == 200
-    except Exception:
-        vllm_ok = False
-    return {"ok": True, "vllm": vllm_ok}
+    return {"ok": True, "vllm": await local_llm.serving()}
 
 
 @app.post("/advice")

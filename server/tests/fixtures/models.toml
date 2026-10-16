@@ -1,0 +1,5 @@
+# Test stand-in for ~/.config/local-llm/models.toml (conftest points LOCAL_LLM_CONFIG here).
+[smart]
+base_url = "http://127.0.0.1:9/v1"        # closed port: a test that forgets to stub the model fails fast, never reaches vLLM
+model    = "test/vision-model"
+vision   = true

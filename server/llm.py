@@ -1,5 +1,6 @@
 """
-llm.py — outfit text from the local vLLM Qwen3.5-122B (OpenAI-compatible API).
+llm.py — outfit text from the local vLLM model (OpenAI-compatible API). Which model
+and where comes from ~/.config/local-llm/models.toml (local_llm.py).
 
 CRITICAL (verified empirically 2026-06-29): Qwen3.5 defaults to "thinking mode",
 which burns the whole token budget on a hidden reasoning trace and returns EMPTY
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 import engine
+import local_llm
 import style as style_mod
 
 from vocab import CATEGORIES, FABRICS, GROUPS, STYLES, TYPES
@@ -32,10 +34,6 @@ if TYPE_CHECKING:                       # only here to name the type in a signat
 # privacy invariant is that item labels never reach the logs. Ids only.
 log = logging.getLogger("outfit.llm")
 
-VLLM_URL = "http://127.0.0.1:8000/v1/chat/completions"
-MODEL = "Intel/Qwen3.5-122B-A10B-int4-AutoRound"
-
-
 
 async def _chat(messages: list, max_tokens: int, timeout: int = 45,
                 temperature: float = 0.4) -> str | None:
@@ -44,8 +42,13 @@ async def _chat(messages: list, max_tokens: int, timeout: int = 45,
     returned the same outfit four times in four, so a request that says "show me
     something else" has to sample off the peak or the sampler argues with the
     instruction. Raised there, per request; never here."""
+    try:
+        url, model = local_llm.endpoint()
+    except local_llm.LocalLLMConfigError as e:
+        log.warning("local LLM config unusable (%s) — no reply", e)
+        return None
     payload = {
-        "model": MODEL,
+        "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -53,7 +56,7 @@ async def _chat(messages: list, max_tokens: int, timeout: int = 45,
     }
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(VLLM_URL, json=payload)
+            r = await client.post(url, json=payload)
             r.raise_for_status()
             body = r.json()
             choice = body["choices"][0]

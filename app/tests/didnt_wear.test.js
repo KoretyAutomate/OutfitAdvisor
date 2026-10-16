@@ -264,6 +264,28 @@ function capture(w) {
   const last8 = sent8[sent8.length - 1];
   check("sent with the reason", JSON.stringify(last8.skipped) === JSON.stringify(["Plans changed"]), last8.skipped);
 
+  console.log("\n--- 18. save a reason, then tap 'Wearing it': the later tap wins ---");
+  const w9 = page(); await w9.eval("appReady");
+  await w9.eval(`closet=${JSON.stringify(CLOSET)}; wearLog=[]; lastWorn={}; saveCloset()`);
+  w9.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(w9); await w9.eval("run()"); await drain();
+  await w9.document.getElementById("fbRow").onclick({target: w9.document.querySelector('#fbRow button[data-r="1"]')});
+  // The reviewer's reproduction: the save's feedback read is slow.
+  w9.eval(`window.__gate=new Promise(r=>window.__open=r); window.__held=false;
+    const realGet9=prefGet; prefGet=async(k,d)=>{
+      if(k==="oa.feedback"&&!window.__held){ window.__held=true; await window.__gate; }
+      return realGet9(k,d); }`);
+  w9.document.getElementById("fbSkip").onclick();
+  w9.document.getElementById("skFree").value = "Plans changed";
+  const saving9 = w9.document.getElementById("skSave").onclick();
+  const wearing9 = w9.document.getElementById("dWear").onclick();
+  for (let i = 0; i < 20; i++) await drain();
+  w9.eval("window.__open()");
+  await saving9; await wearing9; await w9.eval("skipChain");
+  check("the wear is logged", !!w9.eval("wearRecord()"));
+  check("and the reason it came after is withdrawn",
+    JSON.parse(await w9.eval(`prefGet("oa.skipped","[]")`)).length === 0 && w9.eval("liveSkips().length") === 0);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

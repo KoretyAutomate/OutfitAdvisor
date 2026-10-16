@@ -2109,13 +2109,17 @@ function saveSkip(){
     return Promise.resolve();
   }
   $("skipWrap").classList.remove("show");
+  // Queued NOW, at the tap, so a "Wearing it" tapped after it is ordered after it
+  // and withdraws it — queued behind the rating work, the wear could land first
+  // (pre-push reviewer, 2026-10-16).
+  const entry={at:Date.now(),day:todayISO(),reason};
+  const saved=editSkips(log=>[...log.filter(s=>s&&s.day!==entry.day),entry]);
   fbBusy++;
   fbChain=fbChain.then(async()=>{
     await reloadFeedback();
     const prev=todaysRating();
     if(prev){ fbTakeBack(prev); feedback.splice(prev.i,1); await saveFeedback(); }
-    const entry={at:Date.now(),day:todayISO(),reason};
-    await editSkips(log=>[...log.filter(s=>s&&s.day!==entry.day),entry]);
+    await saved;
     renderFeedback();
     toast(prev?"Noted — and today's warm/cold rating taken back":"Noted — the advisor will take that into account");
   }).catch(()=>{}).finally(()=>{ fbBusy--; });

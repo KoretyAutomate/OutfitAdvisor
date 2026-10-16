@@ -234,6 +234,7 @@ function capture(w) {
   ev("renderFeedback(); syncWearBtn()");          // the card shows A, which is logged
   await ev("skipChain");
   check("B's reason survives a render", JSON.parse(await ev(`prefGet("oa.skipped","[]")`)).some(x => x.reason === "about B"));
+  check("…and stays editable", $("fbSkip").style.display === "");
 
   console.log("\n--- 16. the correction sheet: as suggested withdraws, different keeps -");
   for (const [swap, keep] of [[false, false], [true, true]]) {
@@ -249,6 +250,19 @@ function capture(w) {
     const has = JSON.parse(await wx.eval(`prefGet("oa.skipped","[]")`)).length === 1;
     check(swap ? "a different outfit keeps the reason" : "saved as suggested withdraws it", has === keep);
   }
+
+  console.log("\n--- 17. a reason saved just before asking is in that request -----");
+  const w8 = page(); await w8.eval("appReady");
+  await w8.eval(`closet=${JSON.stringify(CLOSET)}; saveCloset()`);
+  w8.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  const sent8 = capture(w8); await w8.eval("run()"); await drain();
+  await w8.document.getElementById("fbRow").onclick({target: w8.document.querySelector('#fbRow button[data-r="1"]')});
+  w8.document.getElementById("fbSkip").onclick();
+  w8.document.getElementById("skFree").value = "Plans changed";
+  const both = [w8.document.getElementById("skSave").onclick(), w8.eval("run()")];
+  await Promise.all(both); await drain();
+  const last8 = sent8[sent8.length - 1];
+  check("sent with the reason", JSON.stringify(last8.skipped) === JSON.stringify(["Plans changed"]), last8.skipped);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

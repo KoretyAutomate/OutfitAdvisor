@@ -962,6 +962,7 @@ const state = { city:"", lat:null, lon:null, place:"", gender:"man", style:"casu
                 baseUrl:DEFAULT_BASE, pushTime:"06:45", pushEnabled:false, useGps:false };
 let lastWeather=null, lastOutfit=null, lastText="", lastSource="", lastRes=null;
 let lastPickIds=[], wornLogged=false;
+let cardPickIds=[];   // closet garments on the card as drawn (drawOutfit)
 /* Is the outfit card showing what was WORN rather than what was advised? Only ever
    true alongside a record for today — see wornOverlay. */
 let wornView=false;
@@ -3856,7 +3857,6 @@ function renderOutfit(o,text,source,res){
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
   $("dWore").style.display=closet.length?"":"none";
-  $("dLaundry").style.display=lastPickIds.some(id=>closet.some(i=>i.id===id))?"":"none";
   // There is now an outfit to differ from, so the button offers to.
   syncGoBtn();
   // A fresh render is a fresh suggestion, and the card is about THAT until the
@@ -3891,6 +3891,13 @@ function drawOutfit(o,res){
   const advice=(res&&res.picks)?res.picks:{};
   const view=(wornView&&wearRecord())?wornOverlay(o,advice):null;
   const shown=view?view.outfit:o, pickOf=view?view.picks:advice;
+  // What the laundry sheet offers is what this card SHOWS — not lastPickIds, which
+  // after "I wore something else" holds the worn outfit while "See the suggestion"
+  // shows the advice (pre-push reviewer, 2026-10-16). Only on a suggestion: the worn
+  // view is already in the laundry, and re-planning it would answer nothing asked.
+  cardPickIds=view?[]:[...new Set(Object.values(pickOf).filter(Boolean))]
+    .filter(id=>closet.some(i=>i.id===id));
+  $("dLaundry").style.display=cardPickIds.length?"":"none";
   // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
   // recognises their own clothes — the photo is (user, 2026-08-16; made the
   // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
@@ -6347,7 +6354,7 @@ $("woreSave").onclick=()=>{ saveWore(); };
    copy would only be recommended straight back. The marks are the Closet sheet's own
    (setWaiting), so "Laundry done" and that sheet see them as usual. */
 function openInWash(){
-  const picks=lastPickIds.map(id=>closet.find(i=>i.id===id)).filter(Boolean);
+  const picks=cardPickIds.map(id=>closet.find(i=>i.id===id)).filter(Boolean);
   if(!picks.length) return;
   $("inWashList").innerHTML=picks.map(i=>`<label class="calRow" style="padding-left:0;align-items:center;gap:8px">
       <input type="checkbox" data-id="${esc(i.id)}"><span style="flex:1">${esc(i.label)}</span></label>`).join("");

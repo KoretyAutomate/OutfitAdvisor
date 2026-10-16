@@ -127,6 +127,30 @@ function capture(w, next) {
   check("the navy tee's stepper says 2", dirty("tee") && dirty("tee").querySelector("b") &&
     dirty("tee").querySelector("b").textContent === "2");
 
+  console.log("\n--- 7. after \"I wore something else\": the sheet follows the card ---");
+  /* Pre-push reviewer, 2026-10-16: lastPickIds holds the WORN outfit after a
+     correction, while "See the suggestion" shows the advice. */
+  const w2 = page();
+  await w2.eval("appReady");
+  const $2 = id => w2.document.getElementById(id);
+  await w2.eval(`closet=${JSON.stringify(CLOSET)}; wearLog=[]; lastWorn={}; saveCloset()`);
+  w2.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(w2, () => answer(PICKS));
+  await w2.eval("run()"); await drain();
+  $2("dWore").onclick(); await drain(); await drain();
+  const sel = w2.document.querySelector('#woreList select[data-wore="base"]');
+  sel.value = "tee2"; sel.onchange();
+  await $2("woreSave").onclick(); await drain(); await drain();
+  check("the card now shows what was worn", w2.eval("wornView") === true);
+  check("…and offers no laundry re-plan for it", $2("dLaundry").style.display === "none");
+  $2("wornToggle").onclick(); await drain();
+  check("back on the suggestion", w2.eval("wornView") === false);
+  check("the button is back", $2("dLaundry").style.display === "");
+  $2("dLaundry").onclick(); await drain();
+  const listed = [...w2.document.querySelectorAll("#inWashList input[data-id]")].map(b => b.dataset.id).sort();
+  check("it lists the SUGGESTED garments, not the worn ones",
+    JSON.stringify(listed) === JSON.stringify(["cardi", "chino", "tee"]), listed);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

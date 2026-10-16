@@ -108,18 +108,7 @@ app.include_router(cutout.router)
 
 @app.get("/health")
 async def health():
-    # Up is not enough: after the 2026-10-15 model swap vLLM answered 200 here while
-    # 404ing every chat call for the old name. Ready = the configured model is listed.
-    vllm_ok = False
-    try:
-        url, model = local_llm.endpoint()
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(url.removesuffix("/chat/completions") + "/models")
-            vllm_ok = r.status_code == 200 and any(
-                m.get("id") == model for m in r.json().get("data", []))
-    except Exception:
-        vllm_ok = False
-    return {"ok": True, "vllm": vllm_ok}
+    return {"ok": True, "vllm": await local_llm.serving()}
 
 
 @app.post("/advice")

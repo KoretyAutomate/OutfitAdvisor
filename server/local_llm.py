@@ -17,6 +17,8 @@ import os
 import tomllib
 from pathlib import Path
 
+import httpx
+
 log = logging.getLogger("outfit.llm")
 
 DEFAULT_PATH = Path.home() / ".config" / "local-llm" / "models.toml"
@@ -51,3 +53,16 @@ def endpoint(tier: str = "smart") -> tuple[str, str]:
         log.info("llm: %s @ %s (from %s)", model, base, path)
         _last = found
     return found
+
+
+async def serving(tier: str = "smart") -> bool:
+    """True only when vLLM answers AND lists the configured model. Up is not enough:
+    after the 2026-10-15 model swap vLLM answered 200 on /models while 404ing every
+    chat call for the old name, and /health said healthy throughout."""
+    try:
+        url, model = endpoint(tier)
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(url.removesuffix("/chat/completions") + "/models")
+        return r.status_code == 200 and any(m.get("id") == model for m in r.json().get("data", []))
+    except Exception:
+        return False

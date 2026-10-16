@@ -362,6 +362,11 @@
            any rating: it names the garment AND the one it beat. -->
       <button class="ghost" id="dWore" style="display:none;width:100%;padding:9px;margin-top:7px">
         I wore something else</button>
+      <!-- Picked, but in the wash (user, 2026-10-16: "today I had three recommended
+           items still in laundry"). The Closet tab's sheet lists the whole wardrobe;
+           this lists only what is on the card, where the problem is noticed. -->
+      <button class="ghost" id="dLaundry" style="display:none;width:100%;padding:9px;margin-top:7px">
+        Some of these are in the laundry</button>
       <!-- Thermal feedback: tunes oa.tempOffset, which shifts the temps the engine and
            the LLM plan against. Never shifts the weather shown above. -->
       <div class="fb">
@@ -844,6 +849,20 @@
     <div id="dirtyList"></div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="dirtySave" style="flex:2">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- In the laundry, from the outfit card (user, 2026-10-16). -->
+<div class="modal" id="inWashWrap">
+  <div class="sheet">
+    <div class="shHead"><b>Which of these are in the laundry?</b>
+      <button class="ghost" id="inWashCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
+    <p class="note" style="margin:0 0 10px">Tick what is waiting to be washed. It stays out
+      of your outfits until "Laundry done", and you get a new outfit without it.</p>
+    <div id="inWashList"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="inWashSave" style="flex:2">Save &amp; re-plan</button>
     </div>
   </div>
 </div>
@@ -1781,7 +1800,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.47";
+const WEB_BUILD="1.48";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3662,6 +3681,8 @@ function recentWorn(now=Date.now()){
   for(const [id,t] of Object.entries(lastWornAt(now))) out[id]=Math.round((today-dayStart(t))/DAY_MS);
   return out;
 }
+// True only while the outfit card's "in the laundry" re-plan is asking (saveInWash).
+let replanFromLaundry=false;
 async function getAdvice(lat,lon){
   // What the notification logged, folded in BEFORE the closet and the recent wears
   // are read for the request (pre-push reviewer, 2026-10-11).
@@ -3712,7 +3733,10 @@ async function getAdvice(lat,lon){
     // Ask again and you get something else. Sent only alongside a closet, for the
     // same reason `prefers` is: the server matches these ids against the wardrobe
     // it was handed, and there is no wardrobe here to match them against.
-    if(cl.length){ const sn=shownNow(); if(sn) body.shown=sn; }
+    // Not after "Some of these are in the laundry": the wearer ruled out the ticked
+    // garments, which are already gone from the closet sent, not the whole card. Sent,
+    // `shown` would also push away the picks they were happy with.
+    if(cl.length&&!replanFromLaundry){ const sn=shownNow(); if(sn) body.shown=sn; }
     if(cl.length){ const sv=styleSummary(cl.map(i=>i.id)); if(sv) body.styleVotes=sv; }
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
@@ -3832,6 +3856,7 @@ function renderOutfit(o,text,source,res){
   // advisor suggested nothing of theirs, which is exactly a morning they dressed
   // themselves and the app would otherwise never hear about it.
   $("dWore").style.display=closet.length?"":"none";
+  $("dLaundry").style.display=lastPickIds.some(id=>closet.some(i=>i.id===id))?"":"none";
   // There is now an outfit to differ from, so the button offers to.
   syncGoBtn();
   // A fresh render is a fresh suggestion, and the card is about THAT until the
@@ -6317,6 +6342,32 @@ $("wornToggle").onclick=()=>{ wornView=!wornView; refreshOutfitView(); };
 $("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
 $("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
 $("woreSave").onclick=()=>{ saveWore(); };
+/* "Some of these are in the laundry" (user, 2026-10-16). Every copy of a ticked
+   garment goes in: "it's in the laundry" means it can't be worn today, and a second
+   copy would only be recommended straight back. The marks are the Closet sheet's own
+   (setWaiting), so "Laundry done" and that sheet see them as usual. */
+function openInWash(){
+  const picks=lastPickIds.map(id=>closet.find(i=>i.id===id)).filter(Boolean);
+  if(!picks.length) return;
+  $("inWashList").innerHTML=picks.map(i=>`<label class="calRow" style="padding-left:0;align-items:center;gap:8px">
+      <input type="checkbox" data-id="${esc(i.id)}"><span style="flex:1">${esc(i.label)}</span></label>`).join("");
+  $("inWashWrap").classList.add("show");
+}
+async function saveInWash(){
+  const ids=[...$("inWashList").querySelectorAll("input[data-id]:checked")].map(b=>b.dataset.id);
+  $("inWashWrap").classList.remove("show");
+  if(!ids.length) return;
+  const now=Date.now();
+  for(const id of ids){ const it=closet.find(i=>i.id===id); if(it) setWaiting(it,it.count,now); }
+  await saveCloset();
+  toast(`${ids.length} in the laundry — finding you another outfit…`);
+  replanFromLaundry=true;
+  try{ await run(); } finally{ replanFromLaundry=false; }
+}
+$("dLaundry").onclick=openInWash;
+$("inWashCancel").onclick=()=>$("inWashWrap").classList.remove("show");
+$("inWashWrap").onclick=e=>{ if(e.target===$("inWashWrap")) $("inWashWrap").classList.remove("show"); };
+$("inWashSave").onclick=()=>saveInWash();
 $("dWear").onclick=async()=>{
   if(woreBusy) return;
   woreBusy=true;

@@ -344,6 +344,13 @@ class AdviceRequest(BaseModel):
     # from an older build costs the re-roll, never the morning.
     shown: dict[str, str] = Field(default_factory=dict)
     styleVotes: StyleVotes | None = None
+    # Why the wearer did NOT put on recent suggestions, in their own words (user,
+    # 2026-10-16, rebuilt from August's keepscan). The thermal offset cannot carry
+    # it: an outfit never worn has no felt temperature, and "too formal for my day"
+    # is not one. Newest last; the phone owns the history and sends the last few.
+    # Free text bound for a prompt, so it is cleaned like labels and fenced there;
+    # over-long or malformed is DROPPED, never a 422 — the morning push must not fail.
+    skipped: list[str] = Field(default_factory=list)
 
     @field_validator("recent", mode="before")
     @classmethod
@@ -352,6 +359,14 @@ class AdviceRequest(BaseModel):
             return {}
         return {str(k)[:80]: int(d) for k, d in list(v.items())[:80]
                 if isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 14}
+
+    @field_validator("skipped", mode="before")
+    @classmethod
+    def _skipped(cls, v: object) -> list:
+        if not isinstance(v, list):
+            return []
+        # Bounded BEFORE cleaning, so an over-long list costs nothing to parse.
+        return [r for r in (_clean(x, 80) for x in v[-20:] if isinstance(x, str)) if r][-5:]
 
     @field_validator("outUntil", mode="before")
     @classmethod

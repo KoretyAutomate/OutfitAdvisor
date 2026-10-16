@@ -116,10 +116,17 @@ def decide(run_id: int, last_run: int | None, apk_code: int | None, live_code: i
 
 def notify(text: str) -> None:
     # A failed notification must not undo a publish that already happened.
+    # Printed first, so the journal holds the message even when Telegram does not:
+    # a refused run is already recorded as handled and will never be looked at again.
+    print(f"notify: {text}")
     try:
-        _run([str(NOTIFY), text], timeout=60, check=False, budgeted=False)
-    except (subprocess.SubprocessError, TimeoutError) as e:
+        res = _run([str(NOTIFY), text], timeout=60, check=False, budgeted=False)
+    except (OSError, subprocess.SubprocessError) as e:
         print(f"telegram notification failed: {e}", file=sys.stderr)
+        return
+    if res.returncode != 0:
+        print(f"telegram notification failed (exit {res.returncode}): "
+              f"{(res.stderr or res.stdout).strip()}", file=sys.stderr)
 
 
 def read_state() -> int | None:

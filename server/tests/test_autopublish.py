@@ -101,7 +101,10 @@ def test_a_spent_budget_stops_the_next_step_but_never_the_alert(monkeypatch):
     """systemd's TimeoutStartSec kills the whole unit; the budget must run out first
     so guarded_run() can still count the failure and send the alert (Codex, 2026-10-16)."""
     calls = []
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append((argv[0], kw["timeout"])))
+    def fake(argv, **kw):
+        calls.append((argv[0], kw["timeout"]))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(subprocess, "run", fake)
     monkeypatch.setattr(autopublish, "_deadline", time.monotonic() - 1)
     with pytest.raises(TimeoutError):
         autopublish._run(["gh", "run", "list"], timeout=300)
@@ -122,3 +125,14 @@ def test_the_budget_leaves_room_inside_the_unit_timeout():
     stop = int(next(ln.split("=")[1] for ln in unit.splitlines() if ln.startswith("TimeoutStartSec=")))
     # + apksigner's own 120s, + one Telegram call
     assert stop > autopublish.BUDGET_S + 120 + 60
+
+
+def test_a_failed_telegram_send_is_logged_with_the_message_it_lost(monkeypatch, capsys):
+    """A refusal is recorded as handled, so if Telegram drops it the journal is the
+    only place the reason survives (Codex, 2026-10-16)."""
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(
+        argv, 1, "", "notify_telegram: Telegram API returned HTTP 401"))
+    autopublish.notify("1.48 was NOT published: wrong key")
+    out = capsys.readouterr()
+    assert "1.48 was NOT published: wrong key" in out.out
+    assert "exit 1" in out.err and "HTTP 401" in out.err

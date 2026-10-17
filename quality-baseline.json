@@ -21,7 +21,7 @@
       "limit": 0
     },
     "min:tests": {
-      "limit": 887
+      "limit": 891
     },
     "ruff:PLR0913": {
       "limit": 1

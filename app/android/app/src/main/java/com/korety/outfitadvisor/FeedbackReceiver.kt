@@ -271,6 +271,7 @@ class FeedbackReceiver : BroadcastReceiver() {
                         for (i in 0 until arr.length()) {
                             val o = arr.optJSONObject(i) ?: continue
                             if (o.optString("id") != id) continue
+                            if (neverWashed(o)) continue      // free the moment it is worn
                             var n = o.optInt("availableCount", 0)
                             val still = JSONArray()
                             val times = o.optJSONArray("freeAt")
@@ -290,6 +291,14 @@ class FeedbackReceiver : BroadcastReceiver() {
                 p.put("recentAt", recent)
                 p.toString()
             } catch (e: Exception) { null }
+        }
+        /**
+         * Footwear and accessories never go in the laundry; socks do (user, 2026-10-17).
+         * TWIN of neverWashed in index.html — payload items carry group and type.
+         */
+        fun neverWashed(o: JSONObject): Boolean {
+            val g = o.optString("group")
+            return g == "accessories" || (g == "footwear" && o.optString("type") != "socks")
         }
         // Twin of COOLDOWN_DAYS / DAY_MS in index.html: an unwashed wear holds a unit
         // for this long.

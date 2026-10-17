@@ -575,8 +575,11 @@
         <input type="text" id="shColors" placeholder="navy, white" style="width:100%">
       </div>
     </div>
+    <!-- Not for footwear and accessories, socks aside (user, 2026-10-17). -->
+    <div id="shLoadBox">
     <label class="lbl">Laundry load</label>
     <select id="shLoad" style="width:100%;margin-bottom:12px"></select>
+    </div>
     <!-- Shown only for the splits ticked in Settings → Laundry (user, 2026-10-09). -->
     <div id="shFabricBox" style="display:none">
       <label class="lbl">Fabric <span class="note" style="text-transform:none;letter-spacing:0">— for your laundry split</span></label>
@@ -1718,7 +1721,16 @@ function loadOf(it){
   if(hit) return hit.id;
   return (laundry.loads.find(l=>l.rest)||laundry.loads[laundry.loads.length-1]).id;
 }
+/* Footwear and accessories never go in the laundry (user, 2026-10-17: "Footware and
+   accessories shouldn't have any laundry field"). Socks do — filed under Footwear,
+   washed like clothes. TWIN of FeedbackReceiver.neverWashed. */
+const neverWashed=it=>!!it&&(it.group==="accessories"||(it.group==="footwear"&&it.type!=="socks"));
+/* The garment behind an id goes through the laundry: it exists, and it washes. */
+const washesId=id=>{ const it=closet.find(i=>i.id===id); return !!it&&!neverWashed(it); };
+/* A wear of a garment that is never washed holds nothing: it is free the moment it
+   is worn, and the next save prunes it, after noteWorn has kept it as history. */
 function freeAt(w){
+  if(neverWashed(closet.find(i=>i.id===w.itemId))) return w.wornAt;
   return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
                           : w.wornAt+COOLDOWN_DAYS*DAY_MS;
 }
@@ -1730,6 +1742,9 @@ function dryingWears(id){ const now=Date.now();
 function avail(it){ return Math.max(0, it.count-activeWears(it.id)); }
 function logWear(id){ const today=localDay(Date.now());          // idempotent per item per day
   if(wearLog.some(w=>w.itemId===id && !w.marked && localDay(w.wornAt)===today)) return;
+  // A never-washed garment's wear is pruned on the save, so the history says whether
+  // today is logged already.
+  if(!washesId(id)&&(Array.isArray(lastWorn[id])?lastWorn[id]:[]).some(t=>localDay(t)===today)) return;
   wearLog.push({itemId:id,wornAt:Date.now()}); }
 function unlogWearToday(id){ const today=localDay(Date.now());
   wearLog=wearLog.filter(w=>!(w.itemId===id && !w.marked && localDay(w.wornAt)===today));
@@ -1752,6 +1767,9 @@ async function mergeNativeWears(){
   try{ q=(JSON.parse(rawQ)||[]).filter(e=>e&&e.key&&e.itemId); }catch(e){ q=[]; }
   const dayKey=w=>w.itemId+"@"+localDay(w.wornAt);
   const mine=new Set(wearLog.filter(w=>!w.marked).map(dayKey));
+  // A never-washed garment's wear is pruned once saved: its history holds the day.
+  for(const [id,ts] of Object.entries(lastWorn))
+    if(!washesId(id)&&Array.isArray(ts)) ts.forEach(t=>mine.add(dayKey({itemId:id,wornAt:t})));
   // Before they are marked seen: once folded, an undo may stand against them.
   await settleSkips(q.filter(e=>!nativeSeen.has(e.key)));
   let folded=false;
@@ -1828,7 +1846,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.49";
+const WEB_BUILD="1.50";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2552,10 +2570,7 @@ function paintSheetSegs(){
 /* The laundry fields of the edit sheet: only those the household's splits use. */
 function paintSheetLaundry(){
   if(!sheet) return;
-  const on=new Set(laundry.splits), it=sheet.item;
-  $("shFabricBox").style.display=on.has("fabric")?"":"none";
-  $("shWeightBox").style.display=on.has("weight")?"":"none";
-  $("shSoilBox").style.display=on.has("soil")?"":"none";
+  const it=sheet.item;
   $("shFabric").innerHTML=`<option value="">— not known —</option>`
     +FABRICS.map(f=>`<option value="${f}">${f}${DELICATE.includes(f)?" (delicate)":""}</option>`).join("");
   $("shFabric").value=fabricOf(it)||"";
@@ -2583,6 +2598,13 @@ function sheetDraft(){
 function paintLoad(){
   const keep=$("shLoad").options.length?$("shLoad").value:null;
   const d=sheetDraft(), auto=loadOf(d);
+  // Which laundry fields show: the household's splits, and none at all for a garment
+  // that is never washed — re-read here because the group and kind move it.
+  const on=new Set(laundry.splits), wash=!neverWashed(d);
+  $("shLoadBox").style.display=wash?"":"none";
+  $("shFabricBox").style.display=wash&&on.has("fabric")?"":"none";
+  $("shWeightBox").style.display=wash&&on.has("weight")?"":"none";
+  $("shSoilBox").style.display=wash&&on.has("soil")?"":"none";
   // The weight and dirt pickers' own "Automatic — …" too: warmth, kind and the
   // Active style move them.
   if($("shWeight").options.length) $("shWeight").options[0].textContent=`Automatic — ${weightOf({...d,weight:undefined})}`;
@@ -4069,7 +4091,7 @@ function drawOutfit(o,res){
   // shows the advice (pre-push reviewer, 2026-10-16). Only on a suggestion: the worn
   // view is already in the laundry, and re-planning it would answer nothing asked.
   cardPickIds=view?[]:[...new Set(Object.values(pickOf).filter(Boolean))]
-    .filter(id=>closet.some(i=>i.id===id));
+    .filter(washesId);
   $("dLaundry").style.display=cardPickIds.length?"":"none";
   // WHAT TO WEAR, in pictures. A name ("navy merino crew-neck") is not how anyone
   // recognises their own clothes — the photo is (user, 2026-08-16; made the
@@ -6030,7 +6052,7 @@ function unwashChanges(){
   if(!lastWash) return 0;
   const now=Date.now(); let n=0;
   for(const r of lastWash.wears){
-    if(!closet.some(i=>i.id===r.itemId)) continue;           // garment deleted since
+    if(!washesId(r.itemId)) continue;      // garment deleted since, or never washed
     const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
     if(live) { if(live.washedAt===lastWash.at) n++; }         // still drying, or dry
     // Dried and pruned: only worth restoring while the passive timer would still be
@@ -6053,7 +6075,7 @@ $("unwashBtn").onclick=async()=>{
   if(!lastWash) return;
   const now=Date.now(); let n=0;
   for(const r of lastWash.wears){
-    if(!closet.some(i=>i.id===r.itemId)) continue;
+    if(!washesId(r.itemId)) continue;
     const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
     if(live){ if(live.washedAt===lastWash.at){ delete live.washedAt; n++; } }
     else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now){ wearLog.push({itemId:r.itemId,wornAt:r.wornAt,...(r.marked?{marked:true}:{})}); n++; }
@@ -6100,7 +6122,7 @@ function paintDirty(){
       : `<label class="calRow" style="padding-left:0"><input type="checkbox" data-id="${esc(it.id)}" ${n?"checked":""}>${name}</label>`;
   };
   $("dirtyList").innerHTML=laundry.loads.map(l=>{
-    const mine=closet.filter(i=>loadOf(i)===l.id);
+    const mine=closet.filter(i=>!neverWashed(i)&&loadOf(i)===l.id);
     return mine.length?`<label class="lbl">${esc(l.name)}</label>${mine.map(rows).join("")}`:"";
   }).join("")||`<p class="note">Your closet is empty — add clothes first.</p>`;
   $("dirtyList").querySelectorAll("input[data-id]").forEach(c=>{ c.onchange=()=>{ dirtyDraft[c.dataset.id]=c.checked?1:0; }; });
@@ -6178,9 +6200,10 @@ function loadConds(l,colourOnly=false){
     GROUPS.map(g=>chk(`data-f="kind" data-v="${g}"`,m.kinds.includes(g),GROUP_LABEL[g]||g)).join("")}</div>`);
   return out.join("");
 }
-/* The garments a load holds, with a picker each to move one by hand. */
+/* The garments a load holds, with a picker each to move one by hand. Shoes and
+   accessories are in no load: they never go in the laundry. */
 function loadGarments(l){
-  const ids=loadIds(), mine=closet.filter(i=>loadOf(i)===l.id);
+  const ids=loadIds(), mine=closet.filter(i=>!neverWashed(i)&&loadOf(i)===l.id);
   const rows=mine.map(i=>`<div class="row" style="gap:8px;align-items:center;margin-top:6px">
       <span style="flex:1;font-size:.82rem">${esc(i.label||"garment")}${ids.includes(i.load)?' <span class="note">(picked by hand)</span>':""}</span>
       <select data-item="${esc(i.id)}" style="flex:1;font-size:.78rem">
@@ -6226,7 +6249,7 @@ function paintLoads(){
     box.dataset.shape=shape;
   }
   $("loadAdd").disabled=n>=MAX_LOADS;
-  const pinned=closet.filter(i=>ids.includes(i.load)).length;
+  const pinned=closet.filter(i=>!neverWashed(i)&&ids.includes(i.load)).length;
   $("loadUnpin").style.display=pinned?"":"none";
   $("loadUnpin").textContent=`Let ${pinned} hand-picked garment${pinned===1?"":"s"} follow the rules again`;
 }
@@ -6313,7 +6336,7 @@ $("loadAdd").onclick=async()=>{
 };
 $("loadUnpin").onclick=async()=>{
   const ids=loadIds(); let n=0;
-  closet.forEach(i=>{ if(ids.includes(i.load)){ delete i.load; n++; } });
+  closet.forEach(i=>{ if(!neverWashed(i)&&ids.includes(i.load)){ delete i.load; n++; } });
   await saveCloset();
   toast(`${n} garment${n===1?"":"s"} now follow the rules`);
 };
@@ -6323,6 +6346,7 @@ $("dryHours").onchange=async()=>{
   // longer drying time it would go back to "drying". Clothes still drying take the
   // new time. Raised by the pre-push reviewer, 2026-10-03.
   const now=Date.now();
+  noteWorn(now);           // a shoe's wear is already free: keep it as history first
   wearLog=wearLog.filter(w=>freeAt(w)>now);
   laundry.dryHours=Math.max(0,Math.min(72,+$("dryHours").value||0));
   await prefSet("oa.laundry",JSON.stringify(laundry));

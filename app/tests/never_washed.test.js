@@ -127,6 +127,18 @@ const CLOSET = [
   check("'Laundry done' offers the tee, not the sneakers",
     offered.includes("tee") && !offered.includes("shoe"), offered);
 
+  console.log("\n--- 5b. Settings → Laundry lists them in no load ----------------");
+  await ev(`closet=${JSON.stringify(CLOSET.map(i => i.id === "tee" ? i : {...i, load: "dark"}))};
+    wearLog=[]; lastWorn={}; saveCloset()`); await drain();
+  const inLoads = [...w.document.querySelectorAll("#loadList select[data-item]")].map(e => e.dataset.item);
+  check("the load lists show the tee and the socks only",
+    JSON.stringify(inLoads.sort()) === JSON.stringify(["sock", "tee"]), inLoads);
+  check("a hand-picked load on shoes is not counted",
+    $("loadUnpin").textContent.startsWith("Let 1 hand-picked garment "), $("loadUnpin").textContent);
+  await $("loadUnpin").onclick(); await drain();
+  check("unpinning frees the socks and leaves the shoes' stored value alone",
+    ev(`closet.find(i=>i.id==="sock").load`) === undefined && ev(`closet.find(i=>i.id==="shoe").load`) === "dark");
+
   console.log("\n--- 6. the outfit card --------------------------------------------");
   await reset();
   const O = {inner: "", base: "black tee", mid: "", outer: "", bottoms: "", footwear: "black sneakers",

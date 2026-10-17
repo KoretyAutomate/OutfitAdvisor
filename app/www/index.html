@@ -6200,9 +6200,10 @@ function loadConds(l,colourOnly=false){
     GROUPS.map(g=>chk(`data-f="kind" data-v="${g}"`,m.kinds.includes(g),GROUP_LABEL[g]||g)).join("")}</div>`);
   return out.join("");
 }
-/* The garments a load holds, with a picker each to move one by hand. */
+/* The garments a load holds, with a picker each to move one by hand. Shoes and
+   accessories are in no load: they never go in the laundry. */
 function loadGarments(l){
-  const ids=loadIds(), mine=closet.filter(i=>loadOf(i)===l.id);
+  const ids=loadIds(), mine=closet.filter(i=>!neverWashed(i)&&loadOf(i)===l.id);
   const rows=mine.map(i=>`<div class="row" style="gap:8px;align-items:center;margin-top:6px">
       <span style="flex:1;font-size:.82rem">${esc(i.label||"garment")}${ids.includes(i.load)?' <span class="note">(picked by hand)</span>':""}</span>
       <select data-item="${esc(i.id)}" style="flex:1;font-size:.78rem">
@@ -6248,7 +6249,7 @@ function paintLoads(){
     box.dataset.shape=shape;
   }
   $("loadAdd").disabled=n>=MAX_LOADS;
-  const pinned=closet.filter(i=>ids.includes(i.load)).length;
+  const pinned=closet.filter(i=>!neverWashed(i)&&ids.includes(i.load)).length;
   $("loadUnpin").style.display=pinned?"":"none";
   $("loadUnpin").textContent=`Let ${pinned} hand-picked garment${pinned===1?"":"s"} follow the rules again`;
 }
@@ -6335,7 +6336,7 @@ $("loadAdd").onclick=async()=>{
 };
 $("loadUnpin").onclick=async()=>{
   const ids=loadIds(); let n=0;
-  closet.forEach(i=>{ if(ids.includes(i.load)){ delete i.load; n++; } });
+  closet.forEach(i=>{ if(!neverWashed(i)&&ids.includes(i.load)){ delete i.load; n++; } });
   await saveCloset();
   toast(`${n} garment${n===1?"":"s"} now follow the rules`);
 };

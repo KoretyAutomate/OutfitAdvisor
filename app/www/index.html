@@ -1846,7 +1846,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.50";
+const WEB_BUILD="1.51";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2731,6 +2731,15 @@ async function replacePhoto(source){
 }
 
 /* ── closet grid ── */
+/* A folder's garments split by KIND, in vocabulary order, untyped ("Other") last —
+   the Closet tab's second level, and the laundry sheet's (user, 2026-10-18: "Grouping
+   shall be the same as closet"). [[type|null, items], ...], empty kinds left out. */
+function byKind(items){
+  const order=[...GROUPS.flatMap(g=>TYPES[g]),null], known=new Set(order);
+  // A kind outside the vocabulary is "Other" too: no garment may drop out of a list.
+  const kind=i=>known.has(i.type)?i.type:null;
+  return order.map(t=>[t,items.filter(i=>kind(i)===t)]).filter(([,m])=>m.length);
+}
 async function renderCloset(){
   const g=$("closetGrid");
   const info=$("closetInfo");
@@ -2755,12 +2764,9 @@ async function renderCloset(){
      looked like yesterday — rather than every tile wearing an "Other" header.
      A slot holds garments from more than one group (Base takes tops AND one-piece),
      so the type order is the whole vocabulary in group order, not one group's. */
-  const subSections=async(items,grp)=>{
-    const order=[...(grp?(TYPES[grp]||[]):GROUPS.flatMap(g=>TYPES[g])),null];
+  const subSections=async items=>{
     const parts=[];
-    for(const t of order){
-      const mine=items.filter(i=>(i.type||null)===t);
-      if(!mine.length) continue;
+    for(const [t,mine] of byKind(items)){
       const tiles=(await Promise.all(mine.map(tile))).join("");
       // Sole untyped section = no heading; there is nothing to distinguish it from.
       if(t===null && parts.length===0){ parts.push(`<div class="grid">${tiles}</div>`); continue; }
@@ -2792,7 +2798,7 @@ async function renderCloset(){
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const body=open?await subSections(items,null):"";
+    const body=open?await subSections(items):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${slot}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -6110,22 +6116,40 @@ $("washGo").onclick=async()=>{
    advisor's recent-wear history, "Worn today" and today's outfit record ignore it. */
 const waitingWears=(id,now=Date.now())=>wearLog.filter(w=>w.itemId===id&&w.washedAt==null&&freeAt(w)>now);
 let dirtyDraft=null;   // {itemId: units waiting}
+let dirtyOpen=new Set();   // the sheet's open folders — those with something waiting, on opening
 function paintDirty(){
   const now=Date.now();
   const rows=it=>{
     const n=dirtyDraft[it.id], dry=heldAt(it.id,now).length-waitingWears(it.id,now).length;
-    const sub=[it.count>1?`${it.count} owned`:"",dry>0&&n<it.count?`${Math.min(dry,it.count-n)} drying`:""].filter(Boolean).join(" · ");
+    const sub=[loadName(loadOf(it)),it.count>1?`${it.count} owned`:"",
+      dry>0&&n<it.count?`${Math.min(dry,it.count-n)} drying`:""].filter(Boolean).join(" · ");
     const name=`<span style="flex:1">${it.brand?`${esc(it.brand)} · `:""}${esc(it.label)}${sub?` <span class="note">${sub}</span>`:""}</span>`;
     return it.count>1
       ? `<div class="calRow" style="padding-left:0" data-id="${esc(it.id)}">${name}<div class="stepper">
           <button data-d="-1" ${n<=0?"disabled":""}>−</button><b>${n}</b><button data-d="1" ${n>=it.count?"disabled":""}>+</button></div></div>`
       : `<label class="calRow" style="padding-left:0"><input type="checkbox" data-id="${esc(it.id)}" ${n?"checked":""}>${name}</label>`;
   };
-  $("dirtyList").innerHTML=laundry.loads.map(l=>{
-    const mine=closet.filter(i=>!neverWashed(i)&&loadOf(i)===l.id);
-    return mine.length?`<label class="lbl">${esc(l.name)}</label>${mine.map(rows).join("")}`:"";
+  // The Closet tab's folders, in its order and with its labels, then its kinds
+  // (user, 2026-10-18: "difficult to see ... grouping shall be the same as closet").
+  // A folded folder keeps its rows, hidden, so what is ticked inside it stands.
+  const washes=closet.filter(i=>!neverWashed(i));
+  $("dirtyList").innerHTML=CATS.map(slot=>{
+    const items=washes.filter(i=>i.category===slot);
+    if(!items.length) return "";
+    const open=dirtyOpen.has(slot), waiting=items.reduce((s,i)=>s+(dirtyDraft[i.id]||0),0);
+    const kinds=byKind(items).map(([t,mine],k)=>t===null&&k===0?mine.map(rows).join("")
+      :`<div class="subHead"><span class="st">${esc(t?TYPE_LABEL[t]:"Other")}</span>
+        <span class="sc">${mine.length}</span></div>${mine.map(rows).join("")}`).join("");
+    return `<div class="folder"><button class="folderHead" data-grp="${slot}" aria-expanded="${open}">
+        <span class="tw">${open?"▾":"▸"}</span><span>${ICONS[slot]}</span><b>${LABELS[slot]}</b>
+        <span class="fcount">${waiting?`${waiting} waiting · `:""}${items.length}</span></button>
+      <div class="dirtyBody"${open?"":" hidden"}>${kinds}</div></div>`;
   }).join("")||`<p class="note">Your closet is empty — add clothes first.</p>`;
-  $("dirtyList").querySelectorAll("input[data-id]").forEach(c=>{ c.onchange=()=>{ dirtyDraft[c.dataset.id]=c.checked?1:0; }; });
+  $("dirtyList").querySelectorAll(".folderHead").forEach(b=>{ b.onclick=()=>{ const k=b.dataset.grp;
+    dirtyOpen.has(k)?dirtyOpen.delete(k):dirtyOpen.add(k); paintDirty(); }; });
+  // Repainted on a tick: the folder's "waiting" count follows it.
+  $("dirtyList").querySelectorAll("input[data-id]").forEach(c=>{ c.onchange=()=>{
+    dirtyDraft[c.dataset.id]=c.checked?1:0; paintDirty(); }; });
   $("dirtyList").querySelectorAll(".stepper button").forEach(b=>{ b.onclick=()=>{
     const id=b.closest("[data-id]").dataset.id, it=closet.find(i=>i.id===id); if(!it) return;
     dirtyDraft[id]=Math.max(0,Math.min(it.count,dirtyDraft[id]+(+b.dataset.d))); paintDirty(); }; });
@@ -6133,6 +6157,7 @@ function paintDirty(){
 $("dirtyBtn").onclick=()=>{
   const now=Date.now();
   dirtyDraft=Object.fromEntries(closet.map(i=>[i.id,Math.min(i.count,waitingWears(i.id,now).length)]));
+  dirtyOpen=new Set(closet.filter(i=>!neverWashed(i)&&dirtyDraft[i.id]).map(i=>i.category));
   paintDirty(); $("dirtyWrap").classList.add("show");
 };
 $("dirtyCancel").onclick=()=>$("dirtyWrap").classList.remove("show");

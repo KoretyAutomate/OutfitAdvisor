@@ -43,7 +43,9 @@ PATTERNS = ("solid", "striped", "checked", "print", "graphic")
 _PAT = (
     (re.compile(r"strip|breton|pinstripe|ボーダー|ストライプ", re.I), "striped"),
     (re.compile(r"check|plaid|tartan|gingham|houndstooth|チェック", re.I), "checked"),
-    (re.compile(r"floral|paisley|polka|\bdots?\b|camo|leopard|print|柄", re.I), "print"),
+    # Knit patterns too (user, 2026-10-18: a "navy reindeer sweater" read as plain).
+    (re.compile(r"floral|paisley|polka|\bdots?\b|camo|leopard|print|fair ?isle|nordic|reindeer|"
+                r"snowflake|argyle|intarsia|jacquard|柄|ノルディック", re.I), "print"),
     (re.compile(r"graphic|logo tee|band tee", re.I), "graphic"),
 )
 
@@ -222,6 +224,12 @@ LOOK_PRINCIPLES = (
     "- Colour: build on neutrals (navy, grey, charcoal, white, black, beige, olive, "
     "brown, denim) with at most ONE accent colour or pattern; two pastels or two "
     "accents compete.\n"
+    # User, 2026-10-18, on a navy knit polo under a navy reindeer sweater: "Fabric of
+    # polo and sweater doesn't go well".
+    "- Texture: what goes under a sweater must suit its knit. A chunky, cable or "
+    "patterned knit (Fair Isle, Nordic, reindeer) goes over a plain tee, a long-sleeve "
+    "tee or a button-up shirt — never a polo. A polo goes under fine-gauge knitwear or "
+    "a cardigan, in a contrasting colour.\n"
 )
 
 def stylist_enabled() -> bool:

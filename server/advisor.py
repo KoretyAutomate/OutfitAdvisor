@@ -88,6 +88,7 @@ def _line(i: dict, h: str, day: check.Day) -> str:
              f"{s} sleeves" if s in ("short", "long") else ("sleeveless" if s == "none" else ""),
              "colours: " + ",".join(_fenced(c, 20) for c in i.get("colors") or []),
              f"pattern: {style.pattern_of(i)}" if style.pattern_of(i) not in (None, "solid") else "",
+             f"fabric: {i['fabric']}" if i.get("fabric") else "",
              scale.warmth_phrase(i), "fits: " + ",".join(i.get("formality") or []),
              ("waterproof" if i.get("waterproof") else "not waterproof") if day.w.get("isSnow") else "",
              f"worn {_ago(i['_ago'])}" if i.get("_ago") is not None else "",

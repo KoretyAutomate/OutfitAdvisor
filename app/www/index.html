@@ -3679,7 +3679,9 @@ const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     // The server's sleeve rule (layers.py) reads this; absent, it falls back to
     // the name and the kind, and an unknown sleeve never triggers the rule.
     ...(i.sleeve?{sleeve:i.sleeve}:{}),
-    ...(i.pattern?{pattern:i.pattern}:{})});
+    ...(i.pattern?{pattern:i.pattern}:{}),
+    // The advisor and its stylist read it for texture (user, 2026-10-18).
+    ...(i.fabric?{fabric:i.fabric}:{})});
 function closetPayload(){
   const trip=tripInProgress(), meta=itemMeta;
   if(trip){

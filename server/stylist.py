@@ -35,7 +35,8 @@ def needs_another(v: "Verdict | None") -> bool:
 def _line(slot: str, it: dict) -> str:
     return (f"{slot}: {_fenced(it.get('label'), 60)} | {it.get('type') or '?'} | colours: "
             f"{','.join(_fenced(c, 20) for c in (it.get('colors') or []))} | pattern: "
-            f"{style.pattern_of(it) or 'unknown'} | fits: {','.join(it.get('formality') or [])}")
+            f"{style.pattern_of(it) or 'unknown'}" + (f" | fabric: {it['fabric']}" if it.get("fabric") else "")
+            + f" | fits: {','.join(it.get('formality') or [])}")
 
 
 def prompt(picks: dict, by_item: dict, look: "style.Look") -> str:

@@ -434,7 +434,7 @@
       <div class="row">
         <button class="primary" id="addCamBtn">Snap item</button>
         <button id="addGalBtn">Upload</button>
-        <button class="ghost" id="laundryBtn" title="Everything washed is wearable again">Laundry done</button>
+        <button class="ghost" id="laundryBtn" title="Which loads are washed — and dry">Laundry &amp; drying done</button>
       </div>
       <!-- Undo the last wash (user, 2026-10-04): a load ticked by mistake, or a wash
            logged before it actually ran. Shown only while undoing would change
@@ -810,7 +810,7 @@
     </div>
     <p class="note" style="margin-top:0">Your loads, checked from the top: a garment goes in the
       first load whose conditions it meets, and anything else in the catch-all. Pick a load on a
-      garment to override it. "Laundry done" asks which loads you washed.</p>
+      garment to override it. "Laundry &amp; drying done" asks which loads you washed, and whether they are dry.</p>
     <div id="loadList"></div>
     <button class="ghost" id="loadAdd" style="width:100%;margin:4px 0 6px">Add a load</button>
     <button class="ghost" id="loadUnpin" style="width:100%;margin:0 0 14px;display:none"></button>
@@ -837,9 +837,13 @@
 <!-- Laundry done: WHICH loads were washed (user, 2026-10-03). -->
 <div class="modal" id="washWrap">
   <div class="sheet">
-    <h3>Which loads did you wash?</h3>
+    <h3>Which loads are done?</h3>
     <p class="note" id="washNote" style="margin-top:0"></p>
     <div id="washLoads"></div>
+    <!-- Drying done too (user, 2026-10-18: "make it possible to tell drying is also done"). -->
+    <label class="calRow" style="padding-left:0;margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
+      <input type="checkbox" id="washDry"><span><b>They're dry too</b>
+      <span class="note">— back in rotation now, with anything of these loads still drying</span></span></label>
     <div class="row" style="gap:8px;margin-top:12px">
       <button class="ghost" id="washCancel" style="flex:1">Cancel</button>
       <button class="primary" id="washGo" style="flex:2" disabled>Washed</button>
@@ -868,7 +872,7 @@
     <div class="shHead"><b>Which of these are in the laundry?</b>
       <button class="ghost" id="inWashCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
     <p class="note" style="margin:0 0 10px">Tick what is waiting to be washed. It stays out
-      of your outfits until "Laundry done", and you get a new outfit without it.</p>
+      of your outfits until "Laundry &amp; drying done", and you get a new outfit without it.</p>
     <div id="inWashList"></div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="inWashSave" style="flex:2">Save &amp; re-plan</button>
@@ -1731,6 +1735,7 @@ const washesId=id=>{ const it=closet.find(i=>i.id===id); return !!it&&!neverWash
    is worn, and the next save prunes it, after noteWorn has kept it as history. */
 function freeAt(w){
   if(neverWashed(closet.find(i=>i.id===w.itemId))) return w.wornAt;
+  if(w.driedAt!=null) return w.driedAt;      // "They're dry too" (2026-10-18)
   return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
                           : w.wornAt+COOLDOWN_DAYS*DAY_MS;
 }
@@ -1846,7 +1851,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.50";
+const WEB_BUILD="1.51";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2731,6 +2736,15 @@ async function replacePhoto(source){
 }
 
 /* ── closet grid ── */
+/* A folder's garments split by KIND, in vocabulary order, untyped ("Other") last —
+   the Closet tab's second level, and the laundry sheet's (user, 2026-10-18: "Grouping
+   shall be the same as closet"). [[type|null, items], ...], empty kinds left out. */
+function byKind(items){
+  const order=[...GROUPS.flatMap(g=>TYPES[g]),null], known=new Set(order);
+  // A kind outside the vocabulary is "Other" too: no garment may drop out of a list.
+  const kind=i=>known.has(i.type)?i.type:null;
+  return order.map(t=>[t,items.filter(i=>kind(i)===t)]).filter(([,m])=>m.length);
+}
 async function renderCloset(){
   const g=$("closetGrid");
   const info=$("closetInfo");
@@ -2755,12 +2769,9 @@ async function renderCloset(){
      looked like yesterday — rather than every tile wearing an "Other" header.
      A slot holds garments from more than one group (Base takes tops AND one-piece),
      so the type order is the whole vocabulary in group order, not one group's. */
-  const subSections=async(items,grp)=>{
-    const order=[...(grp?(TYPES[grp]||[]):GROUPS.flatMap(g=>TYPES[g])),null];
+  const subSections=async items=>{
     const parts=[];
-    for(const t of order){
-      const mine=items.filter(i=>(i.type||null)===t);
-      if(!mine.length) continue;
+    for(const [t,mine] of byKind(items)){
       const tiles=(await Promise.all(mine.map(tile))).join("");
       // Sole untyped section = no heading; there is nothing to distinguish it from.
       if(t===null && parts.length===0){ parts.push(`<div class="grid">${tiles}</div>`); continue; }
@@ -2792,7 +2803,7 @@ async function renderCloset(){
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const body=open?await subSections(items,null):"";
+    const body=open?await subSections(items):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${slot}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -3673,7 +3684,9 @@ const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     // The server's sleeve rule (layers.py) reads this; absent, it falls back to
     // the name and the kind, and an unknown sleeve never triggers the rule.
     ...(i.sleeve?{sleeve:i.sleeve}:{}),
-    ...(i.pattern?{pattern:i.pattern}:{})});
+    ...(i.pattern?{pattern:i.pattern}:{}),
+    // The advisor and its stylist read it for texture (user, 2026-10-18).
+    ...(i.fabric?{fabric:i.fabric}:{})});
 function closetPayload(){
   const trip=tripInProgress(), meta=itemMeta;
   if(trip){
@@ -6010,15 +6023,26 @@ function washable(){
   }
   return by;
 }
+/* Washed and still drying, by load — what "They're dry too" can bring back. */
+function dryingByLoad(){
+  const now=Date.now(), by=Object.fromEntries(loadIds().map(l=>[l,[]]));
+  for(const w of wearLog){
+    if(w.washedAt==null||freeAt(w)<=now) continue;
+    const it=closet.find(i=>i.id===w.itemId);
+    if(it&&!neverWashed(it)) by[loadOf(it)].push(w);
+  }
+  return by;
+}
 let washPick=new Set();
 function paintWash(){
-  const by=washable();
-  const any=loadIds().some(l=>by[l].length);
+  const by=washable(), wet=dryingByLoad(), dry=$("washDry").checked;
+  const any=loadIds().some(l=>by[l].length||wet[l].length);
   $("washLoads").innerHTML=laundry.loads.map(({id:l,name})=>{
-    const n=by[l].length;
+    const n=by[l].length, d=wet[l].length, can=n||(dry&&d);
+    const says=[n?`${n} to wash`:"",d?`${d} drying`:""].filter(Boolean).join(" · ")||"nothing waiting";
     return `<label class="calRow" style="padding-left:0"><input type="checkbox" data-load="${esc(l)}"
-      ${washPick.has(l)?"checked":""} ${n?"":"disabled"}><span>${esc(name)}
-      <span class="note">${n?`${n} item${n===1?"":"s"} waiting`:"nothing waiting"}</span></span></label>`;
+      ${washPick.has(l)&&can?"checked":""} ${can?"":"disabled"}><span>${esc(name)}
+      <span class="note">${says}</span></span></label>`;
   }).join("")+(any?"":`<p class="note">Nothing is in the laundry yet. Clothes go in when you
     log what you wore: "Wearing it" or "I wore something else" on today's outfit,
     or "Worn today" on a garment.
@@ -6027,11 +6051,22 @@ function paintWash(){
     if(c.checked) washPick.add(c.dataset.load); else washPick.delete(c.dataset.load);
     $("washGo").disabled=!washPick.size; }; });
   const h=laundry.dryHours;
-  $("washNote").textContent=h
-    ? `They'll be back in rotation once dry — in ${h<24?`${h} hours`:h===24?"a day":`${h/24} days`} (Settings → Laundry).`
+  $("washNote").textContent=dry
+    ? "Washed and dry: they go straight back into rotation."
+    : h ? `They'll be back in rotation once dry — in ${h<24?`${h} hours`:h===24?"a day":`${h/24} days`} (Settings → Laundry). Dry already? Tick below.`
     : "They go straight back into rotation (Settings → Laundry).";
-  $("washGo").disabled=!washPick.size;
+  $("washGo").textContent=dry?"Washed & dry":"Washed";
+  $("washGo").disabled=![...washPick].some(l=>by[l]?.length||(dry&&wet[l]?.length));
 }
+$("washDry").onchange=()=>{
+  // Ticking it offers the loads that are only drying, ticked: that is what it is for.
+  // Only those — a load already offered keeps what the wearer chose for it, or an
+  // unticked load of dirty clothes would come back washed and dry (pre-push
+  // reviewer, 2026-10-18).
+  if($("washDry").checked){ const by=washable(), wet=dryingByLoad();
+    loadIds().forEach(l=>{ if(wet[l].length&&!by[l].length) washPick.add(l); }); }
+  paintWash();
+};
 $("laundryBtn").onclick=()=>{
   const by=washable();
   // Opened even with nothing waiting (user, 2026-10-09: "I don't see anywhere ...
@@ -6039,6 +6074,7 @@ $("laundryBtn").onclick=()=>{
   // with them how clothes ever get into the laundry. Every load with something in
   // it starts ticked; untick is how you say only the darks went in.
   washPick=new Set(loadIds().filter(l=>by[l].length));
+  $("washDry").checked=false;
   paintWash(); $("washWrap").classList.add("show");
 };
 $("washCancel").onclick=()=>$("washWrap").classList.remove("show");
@@ -6047,20 +6083,32 @@ $("washWrap").onclick=e=>{ if(e.target===$("washWrap")) $("washWrap").classList.
    is recorded by (item, worn-at) — not by reference — because a dry wear is pruned
    from the log and the record has to outlive it. One level only: a new wash
    replaces it, the way a new outfit replaces "Logged — tap to undo". */
-let lastWash=null;   // {at, loads:[...], wears:[{itemId,wornAt}]}  — oa.lastWash
-function unwashChanges(){
-  if(!lastWash) return 0;
-  const now=Date.now(); let n=0;
+let lastWash=null;   // {at, loads:[...], wears:[{itemId,wornAt,washedAt?}]}  — oa.lastWash
+// A wear's `washedAt` in the record: it was already drying, and this wash only dried it.
+/* What undoing the last wash would do to each wear it touched, as a function of the
+   wear: put it back as it was before that wash — waiting to be washed, or still
+   drying from the wash before. Null where there is nothing to do. */
+function unwashSteps(){
+  if(!lastWash) return [];
+  const now=Date.now(), at=lastWash.at, out=[];
   for(const r of lastWash.wears){
     if(!washesId(r.itemId)) continue;      // garment deleted since, or never washed
     const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
-    if(live) { if(live.washedAt===lastWash.at) n++; }         // still drying, or dry
-    // Dried and pruned: only worth restoring while the passive timer would still be
-    // holding it — past that, it would have been back by now anyway.
-    else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now) n++;
+    if(live){
+      if(r.washedAt!=null){ if(live.driedAt===at) out.push(()=>{ delete live.driedAt; }); }
+      else if(live.washedAt===at) out.push(()=>{ delete live.washedAt; delete live.driedAt; });
+      continue;
+    }
+    // Pruned: only worth restoring while it would still be held — past that, it
+    // would have been back by now anyway.
+    const back={itemId:r.itemId,wornAt:r.wornAt,...(r.marked?{marked:true}:{})};
+    if(r.washedAt!=null){
+      if(r.washedAt+laundry.dryHours*3600000>now) out.push(()=>wearLog.push({...back,washedAt:r.washedAt}));
+    } else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now) out.push(()=>wearLog.push(back));
   }
-  return n;
+  return out;
 }
+const unwashChanges=()=>unwashSteps().length;
 function refreshUnwash(){
   if($("dirtyBtn")) $("dirtyBtn").style.display=closet.length?"":"none";
   const b=$("unwashBtn"); if(!b) return;
@@ -6073,31 +6121,33 @@ function refreshUnwash(){
 async function saveLastWash(){ await prefSet("oa.lastWash",JSON.stringify(lastWash)); refreshUnwash(); }
 $("unwashBtn").onclick=async()=>{
   if(!lastWash) return;
-  const now=Date.now(); let n=0;
-  for(const r of lastWash.wears){
-    if(!washesId(r.itemId)) continue;
-    const live=wearLog.find(w=>w.itemId===r.itemId&&w.wornAt===r.wornAt);
-    if(live){ if(live.washedAt===lastWash.at){ delete live.washedAt; n++; } }
-    else if(r.wornAt+COOLDOWN_DAYS*DAY_MS>now){ wearLog.push({itemId:r.itemId,wornAt:r.wornAt,...(r.marked?{marked:true}:{})}); n++; }
-  }
+  const steps=unwashSteps(), n=steps.length;
+  steps.forEach(f=>f());
   const names=lastWash.loads.map(loadName).join(", ");
   lastWash=null;
   await saveCloset(); await saveLastWash();
   toast(n?`Wash undone — ${names}: ${n} item${n>1?"s":""} back in the laundry`:"Nothing to undo");
 };
 $("washGo").onclick=async()=>{
-  const by=washable(), now=Date.now(); let n=0;
-  const stamped=[];
-  for(const l of washPick) for(const w of by[l]||[]){ w.washedAt=now; n++; stamped.push({itemId:w.itemId,wornAt:w.wornAt,...(w.marked?{marked:true}:{})}); }
+  const by=washable(), wet=dryingByLoad(), dry=$("washDry").checked, now=Date.now(); let n=0;
+  const stamped=[], loads=[];
+  const rec=(w,extra)=>({itemId:w.itemId,wornAt:w.wornAt,...(w.marked?{marked:true}:{}),...extra});
+  for(const l of washPick){
+    const before=n;
+    for(const w of by[l]||[]){ stamped.push(rec(w,{})); w.washedAt=now; if(dry) w.driedAt=now; n++; }
+    // Dry too: what an earlier wash left drying comes back now as well.
+    if(dry) for(const w of wet[l]||[]){ stamped.push(rec(w,{washedAt:w.washedAt})); w.driedAt=now; n++; }
+    if(n>before) loads.push(l);
+  }
   $("washWrap").classList.remove("show");
-  if(n){ lastWash={at:now,loads:[...washPick].filter(l=>(by[l]||[]).length),wears:stamped}; }
+  if(n){ lastWash={at:now,loads,wears:stamped}; }
   await saveCloset(); await saveLastWash();
-  const names=[...washPick].map(loadName).join(", ");
+  const names=loads.map(loadName).join(", ");
   const h=laundry.dryHours;
   toast(!n?"Nothing was waiting on the wash"
-    : h ? `${names} washed — ${n} item${n>1?"s":""} back once dry, ${new Date(now+h*3600000)
-            .toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"})}`
-        : `${names} washed — ${n} item${n>1?"s":""} back in rotation`);
+    : dry||!h ? `${names} ${dry?"washed and dry":"washed"} — ${n} item${n>1?"s":""} back in rotation`
+    : `${names} washed — ${n} item${n>1?"s":""} back once dry, ${new Date(now+h*3600000)
+            .toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"})}`);
 };
 /* What's still in the laundry, marked by hand (user, 2026-10-14: "make it possible
    to select what's still in laundry ... when the user starts using the app as well
@@ -6110,22 +6160,41 @@ $("washGo").onclick=async()=>{
    advisor's recent-wear history, "Worn today" and today's outfit record ignore it. */
 const waitingWears=(id,now=Date.now())=>wearLog.filter(w=>w.itemId===id&&w.washedAt==null&&freeAt(w)>now);
 let dirtyDraft=null;   // {itemId: units waiting}
+let dirtyOpen=new Set();   // the sheet's open folders — those with something waiting, on opening
 function paintDirty(){
   const now=Date.now();
   const rows=it=>{
     const n=dirtyDraft[it.id], dry=heldAt(it.id,now).length-waitingWears(it.id,now).length;
-    const sub=[it.count>1?`${it.count} owned`:"",dry>0&&n<it.count?`${Math.min(dry,it.count-n)} drying`:""].filter(Boolean).join(" · ");
-    const name=`<span style="flex:1">${it.brand?`${esc(it.brand)} · `:""}${esc(it.label)}${sub?` <span class="note">${sub}</span>`:""}</span>`;
+    const sub=[loadName(loadOf(it)),it.count>1?`${it.count} owned`:"",
+      dry>0&&n<it.count?`${Math.min(dry,it.count-n)} drying`:""].filter(Boolean).join(" · ");
+    // Escaped whole: a load's name is the wearer's own text (pre-push reviewer, 2026-10-18).
+    const name=`<span style="flex:1">${it.brand?`${esc(it.brand)} · `:""}${esc(it.label)}${sub?` <span class="note">${esc(sub)}</span>`:""}</span>`;
     return it.count>1
       ? `<div class="calRow" style="padding-left:0" data-id="${esc(it.id)}">${name}<div class="stepper">
           <button data-d="-1" ${n<=0?"disabled":""}>−</button><b>${n}</b><button data-d="1" ${n>=it.count?"disabled":""}>+</button></div></div>`
       : `<label class="calRow" style="padding-left:0"><input type="checkbox" data-id="${esc(it.id)}" ${n?"checked":""}>${name}</label>`;
   };
-  $("dirtyList").innerHTML=laundry.loads.map(l=>{
-    const mine=closet.filter(i=>!neverWashed(i)&&loadOf(i)===l.id);
-    return mine.length?`<label class="lbl">${esc(l.name)}</label>${mine.map(rows).join("")}`:"";
+  // The Closet tab's folders, in its order and with its labels, then its kinds
+  // (user, 2026-10-18: "difficult to see ... grouping shall be the same as closet").
+  // A folded folder keeps its rows, hidden, so what is ticked inside it stands.
+  const washes=closet.filter(i=>!neverWashed(i));
+  $("dirtyList").innerHTML=CATS.map(slot=>{
+    const items=washes.filter(i=>i.category===slot);
+    if(!items.length) return "";
+    const open=dirtyOpen.has(slot), waiting=items.reduce((s,i)=>s+(dirtyDraft[i.id]||0),0);
+    const kinds=byKind(items).map(([t,mine],k)=>t===null&&k===0?mine.map(rows).join("")
+      :`<div class="subHead"><span class="st">${esc(t?TYPE_LABEL[t]:"Other")}</span>
+        <span class="sc">${mine.length}</span></div>${mine.map(rows).join("")}`).join("");
+    return `<div class="folder"><button class="folderHead" data-grp="${slot}" aria-expanded="${open}">
+        <span class="tw">${open?"▾":"▸"}</span><span>${ICONS[slot]}</span><b>${LABELS[slot]}</b>
+        <span class="fcount">${waiting?`${waiting} waiting · `:""}${items.length}</span></button>
+      <div class="dirtyBody"${open?"":" hidden"}>${kinds}</div></div>`;
   }).join("")||`<p class="note">Your closet is empty — add clothes first.</p>`;
-  $("dirtyList").querySelectorAll("input[data-id]").forEach(c=>{ c.onchange=()=>{ dirtyDraft[c.dataset.id]=c.checked?1:0; }; });
+  $("dirtyList").querySelectorAll(".folderHead").forEach(b=>{ b.onclick=()=>{ const k=b.dataset.grp;
+    dirtyOpen.has(k)?dirtyOpen.delete(k):dirtyOpen.add(k); paintDirty(); }; });
+  // Repainted on a tick: the folder's "waiting" count follows it.
+  $("dirtyList").querySelectorAll("input[data-id]").forEach(c=>{ c.onchange=()=>{
+    dirtyDraft[c.dataset.id]=c.checked?1:0; paintDirty(); }; });
   $("dirtyList").querySelectorAll(".stepper button").forEach(b=>{ b.onclick=()=>{
     const id=b.closest("[data-id]").dataset.id, it=closet.find(i=>i.id===id); if(!it) return;
     dirtyDraft[id]=Math.max(0,Math.min(it.count,dirtyDraft[id]+(+b.dataset.d))); paintDirty(); }; });
@@ -6133,6 +6202,7 @@ function paintDirty(){
 $("dirtyBtn").onclick=()=>{
   const now=Date.now();
   dirtyDraft=Object.fromEntries(closet.map(i=>[i.id,Math.min(i.count,waitingWears(i.id,now).length)]));
+  dirtyOpen=new Set(closet.filter(i=>!neverWashed(i)&&dirtyDraft[i.id]).map(i=>i.category));
   paintDirty(); $("dirtyWrap").classList.add("show");
 };
 $("dirtyCancel").onclick=()=>$("dirtyWrap").classList.remove("show");

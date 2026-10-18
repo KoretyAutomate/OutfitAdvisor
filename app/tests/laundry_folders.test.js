@@ -97,6 +97,13 @@ const CLOSET = [
     !body("base").hidden && !body("bottoms").hidden && body("mid").hidden && body("footwear").hidden);
   $("dirtyCancel").onclick();
 
+  console.log("\n--- 4b. a load's name is text, never markup -----------------------");
+  await ev(`laundry.loads.find(l=>l.id==="dark").name="Darks <b>x</b>"`);
+  await open();
+  const note = head("bottoms").parentElement.querySelector(".note");
+  check("shown as typed", note.textContent.includes("Darks <b>x</b>") && !note.querySelector("b"), note.innerHTML);
+  $("dirtyCancel").onclick();
+
   console.log("\n--- 5. the Closet tab itself is unchanged ------------------------");
   const cKinds = [...w.document.querySelectorAll('#closetGrid .folderHead[data-grp="base"] ~ .subHead .st')]
     .map(e => e.textContent);

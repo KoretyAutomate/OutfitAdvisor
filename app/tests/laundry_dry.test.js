@@ -93,6 +93,19 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   check("undo puts it back to be washed, not drying", av("w") === 0 && drying("w") === 0,
     ev("JSON.stringify(wearLog)"));
 
+  console.log("\n--- 5b. an unticked load stays unticked when 'dry too' is ticked --");
+  await ev(`wearLog=[{itemId:"w",wornAt:${T - D}},{itemId:"w",wornAt:${T - 2 * D},washedAt:${T - H}}];
+    closet[0].count=2; lastWash=null; saveCloset()`); await drain();
+  await open();
+  lb("white").checked = false; lb("white").onchange();
+  await tickDry(true);
+  check("the whites — dirty and drying — stay unticked", !lb("white").checked);
+  await go();
+  check("…so nothing of theirs was washed", ev(`wearLog.filter(x=>x.itemId==="w"&&x.washedAt==null).length`) === 1,
+    ev("JSON.stringify(wearLog)"));
+  $("washWrap").classList.remove("show");
+  await ev(`closet[0].count=1`);
+
   console.log("\n--- 6. after the drying time, nothing is held ---------------------");
   await ev(`wearLog=[{itemId:"d",wornAt:${T - 3 * D},washedAt:${T - 30 * H}}]; saveCloset()`); await drain();
   check("a wash dry by the clock needs no tick", av("d") === 1);

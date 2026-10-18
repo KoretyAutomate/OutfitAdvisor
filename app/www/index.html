@@ -6060,7 +6060,11 @@ function paintWash(){
 }
 $("washDry").onchange=()=>{
   // Ticking it offers the loads that are only drying, ticked: that is what it is for.
-  if($("washDry").checked){ const wet=dryingByLoad(); loadIds().forEach(l=>{ if(wet[l].length) washPick.add(l); }); }
+  // Only those — a load already offered keeps what the wearer chose for it, or an
+  // unticked load of dirty clothes would come back washed and dry (pre-push
+  // reviewer, 2026-10-18).
+  if($("washDry").checked){ const by=washable(), wet=dryingByLoad();
+    loadIds().forEach(l=>{ if(wet[l].length&&!by[l].length) washPick.add(l); }); }
   paintWash();
 };
 $("laundryBtn").onclick=()=>{
@@ -6163,7 +6167,8 @@ function paintDirty(){
     const n=dirtyDraft[it.id], dry=heldAt(it.id,now).length-waitingWears(it.id,now).length;
     const sub=[loadName(loadOf(it)),it.count>1?`${it.count} owned`:"",
       dry>0&&n<it.count?`${Math.min(dry,it.count-n)} drying`:""].filter(Boolean).join(" · ");
-    const name=`<span style="flex:1">${it.brand?`${esc(it.brand)} · `:""}${esc(it.label)}${sub?` <span class="note">${sub}</span>`:""}</span>`;
+    // Escaped whole: a load's name is the wearer's own text (pre-push reviewer, 2026-10-18).
+    const name=`<span style="flex:1">${it.brand?`${esc(it.brand)} · `:""}${esc(it.label)}${sub?` <span class="note">${esc(sub)}</span>`:""}</span>`;
     return it.count>1
       ? `<div class="calRow" style="padding-left:0" data-id="${esc(it.id)}">${name}<div class="stepper">
           <button data-d="-1" ${n<=0?"disabled":""}>−</button><b>${n}</b><button data-d="1" ${n>=it.count?"disabled":""}>+</button></div></div>`

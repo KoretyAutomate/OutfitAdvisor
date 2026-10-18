@@ -6,8 +6,8 @@
  * Pinned:
  *   - the Closet tab's button says "Laundry & drying status" and opens one sheet;
  *   - that sheet says, per load, what waits to be washed and what is drying, until when;
- *   - it holds "Laundry & drying done", the undo and "What's still in the laundry?",
- *     each of which hands over to its own sheet;
+ *   - it holds "Laundry done", "Drying done", "Laundry & drying done", the undo and
+ *     "What's still in the laundry?", each of which hands over to its own sheet;
  *   - the undo says what it takes back: a wash, a dry, or a wash & dry.
  *
  * Loads the REAL app/www/index.html in jsdom. Run: npm test
@@ -39,9 +39,9 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   const status = () => $("laundryLoads").textContent.replace(/\s+/g, " ");
   const hub = async () => { $("laundryStatusBtn").onclick(); await drain(); };
   const lb = l => w.document.querySelector(`#washLoads input[data-load="${l}"]`);
-  const wash = async ({dry = false, only} = {}) => {
-    await hub(); $("laundryBtn").onclick(); await drain();
-    if (dry) { $("washDry").checked = true; $("washDry").onchange(); await drain(); }
+  const BTN = {wash: "laundryBtn", dry: "dryBtn", both: "washDryBtn"};
+  const wash = async ({mode = "wash", only} = {}) => {
+    await hub(); $(BTN[mode]).onclick(); await drain();
     if (only) for (const l of ["white", "dark", "colorful"]) if (lb(l) && l !== only) { lb(l).checked = false; lb(l).onchange(); }
     await $("washGo").onclick(); await drain();
   };
@@ -56,7 +56,7 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   check("it says Laundry & drying status", $("laundryStatusBtn").textContent === "Laundry & drying status",
     $("laundryStatusBtn").textContent);
   check("the three actions are no longer loose on the tab",
-    ["laundryBtn", "unwashBtn", "dirtyBtn"].every(id => !!$(id).closest("#laundryWrap")));
+    ["laundryBtn", "dryBtn", "washDryBtn", "unwashBtn", "dirtyBtn"].every(id => !!$(id).closest("#laundryWrap")));
   await hub();
   check("it opens the status sheet", shown("laundryWrap"));
 
@@ -77,7 +77,7 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
 
   console.log("\n--- 4. dried later: the undo says dry -----------------------------");
   T += 2 * H;
-  await wash({dry: true, only: "white"});
+  await wash({mode: "dry", only: "white"});
   await hub();
   check("the whites are gone from the status", !/Whites/.test(status()), status());
   check("the undo says dry", $("unwashBtn").textContent.startsWith("Undo last dry — Whites"), $("unwashBtn").textContent);
@@ -88,7 +88,7 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
 
   console.log("\n--- 5. washed and dry in one go: the undo says wash & dry ---------");
   await reset(`[{itemId:"d",wornAt:${T - D}}]`);
-  await wash({dry: true});
+  await wash({mode: "both"});
   await hub();
   check("nothing is waiting or drying", /Nothing is waiting to be washed or drying/.test(status()), status());
   check("the undo says wash & dry", $("unwashBtn").textContent.startsWith("Undo last wash & dry — Darks"),
@@ -103,9 +103,12 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
     $("unwashBtn").textContent);
 
   console.log("\n--- 7. each action hands over to its own sheet --------------------");
-  await hub(); $("laundryBtn").onclick(); await drain();
-  check("Laundry & drying done opens the wash sheet in its place", shown("washWrap") && !shown("laundryWrap"));
-  $("washCancel").onclick();
+  for (const [id, head] of [["laundryBtn", "washed?"], ["dryBtn", "dry?"], ["washDryBtn", "washed and dry?"]]) {
+    await hub(); $(id).onclick(); await drain();
+    check(`${$(id).textContent} opens the wash sheet in its place, asking which loads are ${head}`,
+      shown("washWrap") && !shown("laundryWrap") && $("washHead").textContent.endsWith(head), $("washHead").textContent);
+    $("washCancel").onclick();
+  }
   await hub(); $("dirtyBtn").onclick(); await drain();
   check("What's still in the laundry? opens its sheet in its place", shown("dirtyWrap") && !shown("laundryWrap"));
   $("dirtyCancel").onclick();

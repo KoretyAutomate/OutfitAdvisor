@@ -45,7 +45,7 @@ const check = (name, cond, detail = "") => {
   check("three tabs, each with an inline SVG", tabs.length === 3 && tabs.every(b => b.querySelector("svg")));
   check("and no emoji in a tab label", tabs.every(b => !emoji.test(b.textContent)), tabs.map(b => b.textContent));
   check("the gear is an SVG button", !!doc.querySelector("#gearBtn svg") && !emoji.test(doc.getElementById("gearBtn").textContent));
-  const statics = ["addCamBtn", "addGalBtn", "laundryStatusBtn", "laundryBtn", "calBtn", "dShare", "dNotify", "shopBtn", "rescanBtn", "shCam", "shGal", "shWear"];
+  const statics = ["addCamBtn", "addGalBtn", "laundryStatusBtn", "laundryBtn", "dryBtn", "washDryBtn", "calBtn", "dShare", "dNotify", "shopBtn", "rescanBtn", "shCam", "shGal", "shWear"];
   const withEmoji = statics.filter(id => emoji.test(doc.getElementById(id).textContent));
   check("static action buttons carry words only", withEmoji.length === 0, withEmoji);
   const segs = [...doc.querySelectorAll('.seg button[data-g]')];

@@ -240,10 +240,13 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
 
 
 def _undershirt(worn: dict, day: Day) -> str | None:
-    """An unused undershirt they could wear under this outfit today, or None."""
+    """An unused undershirt they could wear under this outfit today, or None. Never
+    one whose sleeves would show under the top — no-inner and sleeve-inner must never
+    ask for opposite things (pre-push reviewer, 2026-10-18)."""
     wd = day.wd
     return next((iid for iid, it in wd.by_item.items()
                  if iid not in worn.values() and "inner" in (wd.by_roles.get(iid) or ())
+                 and not sleeves.sleeve_clashes({**worn, "inner": iid}, wd.by_item)
                  and not rules.violations(day.rules, {**worn, "inner": iid}, wd.by_item)
                  and not layers.overdressed(it, "inner", wd, day.plan, day.peak, day.rules)), None)
 

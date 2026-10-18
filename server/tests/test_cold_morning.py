@@ -101,6 +101,17 @@ def test_a_dropped_undershirt_is_worth_one_more_try():
     assert not issue.hard and "grey v-neck inner" in issue.text
 
 
+def test_no_undershirt_is_asked_for_whose_sleeves_would_show():
+    """Pre-push reviewer, 2026-10-18: a long-sleeved undershirt under a short-sleeved
+    polo is what sleeve-inner forbids; asking for it made the two unsatisfiable."""
+    long_under = g("thermal01", "white long-sleeve thermal", "underwear", "thermal", ["inner"], 2, sleeve="long")
+    short_polo = g("polo00009", "navy short-sleeve polo", "tops", "polo", ["base"], 1, sleeve="short")
+    d = day(-1, long_under, short_polo, SWEATER, COAT, JEANS, SNEAK, hi=10)
+    worn = ids(base=short_polo, mid=SWEATER, outer=COAT, bottoms=JEANS, footwear=SNEAK)
+    assert "no-inner" not in found(worn, d)
+    assert "sleeve-inner" in found({**worn, "inner": long_under["id"]}, d), "the clash it avoids"
+
+
 def test_no_undershirt_is_asked_for_where_the_budget_has_no_room():
     """15C allows two layers: polo and cardigan. Asking for the undershirt too would
     fight the layer budget (plan review, 2026-10-18)."""

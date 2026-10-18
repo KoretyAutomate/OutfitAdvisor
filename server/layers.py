@@ -37,6 +37,11 @@ import scale
 
 _TORSO = ("inner", "base", "mid", "outer")
 
+# Below this felt temperature at the coldest hour, going out means a jacket or coat
+# over the knitwear (user, 2026-10-18: a 2-13C morning served a sweater and no coat).
+# The plan temperature already carries the wearer's warm/cold calibration.
+COAT_BELOW_C = 8
+
 
 def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
     """How many torso layers today allows: 2 on a mild or warm day, up to 4 in the
@@ -48,7 +53,10 @@ def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
     """
     ref = by_item.get(picks.get("base")) or next(
         (by_item.get(picks[c]) for c in _TORSO if picks.get(c)), None) or {}
-    return _budget(plan_temp, ref)
+    # A cold morning is undershirt, top, knitwear AND a coat — four, whatever the
+    # scale says, or the budget fights the coat the check demands and the undershirt
+    # is what gets dropped (plan review, 2026-10-18).
+    return max(4 if plan_temp < COAT_BELOW_C else 2, _budget(plan_temp, ref))
 
 
 def _budget(plan_temp: float, ref: dict) -> int:

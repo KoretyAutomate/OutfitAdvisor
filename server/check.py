@@ -22,11 +22,16 @@ import layers
 import picks as pk
 import reroll
 import rules
+import scale
 import sleeves
 import style
 from llm import _peak_temp, _plan_temp
 
 TORSO = ("base", "mid", "outer")
+COAT_BELOW_C = layers.COAT_BELOW_C
+# Outerwear that is not warmth: a blazer is tailoring, and demanding one on a cold
+# casual morning would contradict the register line (plan review, 2026-10-18).
+NOT_A_COAT = frozenset({"blazer"})
 HOT_DAY_C = 24      # the coldest felt hour at or above this: no layer (llm._weather_flags' line)
 # A top is worn ONCE. These are tops however warm they are: a knit polo is still a
 # polo. A button-up `shirt` is left out on purpose — open over a tee it is a layer.
@@ -152,6 +157,7 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
     if day.plan >= HOT_DAY_C:
         out += [Issue(f"hot-{slot}", f"{_name(day, worn[slot])} as {slot}: no layer is needed on a hot day", True)
                 for slot in ("mid", "outer") if worn.get(slot)]
+    out += _coat(worn, day)
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
                 for slot in ("footwear", "outer")
@@ -161,6 +167,47 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
                     and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
                     for i, it in wd.by_item.items())]
     return out
+
+
+def is_coat(item: dict) -> bool:
+    """A jacket or coat — outerwear, not knitwear filed as outer, not a blazer."""
+    return item.get("group") == "outerwear" and item.get("type") not in NOT_A_COAT
+
+
+def coats_to_add(worn: dict, day: Day) -> list[str]:
+    """The coats they could put on over this outfit today: unused, wearable as outer,
+    within every rule of theirs alongside what is worn, and not too warm as outer
+    (a puffer at 7C must never be demanded and forbidden at once)."""
+    wd = day.wd
+    return [iid for iid, it in wd.by_item.items()
+            if is_coat(it) and iid not in worn.values() and "outer" in (wd.by_roles.get(iid) or ())
+            and not rules.violations(day.rules, {**worn, "outer": iid}, wd.by_item)
+            and not layers.overdressed(it, "outer", wd, day.plan, day.peak, day.rules)]
+
+
+def _coat(worn: dict, day: Day) -> list[Issue]:
+    """A cold morning wants a jacket or coat over the knitwear (user, 2026-10-18).
+    "Warm enough" asks only whether ONE torso garment is warm enough, which a sweater
+    alone is at a felt -1C — so the coat is checked for itself. Only where they own
+    one they could wear: otherwise asking again cannot help."""
+    if day.plan >= COAT_BELOW_C:
+        return []
+    wd = day.wd
+    worn_coats = [worn[c] for c in TORSO if worn.get(c) and is_coat(wd.by_item[worn[c]])]
+    can = coats_to_add(worn, day)
+    if not worn_coats:
+        if not can:
+            return []
+        warm = [i for i in can if scale.warm_enough(wd.by_item[i], day.plan)] or can
+        return [Issue("no-coat", f"a cold morning ({day.plan:.0f}C felt) and no jacket or coat — put one they "
+                      f"own in outer, such as {_name(day, warm[0])}, and keep the knitwear in mid", True)]
+    top = worn_coats[-1]
+    if not scale.warm_enough(wd.by_item[top], day.plan):
+        warmer = [i for i in can if scale.warm_enough(wd.by_item[i], day.plan)]
+        if warmer:
+            return [Issue("coat-light", f"{_name(day, top)} is light for the coldest hour ({day.plan:.0f}C felt) — "
+                          f"{_name(day, warmer[0])} is warmer", False)]
+    return []
 
 
 def _taste(worn: dict, day: Day) -> list[Issue]:
@@ -178,12 +225,30 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
     n, cap = sum(1 for c in ("inner", *TORSO) if worn.get(c)), layers.max_layers(worn, wd.by_item, day.plan)
     if n > cap:
         out.append(Issue("layers", f"{n} torso layers; today needs at most {cap}", False))
+    elif n < cap and not worn.get("inner") and torso and (spare := _undershirt(worn, day)):
+        # They wear one whenever they own one (SYSTEM) — and on a cold morning the model
+        # dropped it five times in six once a coat was asked for (replay, 2026-10-18).
+        # Soft, and only where the layer budget has room: never a fight with "layers".
+        out.append(Issue("no-inner", f"no undershirt, though they own {_name(day, spare)} — it goes "
+                         "under the top", False))
     out += [Issue(f"style-{slot}", f"{slot}: {why}", False)
             for slot, why in style.violations(worn, wd.by_item, day.look)]
     out += [Issue(f"repeat-{slot}", f"{slot}: the same {_name(day, worn[slot])} as the outfit they asked to change, "
                   "though something else of theirs suits today", False)
             for slot in reroll.repeated_slots(worn, day.prefs.shown_map, wd, day.plan, day.rules, day.peak)]
     return out
+
+
+def _undershirt(worn: dict, day: Day) -> str | None:
+    """An unused undershirt they could wear under this outfit today, or None. Never
+    one whose sleeves would show under the top — no-inner and sleeve-inner must never
+    ask for opposite things (pre-push reviewer, 2026-10-18)."""
+    wd = day.wd
+    return next((iid for iid, it in wd.by_item.items()
+                 if iid not in worn.values() and "inner" in (wd.by_roles.get(iid) or ())
+                 and not sleeves.sleeve_clashes({**worn, "inner": iid}, wd.by_item)
+                 and not rules.violations(day.rules, {**worn, "inner": iid}, wd.by_item)
+                 and not layers.overdressed(it, "inner", wd, day.plan, day.peak, day.rules)), None)
 
 
 def stacked(picks: dict, by_item: dict) -> bool:

@@ -212,5 +212,17 @@ def prompt_block(look, handles: dict | None) -> str:
     return ("LOOK FEEDBACK from the wearer — honour it:\n" + "\n".join(lines) + "\n") if lines else ""
 
 
+# How an outfit holds together — one string for the advisor that chooses and the
+# stylist that judges, so the two apply the same taste (user, 2026-10-18, on light
+# blue polo + dusty rose sweater + beige cargo trousers + grey sneakers + navy belt).
+LOOK_PRINCIPLES = (
+    "- One register: trousers and shoes as casual or as smart as the top. Utility and "
+    "sport trousers (cargo, joggers) go with tees, sweatshirts, hoodies and casual "
+    "jackets — not with a polo or fine knitwear.\n"
+    "- Colour: build on neutrals (navy, grey, charcoal, white, black, beige, olive, "
+    "brown, denim) with at most ONE accent colour or pattern; two pastels or two "
+    "accents compete.\n"
+)
+
 def stylist_enabled() -> bool:
     return os.environ.get("OUTFIT_STYLIST", "1") != "0"

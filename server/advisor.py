@@ -39,6 +39,8 @@ from vocab import CATEGORIES, NON_SLOT_TYPES, TYPE_LABEL
 DEADLINE_S = 75.0
 REVISE_BY_S = 40.0
 STYLIST_MIN_LEFT_S = 20.0
+# The one round after the fallback (see _rescue): a model answer and a review.
+RESCUE_MIN_LEFT_S = 30.0
 # The phone draws any slot not starting "None" as a garment to wear (slotIsEmpty in
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
@@ -57,10 +59,12 @@ SYSTEM = (
     "then ONE top: tee, polo, shirt or blouse. Warmth is added with "
     "knitwear (sweater, cardigan, hoodie, fleece) and then a jacket or coat, never by "
     "stacking a second top. An open button-up shirt over a tee is the one exception.\n"
+    f"- Outdoors on a cold morning — below {layers.COAT_BELOW_C}C felt at the coldest hour "
+    "— it is undershirt, top, knitwear AND a jacket or coat, warm enough for that hour; "
+    "the coat comes off indoors and by midday. Knitwear alone is for indoors.\n"
     "- Never a long sleeve under a short one. Never invent a layer the day does not "
     "need: on a warm day mid and outer stay empty.\n"
-    "- One register: trousers and shoes as casual or as smart as the top. Colours that "
-    "go together; at most one bold colour or pattern.\n"
+    + style.LOOK_PRINCIPLES +
     "- Trousers and shoes always — a dress or jumpsuit covers the legs instead.\n"
     "- Rain: they carry an umbrella, so never choose a garment because of rain.\n"
     "- Their rules are absolute. Their likes, dislikes and habits matter. Avoid what "
@@ -203,13 +207,30 @@ async def _ask(messages: list, temperature: float, left: float) -> dict | None:
     return None
 
 
+def _look_note(verdict: "stylist.Verdict | None") -> str:
+    said = f': "{verdict.issue}"' if verdict and verdict.issue else ""
+    return f"- a second stylist scored it {verdict.score}/5{said}" if verdict else ""
+
+
 def _revision(found: list, verdict: "stylist.Verdict | None") -> str:
     notes = [f"- {i.text}" for i in found]
-    if verdict and verdict.score <= stylist.POOR:
-        said = f': "{verdict.issue}"' if verdict.issue else ""
-        notes.append(f"- a second stylist scored it {verdict.score}/5{said}")
+    if stylist.needs_another(verdict):
+        notes.append(_look_note(verdict))
+    # The facts first: a look note never overrides them (plan review, 2026-10-18 —
+    # "too bulky, drop the coat" must not undo a cold morning's coat).
     return ("Checking that outfit against their wardrobe and today found:\n" + "\n".join(notes)
-            + "\nChoose again from the same wardrobe: fix every point, keep what works. Same JSON.")
+            + "\nChoose again from the same wardrobe: fix every point, keep what works. Warmth, "
+            "their rules and what they own come first; a look note never overrides them. Same JSON.")
+
+
+def _stylist_time(found: list, elapsed: float, left: float) -> bool:
+    """Whether to review this round. A round with hard issues is reviewed too, so its
+    revision fixes the look with the facts (user, 2026-10-18: three hard rounds and
+    the served outfit was never looked at) — but only where the review cannot cost
+    the next revision its start."""
+    if not style.stylist_enabled() or left <= STYLIST_MIN_LEFT_S:
+        return False
+    return not check.hard(found) or elapsed + stylist.STYLIST_TIMEOUT_S < REVISE_BY_S
 
 
 async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | None = None) -> dict | None:
@@ -238,26 +259,89 @@ async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | N
             break
         picks = pk.resolve_handles({c: (out["picks"] or {}).get(c) for c in CATEGORIES}, by_handle, wd.ids)
         ans = Answer(out, picks, check.issues(picks, day))
-        left = DEADLINE_S - (time.monotonic() - t0)
-        if not check.hard(ans.found) and style.stylist_enabled() and left > STYLIST_MIN_LEFT_S:
-            ans.verdict = await stylist.judge(picks, wd, day.look, handles)
+        elapsed = time.monotonic() - t0
+        if _stylist_time(ans.found, elapsed, DEADLINE_S - elapsed):
+            ans.verdict = await stylist.judge(picks, wd, day.look, handles, DEADLINE_S - elapsed)
         if _better(ans, best):
             best = ans
-        poor = ans.verdict is not None and ans.verdict.score <= stylist.POOR
+        poor = stylist.needs_another(ans.verdict)
         log.info("advisor: round %s — %d hard, %d soft, stylist %s", rnd + 1, len(check.hard(ans.found)),
                  sum(1 for i in ans.found if not i.hard), ans.verdict.score if ans.verdict else "-")
         if not (ans.found or poor) or rnd == MAX_REVISIONS or time.monotonic() - t0 > REVISE_BY_S:
             break
         messages = [*messages, {"role": "assistant", "content": out["_raw"]},
                     {"role": "user", "content": _revision(ans.found, ans.verdict)}]
-    log.info("advisor: %d model call(s), %.1fs", calls, time.monotonic() - t0)
     if best is None:
+        log.info("advisor: %d model call(s), %.1fs", calls, time.monotonic() - t0)
         return None
-    return _finish(best, day, wd)
+    fixed = fallback.fix(best.picks, day) if check.hard(best.found) else (best.picks, {})
+    if fixed[1] and out is not None:
+        req = _Request(day, wd, by_handle, handles, temperature, t0)
+        rescued = await _rescue(req, messages, out, fixed[0])
+        if rescued is not None:
+            calls += 1
+        if isinstance(rescued, Answer):
+            log.info("advisor: %d model call(s), %.1fs", calls, time.monotonic() - t0)
+            return _finish(rescued, day, wd, (rescued.picks, {}))
+    log.info("advisor: %d model call(s), %.1fs", calls, time.monotonic() - t0)
+    return _finish(best, day, wd, fixed)
 
 
-def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe") -> dict:
-    picks, changed = (fallback.fix(best.picks, day) if check.hard(best.found) else (best.picks, {}))
+@dataclass(frozen=True)
+class _Request:
+    """What every model call of one /advice request shares."""
+    day: check.Day
+    wd: "pk.Wardrobe"
+    by_handle: dict
+    handles: dict
+    temperature: float
+    t0: float
+
+
+async def _rescue(req: _Request, messages: list, last: dict, fixed: dict):
+    """After the fallback (user, 2026-10-18): its outfit is correct on the facts and
+    was never looked at. The stylist scores it; a look worth asking again for gets ONE
+    more round, seeded with that outfit. The answer replaces it only when it breaks
+    no hard fact and the stylist no longer wants another — never on a one-point
+    difference between two reviews, which is noise (4,4,3,4 for one outfit).
+
+    None: no round was asked. False: a round was asked and its answer not taken.
+    An Answer: take it."""
+    day, wd, handles, t0 = req.day, req.wd, req.handles, req.t0
+    elapsed = time.monotonic() - t0
+    left = DEADLINE_S - elapsed
+    if not style.stylist_enabled() or elapsed >= REVISE_BY_S or left <= RESCUE_MIN_LEFT_S:
+        return None
+    verdict = await stylist.judge(fixed, wd, day.look, handles, left)
+    log.info("advisor: the fallback's outfit scored %s", verdict.score if verdict else "-")
+    if not stylist.needs_another(verdict):
+        return None
+    worn = ", ".join(f"{s} {handles[i]}" for s, i in fixed.items() if i and i in handles)
+    seed = ("Not every point could be fixed, so the outfit was corrected to: " + worn + ".\n"
+            + _look_note(verdict) + "\nChoose again from the same wardrobe: start from the corrected "
+            "outfit, keep it free of every point above, and fix how it looks. Warmth, their rules and "
+            "what they own come first. Same JSON.")
+    msgs = [*messages, {"role": "assistant", "content": last["_raw"]}, {"role": "user", "content": seed}]
+    out = await _ask(msgs, req.temperature, DEADLINE_S - (time.monotonic() - t0))
+    if out is None:
+        return False
+    picks = pk.resolve_handles({c: (out["picks"] or {}).get(c) for c in CATEGORIES}, req.by_handle, wd.ids)
+    ans = Answer(out, picks, check.issues(picks, day))
+    if check.hard(ans.found):
+        log.info("advisor: rescue round broke a hard fact — keeping the fallback's outfit")
+        return False
+    left = DEADLINE_S - (time.monotonic() - t0)
+    ans.verdict = await stylist.judge(picks, wd, day.look, handles, left)
+    if ans.verdict is None or stylist.needs_another(ans.verdict):
+        log.info("advisor: rescue round scored %s — keeping the fallback's outfit",
+                 ans.verdict.score if ans.verdict else "-")
+        return False
+    log.info("advisor: rescue round taken, stylist %s", ans.verdict.score)
+    return ans
+
+
+def _finish(best: Answer, day: check.Day, wd: "pk.Wardrobe", fixed: tuple) -> dict:
+    picks, changed = fixed
     for slot, now in changed.items():
         log.warning("advisor: fallback %s → %s", slot, now or "empty")
     # Gaps from the FINAL outfit and what they own — never from what the fallback

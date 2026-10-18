@@ -16,8 +16,9 @@ ranked by the same facts check.py reports:
     1. least undressed    (no top, trousers or shoes they own — dressed beats comfortable)
     2. fewest hard issues (cold, overheated, stacked, their rules, snow gear …)
     3. a top in base      (not a lone layer filed as mid)
-    4. fewest changes     (the model chose; change as little of it as possible)
-    5. fewest soft issues
+    4. fewest of the model's garments dropped (moved to another slot is kept)
+    5. fewest changes     (the model chose; change as little of it as possible)
+    6. fewest soft issues
 
 Reached rarely: the model is told every issue first (advisor.dress).
 """
@@ -57,7 +58,7 @@ def fix(picks: dict, day: Day) -> tuple[dict, dict]:
     # need it (four white garments under a no-white rule).
     depth = min(len(CATEGORIES), DEPTH + len(hard(issues(start, day))))
     for _ in range(depth):
-        if best_rank[:4] == (0, 0, 0, 0):
+        if best_rank[:5] == (0, 0, 0, 0, 0):
             break
         nxt, fresh = [], set()
         for p in beam:
@@ -102,18 +103,27 @@ def _rank(p: dict, original: dict, day: Day) -> tuple:
     misfiled = int(not p.get("base") and any(p.get(c) for c in ("mid", "outer")))
     changes = sum(1 for c in CATEGORIES if p.get(c) != original.get(c))
     broken = sum(1 for k in h if k.startswith("rule-"))
-    return (broken, len(h & _UNDRESSED) + bare_legs, len(h), misfiled, changes,
+    # Kept counts before changed: on a cold morning the coat goes OVER the sweater the
+    # model filed as outer (sweater to mid, coat in outer, two changes) rather than
+    # replacing it (one change) — plan review, 2026-10-18.
+    kept = set(p.values())
+    dropped = sum(1 for i in original.values() if i and i in wd.ids and i not in kept)
+    return (broken, len(h & _UNDRESSED) + bare_legs, len(h), misfiled, dropped, changes,
             sum(1 for i in found if not i.hard))
 
 
 def _moves(p: dict, day: Day):
-    """Every outfit one garment away: a slot emptied, or filled with an unused garment
-    that can be worn there. A dress in `base` takes the trousers off in the same move."""
+    """Every outfit one garment away: a slot emptied, a worn garment moved to an empty
+    slot it can be worn in, or a slot filled with an unused garment that can be worn
+    there. A dress in `base` takes the trousers off in the same move."""
     wd = day.wd
     worn = {i for i in p.values() if i}
     for slot in CATEGORIES:
         if p.get(slot):
             yield {**p, slot: None}
+            for to in CATEGORIES:
+                if to != slot and not p.get(to) and to in (wd.by_roles.get(p[slot]) or ()):
+                    yield {**p, slot: None, to: p[slot]}
         for iid in sorted(wd.ids):
             if iid in worn or slot not in (wd.by_roles.get(iid) or ()):
                 continue

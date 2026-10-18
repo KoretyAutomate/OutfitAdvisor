@@ -1,13 +1,16 @@
 /**
- * laundry_dry.test.js — "Laundry & drying done" (user, 2026-10-18: "Could you update
- * laundry done to laundry and drying done and make it possible to tell drying is also
- * done?").
+ * laundry_dry.test.js — "Laundry done", "Drying done", "Laundry & drying done"
+ * (user, 2026-10-18: "needs to have laundry done, drying done, and laundry & drying
+ * done. All three must have an option").
  *
  * Pinned:
- *   - the button says "Laundry & drying done";
- *   - washed alone, a load is drying for the set hours, as before;
- *   - "They're dry too" brings a load straight back — what was waiting and what an
- *     earlier wash left drying — and offers loads that are only drying;
+ *   - the status sheet has all three buttons;
+ *   - Laundry done: a load is washed and drying for the set hours, as before; a load
+ *     that is only drying cannot be picked;
+ *   - Drying done: offers the loads with something drying, brings them straight back,
+ *     and never washes what is still waiting in the same load;
+ *   - Laundry & drying done: what was waiting and what an earlier wash left drying
+ *     come back now;
  *   - a load not ticked keeps drying;
  *   - undo puts each wear back as it was: drying from the wash before, or waiting.
  *
@@ -40,9 +43,8 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   const row = l => lb(l).closest("label").textContent.replace(/\s+/g, " ");
   const av = id => ev(`avail(closet.find(i=>i.id==="${id}"))`);
   const drying = id => ev(`dryingWears("${id}")`);
-  const open = async () => { $("laundryBtn").onclick(); await drain(); };
+  const open = async (btn = "laundryBtn") => { $(btn).onclick(); await drain(); };
   const go = async () => { await $("washGo").onclick(); await drain(); };
-  const tickDry = async on => { $("washDry").checked = on; $("washDry").onchange(); await drain(); };
 
   await ev(`laundry.dryHours=24;
     closet=[${JSON.stringify(item("w", "white tee", ["white"]))},${JSON.stringify(item("d", "navy tee", ["navy"]))}];
@@ -50,13 +52,14 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
     saveCloset()`);
   await drain();
 
-  console.log("\n--- 1. the button --------------------------------------------------");
-  check("it says Laundry & drying done", $("laundryBtn").textContent === "Laundry & drying done",
-    $("laundryBtn").textContent);
+  console.log("\n--- 1. three buttons -----------------------------------------------");
+  check("Laundry done, Drying done, Laundry & drying done",
+    $("laundryBtn").textContent === "Laundry done" && $("dryBtn").textContent === "Drying done"
+      && $("washDryBtn").textContent === "Laundry & drying done",
+    [$("laundryBtn").textContent, $("dryBtn").textContent, $("washDryBtn").textContent]);
 
   console.log("\n--- 2. washed, not yet dry: as before ------------------------------");
   await open();
-  check("'They're dry too' starts unticked", !$("washDry").checked);
   check("the button says Washed", $("washGo").textContent === "Washed");
   await go();
   check("both are drying", drying("w") === 1 && drying("d") === 1 && av("w") === 0 && av("d") === 0);
@@ -66,10 +69,11 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   await open();
   check("each load says what is drying", row("white").includes("1 drying") && row("dark").includes("1 drying"),
     [row("white"), row("dark")]);
-  check("…but cannot be picked until 'dry too'", lb("white").disabled && $("washGo").disabled);
-  await tickDry(true);
-  check("ticking 'dry too' offers and ticks them", !lb("white").disabled && lb("white").checked && lb("dark").checked);
-  check("the button says Washed & dry", $("washGo").textContent === "Washed & dry" && !$("washGo").disabled);
+  check("…but Laundry done cannot pick them", lb("white").disabled && $("washGo").disabled);
+  $("washCancel").onclick();
+  await open("dryBtn");
+  check("Drying done offers and ticks them", !lb("white").disabled && lb("white").checked && lb("dark").checked);
+  check("the button says Dry", $("washGo").textContent === "Dry" && !$("washGo").disabled);
   lb("dark").checked = false; lb("dark").onchange();
   await go();
   check("the whites are back in rotation now", av("w") === 1 && drying("w") === 0);
@@ -85,7 +89,12 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
 
   console.log("\n--- 5. washed and dry in one go, and its undo ----------------------");
   await ev(`wearLog=[{itemId:"w",wornAt:${T - D}}]; lastWash=null; saveCloset()`); await drain();
-  await open(); await tickDry(true);
+  await open("dryBtn");
+  check("Drying done does not offer a load that is only waiting to be washed", lb("white").disabled,
+    row("white"));
+  $("washCancel").onclick();
+  await open("washDryBtn");
+  check("Laundry & drying done offers it", $("washGo").textContent === "Washed & dry");
   check("a load waiting to be washed is offered", lb("white").checked && !lb("white").disabled);
   await go();
   check("washed and dry: back now", av("w") === 1 && drying("w") === 0);
@@ -93,18 +102,33 @@ const item = (id, label, colors) => ({id, label, category: "base", group: "tops"
   check("undo puts it back to be washed, not drying", av("w") === 0 && drying("w") === 0,
     ev("JSON.stringify(wearLog)"));
 
-  console.log("\n--- 5b. an unticked load stays unticked when 'dry too' is ticked --");
-  await ev(`wearLog=[{itemId:"w",wornAt:${T - D}},{itemId:"w",wornAt:${T - 2 * D},washedAt:${T - H}}];
-    closet[0].count=2; lastWash=null; saveCloset()`); await drain();
-  await open();
+  console.log("\n--- 5b. a load both dirty and drying --------------------------------");
+  const mixed = `wearLog=[{itemId:"w",wornAt:${T - D}},{itemId:"w",wornAt:${T - 2 * D},washedAt:${T - H}}];
+    closet[0].count=2; lastWash=null; saveCloset()`;
+  const waiting = () => ev(`wearLog.filter(x=>x.itemId==="w"&&x.washedAt==null).length`);
+  await ev(mixed); await drain();
+  await open("dryBtn"); await go();
+  check("Drying done dries the wet one", drying("w") === 0 && av("w") === 1, ev("JSON.stringify(wearLog)"));
+  check("…and leaves the dirty one waiting", waiting() === 1, ev("JSON.stringify(wearLog)"));
+  check("its undo says dry", $("unwashBtn").textContent.startsWith("Undo last dry — "), $("unwashBtn").textContent);
+  await ev(mixed); await drain();
+  await open("washDryBtn");
   lb("white").checked = false; lb("white").onchange();
-  await tickDry(true);
-  check("the whites — dirty and drying — stay unticked", !lb("white").checked);
   await go();
-  check("…so nothing of theirs was washed", ev(`wearLog.filter(x=>x.itemId==="w"&&x.washedAt==null).length`) === 1,
+  check("unticked under Laundry & drying done: nothing of theirs was washed", waiting() === 1,
     ev("JSON.stringify(wearLog)"));
   $("washWrap").classList.remove("show");
+  await ev(mixed); await drain();
+  await open("washDryBtn"); await go();
+  check("ticked: both back in rotation", av("w") === 2 && waiting() === 0, ev("JSON.stringify(wearLog)"));
   await ev(`closet[0].count=1`);
+
+  console.log("\n--- 5c. Drying done with nothing drying ----------------------------");
+  await ev(`wearLog=[{itemId:"w",wornAt:${T - D}}]; lastWash=null; saveCloset()`); await drain();
+  await open("dryBtn");
+  check("it says nothing is drying", /Nothing is drying/.test($("washLoads").textContent) && $("washGo").disabled,
+    $("washLoads").textContent);
+  $("washCancel").onclick();
 
   console.log("\n--- 6. after the drying time, nothing is held ---------------------");
   await ev(`wearLog=[{itemId:"d",wornAt:${T - 3 * D},washedAt:${T - 30 * H}}]; saveCloset()`); await drain();

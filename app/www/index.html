@@ -835,7 +835,13 @@
     <div class="shHead"><b>Laundry &amp; drying</b>
       <button class="ghost" id="laundryClose" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Close</button></div>
     <div id="laundryLoads"></div>
-    <button class="primary" id="laundryBtn" style="width:100%;margin-top:12px" title="Which loads are washed — and dry">Laundry &amp; drying done</button>
+    <!-- Washed, dried, or both (user, 2026-10-18: "needs to have laundry done, drying
+         done, and laundry & drying done. All three must have an option"). -->
+    <div class="row" style="gap:8px;margin-top:12px">
+      <button class="ghost" id="laundryBtn" style="flex:1" title="Which loads are washed">Laundry done</button>
+      <button class="ghost" id="dryBtn" style="flex:1" title="Which loads are dry">Drying done</button>
+    </div>
+    <button class="primary" id="washDryBtn" style="width:100%;margin-top:8px" title="Which loads are washed and dry">Laundry &amp; drying done</button>
     <!-- Undo the last wash or dry (user, 2026-10-04): a load ticked by mistake, or a wash
          logged before it actually ran. Shown only while undoing would change something. -->
     <button class="ghost" id="unwashBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem"></button>
@@ -848,13 +854,9 @@
 <!-- Laundry done: WHICH loads were washed (user, 2026-10-03). -->
 <div class="modal" id="washWrap">
   <div class="sheet">
-    <h3>Which loads are done?</h3>
+    <h3 id="washHead">Which loads are washed?</h3>
     <p class="note" id="washNote" style="margin-top:0"></p>
     <div id="washLoads"></div>
-    <!-- Drying done too (user, 2026-10-18: "make it possible to tell drying is also done"). -->
-    <label class="calRow" style="padding-left:0;margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
-      <input type="checkbox" id="washDry"><span><b>They're dry too</b>
-      <span class="note">— back in rotation now, with anything of these loads still drying</span></span></label>
     <div class="row" style="gap:8px;margin-top:12px">
       <button class="ghost" id="washCancel" style="flex:1">Cancel</button>
       <button class="primary" id="washGo" style="flex:2" disabled>Washed</button>
@@ -1746,7 +1748,7 @@ const washesId=id=>{ const it=closet.find(i=>i.id===id); return !!it&&!neverWash
    is worn, and the next save prunes it, after noteWorn has kept it as history. */
 function freeAt(w){
   if(neverWashed(closet.find(i=>i.id===w.itemId))) return w.wornAt;
-  if(w.driedAt!=null) return w.driedAt;      // "They're dry too" (2026-10-18)
+  if(w.driedAt!=null) return w.driedAt;      // "Drying done" (2026-10-18)
   return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
                           : w.wornAt+COOLDOWN_DAYS*DAY_MS;
 }
@@ -1862,7 +1864,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.52";
+const WEB_BUILD="1.53";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -6049,7 +6051,7 @@ function washable(){
   }
   return by;
 }
-/* Washed and still drying, by load — what "They're dry too" can bring back. */
+/* Washed and still drying, by load — what "Drying done" brings back. */
 function dryingByLoad(){
   const now=Date.now(), by=Object.fromEntries(loadIds().map(l=>[l,[]]));
   for(const w of wearLog){
@@ -6060,16 +6062,26 @@ function dryingByLoad(){
   return by;
 }
 let washPick=new Set();
+/* Which sheet this is: "wash" (washed, drying for the set hours), "dry" (what an
+   earlier wash left drying is dry now) or "both" (washed and dry, together). */
+let washMode="wash";
+const WASH_SHEET={wash:{head:"Which loads are washed?",go:"Washed"},
+  dry:{head:"Which loads are dry?",go:"Dry"},
+  both:{head:"Which loads are washed and dry?",go:"Washed & dry"}};
+/* What a load offers in this mode: dirty clothes to wash, wet ones to dry, or both. */
+const washTakes=(l,by,wet)=>(washMode!=="dry"&&by[l].length)||(washMode!=="wash"&&wet[l].length);
 function paintWash(){
-  const by=washable(), wet=dryingByLoad(), dry=$("washDry").checked;
-  const any=loadIds().some(l=>by[l].length||wet[l].length);
+  const by=washable(), wet=dryingByLoad();
+  const any=loadIds().some(l=>washTakes(l,by,wet));
+  $("washHead").textContent=WASH_SHEET[washMode].head;
   $("washLoads").innerHTML=laundry.loads.map(({id:l,name})=>{
-    const n=by[l].length, d=wet[l].length, can=n||(dry&&d);
+    const n=by[l].length, d=wet[l].length, can=washTakes(l,by,wet);
     const says=[n?`${n} to wash`:"",d?`${d} drying`:""].filter(Boolean).join(" · ")||"nothing waiting";
     return `<label class="calRow" style="padding-left:0"><input type="checkbox" data-load="${esc(l)}"
       ${washPick.has(l)&&can?"checked":""} ${can?"":"disabled"}><span>${esc(name)}
       <span class="note">${says}</span></span></label>`;
-  }).join("")+(any?"":`<p class="note">Nothing is in the laundry yet. Clothes go in when you
+  }).join("")+(any?"":washMode==="dry"?`<p class="note">Nothing is drying. A load is drying once
+    "Laundry done" logs its wash.</p>`:`<p class="note">Nothing is in the laundry yet. Clothes go in when you
     log what you wore: "Wearing it" or "I wore something else" on today's outfit,
     or "Worn today" on a garment.
     Loads are set up in Settings → Laundry.</p>`);
@@ -6077,33 +6089,28 @@ function paintWash(){
     if(c.checked) washPick.add(c.dataset.load); else washPick.delete(c.dataset.load);
     $("washGo").disabled=!washPick.size; }; });
   const h=laundry.dryHours;
-  $("washNote").textContent=dry
-    ? "Washed and dry: they go straight back into rotation."
-    : h ? `They'll be back in rotation once dry — in ${h<24?`${h} hours`:h===24?"a day":`${h/24} days`} (Settings → Laundry). Dry already? Tick below.`
+  $("washNote").textContent=washMode==="both"
+    ? "Washed and dry: they go straight back into rotation, with anything of these loads still drying."
+    : washMode==="dry" ? "Dry now: what these loads have drying goes straight back into rotation."
+    : h ? `They'll be back in rotation once dry — in ${h<24?`${h} hours`:h===24?"a day":`${h/24} days`} (Settings → Laundry). Dry already? Use "Laundry & drying done".`
     : "They go straight back into rotation (Settings → Laundry).";
-  $("washGo").textContent=dry?"Washed & dry":"Washed";
-  $("washGo").disabled=![...washPick].some(l=>by[l]?.length||(dry&&wet[l]?.length));
+  $("washGo").textContent=WASH_SHEET[washMode].go;
+  $("washGo").disabled=![...washPick].some(l=>washTakes(l,by,wet));
 }
-$("washDry").onchange=()=>{
-  // Ticking it offers the loads that are only drying, ticked: that is what it is for.
-  // Only those — a load already offered keeps what the wearer chose for it, or an
-  // unticked load of dirty clothes would come back washed and dry (pre-push
-  // reviewer, 2026-10-18).
-  if($("washDry").checked){ const by=washable(), wet=dryingByLoad();
-    loadIds().forEach(l=>{ if(wet[l].length&&!by[l].length) washPick.add(l); }); }
-  paintWash();
-};
-$("laundryBtn").onclick=()=>{
-  const by=washable();
-  // Opened even with nothing waiting (user, 2026-10-09: "I don't see anywhere ...
-  // inputting which batch has finished"): a toast in its place hid the loads, and
-  // with them how clothes ever get into the laundry. Every load with something in
-  // it starts ticked; untick is how you say only the darks went in.
-  washPick=new Set(loadIds().filter(l=>by[l].length));
-  $("washDry").checked=false;
+/* Every load with something for this mode starts ticked; untick is how you say only
+   the darks went in. Opened even with nothing waiting (user, 2026-10-09: "I don't see
+   anywhere ... inputting which batch has finished"): a toast in its place hid the
+   loads, and with them how clothes ever get into the laundry. */
+function openWash(mode){
+  washMode=mode;
+  const by=washable(), wet=dryingByLoad();
+  washPick=new Set(loadIds().filter(l=>washTakes(l,by,wet)));
   $("laundryWrap").classList.remove("show");
   paintWash(); $("washWrap").classList.add("show");
-};
+}
+$("laundryBtn").onclick=()=>openWash("wash");
+$("dryBtn").onclick=()=>openWash("dry");
+$("washDryBtn").onclick=()=>openWash("both");
 /* Laundry & drying status (user, 2026-10-18): per load, what waits to be washed and
    what is drying, and until when — then the actions on it. Only loads with something
    in them are listed, so an empty laundry says so in one line. */
@@ -6184,23 +6191,25 @@ $("unwashBtn").onclick=async()=>{
     :"Nothing to undo");
 };
 $("washGo").onclick=async()=>{
-  const by=washable(), wet=dryingByLoad(), dry=$("washDry").checked, now=Date.now(); let n=0;
+  const by=washable(), wet=dryingByLoad(), now=Date.now(); let n=0;
+  const wash=washMode!=="dry", dry=washMode!=="wash";
   const stamped=[], loads=[];
   const rec=(w,extra)=>({itemId:w.itemId,wornAt:w.wornAt,...(w.marked?{marked:true}:{}),...extra});
   for(const l of washPick){
     const before=n;
-    for(const w of by[l]||[]){ stamped.push(rec(w,{})); w.washedAt=now; if(dry) w.driedAt=now; n++; }
-    // Dry too: what an earlier wash left drying comes back now as well.
+    if(wash) for(const w of by[l]||[]){ stamped.push(rec(w,{})); w.washedAt=now; if(dry) w.driedAt=now; n++; }
+    // Dry: what an earlier wash left drying comes back now.
     if(dry) for(const w of wet[l]||[]){ stamped.push(rec(w,{washedAt:w.washedAt})); w.driedAt=now; n++; }
     if(n>before) loads.push(l);
   }
   $("washWrap").classList.remove("show");
   if(n){ lastWash={at:now,loads,wears:stamped,...(dry?{dry:true}:{})}; }
+  const dryOnly=!wash;
   await saveCloset(); await saveLastWash();
   const names=loads.map(loadName).join(", ");
   const h=laundry.dryHours;
-  toast(!n?"Nothing was waiting on the wash"
-    : dry||!h ? `${names} ${dry?"washed and dry":"washed"} — ${n} item${n>1?"s":""} back in rotation`
+  toast(!n?(dryOnly?"Nothing was drying":"Nothing was waiting on the wash")
+    : dry||!h ? `${names} ${dryOnly?"dry":dry?"washed and dry":"washed"} — ${n} item${n>1?"s":""} back in rotation`
     : `${names} washed — ${n} item${n>1?"s":""} back once dry, ${new Date(now+h*3600000)
             .toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"})}`);
 };

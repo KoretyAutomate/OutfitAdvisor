@@ -434,15 +434,8 @@
       <div class="row">
         <button class="primary" id="addCamBtn">Snap item</button>
         <button id="addGalBtn">Upload</button>
-        <button class="ghost" id="laundryBtn" title="Which loads are washed — and dry">Laundry &amp; drying done</button>
+        <button class="ghost" id="laundryStatusBtn" title="What each load holds — wash, dry, undo">Laundry &amp; drying status</button>
       </div>
-      <!-- Undo the last wash (user, 2026-10-04): a load ticked by mistake, or a wash
-           logged before it actually ran. Shown only while undoing would change
-           something. -->
-      <button class="ghost" id="unwashBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem"></button>
-      <!-- Mark by hand what is in the laundry (user, 2026-10-14): on first use, after
-           a wash logged by mistake, or for a garment that missed the wash. -->
-      <button class="ghost" id="dirtyBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem">What's still in the laundry?</button>
       <!-- Only shown when something in the closet has no Kind. An item saved before
            2026-08-14 has none, and its folder can only file it under "Other". -->
       <!-- "My closet is complete" lives in Settings → Profile since 2026-10-11. -->
@@ -517,8 +510,8 @@
         you what to pack — from the clothes you actually own, for the weather where you're going.
         To judge whether an event is a trip, its title, location text and dates are sent to your
         own advisor server, which reads them and does not store them; notes are never sent. The
-        weather service only ever sees the destination city's coordinates. Calendars shared with
-        you by someone else are never read at all.</p>
+        weather service only ever sees the destination city's coordinates. A calendar shared with
+        you by someone else is read only if you tick it under Calendars.</p>
       <div id="tripErr" class="err"></div>
     </div>
   </section>
@@ -810,7 +803,7 @@
     </div>
     <p class="note" style="margin-top:0">Your loads, checked from the top: a garment goes in the
       first load whose conditions it meets, and anything else in the catch-all. Pick a load on a
-      garment to override it. "Laundry &amp; drying done" asks which loads you washed, and whether they are dry.</p>
+      garment to override it. "Laundry &amp; drying status" on the Closet tab shows what each load holds; its "Laundry &amp; drying done" asks which loads you washed, and whether they are dry.</p>
     <div id="loadList"></div>
     <button class="ghost" id="loadAdd" style="width:100%;margin:4px 0 6px">Add a load</button>
     <button class="ghost" id="loadUnpin" style="width:100%;margin:0 0 14px;display:none"></button>
@@ -834,6 +827,24 @@
 </div>
 
 <!-- Place codes sheet: teach the app what your abbreviations mean, once. -->
+<!-- Laundry & drying status (user, 2026-10-18: "rename washing & drying done to washing
+     & drying status ... bundle undo last wash or undo last dry in there, as well as
+     what's still in laundry"): what each load holds, and every laundry action in one place. -->
+<div class="modal" id="laundryWrap">
+  <div class="sheet">
+    <div class="shHead"><b>Laundry &amp; drying</b>
+      <button class="ghost" id="laundryClose" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Close</button></div>
+    <div id="laundryLoads"></div>
+    <button class="primary" id="laundryBtn" style="width:100%;margin-top:12px" title="Which loads are washed — and dry">Laundry &amp; drying done</button>
+    <!-- Undo the last wash or dry (user, 2026-10-04): a load ticked by mistake, or a wash
+         logged before it actually ran. Shown only while undoing would change something. -->
+    <button class="ghost" id="unwashBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem"></button>
+    <!-- Mark by hand what is in the laundry (user, 2026-10-14): on first use, after
+         a wash logged by mistake, or for a garment that missed the wash. -->
+    <button class="ghost" id="dirtyBtn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:.78rem">What's still in the laundry?</button>
+  </div>
+</div>
+
 <!-- Laundry done: WHICH loads were washed (user, 2026-10-03). -->
 <div class="modal" id="washWrap">
   <div class="sheet">
@@ -872,7 +883,7 @@
     <div class="shHead"><b>Which of these are in the laundry?</b>
       <button class="ghost" id="inWashCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
     <p class="note" style="margin:0 0 10px">Tick what is waiting to be washed. It stays out
-      of your outfits until "Laundry &amp; drying done", and you get a new outfit without it.</p>
+      of your outfits until it is washed and dry (Closet → "Laundry &amp; drying status"), and you get a new outfit without it.</p>
     <div id="inWashList"></div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="inWashSave" style="flex:2">Save &amp; re-plan</button>
@@ -943,8 +954,8 @@
     <p class="note" style="margin-top:0">Grouped by the account each one belongs to —
       your e-mail address first, then its calendars underneath. Only the ones you tick
       are scanned for trips; birthdays, holidays and subscribed feeds are usually worth
-      leaving off. Calendars shared with you by someone else are never read — they stay
-      listed under their account, greyed out, and cannot be ticked.</p>
+      leaving off. Calendars shared with you by someone else are read only if you tick
+      them one by one — "Select all" picks your own calendars, never a shared one.</p>
     <div id="calList" style="margin:12px 0"></div>
     <div class="row">
       <button class="ghost" id="calAll" style="flex:1">Select all</button>
@@ -1851,7 +1862,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.51";
+const WEB_BUILD="1.52";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2847,6 +2858,10 @@ async function renderCloset(){
    pre-2026-08-19 shape and is still read the way it was written: [] meant all. */
 let calMode="all";    // "all" | "some" | "none"
 let calSel=[];        // selected calendar ids; only meaningful when calMode==="some"
+/* Shared calendars the wearer ticked one by one (user, 2026-10-18: "make it possible
+   to select shared calendar as well"). Opt-in only: "all" never reaches them, so a
+   calendar someone shares tomorrow is not read until it is ticked. */
+let calShared=[];
 let calAvail=[];      // [{id,title,shared,sharedBy}] from the native lister
 
 const CAL_NO_LISTER="This build can't tell which of your calendars are shared, so none of them can be read. Update the app.";
@@ -2883,20 +2898,22 @@ function calGroups(){
 }
 /** The calendars we may read at all — rule 1, applied before anything else. */
 function calReadable(){ return calAvail.filter(c=>!c.shared); }
-/** The ids a scan may look at: rule 1, then the user's own choice. */
+/** The ids a scan may look at: the user's own calendars by their choice, then each
+    shared one they ticked — and only while the device still lists it as shared. */
 function calAllowed(){
-  if(calMode==="none") return [];
   const own=calReadable().map(c=>c.id);
-  return calMode==="some"?own.filter(id=>calSel.includes(id)):own;
+  const mine=calMode==="none"?[]:calMode==="some"?own.filter(id=>calSel.includes(id)):own;
+  return mine.concat(calAvail.filter(c=>c.shared&&calShared.includes(c.id)).map(c=>c.id));
 }
 function renderCalSel(){
   const el=$("calSelLine"); if(!el) return;
-  if(calMode==="none"){ el.textContent="none — no trips will be found"; return; }
-  if(calMode!=="some"||!calSel.length){ el.textContent="all your own calendars"; return; }
+  const sh=calShared.length?` + ${calShared.length} shared`:"";
+  if(calMode==="none"){ el.textContent=calShared.length?`${calShared.length} shared only`:"none — no trips will be found"; return; }
+  if(calMode!=="some"||!calSel.length){ el.textContent=`all your own calendars${sh}`; return; }
   const names=calSel.map(id=>{ const c=calAvail.find(x=>x.id===id); return c?calLabel(c):null; })
     .filter(Boolean);
-  el.textContent=names.length?`${names.length} selected · ${names.slice(0,2).join(", ")}${names.length>2?"…":""}`
-    :`${calSel.length} selected`;
+  el.textContent=(names.length?`${names.length} selected · ${names.slice(0,2).join(", ")}${names.length>2?"…":""}`
+    :`${calSel.length} selected`)+sh;
 }
 let calAcctOpen=new Set();   // accounts the user has expanded, remembered across launches
 async function openCalPicker(){
@@ -2907,17 +2924,17 @@ async function openCalPicker(){
   if(!calAvail.length){
     list.innerHTML=`<p class="note">${esc(err||"Couldn't list your calendars. Grant calendar access, then try again.")}</p>`;
   }else{
-    // Shared calendars are SHOWN but not offered: an excluded calendar that simply
-    // vanished would read as a bug, and the user could not tell why a trip on it
-    // never appeared. They stay under the account they belong to, so the account
-    // header is the whole truth about that sign-in rather than a filtered view.
+    // Shared calendars stay under the account they were shared into, ticked one by
+    // one (user, 2026-10-18). Their box is data-shared, not data-cal: saveCalSel's
+    // all/some/none is about the wearer's own calendars, and "all" must never sweep
+    // in somebody else's.
     list.innerHTML=calGroups().map(gr=>{
-      const own=gr.cals.filter(c=>!c.shared).length;
+      const own=gr.cals.length;
       const rows=gr.cals.map(c=>{
-        if(c.shared) return `<div class="calRow off">
-          <input type="checkbox" disabled>
-          <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — never read</span></span>
-        </div>`;
+        if(c.shared) return `<label class="calRow">
+          <input type="checkbox" data-shared="${esc(c.id)}" ${calShared.includes(c.id)?"checked":""}>
+          <span>${esc(calLabel(c))}<br><span class="note">shared${c.sharedBy?` by ${esc(c.sharedBy)}`:""} — read only if ticked</span></span>
+        </label>`;
         const on=(calMode==="all")||(calMode==="some"&&calSel.includes(c.id));
         return `<label class="calRow">
           <input type="checkbox" data-cal="${esc(c.id)}" ${on?"checked":""}>
@@ -2934,12 +2951,13 @@ async function openCalPicker(){
       // and silently stop that calendar being scanned.
       const acct=gr.account||CAL_NO_ACCOUNT;
       const open=calAcctOpen.has(acct);
-      const sel=gr.cals.filter(c=>!c.shared&&((calMode==="all")||(calMode==="some"&&calSel.includes(c.id)))).length;
+      const sel=gr.cals.filter(c=>c.shared?calShared.includes(c.id)
+        :(calMode==="all")||(calMode==="some"&&calSel.includes(c.id))).length;
       return `<div class="calAcct">
         <button class="calAcctHead" data-acct="${esc(acct)}" aria-expanded="${open}">
           <span class="tw">${open?"▾":"▸"}</span>
           <span class="em">${esc(acct)}</span>
-          <span class="n">${own?`${sel}/${own} scanned`:"none you can read"}</span></button>
+          <span class="n">${sel}/${own} scanned</span></button>
         <div class="calAcctBody"${open?"":' style="display:none"'}>${rows}</div></div>`;
     }).join("");
     // First time in: open the account that actually has readable calendars, rather
@@ -2961,15 +2979,17 @@ async function openCalPicker(){
 }
 async function saveCalSel(){
   const boxes=[...document.querySelectorAll("#calList input[data-cal]")];
+  const shared=[...document.querySelectorAll("#calList input[data-shared]")];
   // Nothing listable (no permission, no lister) means the user was never shown a
   // choice, so there is no choice to save — overwriting theirs with an empty one
   // would silently turn the scan off.
-  if(!boxes.length) return;
+  if(!boxes.length&&!shared.length) return;
+  calShared=shared.filter(b=>b.checked).map(b=>b.dataset.shared);
   const picked=boxes.filter(b=>b.checked).map(b=>b.dataset.cal);
   if(picked.length===boxes.length){ calMode="all"; calSel=[]; }  // all ticked = no filter, so a calendar added later is included
   else if(!picked.length){ calMode="none"; calSel=[]; }          // Unselect all reads NOTHING, not everything
   else { calMode="some"; calSel=picked; }
-  await prefSet("oa.calendars",JSON.stringify({mode:calMode,ids:calSel}));
+  await prefSet("oa.calendars",JSON.stringify({mode:calMode,ids:calSel,shared:calShared}));
   renderCalSel();
 }
 
@@ -3480,13 +3500,13 @@ async function scanCalendar(){
   // loadCalendars throws rather than letting the scan read everything.
   calAvail=await loadCalendars();
   renderCalSel();
-  if(calMode==="none")
+  if(calMode==="none"&&!calShared.length)
     throw new Error("No calendars are selected — tick at least one under Calendars.");
   const allow=new Set(calAllowed());
   if(!allow.size)
     throw new Error(calReadable().length
       ? "None of your own calendars are ticked — choose at least one under Calendars."
-      : "No calendars on this phone can be read: every one of them is shared with you.");
+      : "None of your calendars are ticked — choose at least one under Calendars.");
   // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
   // dates for both, so the calendar scan could never have worked on a device. The
   // T2 tests passed because they mocked the plugin using OUR parameter names, so
@@ -5898,6 +5918,7 @@ async function load(){
     else{
       calSel=Array.isArray(v&&v.ids)?v.ids.map(String):[];
       calMode=["all","some","none"].includes(v&&v.mode)?v.mode:"all";
+      calShared=Array.isArray(v&&v.shared)?v.shared.map(String):[];
       if(calMode==="some"&&!calSel.length) calMode="all";
     }
   }catch(e){ calSel=[]; calMode="all"; }
@@ -6075,15 +6096,38 @@ $("laundryBtn").onclick=()=>{
   // it starts ticked; untick is how you say only the darks went in.
   washPick=new Set(loadIds().filter(l=>by[l].length));
   $("washDry").checked=false;
+  $("laundryWrap").classList.remove("show");
   paintWash(); $("washWrap").classList.add("show");
 };
+/* Laundry & drying status (user, 2026-10-18): per load, what waits to be washed and
+   what is drying, and until when — then the actions on it. Only loads with something
+   in them are listed, so an empty laundry says so in one line. */
+function paintLaundry(){
+  const by=washable(), wet=dryingByLoad(), now=Date.now();
+  const fmt=t=>new Date(t).toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});
+  const rows=laundry.loads.map(({id:l,name})=>{
+    const n=by[l].length, d=wet[l].length;
+    if(!n&&!d) return "";
+    const back=d?Math.max(...wet[l].map(freeAt)):0;
+    const says=[n?`${n} to wash`:"",d?`${d} drying${back>now?`, dry by ${fmt(back)}`:""}`:""]
+      .filter(Boolean).join(" · ");
+    return `<div class="calRow" style="padding-left:0"><span style="flex:1">${esc(name)}
+      <span class="note">${esc(says)}</span></span></div>`;
+  }).join("");
+  $("laundryLoads").innerHTML=rows||`<p class="note" style="margin:0">Nothing is waiting to be washed
+    or drying.</p>`;
+  refreshUnwash();
+}
+$("laundryStatusBtn").onclick=()=>{ paintLaundry(); $("laundryWrap").classList.add("show"); };
+$("laundryClose").onclick=()=>$("laundryWrap").classList.remove("show");
+$("laundryWrap").onclick=e=>{ if(e.target===$("laundryWrap")) $("laundryWrap").classList.remove("show"); };
 $("washCancel").onclick=()=>$("washWrap").classList.remove("show");
 $("washWrap").onclick=e=>{ if(e.target===$("washWrap")) $("washWrap").classList.remove("show"); };
 /* The last wash, so it can be taken back (user, 2026-10-04). Which wears it stamped
    is recorded by (item, worn-at) — not by reference — because a dry wear is pruned
    from the log and the record has to outlive it. One level only: a new wash
    replaces it, the way a new outfit replaces "Logged — tap to undo". */
-let lastWash=null;   // {at, loads:[...], wears:[{itemId,wornAt,washedAt?}]}  — oa.lastWash
+let lastWash=null;   // {at, loads:[...], wears:[{itemId,wornAt,washedAt?}], dry?}  — oa.lastWash
 // A wear's `washedAt` in the record: it was already drying, and this wash only dried it.
 /* What undoing the last wash would do to each wear it touched, as a function of the
    wear: put it back as it was before that wash — waiting to be washed, or still
@@ -6116,17 +6160,23 @@ function refreshUnwash(){
   b.style.display=n?"":"none";
   if(!n) return;
   const when=new Date(lastWash.at).toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});
-  b.textContent=`Undo last wash — ${lastWash.loads.map(loadName).join(", ")} · ${when}`;
+  b.textContent=`Undo last ${washWord(lastWash)} — ${lastWash.loads.map(loadName).join(", ")} · ${when}`;
 }
+/* What the last wash did, in the button's words: only dried what an earlier wash left
+   drying, washed and dried, or washed. A record from before 1.52 has no `dry`. */
+const washWord=lw=>lw.wears.every(r=>r.washedAt!=null)?"dry":lw.dry?"wash & dry":"wash";
 async function saveLastWash(){ await prefSet("oa.lastWash",JSON.stringify(lastWash)); refreshUnwash(); }
 $("unwashBtn").onclick=async()=>{
   if(!lastWash) return;
   const steps=unwashSteps(), n=steps.length;
   steps.forEach(f=>f());
-  const names=lastWash.loads.map(loadName).join(", ");
+  const names=lastWash.loads.map(loadName).join(", "), what=washWord(lastWash);
+  const dryOnly=what==="dry";
   lastWash=null;
   await saveCloset(); await saveLastWash();
-  toast(n?`Wash undone — ${names}: ${n} item${n>1?"s":""} back in the laundry`:"Nothing to undo");
+  if($("laundryWrap").classList.contains("show")) paintLaundry();
+  toast(n?`${what[0].toUpperCase()+what.slice(1)} undone — ${names}: ${n} item${n>1?"s":""} ${dryOnly?"drying again":"back in the laundry"}`
+    :"Nothing to undo");
 };
 $("washGo").onclick=async()=>{
   const by=washable(), wet=dryingByLoad(), dry=$("washDry").checked, now=Date.now(); let n=0;
@@ -6140,7 +6190,7 @@ $("washGo").onclick=async()=>{
     if(n>before) loads.push(l);
   }
   $("washWrap").classList.remove("show");
-  if(n){ lastWash={at:now,loads,wears:stamped}; }
+  if(n){ lastWash={at:now,loads,wears:stamped,...(dry?{dry:true}:{})}; }
   await saveCloset(); await saveLastWash();
   const names=loads.map(loadName).join(", ");
   const h=laundry.dryHours;
@@ -6203,6 +6253,7 @@ $("dirtyBtn").onclick=()=>{
   const now=Date.now();
   dirtyDraft=Object.fromEntries(closet.map(i=>[i.id,Math.min(i.count,waitingWears(i.id,now).length)]));
   dirtyOpen=new Set(closet.filter(i=>!neverWashed(i)&&dirtyDraft[i.id]).map(i=>i.category));
+  $("laundryWrap").classList.remove("show");
   paintDirty(); $("dirtyWrap").classList.add("show");
 };
 $("dirtyCancel").onclick=()=>$("dirtyWrap").classList.remove("show");
@@ -6820,10 +6871,11 @@ $("gearBtn").onclick=()=>{ $("setWrap").classList.add("show");
   refreshSchedStatus(); refreshReadiness(); renderVersion(); };
 $("setDone").onclick=()=>$("setWrap").classList.remove("show");
 $("calDone").onclick=async()=>{ await saveCalSel(); $("calWrap").classList.remove("show");
-  toast(calMode==="none"?"No calendars will be read"
-    :calMode==="some"?"Calendar selection saved":"Reading all your own calendars"); };
+  const sh=calShared.length?` and ${calShared.length} shared`:"";
+  toast(calMode==="none"?(sh?`Reading only ${calShared.length} shared calendar${calShared.length>1?"s":""}`:"No calendars will be read")
+    :calMode==="some"?"Calendar selection saved":`Reading all your own calendars${sh}`); };
 $("calAll").onclick=()=>{ document.querySelectorAll("#calList input[data-cal]").forEach(b=>b.checked=true); };
-$("calNone").onclick=()=>{ document.querySelectorAll("#calList input[data-cal]").forEach(b=>b.checked=false); };
+$("calNone").onclick=()=>{ document.querySelectorAll("#calList input[data-cal],#calList input[data-shared]").forEach(b=>b.checked=false); };
 $("calBtn").onclick=async()=>{
   const b=$("calBtn"), old=b.innerHTML; b.innerHTML='<span class="spin"></span>'; b.disabled=true;
   $("tripErr").textContent="";

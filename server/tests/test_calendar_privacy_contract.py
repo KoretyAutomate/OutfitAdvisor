@@ -1,7 +1,9 @@
-"""A shared calendar must never be read — pinned across the JS/Kotlin seam.
+"""A shared calendar is read only when ticked by name — pinned across the JS/Kotlin seam.
 
-The user's rule (2026-08-19) is absolute: a calendar somebody else shared into
-this account is not read, whatever the trip picker's saved selection says.
+The user's rule (2026-08-19): a calendar somebody else shared into this account is
+not read, whatever the trip picker's saved selection says. Since 2026-10-18 ("make
+it possible to select shared calendar as well") the one exception is a shared
+calendar the user ticked by name; "all" still never reaches one.
 
 Honouring it needs the native side, and that is exactly where a test is worth
 having. @ebarooni/capacitor-calendar's Android `listCalendars` selects only
@@ -129,8 +131,10 @@ def test_the_account_the_picker_groups_by_crosses_the_seam():
     picker = src[src.index("async function openCalPicker()"):]
     picker = picker[:picker.index("\nasync function saveCalSel()")]
     assert "calGroups()" in picker, "the picker must render the groups, not calAvail directly"
-    # A shared calendar that vanished from its account's group would read as a bug.
-    assert "never read" in picker, "an excluded calendar must still say why"
+    # A shared calendar is listed under its account and says it is read only if
+    # ticked; its box is not one of the own boxes "all" counts (user, 2026-10-18).
+    assert "read only if ticked" in picker, "a shared calendar must say how it is read"
+    assert 'data-shared="${esc(c.id)}"' in picker
 
 
 def test_the_web_layer_has_no_second_calendar_lister():
@@ -178,6 +182,16 @@ def test_the_evening_check_reads_only_what_the_picker_allows():
     # Builds before the mode stored a bare array of ids; the app reads it as "some".
     assert "is JSONArray ->" in sel and '"some"' in sel, "a legacy selection would widen to every calendar"
     assert "Manifest.permission.READ_CALENDAR" in src
+    # A shared calendar counts only when ticked by name — the picker's `shared` list.
+    assert 'optJSONArray("shared")' in sel
+    assert re.search(r"isShared\(.*?\)\) \{\s*if \(id\.toString\(\) in shared\) out\.add\(id\)\s*continue", reader, re.S), \
+        "a shared calendar must be read only when it was ticked"
+
+
+def test_the_picker_and_the_evening_check_store_shared_ticks_under_one_key():
+    src = INDEX.read_text()
+    assert 'JSON.stringify({mode:calMode,ids:calSel,shared:calShared})' in src
+    assert "calShared=Array.isArray(v&&v.shared)" in src
 
 
 def test_only_the_hour_leaves_the_phone():

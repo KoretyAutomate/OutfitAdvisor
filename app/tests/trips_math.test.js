@@ -287,6 +287,20 @@ async function pickerChecks() {
   check("a stale selection naming a shared calendar reads NOTHING, not everything",
     ev("candidates.length") === 0 && !!err, [err && err.message, ev("candidates.map(c=>c.calId)")]);
 
+  /* ── …unless it is ticked by name (user, 2026-10-18: "make it possible to select
+        shared calendar as well") ── */
+  await rescan(`calMode="none"; calSel=[]; calShared=["partner"];`);
+  check("a shared calendar ticked by name is scanned, even with no own calendar ticked",
+    JSON.stringify(ev("candidates.map(c=>c.calId)")) === '["shared-1"]', ev("candidates.map(c=>c.calId)"));
+  await rescan(`calMode="all"; calSel=[]; calShared=["partner"];`);
+  check("…and alongside all the own ones",
+    ev("candidates.map(c=>c.calId)").includes("shared-1") && ev("candidates.map(c=>c.calId)").includes("work-1"),
+    ev("candidates.map(c=>c.calId)"));
+  await rescan(`calMode="all"; calSel=[]; calShared=["work"];`);
+  check("a ticked id that is not a shared calendar adds nothing beyond the own choice",
+    ev("calAllowed()").filter(id => id === "work").length === 1, ev("calAllowed()"));
+  ev(`calShared=[];`);
+
   /* ── Unselect all means read nothing (2026-08-19) ──
      The old encoding made an empty list mean "all", so unticking every box would
      have scanned every calendar — the exact opposite of the request. */
@@ -337,9 +351,27 @@ async function pickerChecks() {
   const html = ev(`document.getElementById("calList").innerHTML`);
   check("the picker offers a checkbox for each calendar the user owns",
     (html.match(/data-cal=/g) || []).length === 3, (html.match(/data-cal="[^"]+"/g) || []));
-  check("and lists the shared one as un-tickable, saying why",
+  check("and lists the shared one with a box of its own, saying it is read only if ticked",
     html.includes("Alex's calendar") && !html.includes('data-cal="partner"') &&
-    /never read/.test(html), html.slice(0, 400));
+    html.includes('data-shared="partner"') && /read only if ticked/.test(html), html.slice(0, 400));
+  check("the shared box starts unticked",
+    !w.document.querySelector('#calList input[data-shared="partner"]').checked);
+  w.document.getElementById("calAll").onclick();
+  check("Select all ticks the own calendars, never the shared one",
+    [...w.document.querySelectorAll("#calList input[data-cal]")].every(b => b.checked)
+    && !w.document.querySelector('#calList input[data-shared="partner"]').checked);
+  w.document.querySelector('#calList input[data-shared="partner"]').checked = true;
+  await ev("saveCalSel()");
+  check("ticking it saves it apart from the own choice, which stays all",
+    ev("calMode") === "all" && JSON.stringify(ev("calShared")) === '["partner"]'
+    && JSON.parse(w.localStorage.getItem("oa.calendars") || "{}").shared?.[0] === "partner",
+    [ev("calMode"), ev("calShared"), w.localStorage.getItem("oa.calendars")]);
+  w.document.getElementById("calNone").onclick();
+  await ev("saveCalSel()");
+  check("Unselect all unticks it too", ev("calMode") === "none" && ev("calShared.length") === 0,
+    [ev("calMode"), ev("calShared")]);
+  ev(`calMode="all"; calSel=[];`);
+  await ev("openCalPicker()");
 
   /* ── the list is HIERARCHICAL: account first, its calendars underneath
         (user, 2026-08-20). A flat list of "Personal", "Birthdays", "US Holidays"
@@ -402,7 +434,7 @@ async function accountFoldChecks() {
     heads.every(h => h.tagName === "BUTTON" && h.hasAttribute("aria-expanded")),
     heads.map(h => h.tagName));
   check("the head says how many of that account's calendars are scanned",
-    /2\/2 scanned/.test(heads[0].textContent), heads[0].textContent.replace(/\s+/g, " "));
+    /2\/3 scanned/.test(heads[0].textContent), heads[0].textContent.replace(/\s+/g, " "));
 
   const bodies = () => [...w.document.querySelectorAll(".calAcctBody")]
     .map(b => b.style.display === "none" ? "folded" : "open");
@@ -441,8 +473,9 @@ async function accountFoldChecks() {
   await new Promise(r => setTimeout(r, 20));
   check("everything CAN be folded — the auto-open only fires on a first visit",
     JSON.stringify(bodies()) === '["folded","folded"]', bodies());
-  check("and a shared calendar is still not offered a checkbox",
-    w.document.querySelectorAll('#calList input[data-cal="p1"]').length === 0);
+  check("and a shared calendar is never one of the own boxes all/some/none counts",
+    w.document.querySelectorAll('#calList input[data-cal="p1"]').length === 0
+    && w.document.querySelectorAll('#calList input[data-shared="p1"]').length === 1);
 }
 
 // Wait for the page to finish initialising before any of these seed state: load()

@@ -19,7 +19,8 @@ import java.util.Calendar
  * stretches it to the event's end, so a 22:00 walk home is dressed for.
  *
  * What counts as going out: a timed (not all-day) event today that runs past 19:00,
- * in a calendar the wearer OWNS and ticked in the picker, that has a place — a
+ * in a calendar the wearer ticked in the picker (their own, or a shared one ticked by
+ * name — user, 2026-10-18), that has a place — a
  * location that is not a video link — and was not declined. An evening event with
  * no place is as often a call or a reminder as a dinner, and guessing "out" costs
  * a coat on a night at home (user agreed, 2026-10-10).
@@ -116,31 +117,36 @@ object EveningOut {
      * "oa.calendars" loader): {mode, ids}, or — from builds before the mode existed —
      * a bare array of ids, which means "some" when it lists any. Reading the bare
      * array as "all" would let an excluded calendar decide the evening. Raised by
-     * the pre-push reviewer, 2026-10-10.
+     * the pre-push reviewer, 2026-10-10. `shared` lists the shared calendars ticked
+     * one by one; "all" never reaches the others.
      */
-    private fun selection(ctx: Context): Pair<String, Set<String>> {
+    private data class Selection(val mode: String, val ticked: Set<String>, val shared: Set<String>)
+
+    private fun selection(ctx: Context): Selection {
+        val none = Selection("all", emptySet(), emptySet())
         val raw = ctx.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
-            .getString("oa.calendars", null) ?: return "all" to emptySet()
+            .getString("oa.calendars", null) ?: return none
         val ids = { a: JSONArray -> (0 until a.length()).map { a.opt(it).toString() }.toSet() }
         return try {
             when (val v = JSONTokener(raw).nextValue()) {
-                is JSONArray -> ids(v).let { (if (it.isEmpty()) "all" else "some") to it }
+                is JSONArray -> ids(v).let { Selection(if (it.isEmpty()) "all" else "some", it, emptySet()) }
                 is JSONObject -> {
                     val sel = v.optJSONArray("ids")?.let(ids) ?: emptySet()
                     val mode = v.optString("mode").takeIf { it in setOf("all", "some", "none") } ?: "all"
-                    (if (mode == "some" && sel.isEmpty()) "all" else mode) to sel
+                    val shared = v.optJSONArray("shared")?.let(ids) ?: emptySet()
+                    Selection(if (mode == "some" && sel.isEmpty()) "all" else mode, sel, shared)
                 }
-                else -> "all" to emptySet()
+                else -> none
             }
         } catch (e: Exception) {
-            "all" to emptySet()
+            none
         }
     }
 
-    /** The wearer's own calendars, narrowed to the ones ticked in the picker. */
+    /** The wearer's own calendars narrowed to the ones ticked, and the shared ones ticked by name. */
     private fun allowedCalendars(ctx: Context): Set<Long> {
-        val (mode, ticked) = selection(ctx)
-        if (mode == "none") return emptySet()
+        val (mode, ticked, shared) = selection(ctx)
+        if (mode == "none" && shared.isEmpty()) return emptySet()
         val out = mutableSetOf<Long>()
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
@@ -152,8 +158,11 @@ object EveningOut {
             while (c.moveToNext()) {
                 val id = c.getLong(0)
                 val access = if (c.isNull(3)) CalendarContract.Calendars.CAL_ACCESS_OWNER else c.getInt(3)
-                if (isShared(c.getString(2).orEmpty().trim(), c.getString(1).orEmpty().trim(), access)) continue
-                if (mode == "some" && id.toString() !in ticked) continue
+                if (isShared(c.getString(2).orEmpty().trim(), c.getString(1).orEmpty().trim(), access)) {
+                    if (id.toString() in shared) out.add(id)
+                    continue
+                }
+                if (mode == "none" || (mode == "some" && id.toString() !in ticked)) continue
                 out.add(id)
             }
         }

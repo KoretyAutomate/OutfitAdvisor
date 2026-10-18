@@ -257,8 +257,8 @@ class OutfitAlarmPlugin : Plugin() {
     /**
      * List the device's calendars, saying which ones are SHARED (2026-08-19).
      *
-     * The user's rule is blunt: a shared calendar shall not be read. It cannot be
-     * honoured from the web layer, because @ebarooni/capacitor-calendar's Android
+     * The user's rule (2026-08-19): a shared calendar is not read — since 2026-10-18,
+     * unless the user ticks that calendar by name. It cannot be honoured from the web layer, because @ebarooni/capacitor-calendar's Android
      * `listCalendars` selects only _ID, CALENDAR_DISPLAY_NAME and CALENDAR_COLOR —
      * nothing about who owns the calendar. Reading the ownership columns ourselves
      * is the only way to tell a partner's calendar, a holiday feed or a birthday

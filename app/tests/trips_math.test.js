@@ -339,6 +339,19 @@ async function pickerChecks() {
   check("Unselect all stores mode=none — an empty tick list is not 'read them all'",
     ev("calMode") === "none" && ev("calSel.length") === 0, [ev("calMode"), ev("calSel")]);
 
+  // Only shared calendars listed: no own choice was offered, so none is overwritten
+  // (pre-push reviewer, 2026-10-18).
+  ev(`calMode="none"; calSel=[]; calShared=[];
+      document.getElementById("calList").innerHTML='<input type="checkbox" data-shared="partner">';`);
+  await ev("saveCalSel()");
+  check("a shared-only picker leaves the own choice as it was",
+    ev("calMode") === "none" && ev("calShared.length") === 0, [ev("calMode"), ev("calShared")]);
+  w.document.querySelector('#calList input[data-shared="partner"]').checked = true;
+  await ev("saveCalSel()");
+  check("…and saves its shared tick", ev("calMode") === "none" && ev("calShared[0]") === "partner",
+    [ev("calMode"), ev("calShared")]);
+  ev(`calShared=[];`);
+
   // A picker that could not list anything shows no boxes; saving then must not
   // overwrite a real selection with an empty one the user never made.
   ev(`calMode="some"; calSel=["work"]; document.getElementById("calList").innerHTML="";`);

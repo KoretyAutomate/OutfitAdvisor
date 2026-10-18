@@ -2986,9 +2986,14 @@ async function saveCalSel(){
   if(!boxes.length&&!shared.length) return;
   calShared=shared.filter(b=>b.checked).map(b=>b.dataset.shared);
   const picked=boxes.filter(b=>b.checked).map(b=>b.dataset.cal);
-  if(picked.length===boxes.length){ calMode="all"; calSel=[]; }  // all ticked = no filter, so a calendar added later is included
-  else if(!picked.length){ calMode="none"; calSel=[]; }          // Unselect all reads NOTHING, not everything
-  else { calMode="some"; calSel=picked; }
+  // Only shared calendars listed: no own box was shown, so there is no own choice to
+  // save — "all ticked" of zero boxes would store "all" and let an own calendar added
+  // later be read (pre-push reviewer, 2026-10-18).
+  if(boxes.length){
+    if(picked.length===boxes.length){ calMode="all"; calSel=[]; }  // all ticked = no filter, so a calendar added later is included
+    else if(!picked.length){ calMode="none"; calSel=[]; }          // Unselect all reads NOTHING, not everything
+    else { calMode="some"; calSel=picked; }
+  }
   await prefSet("oa.calendars",JSON.stringify({mode:calMode,ids:calSel,shared:calShared}));
   renderCalSel();
 }

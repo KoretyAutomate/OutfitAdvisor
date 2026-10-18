@@ -184,8 +184,8 @@ def test_the_evening_check_reads_only_what_the_picker_allows():
     assert "Manifest.permission.READ_CALENDAR" in src
     # A shared calendar counts only when ticked by name — the picker's `shared` list.
     assert 'optJSONArray("shared")' in sel
-    assert re.search(r"isShared\(.*?\)\) \{\s*if \(id\.toString\(\) in shared\) out\.add\(id\)\s*continue", reader, re.S), \
-        "a shared calendar must be read only when it was ticked"
+    only_ticked = r"isShared\(.*?\)\) \{\s*if \(id\.toString\(\) in shared\) out\.add\(id\)\s*continue"
+    assert re.search(only_ticked, reader, re.S), "a shared calendar must be read only when it was ticked"
 
 
 def test_the_picker_and_the_evening_check_store_shared_ticks_under_one_key():

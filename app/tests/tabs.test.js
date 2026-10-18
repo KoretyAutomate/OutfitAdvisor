@@ -63,7 +63,7 @@ const visible = () => [...doc.querySelectorAll("section.pane")]
                     "wxCard", "outfitCard", "aiText", "fbRow", "dShare"])
     check(`${id} is on the location & advice sheet`, sheetOf(id) === "advice", sheetOf(id));
   // "closet"
-  for (const id of ["closetGrid", "addCamBtn", "addGalBtn", "laundryBtn", "clErr"])
+  for (const id of ["closetGrid", "addCamBtn", "addGalBtn", "laundryStatusBtn", "clErr"])
     check(`${id} is on the closet sheet`, sheetOf(id) === "closet", sheetOf(id));
   // "calendar"
   for (const id of ["homeLine", "homeBtn", "calSelLine", "calPickBtn", "calBtn",

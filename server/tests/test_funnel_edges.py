@@ -310,3 +310,20 @@ def test_a_turned_down_look_is_not_offered_again_in_other_slots(monkeypatch):
     out, seen = dress(monkeypatch, [CARDI, JEANS, SNEAK], weather(9, 19), prefs(),
                       [fake_model.choice(0, reason="no"), fake_model.choice(1)])
     assert len(seen["chooser"]) == 1, "nothing new to offer: no second call on the same clothes"
+
+
+def test_a_sweater_too_warm_to_wear_does_not_make_the_tee_cold():
+    hot_knit = g("hotknit01", "heavy wool sweater", "tops", "sweater", ["base", "mid", "outer"], 5)
+    d, r = run(14, TEE, hot_knit, JEANS, SNEAK, hi=20)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == TEE["id"]
+
+
+def test_a_short_sleeved_shirt_never_goes_over_a_cardigan():
+    ss = g("ssshirt01", "short-sleeved shirt", "tops", "shirt", ["base", "mid", "outer"], 1, sleeve="short")
+    d, r = run(9, TEE, CARDI, ss, JEANS, SNEAK, hi=13)
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert not (o.picks.get("mid") == CARDI["id"] and o.picks.get("outer") == ss["id"]), o.picks
+    ctx = strict(9, TEE, CARDI, ss, hi=13)
+    assert funnel.clash(ctx, {"base": TEE["id"], "mid": CARDI["id"], "outer": ss["id"]}) == "stack"

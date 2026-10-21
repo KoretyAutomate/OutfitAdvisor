@@ -225,12 +225,13 @@ def _items(ctx: Ctx, picks: dict, slots) -> list[dict]:
 
 
 _KNITS = frozenset({"sweater", "cardigan", "hoodie", "fleece"})
-_TOPS_ONLY_UNDER = frozenset({"t_shirt", "polo", "tank", "blouse"})
+_TOPS_ONLY_UNDER = frozenset({"t_shirt", "polo", "tank", "blouse", "shirt"})
 
 
 def _top_over_knit(ctx: Ctx, picks: dict) -> bool:
-    """A tee, polo, tank or blouse over knitwear: the layers in the wrong order (pre-push
-    gate, 2026-10-20: a polo filed as mid over a chunky sweater filed as base)."""
+    """A tee, polo, tank, blouse or shirt over knitwear: the layers in the wrong order
+    (pre-push gate, 2026-10-20: a polo as mid over a sweater as base; a short-sleeved
+    shirt as outer over a cardigan as mid)."""
     layered = [ctx.wd.by_item[picks[s]] for s in ("base", "mid", "outer") if picks.get(s)]
     return any(lo.get("type") in _KNITS and hi.get("type") in _TOPS_ONLY_UNDER
                for k, lo in enumerate(layered) for hi in layered[k + 1:])
@@ -255,12 +256,13 @@ def _texture(ctx: Ctx, picks: dict) -> bool:
     (user, 2026-10-18: "Fabric of polo and sweater doesn't go well"); a chunky knit
     goes over a tee, a button-up shirt or a dress only; a shirt worn open
     as a layer goes over a tee or a tank, never over another collar."""
-    under = [ctx.wd.by_item[picks[s]] for s in ("base",) if picks.get(s)]
-    over = [ctx.wd.by_item[picks[s]] for s in ("mid", "outer") if picks.get(s)]
+    # Every lower/upper pair of the layers, not only against the base: a knit in mid
+    # is what an outer layer sits on (pre-push gate, 2026-10-20).
+    layered = _items(ctx, picks, ("base", "mid", "outer"))
     return not any((u.get("type") == "polo" and o.get("type") == "sweater" and garment.gauge(o) != "fine")
                    or (garment.gauge(o) == "chunky" and u.get("type") not in _UNDER_CHUNKY)
                    or (o.get("type") in ("shirt", "blouse") and u.get("type") not in ("t_shirt", "tank"))
-                   for u in under for o in over)
+                   for k, u in enumerate(layered) for o in layered[k + 1:])
 
 
 def _colour(ctx: Ctx, picks: dict) -> bool:
@@ -318,11 +320,14 @@ def _partial(ctx: Ctx, picks: dict, priority) -> float:
 
 
 def _warm_fixable(ctx: Ctx) -> bool:
-    """They own a torso garment warm enough for the coldest hour, not banned outright."""
+    """They own a torso garment warm enough for the coldest hour that they could wear
+    today: not banned outright, and not too warm for the slot (a warmth-5 sweater on a
+    14-20C day warms nobody — pre-push gate, 2026-10-20)."""
     day, wd = ctx.day, ctx.wd
     outright = [r for r in day.rules if not rules.is_combination(r)]
     return any(scale.warm_enough(it, day.plan) and any(
-        r in check.TORSO and not rules.violations(outright, {r: i}, wd.by_item) for r in wd.by_roles.get(i) or ())
+        r in check.TORSO and not rules.violations(outright, {r: i}, wd.by_item)
+        and not layers.overdressed(it, r, wd, day.plan, day.peak, day.rules) for r in wd.by_roles.get(i) or ())
         for i, it in wd.by_item.items())
 
 

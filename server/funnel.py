@@ -445,6 +445,12 @@ def _score(ctx: Ctx, picks: dict, priority, liked) -> float:
     return mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
 
 
+def _over(ctx: Ctx, picks: dict) -> int:
+    """More torso layers than the day allows — check.py's "layers", ahead of the cap."""
+    n = sum(1 for s in ("inner", "base", "mid", "outer") if picks.get(s))
+    return int(n > layers.max_layers(picks, ctx.wd.by_item, ctx.day.plan))
+
+
 def _cold(ctx: Ctx, shape: tuple) -> int:
     """A cold morning dressed without knitwear AND a coat."""
     return int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
@@ -500,8 +506,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
                     key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
-                                   int("base" in today and not r[2].get("base")), len(needed(c, _full(r[2]))),
-                                   -r[0], key(_full(r[2]))))
+                                   int("base" in today and not r[2].get("base")), _over(c, r[2]),
+                                   len(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:

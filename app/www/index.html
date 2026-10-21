@@ -1748,6 +1748,9 @@ const washesId=id=>{ const it=closet.find(i=>i.id===id); return !!it&&!neverWash
    is worn, and the next save prunes it, after noteWorn has kept it as history. */
 function freeAt(w){
   if(neverWashed(closet.find(i=>i.id===w.itemId))) return w.wornAt;
+  // Worn again after its last wear or wash (logWear's rewornAt, 2026-10-21): held from
+  // that wear, as a fresh one would be. wornAt stays — the wash-undo's key.
+  if(w.rewornAt!=null&&w.rewornAt>(w.driedAt??w.washedAt??w.wornAt)) return w.rewornAt+COOLDOWN_DAYS*DAY_MS;
   if(w.driedAt!=null) return w.driedAt;      // "Drying done" (2026-10-18)
   return w.washedAt!=null ? w.washedAt+laundry.dryHours*3600000
                           : w.wornAt+COOLDOWN_DAYS*DAY_MS;

@@ -177,6 +177,8 @@ function capture(w, next) {
     && Date.now() - parkaWears[0].wornAt > 80000000, parkaWears);
   const hist = () => (JSON.parse(w3.eval("JSON.stringify(lastWorn)")).parka || []);
   check("today is in the history beside yesterday", hist().length === 2, hist());
+  const free = w3.eval(`freeAt(wearLog.find(x=>x.itemId==="parka"))`);
+  check("held from today's wear, not yesterday's", free - Date.now() > 3.9 * 86400000, (free - Date.now()) / 86400000);
   w3.eval(`laundry.loads=[{id:"all",name:"Everything",rest:true,match:{colors:[],fabrics:[],weight:"",soil:"",kinds:[]}}]`);
   check("worn today, it is not offered to the wash", !JSON.parse(w3.eval(`JSON.stringify(Object.values(washable()).flat())`))
     .some(x => x.itemId === "parka"));

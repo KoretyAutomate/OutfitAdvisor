@@ -471,3 +471,15 @@ def test_an_outfit_over_the_layer_budget_is_never_offered_beside_one_within_it()
     import check as chk
     assert all("layers" not in {i.kind for i in chk.issues(o.picks, d)} for o in r.outfits), \
         [o.picks for o in r.outfits]
+
+
+def test_rotation_never_crowds_out_the_outfits_within_the_layer_budget(monkeypatch):
+    monkeypatch.setattr(funnel, "CHECKED_CAP", 4)
+    tees = [g(f"tee{n:06d}", f"tee {n}", "tops", "t_shirt", ["base"], 1, colors=["white"]) for n in range(8)]
+    cardis = [g(f"crd{n:06d}", f"cardigan {n}", "tops", "cardigan", ["mid", "outer"], 3, colors=["grey"])
+              for n in range(8)]
+    ox = {**OXFORD, "_ago": 0}
+    d, r = run(14, *tees, *cardis, ox, UNDER, JEANS, SNEAK, hi=20)
+    assert_valid(d, r)
+    import check as chk
+    assert all("layers" not in {i.kind for i in chk.issues(o.picks, d)} for o in r.outfits)

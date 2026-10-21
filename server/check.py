@@ -171,9 +171,12 @@ def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
     2026-10-11) and not too warm for the day (2026-10-20: warm snow boots on a 3-15C
     day were demanded and forbidden at once). The funnel asks the same question."""
     wd = day.wd
+    ids = {i for i in worn.values() if i}
     return [i for i, it in wd.by_item.items()
-            if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in worn.values()
+            if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in ids
             and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
+            # a pairing they voted down is no more wearable than one they banned
+            and not any((a == i and b in ids) or (b == i and a in ids) for a, b in day.look.disliked)
             and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
 
 

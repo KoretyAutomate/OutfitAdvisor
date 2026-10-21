@@ -264,8 +264,8 @@ async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | N
 
 
 async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
-    """Step 1-11 of the funnel, then the model's eye on the survivors. None only when
-    no outfit passes every absolute rule however much is relaxed."""
+    """Step 1-11 of the funnel, then the model's eye on the survivors. None when the
+    search finds nothing within its bounds — dress() then asks the model loop."""
     t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
 
     def left() -> float:

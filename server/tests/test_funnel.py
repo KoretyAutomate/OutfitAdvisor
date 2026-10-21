@@ -493,3 +493,23 @@ def test_words_stripped_by_closet_only_are_not_the_model_s(monkeypatch):
     out, _ = dress(monkeypatch, OFFICE, weather(10, 19), prefs("office", closet_only=True),
                    [fake_model.choice(1, tip="Wear a camel overcoat over it.")])
     assert "overcoat" not in out["text"] and out["byModel"] is False
+
+
+def test_a_strict_outfit_past_the_wide_pass_beats_relaxing_a_rule():
+    """Sixteen red tees clash in colour with the green trousers; the seventeenth,
+    navy, does not — it is served with no note, before colour gives way."""
+    reds = [g(f"rtee{n:05d}", f"red tee {n}", "tops", "t_shirt", ["base"], 1, colors=["red"]) for n in range(16)]
+    navy = {**g("ntee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
+    green = g("greenpnt1", "green chinos", "bottoms", "trousers", ["bottoms"], 3, colors=["green"])
+    white = g("whitesnk1", "white sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["white"])
+    d, r = run(20, *reds, navy, green, white, hi=24)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == navy["id"] and not r.outfits[0].relaxed, r.outfits[0].picks
+
+
+def test_snow_boots_they_disliked_with_their_only_jeans_leave_the_sneakers():
+    from wardrobe_fixtures import BOOTS
+    p = replace(pk.Prefs(), look=style.Look("casual", "man", "", disliked=((BOOTS["id"], JEANS["id"]),)))
+    d, r = run(-3, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, BOOTS, hi=1, isSnow=True, p=p)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["footwear"] == SNEAK["id"]

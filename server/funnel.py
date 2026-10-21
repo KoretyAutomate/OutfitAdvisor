@@ -36,9 +36,13 @@ K = 4                   # outfits the model chooses among
 # (candidates per slot, partial outfits kept after each slot): the narrow pass first,
 # the wide one only when it found nothing — before any rule gives way, so a legal
 # outfit is never lost to a cap (pre-push reviewer, 2026-10-20).
-WIDTHS = ((6, 120), (16, 400))
-# After the whole ladder: every candidate of every slot, everything relaxed (needed()
-# still reports only what the served outfit gives up). Bounded by the beam alone.
+# The last width takes every candidate: a strict outfit beyond the first sixteen is
+# found before any rule gives way (pre-push reviewer, 2026-10-20).
+WIDTHS = ((6, 120), (16, 400), (None, 400))
+# After the whole ladder: every candidate, everything relaxed (needed() still reports
+# only what the served outfit gives up), the widest beam. The beam is the one bound
+# left: a search that finds nothing within it hands over to the model loop
+# (advisor._dress_model), so a wardrobe is never refused for it.
 EXHAUSTIVE = (None, 2000)
 CHECKED_CAP = 60        # complete outfits that pass check.issues, at most
 VISIBLE = ("base", "mid", "outer", "bottoms", "footwear")
@@ -515,7 +519,9 @@ def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
 def search(ctx: Ctx, priority=None) -> Result:
     """Steps 6-11 with the relax ladder: the top K outfits that pass every absolute
     rule and check.issues, giving up the fewest relaxable ones. Each step is tried
-    narrow, then wide, before the next rule gives way; last, every candidate."""
+    narrow, then wide, then with every candidate, before the next rule gives way;
+    last, every candidate with everything relaxed and the widest beam. Empty only
+    when nothing passes within those bounds."""
     priority = priority or priority_for(ctx)
     relaxed: list = []
     removed: dict = {}

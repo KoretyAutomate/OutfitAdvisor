@@ -413,3 +413,20 @@ def test_full_width_letters_read_like_any_others():
     import garment
     wide = {"label": "grey ＭＥＳＨ sneakers", "type": "sneakers", "group": "footwear"}
     assert garment.material(wide) == "mesh" and garment.wets_through(wide)
+
+
+def test_a_winter_coat_suggestion_survives_a_warmth_gap(monkeypatch):
+    out, _ = dress(monkeypatch, [TEE, JEANS, SNEAK], weather(-3, 1), prefs(),
+                   [fake_model.choice(1, outer="a warm winter coat (not in your closet yet)")])
+    assert "warmth" in out["missing"]
+    assert "winter coat" in out["text"]
+
+
+def test_a_reroll_keeps_the_only_undershirt():
+    closet = [UNDER, OXFORD, WHITE_OX, CHINOS, LOAFERS]
+    _, first = run(14, *closet, hi=20)
+    shown = {s: i for s, i in first.outfits[0].picks.items() if i}
+    assert shown.get("inner") == UNDER["id"]
+    _, again = run(14, *closet, hi=20, p=prefs(shown=shown))
+    assert all(o.picks["inner"] == UNDER["id"] for o in again.outfits), [o.picks for o in again.outfits]
+    assert again.outfits[0].picks["base"] != shown["base"]

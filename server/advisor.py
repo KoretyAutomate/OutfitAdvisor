@@ -295,7 +295,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     words: dict = said if said and chose else {"look": "", "lines": {}, "tip": ""}
     # A line only for a worn garment or a real gap: a dress has no trousers to suggest,
     # and an empty mid on a mild day is nothing to buy (pre-push reviewer, 2026-10-20).
-    holes = gaps.missing(pick.picks, day, [])
+    holes = _holes(pick.picks, day)
     lines = {s: t for s, t in words["lines"].items() if pick.picks.get(s) or s in holes}
     look, tip = str(words["look"]).strip(), str(words["tip"]).strip()
     out = {"look": look, "lines": lines, "tip": tip, "missing": []}
@@ -330,8 +330,20 @@ def _search_until(left: float) -> float:
 def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:
     """The slots some offered outfit leaves empty for want of anything to wear there —
     the chooser writes those a line (gaps.py decides, never a slot that is merely off)."""
-    holes = {s for o in result.outfits for s in gaps.missing(o.picks, day, []) if s in CATEGORIES}
+    holes = {s for o in result.outfits for s in _holes(o.picks, day)}
     return [c for c in CATEGORIES if c in holes]
+
+
+def _holes(picks: dict, day: check.Day) -> set[str]:
+    """The empty slots of these picks that are a hole in the wardrobe: gaps.missing's
+    slots, and — when nothing they own is warm enough (gaps.COLD_GAP) — the empty
+    layers a warmer garment would go in, so a coat suggestion survives (pre-push gate,
+    2026-10-21)."""
+    found = gaps.missing(picks, day, [])
+    holes = {s for s in found if s in CATEGORIES}
+    if gaps.COLD_GAP in found:
+        holes |= {s for s in ("outer", "mid") if not picks.get(s)}
+    return holes
 
 
 async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe") -> dict | None:

@@ -60,8 +60,9 @@ NOTES = {
     "texture": "the knit and the top are not the ideal pairing — nothing better is free today",
     "wet": "nothing water-resistant to wear on your feet today — expect damp shoes in the rain",
     "register": "the trousers or shoes are more relaxed than the top — nothing smarter is free today",
-    "band1": "a little more relaxed than the day calls for — nothing at the usual level is free",
-    "band2": "much more relaxed than the day calls for — little that fits the day is free",
+    # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
+    "band1": "a step off the day's usual dress level — nothing at it is free today",
+    "band2": "well off the day's usual dress level — little at it is free today",
 }
 _COLLARED = frozenset({"polo", "shirt", "blouse", "blazer", "waistcoat"})
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
@@ -337,8 +338,10 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
     for slot in order:
         opts = list(cands.get(slot) or ())
         # An optional slot may stay empty; so may a required one they own nothing
-        # for, which is a gap (gaps.py), not a reason to dress nobody.
-        if slot in OPTIONAL or not opts:
+        # for, which is a gap (gaps.py), not a reason to dress nobody; and so may the
+        # top under a layer, which can be the top itself (a cardigan alone) — check.py
+        # judges whether that dresses them, the rank prefers a top where one fits.
+        if slot in OPTIONAL or not opts or (slot == "base" and len(shape) > 1):
             opts.append(None)
         nxt = []
         for p in partials:
@@ -352,12 +355,17 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
                         and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan)):
                     continue
                 nxt.append(trial)
-        # Once the undershirt's slot is decided, outfits with one go ahead of those
-        # without, before the cut — the rank puts them first, so the beam must too.
-        nxt.sort(key=lambda q: (_repeats(ctx, q), int(bool(cands.get("inner")) and "inner" in q and not q["inner"]),
+        # Once the undershirt's or the top's slot is decided, outfits with one go ahead
+        # of those without, before the cut — the rank puts them first, so must the beam.
+        nxt.sort(key=lambda q: (_repeats(ctx, q), _left_off(q, "inner", cands), _left_off(q, "base", cands),
                                 -_partial(ctx, q, priority), key(q)))
         partials = nxt[:_width(ctx)[1]]
     return partials
+
+
+def _left_off(q: dict, slot: str, cands: dict) -> int:
+    """This slot is decided, left empty, and something could have filled it."""
+    return int(slot in q and not q[slot] and bool(cands.get(slot)))
 
 
 def _width(ctx: Ctx) -> tuple:
@@ -438,9 +446,9 @@ def key(picks: dict) -> tuple:
     return tuple(picks.get(c) or "" for c in CATEGORIES)
 
 
-def _pass(ctx: Ctx, priority) -> tuple[list, dict, bool]:
+def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
     """One search over every layer shape, with the relaxations in ctx: (outfits,
-    removed per stage, whether an undershirt can be worn today at all)."""
+    removed per stage, the slots anything can be worn in today)."""
     cands, removed = candidates(ctx, priority)
     found: list = []
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
@@ -450,7 +458,7 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, bool]:
         for one in (False, True) if onepieces else (False,):
             c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
             found += [(shape, p) for p in _beam(ctx, c, _order(shape, c, one), priority, shape)]
-    return found, removed, bool(cands["inner"])
+    return found, removed, frozenset(s for s, ids in cands.items() if ids)
 
 
 def _accessory(ctx: Ctx, picks: dict) -> float:
@@ -477,16 +485,18 @@ def _cold(ctx: Ctx, shape: tuple) -> int:
     return int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
 
 
-def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, inner_today: bool) -> tuple:
-    """`inner_today`: an undershirt of theirs can be worn today. They wear one
-    whenever they own one (user, 2026-07-15) — so an outfit whose top cannot take it
-    ranks below one whose top can, not only one that merely left it off."""
+def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) -> tuple:
+    """`today`: the slots something can be worn in. They wear an undershirt whenever
+    they own one (user, 2026-07-15) — so an outfit whose top cannot take it ranks
+    below one whose top can, not only one that merely left it off; and a layer worn
+    as the top ranks below a top under it, where one fits."""
     shape, picks = outfit
     kinds = {i.kind for i in issues}
     repeats = sum(1 for k in kinds if k.startswith("repeat-"))
     cold = _cold(ctx, shape)
-    bare = int("no-inner" in kinds or (inner_today and not picks.get("inner")))
-    return (repeats, cold, bare, len(gave))
+    bare = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")))
+    topless = int("base" in today and not picks.get("base"))
+    return (repeats, cold, bare, topless, len(gave))
 
 
 def _diverse(ranked: list) -> list:
@@ -513,7 +523,7 @@ def _diverse(ranked: list) -> list:
     return sorted(kept, key=ranked.index)
 
 
-def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
+def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     """Step 11 on the outfits of one pass: re-roll first, then rotation, each checked
     against check.issues until CHECKED_CAP pass."""
     # The rank's own order before any cut (pre-push gate, 2026-10-20): a cap reached by
@@ -521,8 +531,8 @@ def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if key(_full(p)) not in c.exclude),
-                    key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int(inner_today and not r[2].get("inner")),
-                                   -r[0], key(_full(r[2]))))
+                    key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
+                                   int("base" in today and not r[2].get("base")), -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:
@@ -535,7 +545,7 @@ def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        rank = _rank(c, (shape, full), issues, gave, inner_today)
+        rank = _rank(c, (shape, full), issues, gave, today)
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank))
         if len(ok) >= CHECKED_CAP:
             break
@@ -557,8 +567,8 @@ def search(ctx: Ctx, priority=None) -> Result:
         if step and step not in relaxed:
             relaxed.append(step)
         c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width)
-        found, removed, inner_today = _pass(c, priority)
-        ok = sorted(_evaluate(c, found, priority, inner_today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
+        found, removed, today = _pass(c, priority)
+        ok = sorted(_evaluate(c, found, priority, today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
         last_width = n + 1 == len(passes) or passes[n + 1][0] != step
         # Something of what is on screen came back: a wider pass of the same rules may
         # hold an alternative the narrow one cut (pre-push gate, 2026-10-20).
@@ -568,8 +578,8 @@ def search(ctx: Ctx, priority=None) -> Result:
         if ok:
             # The model chooses by eye, so it is only offered the top tier: no outfit
             # it can pick repeats what could change, skips the coat's knit or the
-            # undershirt when the best ones do not.
-            tier = [o for o in ok if o.rank[:3] == ok[0].rank[:3]]
+            # undershirt, or wears a layer as the top, when the best ones do not.
+            tier = [o for o in ok if o.rank[:4] == ok[0].rank[:4]]
             return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
     return Result([], tuple(relaxed), ctx.target, removed)
 

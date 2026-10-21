@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import garment
 import vocab
 
 # Free text destined for the LLM prompt: keep word chars (incl. CJK), spaces,
@@ -127,6 +128,29 @@ class ClosetItem(BaseModel):
     # Main fabric (user, 2026-10-09: laundry split by material, e.g. delicates).
     # Only the phone's laundry loads read it; None = not stated.
     fabric: str | None = None
+    # What the funnel reads per garment (user, 2026-10-20; garment.py): the dress level
+    # 1-5, a shoe's upper and a knit's gauge. None = not stated; garment.py then reads
+    # the name and the kind. Anything else is DROPPED, never a 422 — same as `pattern`.
+    level: int | None = None
+    material: str | None = None
+    gauge: str | None = None
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _known_level(cls, v):
+        return v if isinstance(v, int) and not isinstance(v, bool) and v in garment.LEVELS else None
+
+    @field_validator("material", mode="before")
+    @classmethod
+    def _known_material(cls, v):
+        v = v.strip().lower() if isinstance(v, str) else v
+        return v if v in garment.MATERIALS else None
+
+    @field_validator("gauge", mode="before")
+    @classmethod
+    def _known_gauge(cls, v):
+        v = v.strip().lower() if isinstance(v, str) else v
+        return v if v in garment.GAUGES else None
 
     @field_validator("fabric", mode="before")
     @classmethod

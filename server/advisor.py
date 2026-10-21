@@ -18,11 +18,14 @@ before the weather fetch). A revision only starts by REVISE_BY_S, the stylist on
 with STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S.
 """
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 
 import check
+import chooser
 import fallback
+import funnel
 import gaps
 import layers
 import picks as pk
@@ -45,6 +48,7 @@ RESCUE_MIN_LEFT_S = 30.0
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
 MAX_REVISIONS = 2
+SEARCH_MAX_S = 20.0     # the funnel's own time, at most (2026-10-21)
 
 SYSTEM = (
     "You are a personal stylist with years of experience dressing real people for "
@@ -234,6 +238,13 @@ def _stylist_time(found: list, elapsed: float, left: float) -> bool:
     return not check.hard(found) or elapsed + stylist.STYLIST_TIMEOUT_S < REVISE_BY_S
 
 
+def engine() -> str:
+    """Which way outfits are chosen: "funnel" (code narrows, the model chooses among
+    the survivors — user, 2026-10-20) or "model" (the model picks from the whole
+    wardrobe and is checked afterwards — the 2026-10-11 loop, kept for rollback)."""
+    return "model" if os.environ.get("OUTFIT_ENGINE", "funnel") == "model" else "funnel"
+
+
 async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | None = None) -> dict | None:
     """An outfit from their own wardrobe, or None when the model cannot be reached
     (app.py then answers without the closet)."""
@@ -245,6 +256,100 @@ async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | N
     closet = [{**i, "_ago": ago.get(i["id"])} for i in closet]
     wd = pk._index(closet)
     day = check.Day.of(w, wd, prefs)
+    if engine() == "funnel":
+        served = await _dress_funnel(day, wd)
+        if served is not None:
+            return served
+        log.info("advisor: the funnel found nothing — asking the model to choose from everything")
+    return await _dress_model(day, closet, wd)
+
+
+async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
+    """Step 1-11 of the funnel, then the model's eye on the survivors. None when the
+    search finds nothing within its bounds — dress() then asks the model loop."""
+    t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
+
+    def left() -> float:
+        return DEADLINE_S - (time.monotonic() - t0)
+
+    # On a worker thread: a search that finds nothing tries every relax step at three
+    # widths and a last exhaustive pass (about 10 s on 40 garments at worst), and the
+    # event loop serves /health meanwhile.
+    result = await asyncio.to_thread(funnel.search, funnel.Ctx(day, funnel.target_level(day.look),
+                                                               deadline=_search_until(left())))
+    log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
+             result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)
+    if not result.outfits:
+        return None
+    said = await chooser.choose(day, result, _gaps_of(result, day), left())
+    if said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S:
+        log.info("advisor: the chooser turned every outfit down — searching again without them")
+        turned = frozenset(funnel.look(o.picks) for o in result.outfits)
+        again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
+                                                                  deadline=_search_until(left())))
+        if again.outfits:
+            result = again
+            said = await chooser.choose(day, result, _gaps_of(result, day), left())
+    chose = bool(said and said["choice"] >= 1)
+    pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
+    words: dict = said if said and chose else {"look": "", "lines": {}, "tip": ""}
+    # A line only for a worn garment or a real gap: a dress has no trousers to suggest,
+    # and an empty mid on a mild day is nothing to buy (pre-push reviewer, 2026-10-20).
+    holes = _holes(pick.picks, day)
+    lines = {s: t for s, t in words["lines"].items() if pick.picks.get(s) or s in holes}
+    look, tip = str(words["look"]).strip(), str(words["tip"]).strip()
+    out = {"look": look, "lines": lines, "tip": tip, "missing": []}
+    log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
+             (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
+    final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})),
+                        [f"Note: {n}." for n in funnel.notes(pick.relaxed)])
+    # "llm" only when the model's words survived into what is shown — a bare number is
+    # not text it wrote, and _finish may strip a line or tip naming something unowned.
+    kept = any(t and final["lines"].get(s) == t for s, t in lines.items()) or bool(tip and tip in final["tip"])
+    return {**final, "byModel": chose and kept}
+
+
+def _with_notes(final: dict, notes: list[str]) -> dict:
+    """The funnel's own notes on what the day gave up, added AFTER _finish has
+    sanitized the model's words: they are ours, and a closet-only filter that reads
+    "shoes" as an unowned recommendation must not delete "damp shoes today"."""
+    if not notes:
+        return final
+    old = final["tip"]
+    tip = " ".join(t for t in (old, *notes) if t)
+    text = final["text"].replace(f"💡 {old}", f"💡 {tip}") if old else f"{final['text']}\n\n💡 {tip}"
+    return {**final, "tip": tip, "text": text}
+
+
+def _search_until(left: float) -> float:
+    """When a search must stop: leaving the chooser its call and the model loop a
+    round should the search find nothing — never more than SEARCH_MAX_S."""
+    return time.monotonic() + max(1.0, min(SEARCH_MAX_S, left - chooser.CHOOSE_TIMEOUT_S - 10))
+
+
+def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:
+    """The slots some offered outfit leaves empty for want of anything to wear there —
+    the chooser writes those a line (gaps.py decides, never a slot that is merely off)."""
+    holes = {s for o in result.outfits for s in _holes(o.picks, day)}
+    return [c for c in CATEGORIES if c in holes]
+
+
+def _holes(picks: dict, day: check.Day) -> set[str]:
+    """The empty slots of these picks that are a hole in the wardrobe: gaps.missing's
+    slots, and — when nothing they own is warm enough (gaps.COLD_GAP) — the empty
+    layers a warmer garment would go in, so a coat suggestion survives (pre-push gate,
+    2026-10-21)."""
+    found = gaps.missing(picks, day, [])
+    holes = {s for s in found if s in CATEGORIES}
+    if gaps.COLD_GAP in found:
+        holes |= {s for s in ("outer", "mid") if not picks.get(s)}
+    return holes
+
+
+async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe") -> dict | None:
+    """The 2026-10-11 loop: the model picks from the whole wardrobe, check.py says
+    what is wrong, it chooses again; the fallback search mends a hard fact left."""
+    prefs = day.prefs
     by_handle = pk.handles_for(closet)
     handles = {v: k for k, v in by_handle.items()}
     t0 = getattr(prefs.look, "t0", None) or time.monotonic()

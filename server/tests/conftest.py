@@ -20,6 +20,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # counts its calls, and a review prompt arriving after it would replace both. The
 # stylist's own tests turn it back on.
 os.environ.setdefault("OUTFIT_STYLIST", "0")
+# How outfits are chosen (advisor.engine). The suites written for the model loop pin
+# what the model is told and how often it is asked, so they run it; the funnel's own
+# tests opt in with monkeypatch.setenv("OUTFIT_ENGINE", "funnel").
+os.environ.setdefault("OUTFIT_ENGINE", "model")
 
 # Which local model to call comes from ~/.config/local-llm/models.toml (local_llm.py).
 # Tests never read the real one: a fixture keeps them independent of whatever model

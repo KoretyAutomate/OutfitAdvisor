@@ -9,6 +9,7 @@ and every system message, so a test can read exactly what the model was told.
 import json
 
 import advisor
+import chooser
 import stylist
 
 
@@ -21,9 +22,22 @@ def outfit(**picks) -> dict:
             "missing": [], "tip": "Have a good day."}
 
 
-def install(monkeypatch, answers: list, verdicts: list | None = None) -> dict:
-    seen: dict = {"prompts": [], "system": [], "stylist": 0, "calls": 0}
-    queue, reviews = list(answers), list(verdicts or [])
+def choice(n: int = 1, reason: str = "", tip: str = "Have a good day.", **lines) -> dict:
+    """A chooser answer (funnel path): outfit n of the survivors, 0 for none."""
+    return {"choice": n, "reason": reason, "look": "A sensible outfit.", "lines": lines, "tip": tip}
+
+
+def install(monkeypatch, answers: list, verdicts: list | None = None, choices: list | None = None) -> dict:
+    seen: dict = {"prompts": [], "system": [], "stylist": 0, "calls": 0, "chooser": []}
+    queue, reviews, picks = list(answers), list(verdicts or []), list(choices or [])
+
+    async def fake_chooser(messages, max_tokens, timeout=45, temperature=0.4, **kw):
+        seen["chooser"].append(messages[-1]["content"])
+        if not picks:
+            return None
+        a = picks.pop(0)
+        return a if a is None or isinstance(a, str) else json.dumps(a)
+
 
     async def fake_advisor(messages, max_tokens, timeout=45, temperature=0.4, **kw):
         seen["calls"] += 1
@@ -41,4 +55,5 @@ def install(monkeypatch, answers: list, verdicts: list | None = None) -> dict:
 
     monkeypatch.setattr(advisor, "_chat", fake_advisor)
     monkeypatch.setattr(stylist, "_chat", fake_stylist)
+    monkeypatch.setattr(chooser, "_chat", fake_chooser)
     return seen

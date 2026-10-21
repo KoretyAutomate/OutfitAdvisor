@@ -105,7 +105,13 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             }
         }
 
-        val srcBadge = if (advice.source == "llm") "122B" else advice.source
+        // "funnel": the closet outfit was chosen by the server's rules alone, the model
+        // unreachable (2026-10-20) — said in words, and without the "AI ·" credit.
+        val attribution = when (advice.source) {
+            "llm" -> "AI · 122B"
+            "funnel" -> "your closet · AI unavailable"
+            else -> "AI · ${advice.source}"
+        }
         val header = buildString {
             advice.emoji?.takeIf { it.isNotBlank() }?.let { append(it).append("  ") }
             if (advice.lo != null && advice.hi != null) append("${advice.lo}–${advice.hi}°  ")
@@ -117,7 +123,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         OutfitNotification.post(
             applicationContext, header,
             advice.text.ifBlank { "Tap to see today's outfit." },
-            "AI · $srcBadge",
+            attribution,
             withFeedback = advice.text.isNotBlank(),
             // Only closet advice names garments to log — the app's "Wearing it"
             // has the same rule (renderOutfit: res.closetUsed && res.picks).

@@ -81,6 +81,8 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"", bottoms:"chinos",
   check("the closet-only refusal is not 'generic advice'", b.text === "advisor couldn't answer" && b.off, b);
   b = badge("llm", {closetUsed:true, closetSent:true});
   check("a closet answer is still credited", b.text === "AI · your closet" && b.src, b);
+  b = badge("funnel", {closetUsed:true, closetSent:true});
+  check("a closet outfit chosen without the model is not AI", b.text === "your closet — AI unavailable" && b.off, b);
 
   console.log("\n--- 4. a packing answer of the wrong shape ------------------------");
   w.fetch = async () => ({ok:true, status:200, json: async () => ({})});

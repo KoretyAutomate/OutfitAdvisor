@@ -26,6 +26,7 @@ import local_llm
 import style as style_mod
 
 from vocab import CATEGORIES, FABRICS, GROUPS, STYLES, TYPES
+from garment import GAUGES, MATERIALS
 
 if TYPE_CHECKING:                       # only here to name the type in a signature
     from scale import Climate
@@ -281,6 +282,17 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
         # For laundry split by material (user, 2026-10-09).
         f'"fabric": the main material, one of {list(FABRICS)}, read from a visible care '
         "label if there is one, else from how it looks; null if you cannot tell, "
+        # What the outfit funnel filters on (user, 2026-10-20; garment.py).
+        '"level": how dressed-up it is, 1-5 — 1 sportswear (joggers, track tops, running '
+        "shoes), 2 weekend casual (tees, hoodies, drawstring or cargo trousers, mesh or canvas "
+        "sneakers, parkas), 3 smart casual (polos, oxford shirts, merino knits, chinos, dark "
+        "jeans, leather sneakers), 4 business casual (dress shirts, wool trousers, blazers, "
+        "loafers, derbies, overcoats), 5 formal (suits) — null for underwear and accessories, "
+        f'"material": for footwear only, the upper: one of {list(MATERIALS)}; null otherwise '
+        "or if you cannot tell, "
+        f'"gauge": for a sweater or cardigan only, the knit: one of {list(GAUGES)} '
+        "(fine = smooth thin merino/cashmere, chunky = thick, cable, Nordic or patterned); "
+        "null otherwise, "
         # Asked LAST and with an explicit null, because a brand is the one field
         # here the model can invent fluently: a plain navy crew-neck "looks like"
         # Uniqlo. A made-up maker is worse than none — the wearer has no reason to
@@ -300,8 +312,9 @@ async def classify_image(image_b64: str, climate: "Climate | None" = None) -> di
             }
         ],
         # 150 was sized before `type` joined the schema; the extra key costs ~10,
-        # `brand` another ~15, `sleeve` ~6, `pattern` ~6, `fabric` ~6.
-        max_tokens=240,
+        # `brand` another ~15, `sleeve` ~6, `pattern` ~6, `fabric` ~6; level, material and
+        # gauge ~20 (2026-10-20).
+        max_tokens=280,
         timeout=60,
     )
     return _parse_json(out)

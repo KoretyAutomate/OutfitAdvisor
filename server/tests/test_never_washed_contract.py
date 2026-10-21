@@ -1,4 +1,5 @@
-"""Footwear and accessories never go in the laundry; socks do (user, 2026-10-17).
+"""Footwear, accessories and outerwear never go in the laundry; socks do (user,
+2026-10-17; outerwear 2026-10-21).
 
 index.html decides it for everything the app holds, and FeedbackReceiver.kt decides
 it again for the notification's "Wearing it" before the app has folded that wear in.
@@ -22,11 +23,12 @@ def _match(pattern: str, src: str) -> re.Match:
 
 
 def test_both_sides_name_the_same_groups_and_the_socks_exception():
-    js = _match(r'const neverWashed=it=>!!it&&\(it\.group==="(\w+)"'
+    js = _match(r'const neverWashed=it=>!!it&&\(it\.group==="(\w+)"\|\|it\.group==="(\w+)"'
                 r'\|\|\(it\.group==="(\w+)"&&it\.type!=="(\w+)"\)\);', JS)
     kt = _match(r'fun neverWashed\(o: JSONObject\): Boolean \{\s*val g = o\.optString\("group"\)\s*'
-                r'return g == "(\w+)" \|\| \(g == "(\w+)" && o\.optString\("type"\) != "(\w+)"\)', RECEIVER)
-    assert js.groups() == kt.groups() == ("accessories", "footwear", "socks")
+                r'return g == "(\w+)" \|\| g == "(\w+)" \|\| \(g == "(\w+)" && o\.optString\("type"\) != "(\w+)"\)',
+                RECEIVER)
+    assert js.groups() == kt.groups() == ("accessories", "outerwear", "footwear", "socks")
 
 
 def test_the_native_hold_skips_them():

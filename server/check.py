@@ -161,12 +161,22 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
                 for slot in ("footwear", "outer")
-                if not (wd.by_item.get(worn.get(slot)) or {}).get("waterproof") and any(
-                    it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in worn.values()
-                    # a pair they have banned cannot be demanded (pre-push reviewer, 2026-10-11)
-                    and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
-                    for i, it in wd.by_item.items())]
+                if not (wd.by_item.get(worn.get(slot)) or {}).get("waterproof") and snow_gear(slot, worn, day)]
     return out
+
+
+def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
+    """The waterproof garments they could put on as `slot` over these picks today:
+    unused, wearable there, within their rules alongside the rest (pre-push reviewer,
+    2026-10-11) and not too warm for the day (2026-10-20: warm snow boots on a 3-15C
+    day were demanded and forbidden at once). The funnel asks the same question."""
+    wd = day.wd
+    ids = {i for i in worn.values() if i}
+    return [i for i, it in wd.by_item.items()
+            if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in ids
+            and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
+            and not voted_down(day, i, {**worn, slot: i})
+            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
 
 
 def is_coat(item: dict) -> bool:
@@ -182,7 +192,16 @@ def coats_to_add(worn: dict, day: Day) -> list[str]:
     return [iid for iid, it in wd.by_item.items()
             if is_coat(it) and iid not in worn.values() and "outer" in (wd.by_roles.get(iid) or ())
             and not rules.violations(day.rules, {**worn, "outer": iid}, wd.by_item)
+            and not voted_down(day, iid, {**worn, "outer": iid})
             and not layers.overdressed(it, "outer", wd, day.plan, day.peak, day.rules)]
+
+
+def voted_down(day: Day, iid: str, worn: dict) -> bool:
+    """A pairing of this garment with something worn that they voted down: no more a
+    garment to demand than one their rules ban (pre-push gate, 2026-10-20). `worn` is
+    the outfit WITH it — it replaces whatever its slot held (2026-10-21)."""
+    ids = {i for i in worn.values() if i}
+    return any((a == iid and b in ids) or (b == iid and a in ids) for a, b in day.look.disliked)
 
 
 def _coat(worn: dict, day: Day) -> list[Issue]:
@@ -211,16 +230,20 @@ def _coat(worn: dict, day: Day) -> list[Issue]:
 
 
 def _taste(worn: dict, day: Day) -> list[Issue]:
-    """What a person would not wear: two tops stacked (hard); sleeves showing, too
-    many layers, a style rule, the same garment after asking for another (soft)."""
+    """What a person would not wear: two tops stacked, a long sleeve under a short one
+    (hard); too many layers, a style rule, the same garment after asking for another
+    (soft)."""
     wd = day.wd
     out: list[Issue] = []
     torso = [worn[c] for c in TORSO if worn.get(c)]
     if stacked(worn, wd.by_item):
         out.append(Issue("stacked", " over ".join(_name(day, i) for i in reversed(torso))
                          + " — two tops stacked; warmth comes from knitwear or a jacket", True))
+    # Hard since 2026-10-20 (user, 2026-10-18 10:35: "it missed no long sleeve under a
+    # T-shirt rule"): soft, a 3/5 with the clash outranked a cleaner 2/5. The funnel
+    # never builds one; this keeps the model path and the fallback to the same rule.
     out += [Issue(f"sleeve-{lo}", f"long-sleeved {_name(day, worn[lo])} under short-sleeved "
-                  f"{_name(day, worn[hi])} — the cuffs show", False)
+                  f"{_name(day, worn[hi])} — the cuffs show", True)
             for lo, hi in sleeves.sleeve_clashes(worn, wd.by_item)]
     n, cap = sum(1 for c in ("inner", *TORSO) if worn.get(c)), layers.max_layers(worn, wd.by_item, day.plan)
     if n > cap:

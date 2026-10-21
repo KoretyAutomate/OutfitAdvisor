@@ -516,8 +516,9 @@ def search(ctx: Ctx, priority=None) -> Result:
         if ok:
             # The model chooses by eye, so it is only offered the top tier: no outfit
             # it can pick repeats what could change, skips the coat's knit or the
-            # undershirt, or wears a layer as the top, when the best ones do not.
-            tier = [o for o in ok if o.rank[:4] == ok[0].rank[:4]]
+            # undershirt, wears a layer as the top, or gives up more rules than the
+            # best ones do.
+            tier = [o for o in ok if o.rank == ok[0].rank]
             return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
     return Result([], tuple(relaxed), ctx.target, removed)
 

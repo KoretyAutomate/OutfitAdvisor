@@ -352,3 +352,13 @@ def test_the_undershirt_counts_toward_warmth():
     d, r = run(14, warm_inner, TEE, CARDI, JEANS, SNEAK, hi=20, p=prefs(rules=ban))
     assert_valid(d, r)
     assert r.outfits[0].picks["base"] == TEE["id"] and r.outfits[0].picks["inner"] == warm_inner["id"]
+
+
+def test_an_outfit_giving_up_more_rules_is_never_offered():
+    formal = g("oxshoe001", "black oxford shoes", "footwear", "dress_shoes", ["footwear"], 2, colors=["black"], level=4)
+    red = g("redtee001", "red tee", "tops", "t_shirt", ["base"], 1, colors=["red"])
+    green = g("grnchin01", "green chinos", "bottoms", "trousers", ["bottoms"], 3, colors=["green"])
+    d, r = run(20, TEE, red, green, formal, hi=24)
+    assert_valid(d, r)
+    assert all(o.relaxed == r.outfits[0].relaxed for o in r.outfits), [o.relaxed for o in r.outfits]
+    assert all(o.picks["base"] == TEE["id"] for o in r.outfits)

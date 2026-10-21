@@ -100,9 +100,6 @@ class Ctx:
     # time.monotonic() by which the search stops, whatever it has (pre-push gate,
     # 2026-10-21: a 92-garment closet with 24 rules searched past the phone's 90 s).
     deadline: float = math.inf
-    # Shown garments a re-roll can actually replace: something else can be worn in
-    # their slot today. Set by _pass; None until then (every shown garment).
-    changeable: frozenset | None = None
 
     @property
     def wd(self):
@@ -317,13 +314,15 @@ def _width(ctx: Ctx) -> tuple:
 
 
 def _repeats(ctx: Ctx, picks: dict) -> int:
-    """Garments still on screen from when they asked for something else, in whatever
-    slot — the cardigan moved from mid to outer is the same look (pre-push gate,
-    2026-10-21) — ranked before any cap, so a re-roll's promise survives the limits."""
-    shown = set(ctx.day.prefs.shown_map.values())
-    if ctx.changeable is not None:
-        shown &= ctx.changeable      # the only undershirt is no repeat to avoid
-    return sum(1 for i in picks.values() if i and i in shown)
+    """Shown garments a re-roll has not replaced, ranked before any cap so its promise
+    survives the search's limits. A garment is replaced only when its slot now holds
+    something else: worn in another slot it is the same look (the cardigan moved from
+    mid to outer), and an emptied slot is not something else — leaving the undershirt
+    off is no change (pre-push gate, 2026-10-21). So a garment nothing could replace
+    counts the same in every outfit and decides nothing. A slot not yet decided counts
+    only if the garment is worn."""
+    worn = {i for i in picks.values() if i}
+    return sum(1 for s, i in ctx.day.prefs.shown_map.items() if i in worn or (s in picks and not picks[s]))
 
 
 def sheds(day: "check.Day", picks: dict) -> tuple:
@@ -402,8 +401,6 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
     """One search over every layer shape, with the relaxations in ctx: (outfits,
     removed per stage, the slots anything can be worn in today)."""
     cands, removed = candidates(ctx, priority)
-    ctx.changeable = frozenset(i for s, i in ctx.day.prefs.shown_map.items()
-                               if any(j != i for j in cands.get(s) or ()))
     found: list = []
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
     for shape in SHAPES:

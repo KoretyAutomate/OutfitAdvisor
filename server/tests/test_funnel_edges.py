@@ -430,3 +430,14 @@ def test_a_reroll_keeps_the_only_undershirt():
     _, again = run(14, *closet, hi=20, p=prefs(shown=shown))
     assert all(o.picks["inner"] == UNDER["id"] for o in again.outfits), [o.picks for o in again.outfits]
     assert again.outfits[0].picks["base"] != shown["base"]
+
+
+def test_a_reroll_never_empties_a_slot_to_look_different():
+    short = g("ssin00001", "white crew undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="short")
+    long_ = g("lsin00001", "long-sleeve undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="long")
+    closet = [short, long_, TEE, JEANS, SNEAK]
+    _, first = run(20, *closet, hi=24)
+    shown = {s: i for s, i in first.outfits[0].picks.items() if i}
+    assert shown.get("inner") == short["id"]
+    _, again = run(20, *closet, hi=24, p=prefs(shown=shown))
+    assert all(o.picks["inner"] == short["id"] for o in again.outfits), [o.picks for o in again.outfits]

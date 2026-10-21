@@ -142,5 +142,6 @@ def utility_trousers(item: dict) -> bool:
 
 
 def wets_through(item: dict) -> bool:
-    """Shoes that soak through on a wet commute. Unknown material never does."""
-    return item.get("group") == "footwear" and material(item) in WET_THROUGH
+    """Shoes that soak through on a wet commute. Unknown material never does, and a
+    pair marked waterproof never does whatever its upper (a waterproof mesh trainer)."""
+    return item.get("group") == "footwear" and not item.get("waterproof") and material(item) in WET_THROUGH

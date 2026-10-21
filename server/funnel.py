@@ -64,6 +64,7 @@ NOTES = {
     "band2": "much more relaxed than the day calls for — little that fits the day is free",
 }
 _COLLARED = frozenset({"polo", "shirt", "blouse", "blazer", "waistcoat"})
+COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 # What a chunky knit goes over: a tee (short or long sleeved), a button-up shirt — and
 # a dress, which a heavy jumper over it is an ordinary way to wear.
 _UNDER_CHUNKY = frozenset({"t_shirt", "shirt", "dress"})
@@ -359,11 +360,12 @@ def _repeats(ctx: Ctx, picks: dict) -> int:
 
 
 def sheds(day: "check.Day", picks: dict) -> tuple:
-    """What comes off by midday: the coat once the day warms by six degrees, the knit
-    once it reaches 18 — and only over a top that stays on."""
+    """What comes off by midday: the coat once the day warms by six degrees AND reaches
+    a coatless 14, the knit once it reaches 18 — and only over a top that stays on.
+    A -5 to 1C day warms by six and keeps the coat on (pre-push gate, 2026-10-20)."""
     if not picks.get("base"):
         return ()
-    off = [("outer", day.peak >= day.plan + 6), ("mid", day.peak >= 18)]
+    off = [("outer", day.peak >= day.plan + 6 and day.peak >= COATLESS_C), ("mid", day.peak >= 18)]
     return tuple(s for s, warm in off if warm and picks.get(s))
 
 

@@ -295,15 +295,27 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     holes = gaps.missing(pick.picks, day, [])
     lines = {s: t for s, t in words["lines"].items() if pick.picks.get(s) or s in holes}
     look, tip = str(words["look"]).strip(), str(words["tip"]).strip()
-    notes = [f"Note: {n}." for n in funnel.notes(pick.relaxed)]
-    out = {"look": look, "lines": lines, "tip": " ".join(t for t in (tip, *notes) if t), "missing": []}
+    out = {"look": look, "lines": lines, "tip": tip, "missing": []}
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
-    final = _finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {}))
+    final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})),
+                        [f"Note: {n}." for n in funnel.notes(pick.relaxed)])
     # "llm" only when the model's words survived into what is shown — a bare number is
     # not text it wrote, and _finish may strip a line or tip naming something unowned.
     kept = any(t and final["lines"].get(s) == t for s, t in lines.items()) or bool(tip and tip in final["tip"])
     return {**final, "byModel": chose and kept}
+
+
+def _with_notes(final: dict, notes: list[str]) -> dict:
+    """The funnel's own notes on what the day gave up, added AFTER _finish has
+    sanitized the model's words: they are ours, and a closet-only filter that reads
+    "shoes" as an unowned recommendation must not delete "damp shoes today"."""
+    if not notes:
+        return final
+    old = final["tip"]
+    tip = " ".join(t for t in (old, *notes) if t)
+    text = final["text"].replace(f"💡 {old}", f"💡 {tip}") if old else f"{final['text']}\n\n💡 {tip}"
+    return {**final, "tip": tip, "text": text}
 
 
 def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:

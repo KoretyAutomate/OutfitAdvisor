@@ -535,3 +535,21 @@ def test_the_chooser_hears_their_feedback_and_their_reasons(monkeypatch):
     assert "they LIKED these together" in prompt and "navy and white suits me" in prompt
     assert "too warm for the office" in prompt
     assert WHITE_OX["id"] not in prompt, "handles, never ids"
+
+
+def test_a_cold_day_that_warms_six_degrees_keeps_the_coat():
+    d, r = run(-5, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, hi=1)
+    assert "outer" not in r.outfits[0].sheds
+
+
+def test_the_damp_shoes_note_survives_closet_only(monkeypatch):
+    out, _ = dress(monkeypatch, [UNDER, WHITE_OX, CHINOS, MESH], weather(14, 20, rain=90, isRain=True),
+                   prefs(closet_only=True), [fake_model.choice(1, tip="Wear a camel overcoat.")])
+    assert "damp shoes" in out["tip"] and "damp shoes" in out["text"]
+    assert "overcoat" not in out["text"]
+
+
+def test_waterproof_mesh_trainers_are_fine_in_the_rain():
+    wp = {**MESH, "waterproof": True}
+    d, r = run(14, UNDER, WHITE_OX, CHINOS, wp, hi=20, rain=90, isRain=True)
+    assert r.outfits[0].picks["footwear"] == MESH["id"] and "wet" not in r.outfits[0].relaxed

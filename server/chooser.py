@@ -64,7 +64,9 @@ def prompt(day, result: "funnel.Result", gaps_owned_none: list[str]) -> str:
     outfits = "\n\n".join(_outfit(n, o, day.wd.by_item) for n, o in enumerate(result.outfits, 1))
     empty = ""
     if gaps_owned_none:
-        empty = (f" They own nothing for: {', '.join(gaps_owned_none)} — "
+        # "Nothing available", not "nothing owned": on a trip or a laundry day the phone
+        # sends only what is to hand (pre-push reviewer, 2026-10-20).
+        empty = (f" Nothing they can wear today fits: {', '.join(gaps_owned_none)} — "
                  + ("their wardrobe is everything they own, so that slot's line is null."
                     if day.prefs.closet_only else
                     'that slot\'s line suggests a generic garment, ending "(not in your closet yet)".'))

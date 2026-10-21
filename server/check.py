@@ -161,12 +161,20 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
                 for slot in ("footwear", "outer")
-                if not (wd.by_item.get(worn.get(slot)) or {}).get("waterproof") and any(
-                    it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in worn.values()
-                    # a pair they have banned cannot be demanded (pre-push reviewer, 2026-10-11)
-                    and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
-                    for i, it in wd.by_item.items())]
+                if not (wd.by_item.get(worn.get(slot)) or {}).get("waterproof") and snow_gear(slot, worn, day)]
     return out
+
+
+def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
+    """The waterproof garments they could put on as `slot` over these picks today:
+    unused, wearable there, within their rules alongside the rest (pre-push reviewer,
+    2026-10-11) and not too warm for the day (2026-10-20: warm snow boots on a 3-15C
+    day were demanded and forbidden at once). The funnel asks the same question."""
+    wd = day.wd
+    return [i for i, it in wd.by_item.items()
+            if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in worn.values()
+            and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
+            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
 
 
 def is_coat(item: dict) -> bool:

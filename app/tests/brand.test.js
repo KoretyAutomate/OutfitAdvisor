@@ -199,6 +199,11 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   const body = JSON.parse(w.eval("JSON.stringify(closetPayload())"));
   check("the closet sent with a request carries them", body.find(i => i.id === "r4")?.material === "mesh"
     && body.find(i => i.id === "r5")?.gauge === "chunky", body);
+  await w.eval("savePushPayload()");
+  const snap = JSON.parse(await w.eval(`prefGet("oa.pushPayload","{}")`));
+  const snapItems = [...(snap.closet || []), ...(snap.pending || [])];
+  check("…and so does the morning push's snapshot", snapItems.find(i => i.id === "r4")?.material === "mesh"
+    && snapItems.find(i => i.id === "r5")?.gauge === "chunky", snapItems.map(i => i.id));
 
   console.log("\n--- 4. sleeves in the sheet and on the wire ----------------------------");
   await w.eval(`closet=[${JSON.stringify(item("v1", "white long-T"))}]; saveCloset()`);

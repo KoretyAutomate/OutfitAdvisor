@@ -298,9 +298,11 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     out = {"look": look, "lines": lines, "tip": " ".join(t for t in (tip, *notes) if t), "missing": []}
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
-    # "llm" only when the model's words survived — a bare number is not text it wrote.
-    wrote = chose and bool(lines or look or tip)
-    return {**_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), "byModel": wrote}
+    final = _finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {}))
+    # "llm" only when the model's words survived into what is shown — a bare number is
+    # not text it wrote, and _finish may strip a line or tip naming something unowned.
+    kept = any(t and final["lines"].get(s) == t for s, t in lines.items()) or bool(tip and tip in final["tip"])
+    return {**final, "byModel": chose and kept}
 
 
 def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:

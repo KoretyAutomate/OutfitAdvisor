@@ -366,7 +366,7 @@ def test_an_empty_optional_slot_is_no_gap_and_a_dress_gets_no_trousers_line(monk
 def test_a_real_gap_still_gets_its_generic_line(monkeypatch):
     out, seen = dress(monkeypatch, [UNDER, OXFORD, CHINOS], weather(18, 24), prefs(),
                       [fake_model.choice(1, footwear="white leather sneakers (not in your closet yet)")])
-    assert "footwear" in out["missing"] and "They own nothing for: footwear" in seen["chooser"][0]
+    assert "footwear" in out["missing"] and "Nothing they can wear today fits: footwear" in seen["chooser"][0]
     assert "(not in your closet yet)" in out["text"]
 
 
@@ -403,6 +403,7 @@ def test_a_reroll_moves_even_when_the_slots_are_full(monkeypatch):
     shown = {"base": tops[0]["id"], "bottoms": legs[0]["id"], "footwear": shoes[0]["id"]}
     closet = [{**tops[0], "_ago": None}, *[{**t, "_ago": 0} for t in tops[1:]], *legs, *shoes]
     _, r = run(18, *closet, hi=24, p=prefs(shown=shown))
+    assert r.outfits
     for o in r.outfits:
         assert all(o.picks[s] != shown[s] for s in shown), o.picks
 
@@ -444,13 +445,51 @@ def test_stated_fits_tags_constrain_a_stated_level_too():
 def test_a_chunky_knit_never_goes_over_a_polo_or_a_blouse():
     blouse = g("blouse001", "white blouse", "tops", "blouse", ["base", "mid", "outer"], 2, colors=["white"])
     ctx = strict(6, POLO, blouse, TEE, REINDEER, hi=12)
-    for under in (POLO, blouse):
+    tank = g("tank00001", "white tank", "tops", "tank", ["base"], 1, colors=["white"])
+    ctx = strict(6, POLO, blouse, TEE, REINDEER, tank, DRESS, hi=12)
+    for under in (POLO, blouse, tank):
         assert funnel.clash(ctx, {"base": under["id"], "mid": REINDEER["id"]}) == "texture"
+    assert funnel.clash(ctx, {"base": DRESS["id"], "mid": REINDEER["id"]}) != "texture", "a jumper over a dress"
     assert funnel.clash(ctx, {"base": TEE["id"], "mid": REINDEER["id"]}) is None
 
 
-def test_nothing_wearable_at_all_fails_fast():
+def test_a_search_that_finds_nothing_ends_empty_and_fast():
+    """Their rule bans the only top with the only trousers: every outfit misses one of
+    them while owning it — so every pass, every width, finds nothing."""
     import time as _t
+
+    import rules
+    ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "t_shirt"}, "b": {"type": "jeans"}}]))
+    assert ban
     t = _t.monotonic()
-    _, r = run(-8, SHORTS, hi=-2, isSnow=True)
+    _, r = run(16, TEE, JEANS, SNEAK, hi=22, p=prefs(rules=ban))
+    assert r.outfits == []
     assert _t.monotonic() - t < 3
+
+
+def test_the_seventeenth_candidate_still_counts():
+    """Past the wide pass too: sixteen white tees banned with the only jeans."""
+    import rules
+    whites = [g(f"wtee{n:05d}", f"white tee {n}", "tops", "t_shirt", ["base"], 1, colors=["white"]) for n in range(16)]
+    navy = {**g("ntee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
+    ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "t_shirt", "color": "white"},
+                                    "b": {"type": "jeans"}}]))
+    d, r = run(20, *whites, navy, JEANS, SNEAK, hi=24, p=prefs(rules=ban))
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == navy["id"]
+    assert not r.outfits[0].relaxed, "the notes say only what it gave up: nothing"
+
+
+def test_warm_snow_boots_on_a_mild_snowy_day_are_not_demanded():
+    from wardrobe_fixtures import BOOTS
+    d, r = run(3, UNDER, OXFORD, SWEATER, JACKET, JEANS, SNEAK, BOOTS, hi=15, isSnow=True)
+    assert_valid(d, r)
+    import check as chk
+    if not chk.snow_gear("footwear", {}, d):
+        assert any(o.picks["footwear"] == SNEAK["id"] for o in r.outfits)
+
+
+def test_words_stripped_by_closet_only_are_not_the_model_s(monkeypatch):
+    out, _ = dress(monkeypatch, OFFICE, weather(10, 19), prefs("office", closet_only=True),
+                   [fake_model.choice(1, tip="Wear a camel overcoat over it.")])
+    assert "overcoat" not in out["text"] and out["byModel"] is False

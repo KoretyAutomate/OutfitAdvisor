@@ -44,7 +44,8 @@ _LEVEL_WORDS: tuple[tuple[re.Pattern, int], ...] = (
                 r"ジョガー|スウェット|ジャージ", re.I), 1),
     (re.compile(r"drawstring|elastic|cargo|lounge|graphic|logo tee|mesh|canvas|trainer|flip[\s\-]?flop|"
                 r"slide|crocs|parka|anorak|イージー|カーゴ|ドローコード|パーカー", re.I), 2),
-    (re.compile(r"suit\b|tuxedo|dinner jacket|スーツ", re.I), 5),
+    # Not the "suit" in jumpsuit, tracksuit or swimsuit (pre-push gate, 2026-10-20).
+    (re.compile(r"(?<![a-z])suit\b|tuxedo|dinner jacket|(?<!ジャンプ)(?<!ジャージ)スーツ", re.I), 5),
     (re.compile(r"dress shirt|wool trouser|dress trouser|slacks|tailored|derby|brogue|oxford shoe|"
                 r"overcoat|blazer|スラックス|ドレスシャツ", re.I), 4),
     (re.compile(r"oxford|chino|merino|cashmere|leather sneaker|chukka|knit polo|"

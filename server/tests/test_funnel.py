@@ -553,3 +553,24 @@ def test_waterproof_mesh_trainers_are_fine_in_the_rain():
     wp = {**MESH, "waterproof": True}
     d, r = run(14, UNDER, WHITE_OX, CHINOS, wp, hi=20, rain=90, isRain=True)
     assert r.outfits[0].picks["footwear"] == MESH["id"] and "wet" not in r.outfits[0].relaxed
+
+
+def test_a_jumpsuit_is_not_a_suit():
+    import garment
+    assert garment.level({"label": "denim jumpsuit", "type": "jumpsuit", "group": "onepiece"}) == 3
+    assert garment.level({"label": "grey tracksuit", "type": "trousers", "group": "bottoms"}) == 1
+    assert garment.level({"label": "navy suit trousers", "type": "trousers", "group": "bottoms"}) == 5
+
+
+def test_a_reroll_widens_before_it_repeats():
+    """Five banned white tees and the shown grey one fill the first six; the navy one,
+    worn today, is seventh — and is what a re-roll must show."""
+    import rules
+    whites = [g(f"wtee{n:05d}", f"white tee {n}", "tops", "t_shirt", ["base"], 1, colors=["white"]) for n in range(5)]
+    grey = g("gtee00001", "grey tee", "tops", "t_shirt", ["base"], 1, colors=["grey"])
+    navy = {**g("ntee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
+    ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "t_shirt", "color": "white"},
+                                    "b": {"type": "jeans"}}]))
+    d, r = run(20, *whites, grey, navy, JEANS, SNEAK, hi=24, p=prefs(rules=ban, shown={"base": grey["id"]}))
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == navy["id"], r.outfits[0].picks

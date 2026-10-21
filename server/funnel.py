@@ -540,14 +540,20 @@ def search(ctx: Ctx, priority=None) -> Result:
     relaxed: list = []
     removed: dict = {}
     passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))] + [(None, len(WIDTHS))]
-    for step, width in passes:
+    held: list = []          # a re-roll's repeats, held while a wider pass may avoid them
+    for n, (step, width) in enumerate(passes):
         if step and step not in relaxed:
             relaxed.append(step)
         c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width)
         found, removed, inner_today = _pass(c, priority)
-        ok = _evaluate(c, found, priority, inner_today)
+        ok = sorted(_evaluate(c, found, priority, inner_today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
+        last_width = n + 1 == len(passes) or passes[n + 1][0] is not None
+        # Something of what is on screen came back: a wider pass of the same rules may
+        # hold an alternative the narrow one cut (pre-push gate, 2026-10-20).
+        if ok and ok[0].rank[0] and not last_width:
+            held = ok
+            continue
         if ok:
-            ok.sort(key=lambda o: (o.rank, -o.score, key(o.picks)))
             # The model chooses by eye, so it is only offered the top tier: no outfit
             # it can pick repeats what could change, skips the coat's knit or the
             # undershirt when the best ones do not.

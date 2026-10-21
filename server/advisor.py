@@ -271,8 +271,9 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     def left() -> float:
         return DEADLINE_S - (time.monotonic() - t0)
 
-    # On a worker thread: a search that finds nothing tries every relax step at two
-    # widths (about 5 s on 40 garments), and the event loop serves /health meanwhile.
+    # On a worker thread: a search that finds nothing tries every relax step at three
+    # widths and a last exhaustive pass (about 10 s on 40 garments at worst), and the
+    # event loop serves /health meanwhile.
     result = await asyncio.to_thread(funnel.search, funnel.Ctx(day, funnel.target_level(day.look)))
     log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
              result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)

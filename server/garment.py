@@ -92,7 +92,7 @@ def level(item: dict) -> int:
             return _fits(item, lvl)
     kind = str(item.get("type") or "")
     if kind == "jeans" and _DARK_DENIM.search(label + " " + " ".join(item.get("colors") or [])):
-        return 3
+        return _fits(item, 3)
     return _fits(item, TYPE_LEVEL.get(kind, _GROUP_LEVEL.get(str(item.get("group") or ""), 3)))
 
 

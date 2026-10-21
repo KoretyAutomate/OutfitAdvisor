@@ -223,6 +223,18 @@ def _items(ctx: Ctx, picks: dict, slots) -> list[dict]:
     return [ctx.wd.by_item[picks[s]] for s in slots if picks.get(s)]
 
 
+_KNITS = frozenset({"sweater", "cardigan", "hoodie", "fleece"})
+_TOPS_ONLY_UNDER = frozenset({"t_shirt", "polo", "tank", "blouse"})
+
+
+def _top_over_knit(ctx: Ctx, picks: dict) -> bool:
+    """A tee, polo, tank or blouse over knitwear: the layers in the wrong order (pre-push
+    gate, 2026-10-20: a polo filed as mid over a chunky sweater filed as base)."""
+    layered = [ctx.wd.by_item[picks[s]] for s in ("base", "mid", "outer") if picks.get(s)]
+    return any(lo.get("type") in _KNITS and hi.get("type") in _TOPS_ONLY_UNDER
+               for k, lo in enumerate(layered) for hi in layered[k + 1:])
+
+
 def _register(ctx: Ctx, picks: dict) -> bool:
     """Trousers and shoes as smart as the top, within one step; utility trousers
     never with a collar or a fine knit (style.LOOK_PRINCIPLES)."""
@@ -285,7 +297,7 @@ def clash(ctx: Ctx, picks: dict) -> str | None:
     ids = {i for i in picks.values() if i}
     if any(a in ids and b in ids for a, b in day.look.disliked):
         return "disliked"
-    if check.stacked(picks, wd.by_item) or sleeves.sleeve_clashes(picks, wd.by_item):
+    if check.stacked(picks, wd.by_item) or sleeves.sleeve_clashes(picks, wd.by_item) or _top_over_knit(ctx, picks):
         return "stack"
     if wd.by_group.get(picks.get("base")) == "onepiece" and picks.get("bottoms"):
         return "onepiece"
@@ -547,7 +559,7 @@ def search(ctx: Ctx, priority=None) -> Result:
         c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width)
         found, removed, inner_today = _pass(c, priority)
         ok = sorted(_evaluate(c, found, priority, inner_today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
-        last_width = n + 1 == len(passes) or passes[n + 1][0] is not None
+        last_width = n + 1 == len(passes) or passes[n + 1][0] != step
         # Something of what is on screen came back: a wider pass of the same rules may
         # hold an alternative the narrow one cut (pre-push gate, 2026-10-20).
         if ok and ok[0].rank[0] and not last_width:

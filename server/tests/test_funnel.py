@@ -574,3 +574,37 @@ def test_a_reroll_widens_before_it_repeats():
     d, r = run(20, *whites, grey, navy, JEANS, SNEAK, hi=24, p=prefs(rules=ban, shown={"base": grey["id"]}))
     assert_valid(d, r)
     assert r.outfits[0].picks["base"] == navy["id"], r.outfits[0].picks
+
+
+def test_a_polo_never_goes_over_a_sweater():
+    ls_polo = g("lspolo001", "navy long-sleeve polo", "tops", "polo", ["base", "mid", "outer"], 2, sleeve="long")
+    d, r = run(3, UNDER, ls_polo, REINDEER, PARKA, JEANS, SNEAK, hi=6)
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert not (o.picks.get("base") == REINDEER["id"] and o.picks.get("mid") == ls_polo["id"]), o.picks
+    ctx = strict(3, ls_polo, REINDEER, hi=6)
+    assert funnel.clash(ctx, {"base": REINDEER["id"], "mid": ls_polo["id"]}) == "stack"
+
+
+def test_dark_jeans_follow_their_fits_tags_too():
+    import garment
+    assert garment.level({"label": "dark indigo jeans", "type": "jeans", "group": "bottoms",
+                          "formality": ["active"]}) == 1
+
+
+def test_a_reroll_widens_within_a_relaxed_step():
+    """Green trousers and red shoes: colour gives way for every outfit. Five white tees
+    are banned with the trousers, the grey one is on screen, the navy one — worn today
+    — is seventh: the narrow colour-relaxed pass must not settle for the grey again."""
+    import rules
+    whites = [g(f"wtee{n:05d}", f"white tee {n}", "tops", "t_shirt", ["base"], 1, colors=["white"]) for n in range(5)]
+    grey = g("gtee00001", "grey tee", "tops", "t_shirt", ["base"], 1, colors=["grey"])
+    navy = {**g("ntee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
+    green = g("grnpnt001", "green trousers", "bottoms", "trousers", ["bottoms"], 3, colors=["green"])
+    red = g("redsnk001", "red sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["red"])
+    ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "t_shirt", "color": "white"},
+                                    "b": {"type": "trousers"}}]))
+    d, r = run(20, *whites, grey, navy, green, red, hi=24, p=prefs(rules=ban, shown={"base": grey["id"]}))
+    assert_valid(d, r)
+    assert "colour" in r.outfits[0].relaxed
+    assert r.outfits[0].picks["base"] == navy["id"], r.outfits[0].picks

@@ -151,6 +151,30 @@ function capture(w, next) {
   check("it lists the SUGGESTED garments, not the worn ones",
     JSON.stringify(listed) === JSON.stringify(["cardi", "chino", "tee"]), listed);
 
+  console.log("\n--- 8. the outer layer is always offered (user, 2026-10-21) ----------");
+  const w3 = page();
+  await w3.eval("appReady");
+  const $3 = id => w3.document.getElementById(id);
+  const parka = item("parka", "olive parka", "outer", {group: "outerwear", type: "coat", warmth: 4});
+  await w3.eval(`closet=${JSON.stringify([...CLOSET, parka])};
+    wearLog=[{itemId:"parka",wornAt:Date.now()-86400000}]; lastWorn={}; saveCloset()`);
+  check("yesterday's parka is held by the laundry", w3.eval(`avail(closet.find(i=>i.id==="parka"))`) === 0);
+  w3.eval(`state.lat=40.7; state.lon=-74.0; state.city=""`);
+  capture(w3, () => answer(PICKS));
+  await w3.eval("run()"); await drain();
+  $3("dWore").onclick(); await drain(); await drain();
+  const outer = w3.document.querySelector('#woreList select[data-wore="outer"]');
+  check("the sheet has an outer row", !!outer);
+  const opt = outer && [...outer.options].find(o => o.value === "parka");
+  check("…offering the parka, marked as in the laundry", !!opt && /in the laundry/.test(opt.textContent),
+    opt && opt.textContent);
+  outer.value = "parka"; outer.onchange();
+  await $3("woreSave").onclick(); await drain(); await drain();
+  const rec = JSON.parse(w3.eval("JSON.stringify(wearRecord())"));
+  check("saving records the parka as worn", rec && rec.outer === "parka", rec);
+  check("a laundry-held mid layer is still not offered",
+    ![...w3.document.querySelectorAll('#woreList select[data-wore="mid"] option')].some(o => /in the laundry/.test(o.textContent)));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

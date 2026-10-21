@@ -4830,7 +4830,12 @@ function openWoreSheet(){
     // record something the advisor could never have suggested.
     // Packed garments first while away, so the ones actually to hand are what the
     // thumb reaches, and anything else has to be scrolled to and is labelled.
-    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&avail(i)>0)
+    // The outer layer lists every coat and jacket, in the laundry or not (user,
+    // 2026-10-21: "please add outer or Jacket layer in I wore something else"): a
+    // coat is worn day after day, and yesterday's coat counted as being in the wash
+    // left the row with nothing to offer — so it was not shown at all.
+    const offered=i=>avail(i)>0||slot==="outer";
+    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot)&&offered(i))
       .sort((a,b)=>packed?((packed.has(b.id)?1:0)-(packed.has(a.id)?1:0)):0);
     // The suggested garment is always offered, even when the rotation counts it as
     // unavailable — tapping "Wearing it" for the only copy is enough to make that
@@ -4859,7 +4864,7 @@ function openWoreSheet(){
         <option value="">— nothing —</option>
         ${options.map(i=>{
           const note=i.id===suggested_[slot]?" (suggested)"
-                    :(packed&&!packed.has(i.id)?" (not packed)":"");
+                    :(packed&&!packed.has(i.id)?" (not packed)":avail(i)>0?"":" (in the laundry)");
           return `<option value="${esc(i.id)}"${i.id===picked[slot]?" selected":""}>`+
                  `${esc(i.label)}${note}</option>`;
         }).join("")}

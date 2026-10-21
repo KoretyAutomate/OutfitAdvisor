@@ -327,3 +327,17 @@ def test_a_short_sleeved_shirt_never_goes_over_a_cardigan():
         assert not (o.picks.get("mid") == CARDI["id"] and o.picks.get("outer") == ss["id"]), o.picks
     ctx = strict(9, TEE, CARDI, ss, hi=13)
     assert funnel.clash(ctx, {"base": TEE["id"], "mid": CARDI["id"], "outer": ss["id"]}) == "stack"
+
+
+def test_a_blazer_or_open_shirt_as_outer_counts_for_the_trousers():
+    blazer = g("blazer001", "navy blazer", "outerwear", "blazer", ["mid", "outer"], 2, formality=["smart"])
+    joggers = g("jogger001", "grey joggers", "bottoms", "trousers", ["bottoms"], 2, colors=["grey"])
+    ctx = strict(10, TEE, blazer, joggers, LOAFERS, hi=16)
+    assert funnel.clash(ctx, {"base": TEE["id"], "outer": blazer["id"], "bottoms": joggers["id"]}) == "register"
+
+
+def test_joggers_on_a_smart_office_day_are_served_with_a_note_not_refused():
+    joggers = g("jogger001", "grey joggers", "bottoms", "trousers", ["bottoms"], 2, colors=["grey"])
+    d, r = run(18, OXFORD, joggers, LOAFERS, hi=24, p=prefs("office", "smart"))
+    assert_valid(d, r)
+    assert r.outfits[0].picks["bottoms"] == joggers["id"] and r.outfits[0].relaxed

@@ -51,7 +51,7 @@ OPTIONAL = ("inner", "accessories")
 _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 # What a pass may give up, in order, when nothing survives. Their rules, the stacking
 # and sleeve rules, warmth and heat are never on it.
-RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2", "snow", "coat")
+RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
 NOTES = {
@@ -63,6 +63,7 @@ NOTES = {
     # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
     "band1": "a step off the day's usual dress level — nothing at it is free today",
     "band2": "well off the day's usual dress level — little at it is free today",
+    "band3": "well off the day's usual dress level — little at it is free today",
 }
 _COLLARED = frozenset({"polo", "shirt", "blouse", "blazer", "waistcoat"})
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
@@ -188,7 +189,8 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
 
 def candidates(ctx: Ctx, priority) -> tuple[dict, dict]:
     """({slot: [ids, best first]}, {stage: removed}) — steps 2-3 and 5."""
-    widen = 2 if "band2" in ctx.relaxed else 1 if "band1" in ctx.relaxed else 0
+    # band3 spans every level, 1-5, whatever the day's target: what they have is worn.
+    widen = 4 if "band3" in ctx.relaxed else 2 if "band2" in ctx.relaxed else 1 if "band1" in ctx.relaxed else 0
     out: dict = {s: [] for s in CATEGORIES}
     removed: dict = {}
     for iid in sorted(ctx.wd.ids):
@@ -240,7 +242,10 @@ def _top_over_knit(ctx: Ctx, picks: dict) -> bool:
 def _register(ctx: Ctx, picks: dict) -> bool:
     """Trousers and shoes as smart as the top, within one step; utility trousers
     never with a collar or a fine knit (style.LOOK_PRINCIPLES)."""
-    tops = _items(ctx, picks, ("base", "mid"))
+    # The outer layer counts when it is a top or tailoring (a blazer, an open oxford);
+    # a commute coat does not (pre-push gate, 2026-10-20).
+    outer = [o for o in _items(ctx, picks, ("outer",)) if not check.is_coat(o)]
+    tops = [*_items(ctx, picks, ("base", "mid")), *outer]
     legs = _items(ctx, picks, ("bottoms", "footwear"))
     if not tops or not legs:
         return True

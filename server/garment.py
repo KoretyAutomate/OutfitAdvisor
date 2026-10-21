@@ -84,7 +84,7 @@ def level(item: dict) -> int:
     """The garment's dress level, 1-5: stated, else its name, else its kind."""
     v = item.get("level")
     if isinstance(v, int) and v in LEVELS:
-        return v
+        return _fits(item, v)
     label = _label(item)
     for pat, lvl in _LEVEL_WORDS:
         if pat.search(label):

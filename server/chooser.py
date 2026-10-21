@@ -11,6 +11,7 @@ One call. Anything that goes wrong (no answer, a bad shape, a number out of rang
 costs the words and nothing else: the funnel's first outfit is served with plain
 lines (advisor._dress_funnel).
 """
+import asyncio
 import time
 
 import funnel
@@ -89,10 +90,12 @@ async def choose(day, result: "funnel.Result", gaps_owned_none: list[str], left:
     if budget < 3 or not result.outfits:
         return None
     t = time.monotonic()
+    # A wall-clock limit, not only the transport's: httpx times each phase on its own,
+    # and the phone gives up at 90 s whatever the phases add up to.
     try:
-        raw = await _chat([{"role": "system", "content": SYSTEM},
-                           {"role": "user", "content": prompt(day, result, gaps_owned_none)}],
-                          max_tokens=700, temperature=0.4, timeout=budget)
+        raw = await asyncio.wait_for(_chat([{"role": "system", "content": SYSTEM},
+                                            {"role": "user", "content": prompt(day, result, gaps_owned_none)}],
+                                           max_tokens=700, temperature=0.4, timeout=budget), budget)
     except Exception:
         raw = None
     out = _parse_json(raw) if raw else None

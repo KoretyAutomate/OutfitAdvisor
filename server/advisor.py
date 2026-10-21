@@ -267,31 +267,45 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     """Step 1-11 of the funnel, then the model's eye on the survivors. None only when
     no outfit passes every absolute rule however much is relaxed."""
     t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
-    ctx = funnel.Ctx(day, funnel.target_level(day.look))
-    result = funnel.search(ctx)
+
+    def left() -> float:
+        return DEADLINE_S - (time.monotonic() - t0)
+
+    result = funnel.search(funnel.Ctx(day, funnel.target_level(day.look)))
     log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
              result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)
     if not result.outfits:
         return None
-    none_owned = [c for c in CATEGORIES if not any(c in (r or ()) for r in wd.by_roles.values())]
-    said = await chooser.choose(day, result, none_owned, DEADLINE_S - (time.monotonic() - t0))
-    if said and said["choice"] == 0 and DEADLINE_S - (time.monotonic() - t0) > RESCUE_MIN_LEFT_S:
+    said = await chooser.choose(day, result, _gaps_of(result, day), left())
+    if said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S:
         log.info("advisor: the chooser turned every outfit down — searching again without them")
         turned = frozenset(funnel.key(o.picks) for o in result.outfits)
         again = funnel.search(funnel.Ctx(day, result.target, exclude=turned))
         if again.outfits:
             result = again
-            said = await chooser.choose(day, result, none_owned, DEADLINE_S - (time.monotonic() - t0))
+            said = await chooser.choose(day, result, _gaps_of(result, day), left())
     chose = bool(said and said["choice"] >= 1)
     pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
-    words = said if said and chose else {"look": "", "lines": {}, "tip": ""}
+    words: dict = said if said and chose else {"look": "", "lines": {}, "tip": ""}
+    # A line only for a worn garment or a real gap: a dress has no trousers to suggest,
+    # and an empty mid on a mild day is nothing to buy (pre-push reviewer, 2026-10-20).
+    holes = gaps.missing(pick.picks, day, [])
+    lines = {s: t for s, t in words["lines"].items() if pick.picks.get(s) or s in holes}
+    look, tip = str(words["look"]).strip(), str(words["tip"]).strip()
     notes = [f"Note: {n}." for n in funnel.notes(pick.relaxed)]
-    out = {"look": words["look"], "lines": words["lines"],
-           "tip": " ".join(t for t in (str(words["tip"]).strip(), *notes) if t),
-           "missing": [c for c in none_owned if not pick.picks.get(c)]}
+    out = {"look": look, "lines": lines, "tip": " ".join(t for t in (tip, *notes) if t), "missing": []}
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
-    return {**_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), "byModel": chose}
+    # "llm" only when the model's words survived — a bare number is not text it wrote.
+    wrote = chose and bool(lines or look or tip)
+    return {**_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), "byModel": wrote}
+
+
+def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:
+    """The slots some offered outfit leaves empty for want of anything to wear there —
+    the chooser writes those a line (gaps.py decides, never a slot that is merely off)."""
+    holes = {s for o in result.outfits for s in gaps.missing(o.picks, day, []) if s in CATEGORIES}
+    return [c for c in CATEGORIES if c in holes]
 
 
 async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe") -> dict | None:

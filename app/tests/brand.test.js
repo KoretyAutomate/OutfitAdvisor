@@ -184,6 +184,21 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   await w.document.getElementById("shSave").onclick(); await drain();
   s = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("a new kind is read again: its old level is gone", s[0].type === "polo" && !("level" in s[0]), s[0]);
+  // The other two, landing DURING the awaited photo save, as the brand does above.
+  await w.eval(`closet=[${JSON.stringify(item("r4", "grey sneakers", {group: "footwear", category: "footwear", type: "sneakers", roles: ["footwear"]}))},
+    ${JSON.stringify(item("r5", "navy sweater", {type: "sweater"}))}]; saveCloset()`);
+  for (const n of [0, 1]) {
+    await w.eval(`openSheet(closet[${n}],{isNew:false,b64:"${"N".repeat(200)}"})`); await drain();
+    await w.eval(`window._ps=photoSave; photoSave=async(...a)=>{ closet[${n}].material="mesh"; closet[${n}].gauge="chunky"; return window._ps(...a); }`);
+    await w.document.getElementById("shSave").onclick(); await drain();
+    await w.eval(`photoSave=window._ps`);
+  }
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a shoe's upper and a knit's gauge found during the photo save survive it",
+    s[0].material === "mesh" && s[1].gauge === "chunky", s);
+  const body = JSON.parse(w.eval("JSON.stringify(closetPayload())"));
+  check("the closet sent with a request carries them", body.find(i => i.id === "r4")?.material === "mesh"
+    && body.find(i => i.id === "r5")?.gauge === "chunky", body);
 
   console.log("\n--- 4. sleeves in the sheet and on the wire ----------------------------");
   await w.eval(`closet=[${JSON.stringify(item("v1", "white long-T"))}]; saveCloset()`);

@@ -33,8 +33,10 @@ import style
 from vocab import CATEGORIES
 
 K = 4                   # outfits the model chooses among
-PER_SLOT = 6            # best candidates per slot carried into the search
-BEAM = 120              # partial outfits kept after each slot, per layer shape
+# (candidates per slot, partial outfits kept after each slot): the narrow pass first,
+# the wide one only when it found nothing — before any rule gives way, so a legal
+# outfit is never lost to a cap (pre-push reviewer, 2026-10-20).
+WIDTHS = ((6, 120), (16, 400))
 CHECKED_CAP = 60        # complete outfits that pass check.issues, at most
 VISIBLE = ("base", "mid", "outer", "bottoms", "footwear")
 OPTIONAL = ("inner", "accessories")
@@ -42,7 +44,9 @@ OPTIONAL = ("inner", "accessories")
 _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 # What a pass may give up, in order, when nothing survives. Their rules, the stacking
 # and sleeve rules, warmth and heat are never on it.
-RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2")
+RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2", "snow", "coat")
+# "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
+# gear unwearable with everything else — check.py then asks for nothing either.
 NOTES = {
     "colour": "colours a little busier than usual — nothing quieter fits today",
     "belt": "the belt and shoes are different leathers — nothing matching is free today",
@@ -81,6 +85,7 @@ class Ctx:
     target: int
     relaxed: frozenset = frozenset()
     exclude: frozenset = frozenset()     # outfit keys the model already turned down
+    width: int = 0                       # index into WIDTHS
 
     @property
     def wd(self):
@@ -103,6 +108,7 @@ class Outfit:
     found: list
     shape: tuple
     relaxed: tuple = ()
+    off: tuple = ()          # what comes off by midday, for the advice text
     # Ranked before the score, in this order (pre-push plan review, 2026-10-20):
     # a re-roll shows something else wherever it can; a cold morning gets knitwear AND
     # a coat; they wear an undershirt whenever one fits; fewer rules given up.
@@ -110,8 +116,7 @@ class Outfit:
 
     @property
     def sheds(self) -> tuple:
-        """What comes off by midday, for the advice text."""
-        return sheds(self.shape, self.picks)
+        return self.off
 
 
 @dataclass
@@ -157,10 +162,10 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
         return "heat"
     if day.plan >= check.HOT_DAY_C and slot in ("mid", "outer"):
         return "heat"
-    snow = _snow_gear(ctx, slot)
+    snow = "snow" not in ctx.relaxed and _snow_gear(ctx, slot)
     if snow and not it.get("waterproof"):
         return "snow"
-    if slot == "outer" and _coat_day(ctx) and not check.is_coat(it):
+    if slot == "outer" and "coat" not in ctx.relaxed and _coat_day(ctx) and not check.is_coat(it):
         return "coat"
     if slot in VISIBLE and not (snow and it.get("waterproof")):
         lo, hi = band(slot, ctx.target, ctx.office, widen)
@@ -191,14 +196,15 @@ def _best_first(ids: list, slot: str, priority) -> list:
 
 
 def _mixed(ctx: Ctx, ranked: list) -> list:
-    """The best PER_SLOT, taken a kind at a time: the best of each kind first, then
+    """The best few, taken a kind at a time: the best of each kind first, then
     the next best of each. Six sweaters must not crowd the only coat out of a slot."""
     kinds: dict = {}
     for i in ranked:
         kinds.setdefault(ctx.wd.by_item[i].get("type"), []).append(i)
     out: list = []
-    while len(out) < PER_SLOT and any(kinds.values()):
-        out += [ids.pop(0) for ids in kinds.values() if ids][:PER_SLOT - len(out)]
+    per = WIDTHS[ctx.width][0]
+    while len(out) < per and any(kinds.values()):
+        out += [ids.pop(0) for ids in kinds.values() if ids][:per - len(out)]
     return out
 
 
@@ -224,11 +230,13 @@ def _register(ctx: Ctx, picks: dict) -> bool:
 
 def _texture(ctx: Ctx, picks: dict) -> bool:
     """A polo goes under a fine-gauge sweater or a cardigan, never a heavier knit
-    (user, 2026-10-18: "Fabric of polo and sweater doesn't go well"); a shirt worn
-    open as a layer goes over a tee or a tank, never over another collar."""
+    (user, 2026-10-18: "Fabric of polo and sweater doesn't go well"); a chunky knit
+    goes over a tee or a button-up shirt, never a polo or a blouse; a shirt worn open
+    as a layer goes over a tee or a tank, never over another collar."""
     under = [ctx.wd.by_item[picks[s]] for s in ("base",) if picks.get(s)]
     over = [ctx.wd.by_item[picks[s]] for s in ("mid", "outer") if picks.get(s)]
     return not any((u.get("type") == "polo" and o.get("type") == "sweater" and garment.gauge(o) != "fine")
+                   or (u.get("type") in ("polo", "blouse") and garment.gauge(o) == "chunky")
                    or (o.get("type") in ("shirt", "blouse") and u.get("type") not in ("t_shirt", "tank"))
                    for u in under for o in over)
 
@@ -323,13 +331,25 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
                         and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan)):
                     continue
                 nxt.append(trial)
-        nxt.sort(key=lambda q: (-_partial(ctx, q, priority), key(q)))
-        partials = nxt[:BEAM]
+        nxt.sort(key=lambda q: (_repeats(ctx, q), -_partial(ctx, q, priority), key(q)))
+        partials = nxt[:WIDTHS[ctx.width][1]]
     return partials
 
 
-def sheds(shape: tuple, picks: dict) -> tuple:
-    return tuple(s for s in ("outer", "mid") if s in shape and picks.get(s))
+def _repeats(ctx: Ctx, picks: dict) -> int:
+    """Slots still holding what was on screen when they asked for something else —
+    ranked before any cap, so a re-roll's promise survives the search's limits."""
+    shown = ctx.day.prefs.shown_map
+    return sum(1 for s, i in picks.items() if i and shown.get(s) == i)
+
+
+def sheds(day: "check.Day", picks: dict) -> tuple:
+    """What comes off by midday: the coat once the day warms by six degrees, the knit
+    once it reaches 18 — and only over a top that stays on."""
+    if not picks.get("base"):
+        return ()
+    off = [("outer", day.peak >= day.plan + 6), ("mid", day.peak >= 18)]
+    return tuple(s for s, warm in off if warm and picks.get(s))
 
 
 # ── step 5: priority ─────────────────────────────────────────────────────────────
@@ -459,42 +479,52 @@ def _diverse(ranked: list) -> list:
     return sorted(kept, key=ranked.index)
 
 
+def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
+    """Step 11 on the outfits of one pass: re-roll first, then rotation, each checked
+    against check.issues until CHECKED_CAP pass."""
+    prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
+                     if key(_full(p)) not in c.exclude),
+                    key=lambda r: (_repeats(c, r[2]), -r[0], key(_full(r[2]))))
+    ok: list = []
+    seen: set = set()
+    for pre, shape, p in prelim:
+        full = _full(p)
+        if key(full) in seen:
+            continue
+        seen.add(key(full))
+        issues = check.issues(full, c.day)
+        if check.hard(issues):
+            continue
+        soft = sum(1 for i in issues if not i.hard)
+        gave = needed(c, full)
+        rank = _rank(c, (shape, full), issues, gave, inner_today)
+        ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank))
+        if len(ok) >= CHECKED_CAP:
+            break
+    return ok
+
+
 def search(ctx: Ctx, priority=None) -> Result:
     """Steps 6-11 with the relax ladder: the top K outfits that pass every absolute
-    rule and check.issues, giving up the fewest relaxable ones."""
+    rule and check.issues, giving up the fewest relaxable ones. Each step is tried
+    narrow, then wide, before the next rule gives way."""
     priority = priority or priority_for(ctx)
     relaxed: list = []
     removed: dict = {}
     for step in (None, *RELAX):
         if step:
             relaxed.append(step)
-        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude)
-        found, removed, inner_today = _pass(c, priority)
-        prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
-                         if key(_full(p)) not in c.exclude), key=lambda r: (-r[0], key(_full(r[2]))))
-        ok = []
-        seen: set = set()
-        for pre, shape, p in prelim:
-            full = _full(p)
-            if key(full) in seen:
-                continue
-            seen.add(key(full))
-            issues = check.issues(full, c.day)
-            if check.hard(issues):
-                continue
-            soft = sum(1 for i in issues if not i.hard)
-            gave = needed(c, full)
-            rank = _rank(c, (shape, full), issues, gave, inner_today)
-            ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, rank))
-            if len(ok) >= CHECKED_CAP:
-                break
-        if ok:
-            ok.sort(key=lambda o: (o.rank, -o.score, key(o.picks)))
-            # The model chooses by eye, so it is only offered the top tier: no outfit
-            # it can pick repeats what could change, skips the coat's knit or the
-            # undershirt when the best ones do not.
-            tier = [o for o in ok if o.rank[:3] == ok[0].rank[:3]]
-            return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
+        for width in range(len(WIDTHS)):
+            c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width)
+            found, removed, inner_today = _pass(c, priority)
+            ok = _evaluate(c, found, priority, inner_today)
+            if ok:
+                ok.sort(key=lambda o: (o.rank, -o.score, key(o.picks)))
+                # The model chooses by eye, so it is only offered the top tier: no outfit
+                # it can pick repeats what could change, skips the coat's knit or the
+                # undershirt when the best ones do not.
+                tier = [o for o in ok if o.rank[:3] == ok[0].rank[:3]]
+                return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
     return Result([], tuple(relaxed), ctx.target, removed)
 
 

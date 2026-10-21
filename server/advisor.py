@@ -48,6 +48,7 @@ RESCUE_MIN_LEFT_S = 30.0
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
 MAX_REVISIONS = 2
+SEARCH_MAX_S = 20.0     # the funnel's own time, at most (2026-10-21)
 
 SYSTEM = (
     "You are a personal stylist with years of experience dressing real people for "
@@ -274,7 +275,8 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     # On a worker thread: a search that finds nothing tries every relax step at three
     # widths and a last exhaustive pass (about 10 s on 40 garments at worst), and the
     # event loop serves /health meanwhile.
-    result = await asyncio.to_thread(funnel.search, funnel.Ctx(day, funnel.target_level(day.look)))
+    result = await asyncio.to_thread(funnel.search, funnel.Ctx(day, funnel.target_level(day.look),
+                                                               deadline=_search_until(left())))
     log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
              result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)
     if not result.outfits:
@@ -283,7 +285,8 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     if said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S:
         log.info("advisor: the chooser turned every outfit down — searching again without them")
         turned = frozenset(funnel.look(o.picks) for o in result.outfits)
-        again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned))
+        again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
+                                                                  deadline=_search_until(left())))
         if again.outfits:
             result = again
             said = await chooser.choose(day, result, _gaps_of(result, day), left())
@@ -316,6 +319,12 @@ def _with_notes(final: dict, notes: list[str]) -> dict:
     tip = " ".join(t for t in (old, *notes) if t)
     text = final["text"].replace(f"💡 {old}", f"💡 {tip}") if old else f"{final['text']}\n\n💡 {tip}"
     return {**final, "tip": tip, "text": text}
+
+
+def _search_until(left: float) -> float:
+    """When a search must stop: leaving the chooser its call and the model loop a
+    round should the search find nothing — never more than SEARCH_MAX_S."""
+    return time.monotonic() + max(1.0, min(SEARCH_MAX_S, left - chooser.CHOOSE_TIMEOUT_S - 10))
 
 
 def _gaps_of(result: "funnel.Result", day: check.Day) -> list[str]:

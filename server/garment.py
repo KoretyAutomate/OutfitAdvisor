@@ -19,6 +19,7 @@ the kind.
 Keywords are English and the Japanese the wearer writes; matched case-insensitively.
 """
 import re
+import unicodedata
 
 LEVELS = (1, 2, 3, 4, 5)
 MATERIALS = ("leather", "suede", "canvas", "mesh", "knit", "rubber", "synthetic")
@@ -78,7 +79,8 @@ _UTILITY = re.compile(r"cargo|jogger|drawstring|elastic|track|sweat|lounge|easy\
 
 
 def _label(item: dict) -> str:
-    return str(item.get("label") or "")
+    """NFKC first: a name typed in full-width letters (ＭＥＳＨ) reads like any other."""
+    return unicodedata.normalize("NFKC", str(item.get("label") or ""))
 
 
 def level(item: dict) -> int:

@@ -21,6 +21,8 @@ afterwards — a 2/5 and a 3/5 were served (2026-10-18 10:29 / 10:35, 2026-10-20
 check.py stays the one fact check: every outfit this returns has passed it, so a
 funnel answer can never carry a hard issue the old path would have caught.
 """
+import math
+import time
 from dataclasses import dataclass, field
 
 import check
@@ -31,6 +33,7 @@ import rules
 import scale
 import sleeves
 import style
+from llm import log
 from vocab import CATEGORIES
 
 K = 4                   # outfits the model chooses among
@@ -94,6 +97,9 @@ class Ctx:
     relaxed: frozenset = frozenset()
     exclude: frozenset = frozenset()     # looks (funnel.look) the model already turned down
     width: int = 0                       # index into WIDTHS
+    # time.monotonic() by which the search stops, whatever it has (pre-push gate,
+    # 2026-10-21: a 92-garment closet with 24 rules searched past the phone's 90 s).
+    deadline: float = math.inf
 
     @property
     def wd(self):
@@ -267,6 +273,8 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
     # only fail at the end.
     warm = _warm_fixable(ctx)
     for slot in order:
+        if time.monotonic() > ctx.deadline:
+            return []
         opts = list(cands.get(slot) or ())
         # An optional slot may stay empty; so may a required one they own nothing
         # for, which is a gap (gaps.py), not a reason to dress nobody; and so may the
@@ -306,10 +314,11 @@ def _width(ctx: Ctx) -> tuple:
 
 
 def _repeats(ctx: Ctx, picks: dict) -> int:
-    """Slots still holding what was on screen when they asked for something else —
-    ranked before any cap, so a re-roll's promise survives the search's limits."""
-    shown = ctx.day.prefs.shown_map
-    return sum(1 for s, i in picks.items() if i and shown.get(s) == i)
+    """Garments still on screen from when they asked for something else, in whatever
+    slot — the cardigan moved from mid to outer is the same look (pre-push gate,
+    2026-10-21) — ranked before any cap, so a re-roll's promise survives the limits."""
+    shown = set(ctx.day.prefs.shown_map.values())
+    return sum(1 for i in picks.values() if i and i in shown)
 
 
 def sheds(day: "check.Day", picks: dict) -> tuple:
@@ -434,7 +443,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     as the top ranks below a top under it, where one fits."""
     shape, picks = outfit
     kinds = {i.kind for i in issues}
-    repeats = sum(1 for k in kinds if k.startswith("repeat-"))
+    repeats = max(sum(1 for k in kinds if k.startswith("repeat-")), _repeats(ctx, picks))
     cold = _cold(ctx, shape)
     bare = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")))
     topless = int("base" in today and not picks.get("base"))
@@ -507,9 +516,12 @@ def search(ctx: Ctx, priority=None) -> Result:
     passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))] + [(None, len(WIDTHS))]
     held: list = []          # a pass's best, held while a wider pass may do better
     for n, (step, width) in enumerate(passes):
+        if time.monotonic() > ctx.deadline:
+            log.warning("funnel: out of time after %d pass(es)", n)
+            break
         if step and step not in relaxed:
             relaxed.append(step)
-        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width)
+        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width, ctx.deadline)
         found, removed, today = _pass(c, priority)
         ok = sorted(_evaluate(c, found, priority, today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
         last_width = n + 1 == len(passes) or passes[n + 1][0] != step
@@ -526,6 +538,9 @@ def search(ctx: Ctx, priority=None) -> Result:
             # best ones do.
             tier = [o for o in ok if o.rank == ok[0].rank]
             return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
+    if held:     # out of time with something in hand: serve the best of it
+        tier = [o for o in held if o.rank == held[0].rank]
+        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
     return Result([], tuple(relaxed), ctx.target, removed)
 
 

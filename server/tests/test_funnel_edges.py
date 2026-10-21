@@ -382,3 +382,34 @@ def test_fewer_rules_given_up_ranks_before_the_cap(monkeypatch):
     d, r = run(20, *reds, navy, *greens, *formal, hi=24)
     assert_valid(d, r)
     assert all(o.picks["base"] == navy["id"] for o in r.outfits), [o.relaxed for o in r.outfits]
+
+
+def test_the_search_stops_at_its_deadline(monkeypatch):
+    import time as _t
+
+    import check as chk
+    monkeypatch.setattr(chk, "hard", lambda found: {"forced"})
+    many = [g(f"shrt{n:05d}", f"shirt {n}", "tops", "shirt", ["base", "mid", "outer"], 2) for n in range(30)]
+    d = funnel.Ctx(strict(10, *many, JEANS, SNEAK, hi=16).day, 2, deadline=_t.monotonic() + 0.3)
+
+    def slow(iid, slot):          # every priority read costs a millisecond: a long search
+        _t.sleep(0.001)
+        return 1.0
+    t = _t.monotonic()
+    assert funnel.search(d, slow).outfits == []
+    assert _t.monotonic() - t < 2
+
+
+def test_a_reroll_never_brings_back_the_same_clothes_in_other_slots():
+    hoodie = g("hoodie001", "grey hoodie", "tops", "hoodie", ["mid", "outer"], 3, colors=["grey"])
+    closet = [UNDER, OXFORD, CARDI, hoodie, JEANS, SNEAK]
+    _, first = run(9, *closet, hi=20)
+    shown = {s: i for s, i in first.outfits[0].picks.items() if i}
+    _, again = run(9, *closet, hi=20, p=prefs(shown=shown))
+    assert funnel.look(again.outfits[0].picks) != funnel.look(first.outfits[0].picks)
+
+
+def test_full_width_letters_read_like_any_others():
+    import garment
+    wide = {"label": "grey ＭＥＳＨ sneakers", "type": "sneakers", "group": "footwear"}
+    assert garment.material(wide) == "mesh" and garment.wets_through(wide)

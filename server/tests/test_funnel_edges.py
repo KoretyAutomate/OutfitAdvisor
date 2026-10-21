@@ -341,3 +341,14 @@ def test_joggers_on_a_smart_office_day_are_served_with_a_note_not_refused():
     d, r = run(18, OXFORD, joggers, LOAFERS, hi=24, p=prefs("office", "smart"))
     assert_valid(d, r)
     assert r.outfits[0].picks["bottoms"] == joggers["id"] and r.outfits[0].relaxed
+
+
+def test_the_undershirt_counts_toward_warmth():
+    """A warmth-2 undershirt under a warmth-1 tee is warm enough at 14C: the cardigan
+    is not needed, and when the cardigan is banned with the jeans the tee outfit stays."""
+    import rules
+    warm_inner = g("winner001", "white cotton undershirt", "underwear", "undershirt", ["inner"], 2, sleeve="short")
+    ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "cardigan"}, "b": {"type": "jeans"}}]))
+    d, r = run(14, warm_inner, TEE, CARDI, JEANS, SNEAK, hi=20, p=prefs(rules=ban))
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == TEE["id"] and r.outfits[0].picks["inner"] == warm_inner["id"]

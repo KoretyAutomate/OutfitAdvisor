@@ -461,7 +461,10 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     cold = _cold(ctx, shape)
     bare = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")))
     topless = int("base" in today and not picks.get("base"))
-    return (repeats, cold, bare, topless, len(gave))
+    # More layers than the day allows (check.py's soft "layers"): never offered beside
+    # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
+    over = int("layers" in kinds)
+    return (repeats, cold, bare, topless, over, len(gave))
 
 
 def _diverse(ranked: list) -> list:

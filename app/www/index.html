@@ -1763,24 +1763,22 @@ function logWear(id){ const today=localDay(Date.now());          // idempotent p
   // A never-washed garment's wear is pruned on the save, so the history says whether
   // today is logged already.
   if(!washesId(id)&&(Array.isArray(lastWorn[id])?lastWorn[id]:[]).some(t=>localDay(t)===today)) return;
-  // Every copy already held by the laundry, and worn again anyway — a coat, day after
-  // day (2026-10-21): the newest held wear becomes today's, the same physical copy,
-  // rather than a second entry for a garment that has only one. Its old day goes to
-  // the history first, and `prev` lets an undo put it back.
+  // Every copy already held by the laundry after a real wear, and worn again anyway —
+  // a coat, day after day (2026-10-21): today goes in the history, and the newest held
+  // entry is stamped `rewornAt` so no wash takes it while it is on (washable). No
+  // second entry for a one-copy coat; its wornAt — the wash-undo's key — never moves.
+  // One put in the laundry by hand (marked) is not this: wearing it logs a real wear.
   const it=closet.find(i=>i.id===id);
-  if(it&&washesId(id)&&avail(it)<=0){
-    const held=heldAt(id,Date.now()).sort((a,b)=>b.wornAt-a.wornAt)[0];
-    if(held){ noteWorn();
-      const prev={wornAt:held.wornAt,...(held.marked?{marked:true}:{}),...(held.washedAt!=null?{washedAt:held.washedAt}:{})};
-      delete held.marked; delete held.washedAt; delete held.driedAt;
-      held.prev=prev; held.wornAt=Date.now(); return; }
+  const held=it&&washesId(id)&&avail(it)<=0?heldAt(id,Date.now()).filter(w=>!w.marked):[];
+  if(held.length){
+    held.sort((a,b)=>b.wornAt-a.wornAt)[0].rewornAt=Date.now();
+    const ts=Array.isArray(lastWorn[id])?lastWorn[id]:[];
+    if(!ts.some(t=>localDay(t)===today)) lastWorn[id]=[...ts,Date.now()];
+    return;
   }
   wearLog.push({itemId:id,wornAt:Date.now()}); }
 function unlogWearToday(id){ const today=localDay(Date.now());
-  // A re-wear of a held copy goes back to the wear it was (logWear, 2026-10-21).
-  for(const w of wearLog) if(w.itemId===id&&w.prev&&localDay(w.wornAt)===today){
-    const p=w.prev; delete w.prev; w.wornAt=p.wornAt;
-    if(p.marked) w.marked=true; if(p.washedAt!=null) w.washedAt=p.washedAt; }
+  for(const w of wearLog) if(w.itemId===id&&w.rewornAt!=null&&localDay(w.rewornAt)===today) delete w.rewornAt;
   wearLog=wearLog.filter(w=>!(w.itemId===id && !w.marked && localDay(w.wornAt)===today));
   // An undo is a statement that it was NOT worn today — the history forgets it too,
   // keeping any earlier wear (raised by the pre-push reviewer, 2026-10-11).
@@ -6096,7 +6094,9 @@ function washable(){
     // log is only pruned on a write — stamping it would put a clean garment back to
     // drying. Raised by the pre-push reviewer, 2026-10-03.
     // A garment MARKED as in the laundry today is waiting, not on you.
-    if(w.washedAt!=null||(localDay(w.wornAt)===today&&!w.marked)||freeAt(w)<=now) continue;
+    // …and one worn again today on top of an earlier wear (logWear's rewornAt).
+    if(w.washedAt!=null||(localDay(w.wornAt)===today&&!w.marked)||freeAt(w)<=now
+       ||(w.rewornAt!=null&&localDay(w.rewornAt)===today)) continue;
     const it=closet.find(i=>i.id===w.itemId);
     if(it) by[loadOf(it)].push(w);
   }

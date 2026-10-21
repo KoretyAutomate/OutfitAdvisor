@@ -463,3 +463,11 @@ def test_a_disliked_pair_is_judged_against_the_outfit_with_the_coat_in_it():
     d = strict(6, OXFORD, CARDI, JACKET, JEANS, SNEAK, hi=10, p=p).day
     worn = {"base": OXFORD["id"], "outer": CARDI["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}
     assert JACKET["id"] in chk.coats_to_add(worn, d), "the jacket replaces the cardigan it was disliked with"
+
+
+def test_an_outfit_over_the_layer_budget_is_never_offered_beside_one_within_it():
+    d, r = run(14, UNDER, TEE, OXFORD, CARDI, JACKET, JEANS, SNEAK, hi=20)
+    assert_valid(d, r)
+    import check as chk
+    assert all("layers" not in {i.kind for i in chk.issues(o.picks, d)} for o in r.outfits), \
+        [o.picks for o in r.outfits]

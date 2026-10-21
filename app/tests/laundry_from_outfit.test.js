@@ -173,13 +173,18 @@ function capture(w, next) {
   const rec = JSON.parse(w3.eval("JSON.stringify(wearRecord())"));
   check("saving records the parka as worn", rec && rec.outer === "parka", rec);
   const parkaWears = JSON.parse(w3.eval(`JSON.stringify(wearLog.filter(x=>x.itemId==="parka"))`));
-  check("one coat, one laundry entry: yesterday's became today's", parkaWears.length === 1
-    && new Date(parkaWears[0].wornAt).toDateString() === new Date().toDateString(), parkaWears);
-  check("yesterday stays in the history", (JSON.parse(w3.eval("JSON.stringify(lastWorn)")).parka || []).length === 2,
-    w3.eval("JSON.stringify(lastWorn)"));
+  check("one coat, one laundry entry: yesterday's stands", parkaWears.length === 1
+    && Date.now() - parkaWears[0].wornAt > 80000000, parkaWears);
+  const hist = () => (JSON.parse(w3.eval("JSON.stringify(lastWorn)")).parka || []);
+  check("today is in the history beside yesterday", hist().length === 2, hist());
+  w3.eval(`laundry.loads=[{id:"all",name:"Everything",rest:true,match:{colors:[],fabrics:[],weight:"",soil:"",kinds:[]}}]`);
+  check("worn today, it is not offered to the wash", !JSON.parse(w3.eval(`JSON.stringify(Object.values(washable()).flat())`))
+    .some(x => x.itemId === "parka"));
+  w3.eval(`logWear("parka")`);
+  check("…once, however often it is logged", hist().length === 2, hist());
   w3.eval(`unlogWearToday("parka")`);
-  const back = JSON.parse(w3.eval(`JSON.stringify(wearLog.filter(x=>x.itemId==="parka"))`));
-  check("undoing it puts yesterday's wear back", back.length === 1 && Date.now() - back[0].wornAt > 80000000, back);
+  check("undoing it takes today out of the history, the laundry entry untouched",
+    hist().length === 1 && JSON.parse(w3.eval(`JSON.stringify(wearLog.filter(x=>x.itemId==="parka"))`)).length === 1);
   check("a laundry-held mid layer is still not offered",
     ![...w3.document.querySelectorAll('#woreList select[data-wore="mid"] option')].some(o => /in the laundry/.test(o.textContent)));
 

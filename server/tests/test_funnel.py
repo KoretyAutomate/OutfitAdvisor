@@ -176,7 +176,7 @@ def dress(monkeypatch, closet, w, p, choices, recent=None):
 
 def test_the_model_chooses_among_survivors_and_writes_the_words(monkeypatch):
     out, seen = dress(monkeypatch, OFFICE, weather(6, 19, rain=80, isRain=True), prefs("office"),
-                      [fake_model.choice(2, tip="Jacket off at the desk.", bottoms="navy chinos — sharp")])
+                      [fake_model.choice(1, tip="Jacket off at the desk.", bottoms="navy chinos — sharp")])
     assert len(seen["chooser"]) == 1 and "OUTFIT 1" in seen["chooser"][0]
     assert out["byModel"] is True and out["picks"]["bottoms"] == CHINOS["id"]
     assert "Jacket off at the desk." in out["text"]
@@ -312,7 +312,7 @@ def test_an_open_shirt_goes_over_a_tee_never_over_a_polo():
 
 
 def test_a_lone_cardigan_is_knitwear_in_mid_not_a_coat():
-    _, r = run(12, UNDER, POLO, CARDI, JEANS, SNEAK, hi=16)
+    _, r = run(9, UNDER, POLO, CARDI, JEANS, SNEAK, hi=14)
     best = r.outfits[0].picks
     assert best["mid"] == CARDI["id"] and not best["outer"], best
 
@@ -326,3 +326,24 @@ def test_the_same_garments_in_other_slots_are_one_option():
     _, r = run(12, UNDER, POLO, CARDI, JEANS, SNEAK, hi=16)
     looks = [frozenset(o.picks.values()) for o in r.outfits]
     assert len(looks) == len(set(looks)), [o.picks for o in r.outfits]
+
+
+def test_every_option_differs_in_something_you_would_see():
+    for args in ((6, *OFFICE), (12, UNDER, POLO, CARDI, JEANS, SNEAK, BROWN_BELT)):
+        _, r = run(*args, hi=19, p=prefs("office"))
+        for i, a in enumerate(r.outfits):
+            for b in r.outfits[i + 1:]:
+                assert any(a.picks.get(s) != b.picks.get(s) for s in funnel.VISIBLE), (a.picks, b.picks)
+
+
+def test_a_black_belt_never_goes_with_brown_shoes():
+    ctx = strict(14, LOAFERS, BLACK_BELT, BROWN_BELT, hi=20)
+    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "accessories": BLACK_BELT["id"]}) == "belt"
+    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "accessories": BROWN_BELT["id"]}) is None
+
+
+def test_an_outfit_without_the_undershirt_is_not_offered_when_one_fits():
+    """The tee cannot take the long-sleeve thermal under it; the oxford can — so only
+    oxford outfits are offered, though the tee outfit looks different."""
+    _, r = run(3, INNER_LS, TEE, OXFORD, MERINO, PARKA, CHINOS, LOAFERS, hi=9)
+    assert r.outfits and all(o.picks["inner"] == INNER_LS["id"] for o in r.outfits), [o.picks for o in r.outfits]

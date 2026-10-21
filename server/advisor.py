@@ -276,7 +276,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     none_owned = [c for c in CATEGORIES if not any(c in (r or ()) for r in wd.by_roles.values())]
     said = await chooser.choose(day, result, none_owned, DEADLINE_S - (time.monotonic() - t0))
     if said and said["choice"] == 0 and DEADLINE_S - (time.monotonic() - t0) > RESCUE_MIN_LEFT_S:
-        log.info("advisor: the chooser turned all down: %s", said["reason"])
+        log.info("advisor: the chooser turned every outfit down — searching again without them")
         turned = frozenset(funnel.key(o.picks) for o in result.outfits)
         again = funnel.search(funnel.Ctx(day, result.target, exclude=turned))
         if again.outfits:

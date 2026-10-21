@@ -389,8 +389,9 @@ def key(picks: dict) -> tuple:
     return tuple(picks.get(c) or "" for c in CATEGORIES)
 
 
-def _pass(ctx: Ctx, priority) -> tuple[list, dict]:
-    """One search over every layer shape, with the relaxations in ctx."""
+def _pass(ctx: Ctx, priority) -> tuple[list, dict, bool]:
+    """One search over every layer shape, with the relaxations in ctx: (outfits,
+    removed per stage, whether an undershirt can be worn today at all)."""
     cands, removed = candidates(ctx, priority)
     found: list = []
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
@@ -400,7 +401,7 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict]:
         for one in (False, True) if onepieces else (False,):
             c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
             found += [(shape, p) for p in _beam(ctx, c, _order(shape, c, one), priority, shape)]
-    return found, removed
+    return found, removed, bool(cands["inner"])
 
 
 def _accessory(ctx: Ctx, picks: dict) -> float:
@@ -422,11 +423,16 @@ def _score(ctx: Ctx, picks: dict, priority, liked) -> float:
     return mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
 
 
-def _rank(ctx: Ctx, shape: tuple, issues: list, gave: tuple) -> tuple:
+def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, inner_today: bool) -> tuple:
+    """`inner_today`: an undershirt of theirs can be worn today. They wear one
+    whenever they own one (user, 2026-07-15) — so an outfit whose top cannot take it
+    ranks below one whose top can, not only one that merely left it off."""
+    shape, picks = outfit
     kinds = {i.kind for i in issues}
     repeats = sum(1 for k in kinds if k.startswith("repeat-"))
     cold = int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
-    return (repeats, cold, int("no-inner" in kinds), len(gave))
+    bare = int("no-inner" in kinds or (inner_today and not picks.get("inner")))
+    return (repeats, cold, bare, len(gave))
 
 
 def _diverse(ranked: list) -> list:
@@ -436,14 +442,20 @@ def _diverse(ranked: list) -> list:
     # The same garments filed in other slots are the same look on the person — a
     # cardigan as "outer" over nothing is the cardigan in mid — so only the better
     # ranked filing is offered.
-    looks: set = set()
-    ranked = [o for o in ranked if not (frozenset(o.picks.values()) in looks
-                                        or looks.add(frozenset(o.picks.values())))]
+    looks: dict = {}
+    for o in ranked:
+        looks.setdefault(frozenset(o.picks.values()), o)
+    ranked = list(looks.values())
     kept: list = []
     for o in ranked:
         if len(kept) < K and all(sum(o.picks.get(s) != k.picks.get(s) for s in VISIBLE) >= 2 for k in kept):
             kept.append(o)
-    kept += [o for o in ranked if o not in kept][:K - len(kept)]
+    for o in ranked:
+        # Backfill: at least something you would see differs — a belt alone is not
+        # another outfit.
+        if len(kept) < K and o not in kept and all(
+                any(o.picks.get(s) != k.picks.get(s) for s in VISIBLE) for k in kept):
+            kept.append(o)
     return sorted(kept, key=ranked.index)
 
 
@@ -457,7 +469,7 @@ def search(ctx: Ctx, priority=None) -> Result:
         if step:
             relaxed.append(step)
         c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude)
-        found, removed = _pass(c, priority)
+        found, removed, inner_today = _pass(c, priority)
         prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                          if key(_full(p)) not in c.exclude), key=lambda r: (-r[0], key(_full(r[2]))))
         ok = []
@@ -472,7 +484,8 @@ def search(ctx: Ctx, priority=None) -> Result:
                 continue
             soft = sum(1 for i in issues if not i.hard)
             gave = needed(c, full)
-            ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, _rank(c, shape, issues, gave)))
+            rank = _rank(c, (shape, full), issues, gave, inner_today)
+            ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, rank))
             if len(ok) >= CHECKED_CAP:
                 break
         if ok:

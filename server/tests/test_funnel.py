@@ -513,3 +513,25 @@ def test_snow_boots_they_disliked_with_their_only_jeans_leave_the_sneakers():
     d, r = run(-3, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, BOOTS, hi=1, isSnow=True, p=p)
     assert_valid(d, r)
     assert r.outfits[0].picks["footwear"] == SNEAK["id"]
+
+
+def test_many_shirts_never_crowd_out_the_knit_and_the_undershirt():
+    """The pre-push gate's case: six each of shirts, chinos and sneakers at 6-19C."""
+    shirts = [g(f"shrt{n:05d}", f"shirt {n}", "tops", "shirt", ["base", "mid", "outer"], 2) for n in range(6)]
+    legs = [g(f"chin{n:05d}", f"chinos {n}", "bottoms", "trousers", ["bottoms"], 3) for n in range(6)]
+    shoes = [g(f"snk{n:06d}", f"sneakers {n}", "footwear", "sneakers", ["footwear"], 2) for n in range(6)]
+    d, r = run(6, *shirts, *legs, *shoes, UNDER, SWEATER, PARKA, hi=19)
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert o.picks["inner"] == UNDER["id"] and o.picks["mid"] == SWEATER["id"], o.picks
+
+
+def test_the_chooser_hears_their_feedback_and_their_reasons(monkeypatch):
+    p = replace(pk.Prefs(skipped=("too warm for the office",)),
+                look=style.Look("casual", "man", "office", liked=((WHITE_OX["id"], CHINOS["id"]),),
+                                notes=("navy and white suits me",)))
+    _, seen = dress(monkeypatch, OFFICE, weather(10, 19), p, [fake_model.choice(1)])
+    prompt = seen["chooser"][0]
+    assert "they LIKED these together" in prompt and "navy and white suits me" in prompt
+    assert "too warm for the office" in prompt
+    assert WHITE_OX["id"] not in prompt, "handles, never ids"

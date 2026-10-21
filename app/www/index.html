@@ -4097,6 +4097,9 @@ function renderOutfit(o,text,source,res){
   // any more, and not a connection failure either — saying "AI · 122B" over an
   // outfit the on-device recommender produced credits the wrong author.
   else if(source==="local"){ b.textContent="on this phone"; b.className="chip off"; }
+  // Your closet, chosen by the server's rules alone — the model was unreachable, so
+  // it is not an AI answer (2026-10-20, the funnel). Before the closet branch.
+  else if(source==="funnel"){ b.textContent="your closet — AI unavailable"; b.className="chip off"; }
   else if(res&&res.closetUsed){ b.textContent="AI · your closet"; b.className="chip src"; }
   // The server's own fallbacks. "rule-engine" is its catalogue when the model is
   // down; "none" is the closet-only refusal, which no model wrote either. Both

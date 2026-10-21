@@ -105,7 +105,13 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             }
         }
 
-        val srcBadge = if (advice.source == "llm") "122B" else advice.source
+        // "funnel": the closet outfit was chosen by the server's rules alone, the model
+        // unreachable (2026-10-20) — said in words, not the code name.
+        val srcBadge = when (advice.source) {
+            "llm" -> "122B"
+            "funnel" -> "your closet, no AI"
+            else -> advice.source
+        }
         val header = buildString {
             advice.emoji?.takeIf { it.isNotBlank() }?.let { append(it).append("  ") }
             if (advice.lo != null && advice.hi != null) append("${advice.lo}–${advice.hi}°  ")

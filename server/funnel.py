@@ -339,7 +339,10 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
                         and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan)):
                     continue
                 nxt.append(trial)
-        nxt.sort(key=lambda q: (_repeats(ctx, q), -_partial(ctx, q, priority), key(q)))
+        # Once the undershirt's slot is decided, outfits with one go ahead of those
+        # without, before the cut — the rank puts them first, so the beam must too.
+        nxt.sort(key=lambda q: (_repeats(ctx, q), int(bool(cands.get("inner")) and "inner" in q and not q["inner"]),
+                                -_partial(ctx, q, priority), key(q)))
         partials = nxt[:_width(ctx)[1]]
     return partials
 
@@ -455,6 +458,11 @@ def _score(ctx: Ctx, picks: dict, priority, liked) -> float:
     return mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
 
 
+def _cold(ctx: Ctx, shape: tuple) -> int:
+    """A cold morning dressed without knitwear AND a coat."""
+    return int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
+
+
 def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, inner_today: bool) -> tuple:
     """`inner_today`: an undershirt of theirs can be worn today. They wear one
     whenever they own one (user, 2026-07-15) — so an outfit whose top cannot take it
@@ -462,7 +470,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, inner_today: bool)
     shape, picks = outfit
     kinds = {i.kind for i in issues}
     repeats = sum(1 for k in kinds if k.startswith("repeat-"))
-    cold = int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
+    cold = _cold(ctx, shape)
     bare = int("no-inner" in kinds or (inner_today and not picks.get("inner")))
     return (repeats, cold, bare, len(gave))
 
@@ -494,9 +502,13 @@ def _diverse(ranked: list) -> list:
 def _evaluate(c: Ctx, found: list, priority, inner_today: bool) -> list:
     """Step 11 on the outfits of one pass: re-roll first, then rotation, each checked
     against check.issues until CHECKED_CAP pass."""
+    # The rank's own order before any cut (pre-push gate, 2026-10-20): a cap reached by
+    # well-rotated outfits without the knit or the undershirt must not hide the ones
+    # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if key(_full(p)) not in c.exclude),
-                    key=lambda r: (_repeats(c, r[2]), -r[0], key(_full(r[2]))))
+                    key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int(inner_today and not r[2].get("inner")),
+                                   -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:

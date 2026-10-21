@@ -356,7 +356,8 @@ def priority_for(ctx: Ctx):
     def pri(iid: str, slot: str) -> float:
         if (iid, slot) not in cache:
             it = ctx.wd.by_item[iid]
-            ago = it.get("_ago")
+            # A coat is worn day after day (user, 2026-10-21): rotation never moves it.
+            ago = None if it.get("group") == "outerwear" else it.get("_ago")
             p = 7.0 if not isinstance(ago, int) else float(min(max(ago, 0), 7)) - (3 if ago <= 1 else 0)
             p += 2 if (slot, iid) in habits else 0
             p -= 6 if shown.get(slot) == iid else 0

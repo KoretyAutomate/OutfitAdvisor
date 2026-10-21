@@ -293,12 +293,13 @@ class FeedbackReceiver : BroadcastReceiver() {
             } catch (e: Exception) { null }
         }
         /**
-         * Footwear and accessories never go in the laundry; socks do (user, 2026-10-17).
+         * Footwear, accessories and outerwear never go in the laundry; socks do (user,
+         * 2026-10-17; outerwear 2026-10-21).
          * TWIN of neverWashed in index.html — payload items carry group and type.
          */
         fun neverWashed(o: JSONObject): Boolean {
             val g = o.optString("group")
-            return g == "accessories" || (g == "footwear" && o.optString("type") != "socks")
+            return g == "accessories" || g == "outerwear" || (g == "footwear" && o.optString("type") != "socks")
         }
         // Twin of COOLDOWN_DAYS / DAY_MS in index.html: an unwashed wear holds a unit
         // for this long.

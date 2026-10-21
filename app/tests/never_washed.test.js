@@ -55,6 +55,8 @@ const CLOSET = [
   check("a cap is never washed", ev(`neverWashed(${JSON.stringify(CLOSET[3])})`) === true);
   check("socks are", ev(`neverWashed(${JSON.stringify(CLOSET[2])})`) === false);
   check("a tee is", ev(`neverWashed(${JSON.stringify(CLOSET[0])})`) === false);
+  check("a coat is never washed (2026-10-21)", ev(`neverWashed(${JSON.stringify(item("coat", "olive parka", "outerwear", "coat", "outer"))})`) === true);
+  check("a cardigan worn as a layer still is", ev(`neverWashed(${JSON.stringify(item("cardi", "grey cardigan", "tops", "cardigan", "mid"))})`) === false);
 
   console.log("\n--- 2. a wear holds the tee and socks, not the shoes or the cap ----");
   await reset();
@@ -170,6 +172,15 @@ const CLOSET = [
   await ev("mergeNativeWears()"); await ev("saveCloset()"); await drain();
   check("a notification wear the app already has is not a second one",
     JSON.parse(ev("JSON.stringify(lastWorn)")).shoe.length === 1, ev("JSON.stringify(lastWorn)"));
+
+  console.log("\n--- coats: worn yesterday, still there today (user, 2026-10-21) ---------");
+  const parka = item("parka", "olive parka", "outerwear", "coat", "outer");
+  await ev(`closet=${JSON.stringify([...CLOSET, parka])}; wearLog=[{itemId:"parka",wornAt:${T - D}}]; lastWorn={}; saveCloset()`);
+  await drain();
+  check("yesterday's coat is available today", av("parka") === 1);
+  check("…and its wear is in the history", (JSON.parse(ev("JSON.stringify(lastWorn)")).parka || []).length === 1,
+    ev("JSON.stringify(lastWorn)"));
+  check("…and it is out of the laundry", !log().some(x => x.itemId === "parka"), log());
 
   console.log(`\nnever_washed: ${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);

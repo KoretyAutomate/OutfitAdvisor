@@ -483,3 +483,12 @@ def test_rotation_never_crowds_out_the_outfits_within_the_layer_budget(monkeypat
     assert_valid(d, r)
     import check as chk
     assert all("layers" not in {i.kind for i in chk.issues(o.picks, d)} for o in r.outfits)
+
+
+def test_yesterday_s_coat_is_not_rotated_out_for_a_worse_one():
+    """Rotation never moves a coat: yesterday's parka keeps its place on a cold day."""
+    worn = {**PARKA, "_ago": 1}
+    other = g("anorak001", "beige anorak", "outerwear", "jacket", ["outer"], 4, colors=["beige"])
+    ctx = strict(2, UNDER, OXFORD, SWEATER, worn, other, JEANS, SNEAK, hi=8)
+    pri = funnel.priority_for(ctx)
+    assert pri(worn["id"], "outer") >= pri(other["id"], "outer") - 1

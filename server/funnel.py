@@ -272,7 +272,8 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
         # for, which is a gap (gaps.py), not a reason to dress nobody; and so may the
         # top under a layer, which can be the top itself (a cardigan alone) — check.py
         # judges whether that dresses them, the rank prefers a top where one fits.
-        if slot in OPTIONAL or not opts or (slot == "base" and len(shape) > 1):
+        # Not in the one-piece pass (no trousers in its order): there the base IS the legs.
+        if slot in OPTIONAL or not opts or (slot == "base" and len(shape) > 1 and "bottoms" in order):
             opts.append(None)
         nxt = []
         for p in partials:
@@ -393,6 +394,10 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
         if ctx.day.plan >= check.HOT_DAY_C and shape != ("base",):
             continue
         for one in (False, True) if onepieces else (False,):
+            # Without trousers to wear, the legs are the dress's: no outfit leaves it off
+            # for bare legs (pre-push gate, 2026-10-21).
+            if onepieces and not one and not cands["bottoms"]:
+                continue
             c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
             found += [(shape, p) for p in _beam(ctx, c, _order(shape, c, one), priority, shape)]
     return found, removed, frozenset(s for s, ids in cands.items() if ids)
@@ -469,7 +474,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
                     key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
-                                   int("base" in today and not r[2].get("base")), -r[0], key(_full(r[2]))))
+                                   int("base" in today and not r[2].get("base")), len(needed(c, _full(r[2]))),
+                                   -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:

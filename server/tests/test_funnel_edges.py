@@ -362,3 +362,23 @@ def test_an_outfit_giving_up_more_rules_is_never_offered():
     assert_valid(d, r)
     assert all(o.relaxed == r.outfits[0].relaxed for o in r.outfits), [o.relaxed for o in r.outfits]
     assert all(o.picks["base"] == TEE["id"] for o in r.outfits)
+
+
+def test_a_dress_is_worn_rather_than_bare_legs():
+    green = g("grnsnk001", "green sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["green"])
+    d, r = run(14, DRESS, CARDI, green, hi=20)
+    assert_valid(d, r)
+    assert all(o.picks["base"] == DRESS["id"] for o in r.outfits), [o.picks for o in r.outfits]
+
+
+def test_fewer_rules_given_up_ranks_before_the_cap(monkeypatch):
+    monkeypatch.setattr(funnel, "CHECKED_CAP", 4)
+    formal = [g(f"oxsh{n:05d}", f"black oxford shoes {n}", "footwear", "dress_shoes", ["footwear"], 2,
+                colors=["black"], level=4) for n in range(8)]
+    greens = [g(f"gchn{n:05d}", f"green chinos {n}", "bottoms", "trousers", ["bottoms"], 3, colors=["green"])
+              for n in range(8)]
+    reds = [g(f"rtee{n:05d}", f"red tee {n}", "tops", "t_shirt", ["base"], 1, colors=["red"]) for n in range(2)]
+    navy = {**g("ntee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
+    d, r = run(20, *reds, navy, *greens, *formal, hi=24)
+    assert_valid(d, r)
+    assert all(o.picks["base"] == navy["id"] for o in r.outfits), [o.relaxed for o in r.outfits]

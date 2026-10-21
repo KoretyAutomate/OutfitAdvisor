@@ -175,7 +175,7 @@ def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
     return [i for i, it in wd.by_item.items()
             if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in ids
             and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
-            and not voted_down(day, i, worn)
+            and not voted_down(day, i, {**worn, slot: i})
             and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
 
 
@@ -192,13 +192,14 @@ def coats_to_add(worn: dict, day: Day) -> list[str]:
     return [iid for iid, it in wd.by_item.items()
             if is_coat(it) and iid not in worn.values() and "outer" in (wd.by_roles.get(iid) or ())
             and not rules.violations(day.rules, {**worn, "outer": iid}, wd.by_item)
-            and not voted_down(day, iid, worn)
+            and not voted_down(day, iid, {**worn, "outer": iid})
             and not layers.overdressed(it, "outer", wd, day.plan, day.peak, day.rules)]
 
 
 def voted_down(day: Day, iid: str, worn: dict) -> bool:
     """A pairing of this garment with something worn that they voted down: no more a
-    garment to demand than one their rules ban (pre-push gate, 2026-10-20)."""
+    garment to demand than one their rules ban (pre-push gate, 2026-10-20). `worn` is
+    the outfit WITH it — it replaces whatever its slot held (2026-10-21)."""
     ids = {i for i in worn.values() if i}
     return any((a == iid and b in ids) or (b == iid and a in ids) for a, b in day.look.disliked)
 

@@ -441,3 +441,25 @@ def test_a_reroll_never_empties_a_slot_to_look_different():
     assert shown.get("inner") == short["id"]
     _, again = run(20, *closet, hi=24, p=prefs(shown=shown))
     assert all(o.picks["inner"] == short["id"] for o in again.outfits), [o.picks for o in again.outfits]
+
+
+def test_a_dress_outside_the_day_s_level_is_worn_rather_than_bare_legs():
+    smart_dress = {**DRESS, "level": 4, "colors": ["navy"], "pattern": "solid"}
+    d, r = run(14, smart_dress, CARDI, SNEAK, hi=20)
+    assert_valid(d, r)
+    assert all(o.picks["base"] == DRESS["id"] for o in r.outfits), [o.picks for o in r.outfits]
+
+
+def test_a_layer_only_comes_off_if_what_stays_on_is_warm_enough():
+    thin = g("thintee01", "thin white tee", "tops", "t_shirt", ["base"], 1, colors=["white"])
+    d, r = run(8, thin, JACKET, JEANS, SNEAK, hi=14)
+    o = next((o for o in r.outfits if o.picks.get("outer") == JACKET["id"]), None)
+    assert o is not None and "outer" not in o.sheds
+
+
+def test_a_disliked_pair_is_judged_against_the_outfit_with_the_coat_in_it():
+    import check as chk
+    p = replace(pk.Prefs(), look=style.Look("casual", "man", "", disliked=((JACKET["id"], CARDI["id"]),)))
+    d = strict(6, OXFORD, CARDI, JACKET, JEANS, SNEAK, hi=10, p=p).day
+    worn = {"base": OXFORD["id"], "outer": CARDI["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}
+    assert JACKET["id"] in chk.coats_to_add(worn, d), "the jacket replaces the cardigan it was disliked with"

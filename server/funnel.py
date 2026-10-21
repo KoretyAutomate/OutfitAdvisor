@@ -331,8 +331,14 @@ def sheds(day: "check.Day", picks: dict) -> tuple:
     A -5 to 1C day warms by six and keeps the coat on (pre-push gate, 2026-10-20)."""
     if not picks.get("base"):
         return ()
-    off = [("outer", day.peak >= day.plan + 6 and day.peak >= COATLESS_C), ("mid", day.peak >= 18)]
-    return tuple(s for s, warm in off if warm and picks.get(s))
+    off: list = []
+    for slot, warm in (("outer", day.peak >= day.plan + 6 and day.peak >= COATLESS_C), ("mid", day.peak >= 18)):
+        rest = {s: i for s, i in picks.items() if s not in (*off, slot)}
+        # …and what stays on is warm enough by itself at the warmest hour (pre-push
+        # gate, 2026-10-21: a thin tee under a jacket at 8-14C keeps the jacket).
+        if warm and picks.get(slot) and layers._still_warm(rest, day.wd.by_item, day.peak):
+            off.append(slot)
+    return tuple(off)
 
 
 # ── step 5: priority ─────────────────────────────────────────────────────────────
@@ -403,13 +409,17 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
     cands, removed = candidates(ctx, priority)
     found: list = []
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
+    # A dress they could wear today, filtered here or not: the legs are its, so a pass
+    # without trousers never dresses them bare — the band widens first (2026-10-21).
+    dress_owned = any(ctx.wd.by_group.get(i) == "onepiece" and "base" in (ctx.wd.by_roles.get(i) or ())
+                      and _keeps(ctx, "base", i, 4) is None for i in ctx.wd.ids)
     for shape in SHAPES:
         if ctx.day.plan >= check.HOT_DAY_C and shape != ("base",):
             continue
         for one in (False, True) if onepieces else (False,):
             # Without trousers to wear, the legs are the dress's: no outfit leaves it off
             # for bare legs (pre-push gate, 2026-10-21).
-            if onepieces and not one and not cands["bottoms"]:
+            if dress_owned and not one and not cands["bottoms"]:
                 continue
             c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
             found += [(shape, p) for p in _beam(ctx, c, _order(shape, c, one), priority, shape)]

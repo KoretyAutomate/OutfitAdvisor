@@ -282,7 +282,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     said = await chooser.choose(day, result, _gaps_of(result, day), left())
     if said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S:
         log.info("advisor: the chooser turned every outfit down — searching again without them")
-        turned = frozenset(funnel.key(o.picks) for o in result.outfits)
+        turned = frozenset(funnel.look(o.picks) for o in result.outfits)
         again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned))
         if again.outfits:
             result = again

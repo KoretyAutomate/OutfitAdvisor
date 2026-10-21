@@ -96,7 +96,7 @@ class Ctx:
     day: "check.Day"
     target: int
     relaxed: frozenset = frozenset()
-    exclude: frozenset = frozenset()     # outfit keys the model already turned down
+    exclude: frozenset = frozenset()     # looks (funnel.look) the model already turned down
     width: int = 0                       # index into WIDTHS
 
     @property
@@ -441,6 +441,11 @@ def _full(picks: dict) -> dict:
     return {c: picks.get(c) for c in CATEGORIES}
 
 
+def look(picks: dict) -> frozenset:
+    """The garments worn, whatever slots they are filed in: one look on the person."""
+    return frozenset(i for i in picks.values() if i)
+
+
 def key(picks: dict) -> tuple:
     """An outfit as a sortable, hashable value: an empty slot is ""."""
     return tuple(picks.get(c) or "" for c in CATEGORIES)
@@ -508,7 +513,7 @@ def _diverse(ranked: list) -> list:
     # ranked filing is offered.
     looks: dict = {}
     for o in ranked:
-        looks.setdefault(frozenset(o.picks.values()), o)
+        looks.setdefault(look(o.picks), o)
     ranked = list(looks.values())
     kept: list = []
     for o in ranked:
@@ -530,7 +535,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # well-rotated outfits without the knit or the undershirt must not hide the ones
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
-                     if key(_full(p)) not in c.exclude),
+                     if look(p) not in c.exclude),
                     key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
                                    int("base" in today and not r[2].get("base")), -r[0], key(_full(r[2]))))
     ok: list = []
@@ -562,7 +567,7 @@ def search(ctx: Ctx, priority=None) -> Result:
     relaxed: list = []
     removed: dict = {}
     passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))] + [(None, len(WIDTHS))]
-    held: list = []          # a re-roll's repeats, held while a wider pass may avoid them
+    held: list = []          # a pass's best, held while a wider pass may do better
     for n, (step, width) in enumerate(passes):
         if step and step not in relaxed:
             relaxed.append(step)
@@ -570,9 +575,10 @@ def search(ctx: Ctx, priority=None) -> Result:
         found, removed, today = _pass(c, priority)
         ok = sorted(_evaluate(c, found, priority, today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
         last_width = n + 1 == len(passes) or passes[n + 1][0] != step
-        # Something of what is on screen came back: a wider pass of the same rules may
-        # hold an alternative the narrow one cut (pre-push gate, 2026-10-20).
-        if ok and ok[0].rank[0] and not last_width:
+        # The best still falls short somewhere the rank counts — a repeat, no knit and
+        # coat, no undershirt, no top under the layer, a rule given up: a wider pass of
+        # the same rules may hold what the narrow one cut (pre-push gate, 2026-10-20).
+        if ok and any(ok[0].rank) and not last_width:
             held = ok
             continue
         if ok:

@@ -294,3 +294,19 @@ def test_the_dress_level_note_is_true_both_ways():
     assert r.outfits and r.outfits[0].relaxed
     for n in funnel.notes(r.outfits[0].relaxed):
         assert "relaxed" not in n, n
+
+
+def test_a_usable_undershirt_past_the_first_six_is_found():
+    longs = [g(f"lsin{n:05d}", f"long-sleeve undershirt {n}", "underwear", "undershirt", ["inner"], 1, sleeve="long")
+             for n in range(6)]
+    short = {**g("ssin00001", "white crew undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="short"),
+             "_ago": 0}
+    d, r = run(20, *longs, short, TEE, JEANS, SNEAK, hi=24)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["inner"] == short["id"], r.outfits[0].picks
+
+
+def test_a_turned_down_look_is_not_offered_again_in_other_slots(monkeypatch):
+    out, seen = dress(monkeypatch, [CARDI, JEANS, SNEAK], weather(9, 19), prefs(),
+                      [fake_model.choice(0, reason="no"), fake_model.choice(1)])
+    assert len(seen["chooser"]) == 1, "nothing new to offer: no second call on the same clothes"

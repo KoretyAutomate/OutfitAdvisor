@@ -1864,7 +1864,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.53";
+const WEB_BUILD="1.54";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2331,6 +2331,7 @@ async function addItem(source){
     ...(meta&&SLEEVED.has(meta.group)?{sleeve:SLEEVES.includes(meta.sleeve)?meta.sleeve:null}:{}),
     ...(meta&&PATTERNED.has(meta.group)?{pattern:PATTERNS.includes(meta.pattern)?meta.pattern:null}:{}),
     ...(meta?{fabric:FABRICS.includes(meta.fabric)?meta.fabric:null}:{}),
+    ...(meta?funnelMeta(meta,meta.group,meta.type):{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
   item.photo=await photoSave(item.id,b64);
@@ -2493,14 +2494,34 @@ const PATTERNED=new Set(["tops","outerwear","bottoms","onepiece"]);
 const needsPattern=i=>i.pattern===undefined&&PATTERNED.has(i.group);
 /* Only asked for when the household splits laundry by fabric. */
 const needsFabric=i=>i.fabric===undefined&&laundry.splits.includes("fabric");
-function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i)||needsPattern(i)||needsFabric(i))); }
+/* What the outfit funnel filters on (user, 2026-10-20): how dressed-up a garment is
+   (1 sport … 5 formal), a shoe's upper and a knit's gauge. Same once-only contract:
+   undefined = never read, null = read and not decidable; the server reads the name
+   and the kind meanwhile. */
+const LEVELED=new Set(["tops","outerwear","bottoms","onepiece","footwear"]);
+const MATERIALS=["leather","suede","canvas","mesh","knit","rubber","synthetic"];
+const GAUGES=["fine","mid","chunky"];
+const KNIT_TYPES=new Set(["sweater","cardigan"]);
+const needsLevel=i=>i.level===undefined&&LEVELED.has(i.group);
+const needsMaterial=i=>i.material===undefined&&i.group==="footwear";
+const needsGauge=i=>i.gauge===undefined&&KNIT_TYPES.has(i.type);
+const needsFunnel=i=>needsLevel(i)||needsMaterial(i)||needsGauge(i);
+/* The funnel's fields from a /classify answer, for a garment of this group and type. */
+function funnelMeta(meta,group,type){
+  const out={};
+  if(LEVELED.has(group)) out.level=[1,2,3,4,5].includes(meta.level)?meta.level:null;
+  if(group==="footwear") out.material=MATERIALS.includes(meta.material)?meta.material:null;
+  if(KNIT_TYPES.has(type)) out.gauge=GAUGES.includes(meta.gauge)?meta.gauge:null;
+  return out;
+}
+function unbrandedItems(){ return closet.filter(i=>i.photo&&(i.brand===undefined||needsSleeve(i)||needsPattern(i)||needsFabric(i)||needsFunnel(i))); }
 function refreshBrands(){
   const row=$("brandRow"); if(!row) return;
   const n=unbrandedItems().length;
   row.style.display=n?"":"none";
   if(!n||brandBusy) return;
   $("brandTxt").textContent=`Read details from ${n} photo${n===1?"":"s"}`;
-  $("brandNote").textContent=`Looks for a legible logo or label, the sleeves and the pattern. Where no brand shows, it stays empty for you to fill in.`;
+  $("brandNote").textContent=`Looks for a legible logo or label, the sleeves, the pattern and how dressy it is. Where no brand shows, it stays empty for you to fill in.`;
 }
 async function scanBrands(){
   if(brandBusy) return;
@@ -2537,6 +2558,10 @@ async function scanBrands(){
       if(live.pattern) pats++;
     }
     if(needsFabric(live)) live.fabric=FABRICS.includes(meta.fabric)?meta.fabric:null;
+    // Each funnel field only where still unread — the garment's own group and type
+    // decide which apply, not the photo's second guess at them.
+    const fm=funnelMeta(meta,live.group,live.type);
+    for(const k of Object.keys(fm)) if(live[k]===undefined) live[k]=fm[k];
   }
   await saveCloset();
   brandBusy=false; btn.disabled=false;
@@ -3713,7 +3738,9 @@ const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     ...(i.sleeve?{sleeve:i.sleeve}:{}),
     ...(i.pattern?{pattern:i.pattern}:{}),
     // The advisor and its stylist read it for texture (user, 2026-10-18).
-    ...(i.fabric?{fabric:i.fabric}:{})});
+    ...(i.fabric?{fabric:i.fabric}:{}),
+    // The outfit funnel's readings (user, 2026-10-20); absent, the server derives them.
+    ...(i.level?{level:i.level}:{}),...(i.material?{material:i.material}:{}),...(i.gauge?{gauge:i.gauge}:{})});
 function closetPayload(){
   const trip=tripInProgress(), meta=itemMeta;
   if(trip){
@@ -6648,6 +6675,13 @@ $("shSave").onclick=async()=>{
   else if(idx>=0&&closet[idx].sleeve!==undefined) it.sleeve=closet[idx].sleeve;
   if(ptTouched) it.pattern=pt||null;
   else if(idx>=0&&closet[idx].pattern!==undefined) it.pattern=closet[idx].pattern;
+  // The funnel's readings have no picker: they defer to what the photo scan may have
+  // written meanwhile — unless the garment's kind changed here, when they are read
+  // again (a level for trousers says nothing about a jacket).
+  const sameKind=idx>=0&&closet[idx].group===it.group&&closet[idx].type===it.type;
+  for(const k of ["level","material","gauge"]){
+    if(sameKind&&closet[idx][k]!==undefined) it[k]=closet[idx][k]; else if(idx>=0&&!sameKind) delete it[k];
+  }
   // The laundry fields, only where the sheet showed them. Fabric like pattern: an
   // untouched picker defers to what the photo scan may have written meanwhile.
   const on=new Set(laundry.splits);

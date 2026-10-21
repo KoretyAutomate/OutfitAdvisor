@@ -129,7 +129,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     wc = engine.apply_temp_offset(w, req.tempOffset)
     outfit = engine.recommend(wc, req.gender, req.style)
 
-    closet_used = False
+    closet_used, by_model = False, False
     picks = None
     text = None
     # Slots the wardrobe could not fill. Returned to the phone, which keeps a
@@ -143,7 +143,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         result = await advisor.dress(wc, items, prefs, req.recent)
         if result is not None:
             text = result["text"]
-            closet_used = True
+            closet_used, by_model = True, result.get("byModel", True)
             # ONE advisor answers (2026-10-11): the notification's structured outfit
             # is the advisor's own — the garment's name, or the advisor's line for
             # an empty slot — never the catalogue engine's guess beside it.
@@ -207,7 +207,8 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     # 0.44s`, with vLLM down). README documents `source` as the vLLM-reachable
     # indicator; it is wrong exactly when it matters unless it follows the text.
     if text:
-        source = "llm" if closet_used else "none"
+        # "funnel": the closet outfit came from code alone, the model unreachable (2026-10-20).
+        source = ("llm" if by_model else "funnel") if closet_used else "none"
     else:
         text = await llm.outfit_text(wc, req.gender, req.style, req.occasion, req.skipped)
         source = "llm"
@@ -581,6 +582,7 @@ async def classify(req: ClassifyRequest):
             warmthAnchors=anchors,
             brand=raw.get("brand"), sleeve=raw.get("sleeve"),
             pattern=raw.get("pattern"), fabric=raw.get("fabric"),
+            level=raw.get("level"), material=raw.get("material"), gauge=raw.get("gauge"),
         )
     except Exception:
         log.warning("classify failed: LLM output failed validation (%.2fs)", time.monotonic() - t0)

@@ -11,7 +11,7 @@ In-process (advisor.dress against vLLM on :8000), so it checks the code in
 this checkout, not whatever the service happens to be running.
 
 Not named test_*: it needs vLLM resident, and it sys.exit()s.
-Run: python3 server/tests/check_common_sense_live.py [runs per day]
+Run: OUTFIT_ENGINE=funnel|model python3 server/tests/check_common_sense_live.py [runs per day]
 """
 import asyncio
 import logging
@@ -66,8 +66,26 @@ BLAZER = g("blazer", "grey wool blazer", "outerwear/blazer", ("mid", "outer"), 3
 PUFFER = g("puffer", "black down puffer", "outerwear/puffer", ("outer",), 5, colors=["black"])
 BOOTS = g("snowboot", "brown snow boots", "footwear/boots", ("footwear",), 4, colors=["brown"], waterproof=True)
 
-# name: (weather, wardrobe, register). Add the wearer's next odd outfit here.
-DAYS: dict[str, tuple[dict, list[dict], str]] = {
+INNER_LS = g("innerls", "white long-sleeve crewneck", "underwear/thermal", ("inner",), 2, colors=["white"],
+             sleeve="long")
+WHITE_OX = g("whiteox", "white oxford shirt", "tops/shirt", ("base", "mid", "outer"), 2, colors=["white"])
+MERINO = g("merino", "navy merino crew sweater", "tops/sweater", ("base", "mid", "outer"), 3)
+ROSE = g("rose", "dusty rose crew-neck sweater", "tops/sweater", ("base", "mid", "outer"), 4, colors=["dusty rose"])
+REINDEER = g("reindeer", "navy reindeer sweater", "tops/sweater", ("base", "mid", "outer"), 4)
+PARKA = g("parka", "olive parka", "outerwear/coat", ("outer",), 4, colors=["olive"])
+MESH = g("mesh", "grey mesh sneakers", "footwear/sneakers", ("footwear",), 2, colors=["grey"])
+BELT = g("belt", "brown leather belt", "accessories/belt", ("accessories",), 1, colors=["brown"])
+
+# name: (weather, wardrobe, register[, occasion]). Add the wearer's next odd outfit here.
+DAYS: dict[str, tuple] = {
+    # 2026-10-20 04:00, served at 2/5: drawstring trousers and mesh sneakers on a wet
+    # office morning (user: "smart-casual from the waist up and weekend from the waist down").
+    "office, wet, 6-19C": ({**day(6, 80), "hi": 19, "midday": 19, "feelsHi": 19},
+                           [INNER, WHITE_OX, MERINO, RAIN, PANTS, CHINOS, MESH, LOAFER, BELT], "casual", "office"),
+    # 2026-10-18 10:35: a long-sleeve crewneck under a tee.
+    "long sleeve under a tee, 3C": (day(3), [INNER_LS, INNER, TEE, REINDEER, PARKA, JEANS, SNEAK], "casual"),
+    # 2026-10-18 10:29: a polo under a plain crew-neck sweater.
+    "polo under a sweater, 3C": (day(3), [INNER, POLO, ROSE, REINDEER, PARKA, CHINOS, SNEAK], "casual"),
     # 2026-10-11, the morning push: a polo over a polo.
     "polo-on-polo, 10C": (day(10), [POLO, KNIT_POLO, TEE, CARDI, PANTS, JEANS, SNEAK], "casual"),
     # 2026-10-11, 07:55: no shoes on a 93% rain day. Rain gear is NOT required.
@@ -80,7 +98,7 @@ DAYS: dict[str, tuple[dict, list[dict], str]] = {
 }
 
 
-def nonsense(picks: dict, by_id: dict, owned: list, w: dict, register: str) -> list[str]:
+def nonsense(picks: dict, by_id: dict, owned: list, w: dict, register: str, occasion: str = "") -> list[str]:
     """What no person would wear. The EVAL's oracle — never used to dress anyone."""
     torso = [by_id[picks[c]] for c in ("base", "mid", "outer") if picks.get(c)]
     out = []
@@ -104,6 +122,18 @@ def nonsense(picks: dict, by_id: dict, owned: list, w: dict, register: str) -> l
         out.append("snow without the snow boots")
     if register == "smart" and any(i["type"] in ("sneakers", "hoodie", "shorts") for i in worn):
         out.append("sporty piece on a smart day")
+    if occasion == "office" and "drawstring" in (by_id.get(picks.get("bottoms")) or {}).get("label", ""):
+        out.append("weekend trousers on an office day")
+    if w.get("isRain") and "mesh" in (by_id.get(picks.get("footwear")) or {}).get("label", "") and any(
+            i["category"] == "footwear" and "mesh" not in i["label"] for i in owned):
+        out.append("mesh shoes in the rain")
+    under = [by_id[picks[c]] for c in ("inner", "base", "mid") if picks.get(c)]
+    for k, lo in enumerate(under):
+        if lo.get("sleeve") == "long" and any(hi["type"] in ("t_shirt", "polo") for hi in under[k + 1:]):
+            out.append("long sleeve under a short one")
+    if (by_id.get(picks.get("base")) or {}).get("type") == "polo" and \
+            (by_id.get(picks.get("mid")) or {}).get("label") in (ROSE["label"], REINDEER["label"]):
+        out.append("polo under a heavy sweater")
     return out
 
 
@@ -112,12 +142,14 @@ async def main(runs: int) -> int:
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     bad = total = 0
-    for name, (w, wardrobe, register) in DAYS.items():
+    print(f"engine: {advisor.engine()}")
+    for name, (w, wardrobe, register, *occ) in DAYS.items():
+        occasion = occ[0] if occ else ""
         by_id = {i["id"]: i for i in wardrobe}
         print(f"\n== {name}")
         for n in range(runs):
             t = time.monotonic()
-            prefs = replace(Prefs(), look=style.Look(register, "man"))
+            prefs = replace(Prefs(), look=style.Look(register, "man", occasion))
             r = await advisor.dress(w, wardrobe, prefs)
             total += 1
             if r is None:
@@ -125,7 +157,7 @@ async def main(runs: int) -> int:
                 print(f"  run {n + 1}: NO OUTFIT")
                 continue
             worn = {c: by_id[i]["label"] for c, i in r["picks"].items() if i}
-            wrong = nonsense(r["picks"], by_id, wardrobe, w, register)
+            wrong = nonsense(r["picks"], by_id, wardrobe, w, register, occasion)
             bad += bool(wrong)
             print(f"  run {n + 1} ({time.monotonic() - t:.0f}s): {'FAIL ' + '; '.join(wrong) if wrong else 'ok'}"
                   f"  {worn}")

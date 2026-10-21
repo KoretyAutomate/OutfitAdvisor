@@ -211,16 +211,20 @@ def _coat(worn: dict, day: Day) -> list[Issue]:
 
 
 def _taste(worn: dict, day: Day) -> list[Issue]:
-    """What a person would not wear: two tops stacked (hard); sleeves showing, too
-    many layers, a style rule, the same garment after asking for another (soft)."""
+    """What a person would not wear: two tops stacked, a long sleeve under a short one
+    (hard); too many layers, a style rule, the same garment after asking for another
+    (soft)."""
     wd = day.wd
     out: list[Issue] = []
     torso = [worn[c] for c in TORSO if worn.get(c)]
     if stacked(worn, wd.by_item):
         out.append(Issue("stacked", " over ".join(_name(day, i) for i in reversed(torso))
                          + " — two tops stacked; warmth comes from knitwear or a jacket", True))
+    # Hard since 2026-10-20 (user, 2026-10-18 10:35: "it missed no long sleeve under a
+    # T-shirt rule"): soft, a 3/5 with the clash outranked a cleaner 2/5. The funnel
+    # never builds one; this keeps the model path and the fallback to the same rule.
     out += [Issue(f"sleeve-{lo}", f"long-sleeved {_name(day, worn[lo])} under short-sleeved "
-                  f"{_name(day, worn[hi])} — the cuffs show", False)
+                  f"{_name(day, worn[hi])} — the cuffs show", True)
             for lo, hi in sleeves.sleeve_clashes(worn, wd.by_item)]
     n, cap = sum(1 for c in ("inner", *TORSO) if worn.get(c)), layers.max_layers(worn, wd.by_item, day.plan)
     if n > cap:

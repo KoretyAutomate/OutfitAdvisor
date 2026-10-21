@@ -18,11 +18,14 @@ before the weather fetch). A revision only starts by REVISE_BY_S, the stylist on
 with STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S.
 """
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 
 import check
+import chooser
 import fallback
+import funnel
 import gaps
 import layers
 import picks as pk
@@ -234,6 +237,13 @@ def _stylist_time(found: list, elapsed: float, left: float) -> bool:
     return not check.hard(found) or elapsed + stylist.STYLIST_TIMEOUT_S < REVISE_BY_S
 
 
+def engine() -> str:
+    """Which way outfits are chosen: "funnel" (code narrows, the model chooses among
+    the survivors — user, 2026-10-20) or "model" (the model picks from the whole
+    wardrobe and is checked afterwards — the 2026-10-11 loop, kept for rollback)."""
+    return "model" if os.environ.get("OUTFIT_ENGINE", "funnel") == "model" else "funnel"
+
+
 async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | None = None) -> dict | None:
     """An outfit from their own wardrobe, or None when the model cannot be reached
     (app.py then answers without the closet)."""
@@ -245,6 +255,49 @@ async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | N
     closet = [{**i, "_ago": ago.get(i["id"])} for i in closet]
     wd = pk._index(closet)
     day = check.Day.of(w, wd, prefs)
+    if engine() == "funnel":
+        served = await _dress_funnel(day, wd)
+        if served is not None:
+            return served
+        log.info("advisor: the funnel found nothing — asking the model to choose from everything")
+    return await _dress_model(day, closet, wd)
+
+
+async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
+    """Step 1-11 of the funnel, then the model's eye on the survivors. None only when
+    no outfit passes every absolute rule however much is relaxed."""
+    t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
+    ctx = funnel.Ctx(day, funnel.target_level(day.look))
+    result = funnel.search(ctx)
+    log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
+             result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)
+    if not result.outfits:
+        return None
+    none_owned = [c for c in CATEGORIES if not any(c in (r or ()) for r in wd.by_roles.values())]
+    said = await chooser.choose(day, result, none_owned, DEADLINE_S - (time.monotonic() - t0))
+    if said and said["choice"] == 0 and DEADLINE_S - (time.monotonic() - t0) > RESCUE_MIN_LEFT_S:
+        log.info("advisor: the chooser turned all down: %s", said["reason"])
+        turned = frozenset(funnel.key(o.picks) for o in result.outfits)
+        again = funnel.search(funnel.Ctx(day, result.target, exclude=turned))
+        if again.outfits:
+            result = again
+            said = await chooser.choose(day, result, none_owned, DEADLINE_S - (time.monotonic() - t0))
+    chose = bool(said and said["choice"] >= 1)
+    pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
+    words = said if said and chose else {"look": "", "lines": {}, "tip": ""}
+    notes = [f"Note: {n}." for n in funnel.notes(pick.relaxed)]
+    out = {"look": words["look"], "lines": words["lines"],
+           "tip": " ".join(t for t in (str(words["tip"]).strip(), *notes) if t),
+           "missing": [c for c in none_owned if not pick.picks.get(c)]}
+    log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
+             (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
+    return {**_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), "byModel": chose}
+
+
+async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe") -> dict | None:
+    """The 2026-10-11 loop: the model picks from the whole wardrobe, check.py says
+    what is wrong, it chooses again; the fallback search mends a hard fact left."""
+    prefs = day.prefs
     by_handle = pk.handles_for(closet)
     handles = {v: k for k, v in by_handle.items()}
     t0 = getattr(prefs.look, "t0", None) or time.monotonic()

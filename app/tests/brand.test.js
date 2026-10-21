@@ -42,7 +42,7 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   const w = page();
   await w.eval("appReady");
   await w.eval(`closet=[${JSON.stringify(item("b1", "navy tee"))}, ${JSON.stringify(item("b2", "grey tee"))},
-    ${JSON.stringify(item("b3", "white tee", {brand: "Muji", sleeve: "short", pattern: "solid"}))},
+    ${JSON.stringify(item("b3", "white tee", {brand: "Muji", sleeve: "short", pattern: "solid", level: 2}))},
     ${JSON.stringify(item("b4", "black tee", {photo: false}))}]; saveCloset()`);
   for (const id of ["b1", "b2", "b3"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
   w.eval("refreshBrands()");
@@ -79,7 +79,7 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
 
   console.log("\n--- 1b. a garment with a brand but no sleeve is read for the sleeve only");
   await w.eval(`closet=[${JSON.stringify(item("c1", "white tee", {brand: "Muji"}))},
-    ${JSON.stringify({...item("c2", "jeans", {}), group: "bottoms", category: "bottoms", type: "jeans", roles: ["bottoms"], brand: "Levi's", pattern: "solid"})}]; saveCloset()`);
+    ${JSON.stringify({...item("c2", "jeans", {}), group: "bottoms", category: "bottoms", type: "jeans", roles: ["bottoms"], brand: "Levi's", pattern: "solid", level: 2})}]; saveCloset()`);
   for (const id of ["c1", "c2"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
   asked.length = 0;
   w.fetch = async () => { asked.push(1); return {ok: true, status: 200, json: async () => answer("Uniqlo")}; };
@@ -87,6 +87,35 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   let cc = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("only the top is asked — trousers have no sleeves to read", asked.length === 1, asked.length);
   check("its brand is kept, its sleeve is filled", cc[0].brand === "Muji" && cc[0].sleeve === "long", cc[0]);
+
+  console.log("\n--- 1c. the funnel's readings: level, a shoe's upper, a knit's gauge (2026-10-20)");
+  const known = {brand: "", sleeve: "long", pattern: "solid"};
+  await w.eval(`closet=[${JSON.stringify(item("f1", "navy chinos", {...known, group: "bottoms", category: "bottoms", type: "trousers", roles: ["bottoms"]}))},
+    ${JSON.stringify(item("f2", "grey sneakers", {brand: "", group: "footwear", category: "footwear", type: "sneakers", roles: ["footwear"], level: 2}))},
+    ${JSON.stringify(item("f3", "navy sweater", {...known, type: "sweater", level: 3}))},
+    ${JSON.stringify(item("f4", "white shirt", {...known, type: "shirt", level: 4}))}]; saveCloset()`);
+  for (const id of ["f1", "f2", "f3", "f4"]) w.localStorage.setItem("oa.photo." + id, PHOTO);
+  w.eval("refreshBrands()");
+  check("only garments with a reading missing are offered", /3 photos/.test(w.document.getElementById("brandTxt").textContent),
+    w.document.getElementById("brandTxt").textContent);
+  asked.length = 0;
+  w.fetch = async () => { asked.push(1); return {ok: true, status: 200,
+    json: async () => ({...answer(null), level: 3, material: "mesh", gauge: "chunky"})}; };
+  await w.eval("scanBrands()");
+  const f = JSON.parse(w.eval("JSON.stringify(closet)")), fb = id => f.find(i => i.id === id);
+  check("three asked, the fully read shirt not", asked.length === 3, asked.length);
+  check("trousers get a level and nothing a shoe or a knit has", fb("f1").level === 3 && !("material" in fb("f1")) && !("gauge" in fb("f1")), fb("f1"));
+  check("shoes get their upper, their known level stays", fb("f2").material === "mesh" && fb("f2").level === 2, fb("f2"));
+  check("a sweater gets its gauge", fb("f3").gauge === "chunky" && fb("f3").level === 3, fb("f3"));
+  check("the shirt is untouched", fb("f4").level === 4 && !("gauge" in fb("f4")), fb("f4"));
+  const meta = JSON.parse(w.eval(`JSON.stringify(itemMeta(closet.find(i=>i.id==="f2")))`));
+  check("they reach the server with the garment", meta.level === 2 && meta.material === "mesh", meta);
+  asked.length = 0;
+  w.fetch = async () => { asked.push(1); return {ok: true, status: 200, json: async () => ({...answer(null), level: 9, material: "velvet"})}; };
+  await w.eval(`closet.find(i=>i.id==="f2").material=undefined; delete closet.find(i=>i.id==="f2").material`);
+  await w.eval("scanBrands()");
+  const f2 = JSON.parse(w.eval(`JSON.stringify(closet.find(i=>i.id==="f2"))`));
+  check("an unreadable answer is recorded as read and unknown", f2.material === null, f2);
 
   console.log("\n--- 2. unreachable -------------------------------------------------");
   await w.eval(`closet=[${JSON.stringify(item("u1", "tee one"))}, ${JSON.stringify(item("u2", "tee two"))}]; saveCloset()`);
@@ -140,6 +169,21 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   await w.eval(`photoSave=window._ps`);
   s = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("a brand found during the photo save survives it too", s[0].brand === "Muji", s[0]);
+
+  // The funnel's readings have no picker: the scan's value survives a Save, and a
+  // change of kind clears them to be read again (2026-10-20).
+  await w.eval(`closet=[${JSON.stringify(item("r3", "navy tee"))}]; saveCloset()`);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  await w.eval(`closet[0].level=2`);
+  w.document.getElementById("shLabel").value = "navy crew tee";
+  await w.document.getElementById("shSave").onclick(); await drain();
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a level the scan wrote while the sheet was open survives Save", s[0].level === 2, s[0]);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  w.document.getElementById("shType").value = "polo";
+  await w.document.getElementById("shSave").onclick(); await drain();
+  s = JSON.parse(w.eval("JSON.stringify(closet)"));
+  check("a new kind is read again: its old level is gone", s[0].type === "polo" && !("level" in s[0]), s[0]);
 
   console.log("\n--- 4. sleeves in the sheet and on the wire ----------------------------");
   await w.eval(`closet=[${JSON.stringify(item("v1", "white long-T"))}]; saveCloset()`);

@@ -12,9 +12,19 @@ POST /advice {lat, lon, gender, style, day?}  -> {weather, outfit, outfit_text, 
 ```
 - `gender`: `man` | `woman` | `neutral`   `style`: `casual` | `smart` | `active`
 - `day`: `0` = today (morning-push default), `1` = tomorrow
-- `source`: who wrote `outfit_text` — `llm` (the local model), `rule-engine` (fallback when
-  vLLM is unreachable) or `none` (closetOnly and the advisor could not answer: the
-  slots are emptied rather than filled from a catalogue)
+- `source`: who wrote `outfit_text` — `llm` (the local model), `funnel` (a closet outfit
+  chosen by code alone, the model unreachable: plain lines), `rule-engine` (fallback when
+  vLLM is unreachable and no closet outfit was found) or `none` (closetOnly and the advisor
+  could not answer: the slots are emptied rather than filled from a catalogue)
+
+## How a closet outfit is chosen (2026-10-20)
+
+`OUTFIT_ENGINE=funnel` (the default): `funnel.py` narrows the wardrobe in code — the day's
+dress level, the weather, layer shapes, rotation priority, then pairings checked slot by
+slot (register, texture, colour, belt) with a relax ladder when nothing survives — and every
+survivor passes `check.issues`. `chooser.py` asks the model once to pick the best-looking of
+the top four and write the lines. `OUTFIT_ENGINE=model` is the earlier loop (the model picks
+from everything, `check.py` and `fallback.py` mend it), kept for rollback.
 
 ## Run
 

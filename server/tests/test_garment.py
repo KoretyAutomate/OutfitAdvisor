@@ -56,6 +56,11 @@ def test_gauge():
 
 def test_utility_trousers():
     assert garment.utility_trousers(it("beige drawstring pants", "trousers", "bottoms"))
+    # A stated level of smart casual or above outranks the name (user, 2026-10-22).
+    assert not garment.utility_trousers(it("beige cargo pants", "trousers", "bottoms", level=3))
+    assert garment.utility_trousers(it("black cargo pants", "trousers", "bottoms", level=2))
+    assert garment.utility_trousers(it("beige cargo pants", "trousers", "bottoms", formality=["smart"])), \
+        "the old tags alone do not"
     assert not garment.utility_trousers(it("navy chinos", "trousers", "bottoms"))
     assert not garment.utility_trousers(it("grey sweater", "sweater", "tops"))
 

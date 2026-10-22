@@ -206,23 +206,24 @@ check("migrateItem is reconcileItem — one repair pass on load",
   check("Other comes LAST, after every named type",
     JSON.stringify(mixed) === '["Polo shirt","Other"]', mixed);
 
-  console.log("\n--- 8. the edit sheet: Kind follows the folder --------------------");
+  console.log("\n--- 8. the edit sheet: one picker, the folder follows the kind (2026-10-22)");
   await ev(`openSheet(closet[0],{isNew:false})`); await drain();
   const opts = () => [...w.document.querySelectorAll("#shType option")].map(o => o.value);
-  check("the Kind picker offers this group's types", opts().includes("polo") && opts().includes("t_shirt"), opts());
-  check("...and no other group's", !opts().includes("coat"), opts());
-  check("'not specified' stays offered — an untyped item is legitimate", opts()[0] === "");
+  check("the picker offers every folder's kinds", opts().includes("polo") && opts().includes("coat"), opts());
+  check("each folder has an 'Other' for a kind not listed — an untyped item is legitimate",
+    ev("GROUPS").every(g => opts().includes("@" + g)), opts());
+  check("there is no folder or layer picker any more",
+    !w.document.getElementById("shGroup") && !w.document.getElementById("shCat"));
   check("the item's current Kind is selected", w.document.getElementById("shType").value === "polo");
 
-  w.document.getElementById("shGroup").value = "outerwear";
-  w.document.getElementById("shGroup").onchange();
+  w.document.getElementById("shType").value = "@outerwear";
+  w.document.getElementById("shType").onchange();
   await drain();
-  check("moving the folder rebuilds the Kind picker",
-    opts().includes("coat") && !opts().includes("polo"), opts());
-  check("a Kind that cannot survive the move is dropped, not reinterpreted",
-    w.document.getElementById("shType").value === "" && ev("sheet.item.type") === null);
+  check("'Other outerwear' moves the folder and leaves no kind",
+    ev("sheet.item.group") === "outerwear" && ev("sheet.item.type") === null && ev("sheet.item.typeCleared") === true);
   check("and the layer follows the folder",
     ev(`GROUP_CATS["outerwear"].includes(sheet.item.category)`), ev("sheet.item.category"));
+  check("the picker shows it", w.document.getElementById("shType").value === "@outerwear");
 
   w.document.getElementById("shType").value = "coat";
   w.document.getElementById("shType").onchange();
@@ -317,9 +318,9 @@ check("migrateItem is reconcileItem — one repair pass on load",
   ev(`sheet={item:{id:"x3",label:"Navy polo",category:"base",group:"tops",type:"polo",
                    roles:["base"],count:1,colors:[],warmth:2,formality:["casual"],waterproof:false},isNew:false};
       paintTypes();
-      w0=document.getElementById("shType"); w0.value=""; w0.onchange();`);
+      w0=document.getElementById("shType"); w0.value="@tops"; w0.onchange();`);
   const cleared = ev(`sheet.item`);
-  check("choosing '— not specified —' actually clears the Kind", cleared.type === null, cleared);
+  check("choosing 'Other tops' actually clears the Kind", cleared.type === null, cleared);
   check("and the choice is remembered", cleared.typeCleared === true, cleared);
   const afterLoad = ev(`migrateItem(${JSON.stringify(cleared)})`);
   check("and survives the next load — the backfill does not undo it",

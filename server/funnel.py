@@ -54,8 +54,10 @@ OPTIONAL = ("inner", "accessories")
 # Most constrained first, and on a tie the slots a stylist anchors on.
 _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 # What a pass may give up, in order, when nothing survives. Their rules, the stacking
-# and sleeve rules, warmth and heat are never on it.
-RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2", "band3", "snow", "coat")
+# and sleeve rules, warmth and heat are never on it. Trousers that match the top come
+# before the day's level: a coherent outfit two steps down beats a smart top over
+# cargo trousers (user, 2026-10-22).
+RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
 NOTES = {
@@ -63,7 +65,7 @@ NOTES = {
     "belt": "the belt and shoes are different leathers — nothing matching is free today",
     "texture": "the knit and the top are not the ideal pairing — nothing better is free today",
     "wet": "nothing water-resistant to wear on your feet today — expect damp shoes in the rain",
-    "register": "the trousers or shoes are more relaxed than the top — nothing smarter is free today",
+    "register": "the trousers or shoes don't match the top — nothing that does is free today",
     # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
     "band1": "a step off the day's usual dress level — nothing at it is free today",
     "band2": "well off the day's usual dress level — little at it is free today",

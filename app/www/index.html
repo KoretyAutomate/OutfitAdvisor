@@ -96,6 +96,7 @@
   .warmSeg .wn{font-size:.95rem;line-height:1;font-variant-numeric:tabular-nums}
   .warmSeg .wt{font-size:.62rem;color:var(--muted);line-height:1;min-height:.7em;text-transform:none}
   .warmSeg button.on .wt{color:var(--txt)}
+  .levelSeg .wt{white-space:normal;text-align:center;line-height:1.15}
   .wornNote{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
   .wornNote button{padding:5px 11px;font-size:.75rem;border-radius:6px}
   .wear{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
@@ -553,21 +554,8 @@
         <input type="text" id="shBrand" maxlength="40" placeholder="e.g. Uniqlo" style="width:100%">
       </div>
     </div>
-    <div class="frow">
-      <div style="flex:1">
-        <label class="lbl">Category</label>
-        <select id="shCat">
-          <option value="inner">Inner layer</option>
-          <option value="base">Base layer</option><option value="mid">Mid layer</option>
-          <option value="outer">Outer layer</option><option value="bottoms">Bottoms</option>
-          <option value="footwear">Footwear</option><option value="accessories">Accessories</option>
-        </select>
-      </div>
-      <div style="flex:1">
-        <label class="lbl">Colours</label>
-        <input type="text" id="shColors" placeholder="navy, white" style="width:100%">
-      </div>
-    </div>
+    <label class="lbl">Colours</label>
+    <input type="text" id="shColors" placeholder="navy, white" style="width:100%;margin-bottom:12px">
     <!-- Not for footwear and accessories, socks aside (user, 2026-10-17). -->
     <div id="shLoadBox">
     <label class="lbl">Laundry load</label>
@@ -586,24 +574,20 @@
       <label class="lbl">How dirty it gets <span class="note" style="text-transform:none;letter-spacing:0">— for your laundry split</span></label>
       <select id="shSoil" style="width:100%;margin-bottom:12px"></select>
     </div>
-    <label class="lbl">Clothing group <span class="note" style="text-transform:none;letter-spacing:0">— which folder it lives in</span></label>
-    <select id="shGroup" style="width:100%;margin-bottom:12px">
-      <option value="underwear">Underwear</option>
-      <option value="tops">Tops</option>
-      <option value="outerwear">Outerwear</option>
-      <option value="bottoms">Bottoms</option>
-      <option value="onepiece">One-piece</option>
-      <option value="footwear">Footwear</option>
-      <option value="accessories">Accessories</option>
-    </select>
-    <label class="lbl">Kind <span class="note" style="text-transform:none;letter-spacing:0">— a tee and a polo are both Tops, and they are not the same</span></label>
+    <!-- One picker for what the garment is (user, 2026-10-22: "anything that we don't
+         need, let's remove it"). The folder follows the kind; "Other …" files a garment
+         whose kind is not listed. The primary layer is derived, never asked. -->
+    <label class="lbl">What is it</label>
     <select id="shType" style="width:100%;margin-bottom:12px"></select>
+    <div id="shSleeveBox">
     <label class="lbl">Sleeves <span class="note" style="text-transform:none;letter-spacing:0">— a long sleeve is never put under a short one</span></label>
     <select id="shSleeve" style="width:100%;margin-bottom:12px">
       <option value="">— not specified —</option>
       <option value="short">Short</option><option value="long">Long</option>
       <option value="none">Sleeveless</option>
     </select>
+    </div>
+    <div id="shPatternBox">
     <label class="lbl">Pattern <span class="note" style="text-transform:none;letter-spacing:0">— one busy piece per outfit is enough</span></label>
     <select id="shPattern" style="width:100%;margin-bottom:12px">
       <option value="">— not specified —</option>
@@ -611,8 +595,11 @@
       <option value="checked">Checked / plaid</option><option value="print">Print (floral, dots…)</option>
       <option value="graphic">Graphic / big logo</option>
     </select>
+    </div>
+    <div id="shRolesBox">
     <label class="lbl">Can be worn as <span class="note" style="text-transform:none;letter-spacing:0">— a shirt can be the outer layer in summer and a base in winter</span></label>
     <div class="roleRow" id="shRoles"></div>
+    </div>
     <label class="lbl">Warmth <span class="note" id="shWarmHint" style="text-transform:none;letter-spacing:0">— 1 cool → 5 warm</span></label>
     <div class="seg warmSeg" id="shWarm">
       <button data-w="1"><span class="wn">1</span><span class="wt"></span></button
@@ -621,11 +608,19 @@
       ><button data-w="4"><span class="wn">4</span><span class="wt"></span></button
       ><button data-w="5"><span class="wn">5</span><span class="wt"></span></button>
     </div>
-    <label class="lbl" style="margin-top:10px">Works for</label>
-    <div class="seg" id="shForm">
-      <button data-f="casual">Casual</button><button data-f="smart">Smart</button><button data-f="active">Active</button>
+    <!-- The one dress level the outfit funnel reads, in place of the Casual / Smart /
+         Active tags (user, 2026-10-22). Not set: guessed from the name and the kind. -->
+    <div id="shLevelBox">
+    <label class="lbl" style="margin-top:10px">Dress level <span class="note" id="shLevelHint" style="text-transform:none;letter-spacing:0"></span></label>
+    <div class="seg warmSeg levelSeg" id="shLevel">
+      <button data-l="1"><span class="wn">1</span><span class="wt">Sport</span></button
+      ><button data-l="2"><span class="wn">2</span><span class="wt">Weekend</span></button
+      ><button data-l="3"><span class="wn">3</span><span class="wt">Smart casual</span></button
+      ><button data-l="4"><span class="wn">4</span><span class="wt">Business casual</span></button
+      ><button data-l="5"><span class="wn">5</span><span class="wt">Formal</span></button>
     </div>
-    <div class="frow switch" style="margin-top:12px">
+    </div>
+    <div class="frow switch" id="shWpBox" style="margin-top:12px">
       <span>Waterproof</span>
       <label class="toggle"><input type="checkbox" id="shWp"><span class="sl"></span></label>
     </div>
@@ -1868,7 +1863,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.54";
+const WEB_BUILD="1.55";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2338,6 +2333,7 @@ async function addItem(source){
     ...(meta?funnelMeta(meta,meta.group,meta.type):{}),
     // Whether the saved picture is already a cutout; "Tidy photos" skips these.
     cut:false });
+  withLevelFormality(item);
   item.photo=await photoSave(item.id,b64);
   closet.push(item);
   // When the cutout lands, it replaces the picture — in the store, in the grid,
@@ -2506,14 +2502,23 @@ const LEVELED=new Set(["tops","outerwear","bottoms","onepiece","footwear"]);
 const MATERIALS=["leather","suede","canvas","mesh","knit","rubber","synthetic"];
 const GAUGES=["fine","mid","chunky"];
 const KNIT_TYPES=new Set(["sweater","cardigan"]);
+const LEVELS=[1,2,3,4,5];
 const needsLevel=i=>i.level===undefined&&LEVELED.has(i.group);
+/* The old Casual / Smart / Active tags, kept in step with a known level for what
+   still reads them — trip packing, the laundry's "sportswear" soil and the rollback
+   engine — now that the sheet asks only the level (user, 2026-10-22). */
+const LEVEL_FORMALITY={1:["active"],2:["casual"],3:["casual","smart"],4:["smart"],5:["smart"]};
+function withLevelFormality(it){
+  if(LEVELS.includes(it.level)) it.formality=[...LEVEL_FORMALITY[it.level]];
+  return it;
+}
 const needsMaterial=i=>i.material===undefined&&i.group==="footwear";
 const needsGauge=i=>i.gauge===undefined&&KNIT_TYPES.has(i.type);
 const needsFunnel=i=>needsLevel(i)||needsMaterial(i)||needsGauge(i);
 /* The funnel's fields from a /classify answer, for a garment of this group and type. */
 function funnelMeta(meta,group,type){
   const out={};
-  if(LEVELED.has(group)) out.level=[1,2,3,4,5].includes(meta.level)?meta.level:null;
+  if(LEVELED.has(group)) out.level=LEVELS.includes(meta.level)?meta.level:null;
   if(group==="footwear") out.material=MATERIALS.includes(meta.material)?meta.material:null;
   if(KNIT_TYPES.has(type)) out.gauge=GAUGES.includes(meta.gauge)?meta.gauge:null;
   return out;
@@ -2566,6 +2571,7 @@ async function scanBrands(){
     // decide which apply, not the photo's second guess at them.
     const fm=funnelMeta(meta,live.group,live.type);
     for(const k of Object.keys(fm)) if(live[k]===undefined) live[k]=fm[k];
+    withLevelFormality(live);
   }
   await saveCloset();
   brandBusy=false; btn.disabled=false;
@@ -2603,7 +2609,9 @@ function paintSheetSegs(){
     : here ? "— the day it is for, at home"
     : own ? "— graded at another home · tap a number to re-grade"
     : "— graded on the old scale · tap a number to re-grade";
-  [...$("shForm").children].forEach(b=>b.classList.toggle("on",sheet.item.formality.includes(b.dataset.f)));
+  [...$("shLevel").children].forEach(b=>b.classList.toggle("on",+b.dataset.l===sheet.item.level));
+  $("shLevelHint").textContent=LEVELS.includes(sheet.item.level)
+    ? "— tap again to clear" : "— not set: guessed from the name and kind";
   $("shCount").textContent=sheet.item.count;
   paintTypes();
   paintRoles();
@@ -2634,8 +2642,6 @@ function paintSheetLaundry(){
 function sheetDraft(){
   const d={...sheet.item,load:undefined};
   if($("shColors")) d.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean);
-  if($("shGroup")&&$("shGroup").value) d.group=$("shGroup").value;
-  if($("shType")) d.type=$("shType").value||null;
   const on=new Set(laundry.splits);
   if(on.has("fabric")&&$("shFabric").options.length) d.fabric=$("shFabric").value||null;
   if(on.has("weight")&&$("shWeight").options.length) d.weight=$("shWeight").value||undefined;
@@ -2664,9 +2670,23 @@ function paintLoad(){
 function paintTypes(){
   const g=sheet.item.group, cur=normType(sheet.item.type,g);
   sheet.item.type=cur;
-  $("shType").innerHTML='<option value="">— not specified —</option>'
-    +(TYPES[g]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("");
-  $("shType").value=cur||"";
+  // Every folder's kinds, grouped; "@<folder>" is a garment of that folder whose kind
+  // is not listed — the folder is all it says (user, 2026-10-22: one picker, not three).
+  $("shType").innerHTML=GROUPS.map(gr=>`<optgroup label="${esc(GROUP_LABEL[gr]||gr)}">`
+    +(TYPES[gr]||[]).map(t=>`<option value="${t}">${esc(TYPE_LABEL[t]||t)}</option>`).join("")
+    +`<option value="@${gr}">Other ${esc((GROUP_LABEL[gr]||gr).toLowerCase())}</option></optgroup>`).join("");
+  $("shType").value=cur||("@"+g);
+  paintSheetFields();
+}
+/* Only the fields that say something about THIS kind of garment: no sleeves on
+   trousers, no pattern or dress level on underwear, no layer choice where the kind
+   allows one layer. The values stay on the item either way. */
+function paintSheetFields(){
+  const g=sheet.item.group;
+  $("shSleeveBox").style.display=SLEEVED.has(g)?"":"none";
+  $("shPatternBox").style.display=PATTERNED.has(g)?"":"none";
+  $("shLevelBox").style.display=LEVELED.has(g)?"":"none";
+  $("shWpBox").style.display=g==="underwear"?"none":"";
 }
 /* Role chips. Inner is CLOSED: picking it clears everything else, and picking any
    visible layer clears Inner. Underwear is never a visible layer and a visible
@@ -2683,6 +2703,7 @@ function paintRoles(){
     const narrowed=allowed.filter(c=>TYPE_ROLES[sheet.item.type].includes(c));
     if(narrowed.length) allowed=narrowed;
   }
+  $("shRolesBox").style.display=allowed.length>1?"":"none";
   $("shRoles").innerHTML=allowed.map(c=>
     `<button data-role="${c}" class="${roles.includes(c)?"on":""}">${ROLE_LABEL[c]}</button>`).join("");
   $("shRoles").querySelectorAll("button").forEach(b=>{
@@ -2704,14 +2725,14 @@ async function openSheet(item,opts){
                              roles:[...(item.roles||[])]}),
          isNew:!!opts.isNew, b64:opts.b64||null};
   $("shTitle").textContent=sheet.isNew?"New item":"Edit item";
-  $("shLabel").value=sheet.item.label; $("shCat").value=sheet.item.category;
+  $("shLabel").value=sheet.item.label;
   $("shBrand").value=sheet.item.brand||"";
   sheet.brand0=$("shBrand").value;          // what the box said on opening — see Save
   $("shSleeve").value=SLEEVES.includes(sheet.item.sleeve)?sheet.item.sleeve:"";
   sheet.sleeve0=$("shSleeve").value;
   $("shPattern").value=PATTERNS.includes(sheet.item.pattern)?sheet.item.pattern:"";
   sheet.pattern0=$("shPattern").value;
-  $("shGroup").value=sheet.item.group;
+  sheet.level0=sheet.item.level;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
@@ -6448,11 +6469,11 @@ $("loadPresetGo").onclick=async()=>{
 // The "Automatic" load follows the fields as they are edited.
 // Deferred, like the buttons below: the group and kind handlers reconcile the type
 // in their own (later-registered) handlers, and the preview must read the result.
-["shColors","shCat","shGroup","shType","shFabric","shWeight","shSoil"].forEach(id=>{
+["shColors","shType","shFabric","shWeight","shSoil"].forEach(id=>{
   const el=$(id); if(el) el.addEventListener("change",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
 });
 // Warmth and style are buttons: their own handlers run first, then this.
-["shWarm","shForm"].forEach(id=>{
+["shWarm","shLevel"].forEach(id=>{
   // Deferred: the segment's own handler may be registered after this one.
   const el=$(id); if(el) el.addEventListener("click",()=>setTimeout(()=>{ if(sheet) paintLoad(); },0));
 });
@@ -6582,45 +6603,21 @@ $("shWarm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
   if(a){ sheet.item.warmthScale="home"; sheet.item.warmthAnchors=[a.cold,a.avg,a.hot]; }
   else { sheet.item.warmthScale="absolute"; sheet.item.warmthAnchors=null; }
   paintSheetSegs();};
-$("shCat").onchange=()=>{ if(!sheet) return;
-  // Changing the primary layer re-suggests the folder and re-seeds the roles, so a
-  // mis-classified item can be corrected in one move instead of three. The category
-  // is the field the user just touched, so here it leads and the folder follows —
-  // the reverse of reconcileItem's group-wins rule, which is why the group is set
-  // explicitly before reconciling. A type from the old folder cannot survive the
-  // move, so it is dropped rather than silently re-interpreted.
-  sheet.item.category=$("shCat").value;
-  sheet.item.group=GROUP_FROM_CAT[sheet.item.category]||"tops";
-  sheet.item.type=null;
-  sheet.item.roles=[sheet.item.category];
-  reconcileItem(sheet.item);
-  $("shGroup").value=sheet.item.group; $("shCat").value=sheet.item.category;
-  paintTypes(); paintRoles(); };
-$("shGroup").onchange=()=>{ if(!sheet) return;
-  // Moving an item to another folder is the strongest statement the user can make
-  // about what it IS, so the layer follows it. Without this, filing a mistaken
-  // undershirt under Tops left category="inner" behind and the advisor kept
-  // offering it as an undershirt (user, 2026-08-18).
-  sheet.item.group=$("shGroup").value;
-  reconcileItem(sheet.item);
-  $("shCat").value=sheet.item.category;
-  paintTypes(); paintRoles(); };
 $("shType").onchange=()=>{ if(!sheet) return;
-  // The type narrows the roles (a Coat is outer only, where Outerwear allows mid
-  // too), so the chips are repainted from the reconciled item rather than left
-  // showing a role the save path would strip.
-  // Choosing "— not specified —" is the one place an absent Kind is a DECISION, so
-  // it is the one place the marker is set. It stops the load-time backfill putting
-  // a Kind straight back on an item the user deliberately left blank.
-  sheet.item.type=normType($("shType").value,sheet.item.group);
-  if($("shType").value==="") sheet.item.typeCleared=true;
+  // A kind names its folder; "@<folder>" names only the folder. Moving folder is the
+  // strongest statement about what the garment IS, so the layers follow it (user,
+  // 2026-08-18); the kind narrows them (a Coat is outer only). Choosing "Other …" is
+  // the one place an absent kind is a DECISION, so the marker that stops the load-time
+  // backfill putting a kind straight back is set there.
+  const v=$("shType").value;
+  if(v.startsWith("@")){ sheet.item.group=v.slice(1); sheet.item.type=null; sheet.item.typeCleared=true; }
+  else { sheet.item.group=GROUP_FROM_TYPE[v]||sheet.item.group; sheet.item.type=v; }
   reconcileItem(sheet.item);
-  $("shCat").value=sheet.item.category;
-  paintRoles(); };
-$("shForm").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;const f=b.dataset.f;
-  const i=sheet.item.formality.indexOf(f);
-  if(i>=0){ if(sheet.item.formality.length>1) sheet.item.formality.splice(i,1); }
-  else sheet.item.formality.push(f);
+  paintSheetSegs(); };
+$("shLevel").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
+  const l=+b.dataset.l;
+  // The lit one again clears it: back to the guess, and the photo read may fill it.
+  if(sheet.item.level===l) delete sheet.item.level; else sheet.item.level=l;
   paintSheetSegs();};
 $("shMinus").onclick=()=>{if(sheet&&sheet.item.count>1){sheet.item.count--;paintSheetSegs();}};
 $("shPlus").onclick=()=>{if(sheet&&sheet.item.count<99){sheet.item.count++;paintSheetSegs();}};
@@ -6649,9 +6646,6 @@ $("shSave").onclick=async()=>{
   // not asked again — where undefined means never read.
   const sl=$("shSleeve").value, slTouched=sl!==sheet.sleeve0;
   const pt=$("shPattern").value, ptTouched=pt!==sheet.pattern0;
-  it.category=$("shCat").value;
-  it.group=$("shGroup").value;
-  it.type=$("shType").value||null;
   // reconcileItem has the last word, so an inner item can never be saved with
   // visible roles — nor a Top with the inner role — even if the UI were bypassed.
   reconcileItem(it);
@@ -6686,9 +6680,15 @@ $("shSave").onclick=async()=>{
   // written meanwhile — unless the garment's kind changed here, when they are read
   // again (a level for trousers says nothing about a jacket).
   const sameKind=idx>=0&&closet[idx].group===it.group&&closet[idx].type===it.type;
+  // The dress level has its picker now: touched, it is the wearer's (cleared = the
+  // guess again); untouched, it defers like the others.
+  const lvTouched=it.level!==sheet.level0;
   for(const k of ["level","material","gauge"]){
+    if(k==="level"&&lvTouched){ if(!LEVELS.includes(it.level)) delete it.level; continue; }
     if(sameKind&&closet[idx][k]!==undefined) it[k]=closet[idx][k]; else if(idx>=0&&!sameKind) delete it[k];
   }
+  if(!LEVELED.has(it.group)) delete it.level;
+  withLevelFormality(it);
   // The laundry fields, only where the sheet showed them. Fabric like pattern: an
   // untouched picker defers to what the photo scan may have written meanwhile.
   const on=new Set(laundry.splits);

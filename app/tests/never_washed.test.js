@@ -108,9 +108,9 @@ const CLOSET = [
   $("shType").value = "sneakers"; $("shType").dispatchEvent(new w.Event("change")); await drain(); await drain();
   check("changing the kind from socks to sneakers hides them", !shown("shLoadBox") && !shown("shFabricBox"));
   await open("tee");
-  $("shGroup").value = "accessories"; $("shGroup").dispatchEvent(new w.Event("change")); await drain(); await drain();
+  $("shType").value = "@accessories"; $("shType").dispatchEvent(new w.Event("change")); await drain(); await drain();
   check("moving a garment into Accessories hides them", !shown("shLoadBox") && !shown("shSoilBox"));
-  $("shGroup").value = "tops"; $("shGroup").dispatchEvent(new w.Event("change")); await drain(); await drain();
+  $("shType").value = "t_shirt"; $("shType").dispatchEvent(new w.Event("change")); await drain(); await drain();
   check("…and moving it back shows them", shown("shLoadBox") && shown("shSoilBox"));
   ev("closeSheet()");
   ev(`laundry.splits=["colour"]`);

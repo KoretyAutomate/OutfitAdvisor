@@ -99,10 +99,14 @@ def test_the_chooser_never_outlives_its_budget(monkeypatch):
     assert _t.monotonic() - t < 5
 
 
-def test_stated_fits_tags_constrain_a_stated_level_too():
+def test_a_stated_level_wins_and_the_old_tags_only_adjust_a_guess():
+    # The edit sheet's one Dress level replaced the Works-for tags (user, 2026-10-22).
     import garment
-    assert garment.level({"type": "trousers", "group": "bottoms", "level": 4, "formality": ["active"]}) == 1
-    assert garment.level({"type": "trousers", "group": "bottoms", "level": 1, "formality": ["smart"]}) == 3
+    assert garment.level({"type": "trousers", "group": "bottoms", "level": 4, "formality": ["active"]}) == 4
+    assert garment.level({"type": "trousers", "group": "bottoms", "level": 1, "formality": ["smart"]}) == 1
+    assert garment.level({"label": "beige cargo pants", "type": "trousers", "group": "bottoms",
+                          "formality": ["smart"]}) == 3
+    assert garment.level({"type": "trousers", "group": "bottoms", "formality": ["active"]}) == 1
 
 
 def test_a_chunky_knit_never_goes_over_a_polo_or_a_blouse():
@@ -492,3 +496,35 @@ def test_yesterday_s_coat_is_not_rotated_out_for_a_worse_one():
     ctx = strict(2, UNDER, OXFORD, SWEATER, worn, other, JEANS, SNEAK, hi=8)
     pri = funnel.priority_for(ctx)
     assert pri(worn["id"], "outer") >= pri(other["id"], "outer") - 1
+
+
+# ── 2026-10-22: the trousers match the top before the day's level ─────────────────
+
+def test_cargo_trousers_go_with_a_tee_and_chunky_knit_not_a_shirt_and_fine_knit():
+    """The 2026-10-22 outfit: an office day at level 4, the only free trousers cargo.
+    A shirt and v-neck over them gave up the match; a tee and chunky knit only the
+    level — the coherent one is served (user, 2026-10-22)."""
+    cargo = g("cargo0001", "beige cargo pants", "bottoms", "trousers", ["bottoms"], 1,
+              colors=["beige"], formality=["smart"])
+    shirt = g("shirt0001", "navy patterned button-up shirt", "tops", "shirt", ["base", "mid", "outer"], 2,
+              colors=["navy"], pattern="print")
+    vneck = g("vneck0001", "dark grey v-neck sweater", "tops", "sweater", ["base", "mid", "outer"], 3,
+              colors=["grey"])
+    sneak = g("lsneak001", "white leather sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["white"])
+    d, r = run(9, UNDER, TEE, shirt, vneck, REINDEER, cargo, sneak, hi=17, p=prefs("office", "smart"))
+    assert_valid(d, r)
+    o = r.outfits[0]
+    assert "register" not in o.relaxed, (o.picks, o.relaxed)
+    assert o.picks["bottoms"] == cargo["id"]
+    assert shirt["id"] not in o.picks.values() and vneck["id"] not in o.picks.values(), o.picks
+
+
+def test_cargo_trousers_set_to_smart_casual_go_with_the_shirt():
+    cargo = g("cargo0001", "beige cargo pants", "bottoms", "trousers", ["bottoms"], 1, colors=["beige"], level=3)
+    shirt = g("shirt0001", "navy shirt", "tops", "shirt", ["base", "mid", "outer"], 2, colors=["navy"])
+    ctx = strict(16, shirt, cargo, LOAFERS, hi=20)
+    assert funnel.clash(ctx, {"base": shirt["id"], "bottoms": cargo["id"], "footwear": LOAFERS["id"]}) is None
+
+
+def test_the_register_note_says_what_was_given_up():
+    assert "match" in funnel.NOTES["register"] and "smarter" not in funnel.NOTES["register"]

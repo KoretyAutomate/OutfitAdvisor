@@ -2690,7 +2690,9 @@ function paintTypes(){
    allows one layer. The values stay on the item either way. */
 function paintSheetFields(){
   const g=sheet.item.group;
-  $("shSleeveBox").style.display=SLEEVED.has(g)?"":"none";
+  // A blazer or fleece worn as the mid layer is judged by the sleeve rule too (only
+  // the outer slot is not, sleeves.py) — pre-push gate, 2026-10-22.
+  $("shSleeveBox").style.display=SLEEVED.has(g)||(sheet.item.roles||[]).includes("mid")?"":"none";
   $("shPatternBox").style.display=PATTERNED.has(g)?"":"none";
   $("shLevelBox").style.display=LEVELED.has(g)?"":"none";
   $("shWpBox").style.display=g==="underwear"?"none":"";
@@ -2722,7 +2724,7 @@ function paintRoles(){
       else if(r!=="inner") next.delete("inner");
       sheet.item.roles=[...next];
       reconcileItem(sheet.item);
-      paintRoles();
+      paintRoles(); paintSheetFields();
     };
   });
 }
@@ -6626,13 +6628,15 @@ $("shType").onchange=()=>{ if(!sheet) return;
   // Only where a level could be: underwear and accessories never have one, and their
   // tags (an Active bra's laundry soil) are left alone (Codex review round 3).
   delete sheet.item.level;
-  if(wasLeveled||LEVELED.has(sheet.item.group)) sheet.levelTouched=true;
+  if(wasLeveled||LEVELED.has(sheet.item.group)){ sheet.levelTouched=true; sheet.item.formality=["casual","smart"]; }
   reconcileItem(sheet.item);
   paintSheetSegs(); };
 $("shLevel").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
   const l=+b.dataset.l;
   // The lit one again clears it: back to the guess, and the photo read may fill it.
   if(sheet.item.level===l) delete sheet.item.level; else sheet.item.level=l;
+  // The tags move with it now, not at Save: the laundry preview reads them.
+  if(LEVELS.includes(sheet.item.level)) withLevelFormality(sheet.item); else sheet.item.formality=["casual","smart"];
   // A tap, not a changed value: picking 3 and clearing it again is still a choice,
   // and must win over a level the photo read writes meanwhile (Codex review).
   sheet.levelTouched=true;

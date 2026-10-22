@@ -179,6 +179,22 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
     !shown("shSleeveBox") && shown("shPatternBox") && !shown("shLevelBox"));
   $("shType").value = "coat"; $("shType").onchange(); await drain();
   check("changed to a coat on the sheet, the level shows", shown("shLevelBox") && w.eval("sheet.item.group") === "outerwear");
+  await open({group: "outerwear", type: "blazer", category: "outer", roles: ["mid", "outer"]});
+  check("a blazer that can be the mid layer: sleeves (the sleeve rule judges the mid)", shown("shSleeveBox"));
+  await open({group: "outerwear", type: "coat", category: "outer", roles: ["outer"]});
+  check("a coat, outer only: no sleeves", !shown("shSleeveBox"));
+  w.eval("closeSheet()");
+
+  console.log("\n--- 6. the laundry preview follows the level before Save -------------");
+  w.eval(`laundry.splits=["colour","soil"]`);
+  await w.eval(`closet=[${JSON.stringify(item("c8", "grey shorts", {formality: ["casual"]}))}]; saveCloset();
+    openSheet(closet[0],{isNew:false})`); await drain();
+  check("opens everyday", /everyday/.test($("shSoil").options[0].textContent), $("shSoil").options[0].textContent);
+  $("shLevel").querySelector('[data-l="1"]').click(); await drain(); await drain();
+  check("Sport shows heavily soiled at once", /heavily/.test($("shSoil").options[0].textContent),
+    $("shSoil").options[0].textContent);
+  $("shLevel").querySelector('[data-l="1"]').click(); await drain(); await drain();
+  check("cleared, everyday again", /everyday/.test($("shSoil").options[0].textContent), $("shSoil").options[0].textContent);
   w.eval("closeSheet()");
 
   console.log(`\n${passed} passed, ${failed} failed`);

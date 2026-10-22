@@ -2494,7 +2494,9 @@ const needsSleeve=i=>i.sleeve===undefined&&SLEEVED.has(i.group);
 /* Pattern rides along too (user, 2026-10-07: style check) — the server keeps one busy
    piece per outfit, and reads it from the name until the photo has been looked at. */
 const PATTERNS=["solid","striped","checked","print","graphic"];
-const PATTERNED=new Set(["tops","outerwear","bottoms","onepiece"]);
+// Shoes and accessories too: the colour rule counts a patterned shoe, and the sheet
+// shows the picker for them (Codex review, 2026-10-22). Not underwear: never seen.
+const PATTERNED=new Set(["tops","outerwear","bottoms","onepiece","footwear","accessories"]);
 const needsPattern=i=>i.pattern===undefined&&PATTERNED.has(i.group);
 /* Only asked for when the household splits laundry by fabric. */
 const needsFabric=i=>i.fabric===undefined&&laundry.splits.includes("fabric");
@@ -2689,8 +2691,7 @@ function paintTypes(){
 function paintSheetFields(){
   const g=sheet.item.group;
   $("shSleeveBox").style.display=SLEEVED.has(g)?"":"none";
-  // Shoes and accessories keep it: the colour rule counts a patterned shoe.
-  $("shPatternBox").style.display=g==="underwear"?"none":"";
+  $("shPatternBox").style.display=PATTERNED.has(g)?"":"none";
   $("shLevelBox").style.display=LEVELED.has(g)?"":"none";
   $("shWpBox").style.display=g==="underwear"?"none":"";
 }
@@ -6619,8 +6620,10 @@ $("shType").onchange=()=>{ if(!sheet) return;
   if(v.startsWith("@")){ sheet.item.group=v.slice(1); sheet.item.type=null; sheet.item.typeCleared=true; }
   else { sheet.item.group=GROUP_FROM_TYPE[v]||sheet.item.group; sheet.item.type=v; }
   // A level for trousers says nothing about a jacket: a new kind starts unset, on
-  // screen too, until it is picked again or read again from the photo.
-  delete sheet.item.level; sheet.levelTouched=false;
+  // screen and on Save alike — back to the old kind before Save included, so what
+  // the sheet shows is what is kept (Codex review). Picked again, or read again from
+  // the photo later.
+  delete sheet.item.level; sheet.levelTouched=true;
   reconcileItem(sheet.item);
   paintSheetSegs(); };
 $("shLevel").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
@@ -6703,7 +6706,7 @@ $("shSave").onclick=async()=>{
   // A level gone — cleared, or the kind changed — is the guess again, from the name
   // and kind alone: the tags the old level left behind go too, or they would steer
   // it (Codex reviews, 2026-10-22).
-  if(hadLevel&&!LEVELS.includes(it.level)) it.formality=["casual","smart"];
+  if((hadLevel||sheet.levelTouched)&&!LEVELS.includes(it.level)) it.formality=["casual","smart"];
   withLevelFormality(it);
   // The laundry fields, only where the sheet showed them. Fabric like pattern: an
   // untouched picker defers to what the photo scan may have written meanwhile.

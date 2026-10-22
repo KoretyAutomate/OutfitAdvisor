@@ -111,6 +111,17 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   $("shLevel").querySelector('[data-l="2"]').click(); await drain();
   await $("shSave").onclick(); await drain();
   check("a level picked after the kind changed is kept", saved()[0].level === 2, saved()[0]);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  $("shType").value = "jeans"; $("shType").onchange(); $("shType").value = "trousers"; $("shType").onchange();
+  await drain();
+  await $("shSave").onclick(); await drain();
+  check("away to another kind and back: the level the sheet shows cleared stays cleared",
+    !("level" in saved()[0]) && JSON.stringify(saved()[0].formality) === '["casual","smart"]', saved()[0]);
+  await w.eval(`closet[0].formality=["active"]; delete closet[0].level; openSheet(closet[0],{isNew:false})`); await drain();
+  $("shLevel").querySelector('[data-l="3"]').click(); $("shLevel").querySelector('[data-l="3"]').click(); await drain();
+  await $("shSave").onclick(); await drain();
+  check("an older garment's own tags go too when a level is picked and cleared",
+    JSON.stringify(saved()[0].formality) === '["casual","smart"]', saved()[0]);
 
   console.log("\n--- 4. the scan brings the tags with its level ----------------------");
   await w.eval(`closet=[${JSON.stringify(item("c2", "black cargo pants", {photo: true, brand: "", sleeve: null,
@@ -120,6 +131,13 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   await w.eval("scanBrands()"); await drain();
   s = saved()[0];
   check("the scan's level 2 makes it Casual", s.level === 2 && JSON.stringify(s.formality) === '["casual"]', s);
+
+  await w.eval(`closet=[${JSON.stringify(item("c5", "striped sneakers", {group: "footwear", type: "sneakers",
+    category: "footwear", roles: ["footwear"], photo: true, brand: "", fabric: null, level: 2, material: "canvas"}))}]; saveCloset()`);
+  w.localStorage.setItem("oa.photo.c5", "P".repeat(200));
+  w.fetch = async () => ({ok: true, status: 200, json: async () => ({brand: null, pattern: "striped"})});
+  await w.eval("scanBrands()"); await drain();
+  check("the scan keeps a shoe's pattern — the colour rule counts it", saved()[0].pattern === "striped", saved()[0]);
 
   console.log("\n--- 4b. on load, a stored level brings its tags; the layer follows the roles");
   const m = w.eval(`migrateItem(${JSON.stringify(item("c3", "gym shorts", {level: 3, formality: ["active"]}))})`);

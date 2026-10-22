@@ -83,11 +83,23 @@ def _label(item: dict) -> str:
     return unicodedata.normalize("NFKC", str(item.get("label") or ""))
 
 
-def level(item: dict) -> int:
-    """The garment's dress level, 1-5: stated, else its name, else its kind."""
+# The old Casual / Smart / Active tags a stated level implies, for what still reads
+# them: trip packing, the rollback engine, the phone's laundry soil (user, 2026-10-22).
+LEVEL_FORMALITY = {1: ["active"], 2: ["casual"], 3: ["casual", "smart"], 4: ["smart"], 5: ["smart"]}
+
+
+def stated_level(item: dict) -> int | None:
+    """The level the wearer set in the edit sheet, or the photo read found."""
     v = item.get("level")
-    if isinstance(v, int) and v in LEVELS:
-        return _fits(item, v)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v in LEVELS else None
+
+
+def level(item: dict) -> int:
+    """The garment's dress level, 1-5: stated, else its name, else its kind. A stated
+    level is the answer; the old "fits" tags only adjust a guess (user, 2026-10-22:
+    the edit sheet's one Dress level replaces them)."""
+    if (v := stated_level(item)) is not None:
+        return v
     label = _label(item)
     for pat, lvl in _LEVEL_WORDS:
         if pat.search(label):
@@ -140,8 +152,11 @@ def gauge(item: dict) -> str | None:
 
 
 def utility_trousers(item: dict) -> bool:
-    """Cargo, joggers, drawstring and the like."""
-    return item.get("group") == "bottoms" and bool(_UTILITY.search(_label(item)))
+    """Cargo, joggers, drawstring and the like — unless a stated level says smart
+    casual or above: tailored cargos set to 3 go with a shirt (user, 2026-10-22)."""
+    if item.get("group") != "bottoms" or ((v := stated_level(item)) is not None and v >= 3):
+        return False
+    return bool(_UTILITY.search(_label(item)))
 
 
 def wets_through(item: dict) -> bool:

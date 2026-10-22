@@ -148,8 +148,8 @@ const item = (id, colors, extra = {}) => ({id, label: id, category: "base", grou
   ev(`closet=[${JSON.stringify(item("jn", ["blue"], {type: "jeans", group: "bottoms", category: "bottoms", roles: ["bottoms"], warmth: 1}))}]`);
   await ev(`openSheet(closet[0],{isNew:false})`); await drain();
   check("jeans open as Heavy", /Heavy/.test($("shLoad").options[0].textContent));
-  $("shGroup").value = "tops"; $("shGroup").dispatchEvent(new w.Event("change")); await drain();
-  check("moved to Tops, the kind is cleared and the preview follows", ev(`$("shType").value`) === ""
+  $("shType").value = "@tops"; $("shType").dispatchEvent(new w.Event("change")); await drain();
+  check("moved to Other tops, the kind is cleared and the preview follows", ev(`$("shType").value`) === "@tops"
     && /Everything else/.test($("shLoad").options[0].textContent), [ev(`$("shType").value`), $("shLoad").options[0].textContent]);
   ev("closeSheet()");
   check("a load with no condition on a ticked split matches nothing",

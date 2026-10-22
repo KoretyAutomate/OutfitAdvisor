@@ -787,11 +787,11 @@ const RES = {weather:WX, outfit:OUTFIT, text:"wear the navy tee", source:"llm",
                    type:"t_shirt",roles:["base"],colors:[],warmth:5,
                    formality:["casual"],waterproof:false,count:1},isNew:false};`);
   w.document.getElementById("shLabel").value = "wool coat";
-  w.document.getElementById("shCat").value = "outer";
-  w.document.getElementById("shGroup").value = "outerwear";
+  // The sheet edits sheet.item; the kind picker moves the folder and the layer with it.
+  ev(`paintTypes()`);
   const typeSel = w.document.getElementById("shType");
-  typeSel.innerHTML = '<option value="coat">Coat</option>';
   typeSel.value = "coat";
+  typeSel.onchange();
   w.document.getElementById("shColors").value = "navy";
   await ev(`document.getElementById("shSave").onclick()`);
   check("correcting a misclassified item settles the gaps it answers",

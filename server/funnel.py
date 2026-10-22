@@ -54,8 +54,10 @@ OPTIONAL = ("inner", "accessories")
 # Most constrained first, and on a tie the slots a stylist anchors on.
 _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 # What a pass may give up, in order, when nothing survives. Their rules, the stacking
-# and sleeve rules, warmth and heat are never on it.
-RELAX = ("colour", "belt", "texture", "wet", "register", "band1", "band2", "band3", "snow", "coat")
+# and sleeve rules, warmth and heat are never on it. Trousers that match the top come
+# before the day's level: a coherent outfit two steps down beats a smart top over
+# cargo trousers (user, 2026-10-22).
+RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
 NOTES = {
@@ -63,7 +65,7 @@ NOTES = {
     "belt": "the belt and shoes are different leathers — nothing matching is free today",
     "texture": "the knit and the top are not the ideal pairing — nothing better is free today",
     "wet": "nothing water-resistant to wear on your feet today — expect damp shoes in the rain",
-    "register": "the trousers or shoes are more relaxed than the top — nothing smarter is free today",
+    "register": "the trousers or shoes don't match the top — nothing that does is free today",
     # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
     "band1": "a step off the day's usual dress level — nothing at it is free today",
     "band2": "well off the day's usual dress level — little at it is free today",
@@ -387,8 +389,15 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
             lo, hi = band(slot, ctx.target, strict.office, 0)
             lvl = garment.level(ctx.wd.by_item[iid])
             worst = max(worst, lo - lvl, lvl - hi)
-    out += ["band1"] if worst == 1 else ["band2"] if worst > 1 else []
+    out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
+
+
+def cost(gave: tuple) -> tuple:
+    """Fewer rules given up first; on a tie, the later on the ladder the worse — two
+    steps off the level and a mismatch is worse than one step and the same mismatch
+    (Codex review, 2026-10-22)."""
+    return len(gave), tuple(sorted((RELAX.index(k) for k in gave), reverse=True))
 
 def _full(picks: dict) -> dict:
     return {c: picks.get(c) for c in CATEGORIES}
@@ -471,7 +480,8 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
     over = int("layers" in kinds)
-    return (repeats, cold, bare, topless, over, len(gave))
+    # Flat, so any() still reads "falls short somewhere": an empty severity is ().
+    return (repeats, cold, bare, topless, over, *cost(gave))
 
 
 def _diverse(ranked: list) -> list:
@@ -508,7 +518,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
                      if look(p) not in c.exclude),
                     key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
                                    int("base" in today and not r[2].get("base")), _over(c, r[2]),
-                                   len(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
+                                   cost(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:

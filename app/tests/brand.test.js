@@ -181,6 +181,7 @@ const answer = brand => ({label: "SHOULD NOT BE USED", group: "outerwear", type:
   check("a level the scan wrote while the sheet was open survives Save", s[0].level === 2, s[0]);
   await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
   w.document.getElementById("shType").value = "polo";
+  w.document.getElementById("shType").onchange();
   await w.document.getElementById("shSave").onclick(); await drain();
   s = JSON.parse(w.eval("JSON.stringify(closet)"));
   check("a new kind is read again: its old level is gone", s[0].type === "polo" && !("level" in s[0]), s[0]);

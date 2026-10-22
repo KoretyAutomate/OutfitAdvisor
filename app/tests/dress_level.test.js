@@ -139,6 +139,18 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   await w.eval("scanBrands()"); await drain();
   check("the scan keeps a shoe's pattern — the colour rule counts it", saved()[0].pattern === "striped", saved()[0]);
 
+  await w.eval(`closet=[${JSON.stringify(item("c6", "sports bra", {group: "underwear", type: "bra", category: "inner",
+    roles: ["inner"], formality: ["active"]}))}]; saveCloset(); openSheet(closet[0],{isNew:false})`); await drain();
+  $("shType").value = "briefs"; $("shType").onchange(); await drain();
+  await $("shSave").onclick(); await drain();
+  check("a kind change within underwear, which has no level, keeps its tags",
+    JSON.stringify(saved()[0].formality) === '["active"]', saved()[0]);
+  await w.eval(`closet=[${JSON.stringify(item("c7", "black cap", {group: "accessories", type: "hat", category: "accessories",
+    roles: ["accessories"], formality: ["active"]}))}]; saveCloset(); openSheet(closet[0],{isNew:false})`); await drain();
+  $("shType").value = "scarf"; $("shType").onchange(); await drain();
+  await $("shSave").onclick(); await drain();
+  check("…and so does one within accessories", JSON.stringify(saved()[0].formality) === '["active"]', saved()[0]);
+
   console.log("\n--- 4b. on load, a stored level brings its tags; the layer follows the roles");
   const m = w.eval(`migrateItem(${JSON.stringify(item("c3", "gym shorts", {level: 3, formality: ["active"]}))})`);
   check("a closet saved before keeps its level and its tags agree", m.level === 3

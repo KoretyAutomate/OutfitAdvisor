@@ -6616,14 +6616,17 @@ $("shType").onchange=()=>{ if(!sheet) return;
   // 2026-08-18); the kind narrows them (a Coat is outer only). Choosing "Other …" is
   // the one place an absent kind is a DECISION, so the marker that stops the load-time
   // backfill putting a kind straight back is set there.
-  const v=$("shType").value;
+  const v=$("shType").value, wasLeveled=LEVELED.has(sheet.item.group)||LEVELS.includes(sheet.item.level);
   if(v.startsWith("@")){ sheet.item.group=v.slice(1); sheet.item.type=null; sheet.item.typeCleared=true; }
   else { sheet.item.group=GROUP_FROM_TYPE[v]||sheet.item.group; sheet.item.type=v; }
   // A level for trousers says nothing about a jacket: a new kind starts unset, on
   // screen and on Save alike — back to the old kind before Save included, so what
   // the sheet shows is what is kept (Codex review). Picked again, or read again from
   // the photo later.
-  delete sheet.item.level; sheet.levelTouched=true;
+  // Only where a level could be: underwear and accessories never have one, and their
+  // tags (an Active bra's laundry soil) are left alone (Codex review round 3).
+  delete sheet.item.level;
+  if(wasLeveled||LEVELED.has(sheet.item.group)) sheet.levelTouched=true;
   reconcileItem(sheet.item);
   paintSheetSegs(); };
 $("shLevel").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;

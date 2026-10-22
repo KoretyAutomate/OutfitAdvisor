@@ -389,8 +389,15 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
             lo, hi = band(slot, ctx.target, strict.office, 0)
             lvl = garment.level(ctx.wd.by_item[iid])
             worst = max(worst, lo - lvl, lvl - hi)
-    out += ["band1"] if worst == 1 else ["band2"] if worst > 1 else []
+    out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
+
+
+def cost(gave: tuple) -> tuple:
+    """Fewer rules given up first; on a tie, the later on the ladder the worse — two
+    steps off the level and a mismatch is worse than one step and the same mismatch
+    (Codex review, 2026-10-22)."""
+    return len(gave), tuple(sorted((RELAX.index(k) for k in gave), reverse=True))
 
 def _full(picks: dict) -> dict:
     return {c: picks.get(c) for c in CATEGORIES}
@@ -473,7 +480,8 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
     over = int("layers" in kinds)
-    return (repeats, cold, bare, topless, over, len(gave))
+    # Flat, so any() still reads "falls short somewhere": an empty severity is ().
+    return (repeats, cold, bare, topless, over, *cost(gave))
 
 
 def _diverse(ranked: list) -> list:
@@ -510,7 +518,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
                      if look(p) not in c.exclude),
                     key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
                                    int("base" in today and not r[2].get("base")), _over(c, r[2]),
-                                   len(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
+                                   cost(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:

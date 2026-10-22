@@ -9,7 +9,9 @@
  *   - the level buttons set and clear `level`; Save writes it with the old tags kept
  *     in step (`formality`), and a cleared level goes back to the guess;
  *   - an untouched level defers to what the photo scan wrote meanwhile;
- *   - the scan's level brings the tags with it;
+ *   - the scan's level brings the tags with it, and so does a closet loaded from
+ *     before; a cleared level takes them back to neutral;
+ *   - the primary layer is always one of the roles (no Category picker any more);
  *   - sleeves, pattern, dress level, waterproof and the layer chips show only where
  *     they say something about the garment.
  *
@@ -72,6 +74,8 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   await $("shSave").onclick(); await drain();
   s = saved()[0];
   check("a cleared level is gone — the guess again, and the photo read may fill it", !("level" in s), s);
+  check("…and the old level's tags go with it, so they cannot steer the guess",
+    JSON.stringify(s.formality) === '["casual","smart"]', s.formality);
 
   console.log("\n--- 3. an untouched level defers to the scan ------------------------");
   await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
@@ -86,6 +90,28 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   await $("shSave").onclick(); await drain();
   check("…but one the wearer picked wins over it", saved()[0].level === 3, saved()[0]);
 
+  await w.eval(`closet[0].level=3; closet[0].formality=["casual","smart"]; delete closet[0].level; openSheet(closet[0],{isNew:false})`);
+  await drain();
+  $("shLevel").querySelector('[data-l="3"]').click(); $("shLevel").querySelector('[data-l="3"]').click(); await drain();
+  await w.eval(`closet[0].level=4`);
+  await $("shSave").onclick(); await drain();
+  s = saved()[0];
+  check("picked and cleared again is still a choice: the scan's 4 does not come back",
+    !("level" in s) && JSON.stringify(s.formality) === '["casual","smart"]', s);
+
+  await w.eval(`closet[0].level=1; closet[0].formality=["active"]; openSheet(closet[0],{isNew:false})`); await drain();
+  $("shType").value = "jeans"; $("shType").onchange(); await drain();
+  check("a new kind shows no level", lit().length === 0, lit());
+  await $("shSave").onclick(); await drain();
+  s = saved()[0];
+  check("…and saves none, with the old level's tags gone",
+    s.type === "jeans" && !("level" in s) && JSON.stringify(s.formality) === '["casual","smart"]', s);
+  await w.eval(`openSheet(closet[0],{isNew:false})`); await drain();
+  $("shType").value = "trousers"; $("shType").onchange(); await drain();
+  $("shLevel").querySelector('[data-l="2"]').click(); await drain();
+  await $("shSave").onclick(); await drain();
+  check("a level picked after the kind changed is kept", saved()[0].level === 2, saved()[0]);
+
   console.log("\n--- 4. the scan brings the tags with its level ----------------------");
   await w.eval(`closet=[${JSON.stringify(item("c2", "black cargo pants", {photo: true, brand: "", sleeve: null,
     pattern: null, fabric: null, formality: ["casual", "smart"]}))}]; saveCloset()`);
@@ -94,6 +120,15 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   await w.eval("scanBrands()"); await drain();
   s = saved()[0];
   check("the scan's level 2 makes it Casual", s.level === 2 && JSON.stringify(s.formality) === '["casual"]', s);
+
+  console.log("\n--- 4b. on load, a stored level brings its tags; the layer follows the roles");
+  const m = w.eval(`migrateItem(${JSON.stringify(item("c3", "gym shorts", {level: 3, formality: ["active"]}))})`);
+  check("a closet saved before keeps its level and its tags agree", m.level === 3
+    && JSON.stringify(m.formality) === '["casual","smart"]', m);
+  const sh = w.eval(`reconcileItem({id:"c4",label:"navy shirt",category:"base",group:"tops",type:"shirt",
+    roles:["mid","outer"],colors:[],warmth:2,formality:["casual"],waterproof:false,count:1})`);
+  check("a shirt whose Base role was taken away is not filed as a base",
+    sh.category === "mid" && JSON.stringify(sh.roles) === '["mid","outer"]', sh);
 
   console.log("\n--- 5. only the fields that apply ------------------------------------");
   const open = async extra => {
@@ -110,7 +145,8 @@ const item = (id, label, extra = {}) => ({id, label, category: "bottoms", group:
   check("an undershirt: sleeves only — no pattern, level or waterproof",
     shown("shSleeveBox") && !shown("shPatternBox") && !shown("shLevelBox") && !shown("shWpBox"));
   await open({group: "accessories", type: "belt", category: "accessories", roles: ["accessories"]});
-  check("a belt: no sleeves, pattern or level", !shown("shSleeveBox") && !shown("shPatternBox") && !shown("shLevelBox"));
+  check("a belt: no sleeves or level; a pattern, which the colour rule counts",
+    !shown("shSleeveBox") && shown("shPatternBox") && !shown("shLevelBox"));
   $("shType").value = "coat"; $("shType").onchange(); await drain();
   check("changed to a coat on the sheet, the level shows", shown("shLevelBox") && w.eval("sheet.item.group") === "outerwear");
   w.eval("closeSheet()");

@@ -83,6 +83,11 @@ def _label(item: dict) -> str:
     return unicodedata.normalize("NFKC", str(item.get("label") or ""))
 
 
+# The old Casual / Smart / Active tags a stated level implies, for what still reads
+# them: trip packing, the rollback engine, the phone's laundry soil (user, 2026-10-22).
+LEVEL_FORMALITY = {1: ["active"], 2: ["casual"], 3: ["casual", "smart"], 4: ["smart"], 5: ["smart"]}
+
+
 def stated_level(item: dict) -> int | None:
     """The level the wearer set in the edit sheet, or the photo read found."""
     v = item.get("level")

@@ -79,3 +79,16 @@ def test_schema_keeps_known_values_and_drops_the_rest_without_a_422():
     assert _item(level=True).level is None, "a bool is not a level"
     assert _item(level="3").level is None
     assert _item().level is None
+
+
+def test_a_stated_level_decides_the_old_tags_on_the_way_in():
+    assert _item(level=1, formality=["smart"]).formality == ["active"]
+    assert _item(level=3, formality=["active"]).formality == ["casual", "smart"]
+    assert _item(formality=["active"]).formality == ["active"], "no level: the tags as sent"
+
+
+def test_the_primary_layer_is_always_one_it_is_worn_as():
+    # A shirt whose Base role was taken away is not packed as a base (Codex plan review, 2026-10-22).
+    shirt = ClosetItem(id="itm-12345678", label="navy shirt", category="base", group="tops", type="shirt",
+                       roles=["mid", "outer"])
+    assert shirt.category == "mid" and shirt.roles == ["mid", "outer"]

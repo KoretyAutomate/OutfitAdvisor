@@ -1567,6 +1567,10 @@ function reconcileItem(it,inferFromLabel=false){
   if(!allowed.includes("inner")) stated=stated.map(r=>r==="inner"?it.category:r);
   const roles=normRoles(stated,it.category).filter(r=>allowed.includes(r));
   it.roles=roles.length?roles:[it.category];
+  // The primary layer is one it is worn as: with no picker for it (user, 2026-10-22),
+  // a role taken away takes the category with it — packing files by category.
+  if(!it.roles.includes(it.category))
+    it.category=it.roles.includes(GROUP_DEF_CAT[g])?GROUP_DEF_CAT[g]:it.roles[0];
   return it;
 }
 /* Older closets predate group/roles/type — and closets saved between 2026-08-10 and
@@ -1578,7 +1582,7 @@ function reconcileItem(it,inferFromLabel=false){
    for why a label counts as evidence and a bare category does not. Once, on load,
    never on the edit path: the Kind selector offers "— not specified —", and
    re-inferring on every reconcile would make that option inert. */
-function migrateItem(it){ return reconcileItem(it,true); }
+function migrateItem(it){ return withLevelFormality(reconcileItem(it,true)); }
 let closet=[];   // {id,label,brand?,category,colors[],warmth,formality[],waterproof,count,photo,addedAt}
 let wearLog=[];  // {itemId, wornAt(epoch-ms), washedAt?(epoch-ms), marked?:true}
 let lastWorn={}; // {itemId: [wornAt…]} — wear HISTORY for the advisor; survives the wash
@@ -2506,7 +2510,8 @@ const LEVELS=[1,2,3,4,5];
 const needsLevel=i=>i.level===undefined&&LEVELED.has(i.group);
 /* The old Casual / Smart / Active tags, kept in step with a known level for what
    still reads them — trip packing, the laundry's "sportswear" soil and the rollback
-   engine — now that the sheet asks only the level (user, 2026-10-22). */
+   engine — now that the sheet asks only the level (user, 2026-10-22). Twin of
+   garment.LEVEL_FORMALITY, which the server applies to every closet it receives. */
 const LEVEL_FORMALITY={1:["active"],2:["casual"],3:["casual","smart"],4:["smart"],5:["smart"]};
 function withLevelFormality(it){
   if(LEVELS.includes(it.level)) it.formality=[...LEVEL_FORMALITY[it.level]];
@@ -2684,7 +2689,8 @@ function paintTypes(){
 function paintSheetFields(){
   const g=sheet.item.group;
   $("shSleeveBox").style.display=SLEEVED.has(g)?"":"none";
-  $("shPatternBox").style.display=PATTERNED.has(g)?"":"none";
+  // Shoes and accessories keep it: the colour rule counts a patterned shoe.
+  $("shPatternBox").style.display=g==="underwear"?"none":"";
   $("shLevelBox").style.display=LEVELED.has(g)?"":"none";
   $("shWpBox").style.display=g==="underwear"?"none":"";
 }
@@ -2732,7 +2738,7 @@ async function openSheet(item,opts){
   sheet.sleeve0=$("shSleeve").value;
   $("shPattern").value=PATTERNS.includes(sheet.item.pattern)?sheet.item.pattern:"";
   sheet.pattern0=$("shPattern").value;
-  sheet.level0=sheet.item.level;
+  sheet.levelTouched=false;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
   $("shDel").style.display=$("shWear").style.display=sheet.isNew?"none":"";
   // The pending photo wins over the stored one: what the sheet shows must be what
@@ -6612,12 +6618,18 @@ $("shType").onchange=()=>{ if(!sheet) return;
   const v=$("shType").value;
   if(v.startsWith("@")){ sheet.item.group=v.slice(1); sheet.item.type=null; sheet.item.typeCleared=true; }
   else { sheet.item.group=GROUP_FROM_TYPE[v]||sheet.item.group; sheet.item.type=v; }
+  // A level for trousers says nothing about a jacket: a new kind starts unset, on
+  // screen too, until it is picked again or read again from the photo.
+  delete sheet.item.level; sheet.levelTouched=false;
   reconcileItem(sheet.item);
   paintSheetSegs(); };
 $("shLevel").onclick=e=>{const b=e.target.closest("button");if(!b||!sheet)return;
   const l=+b.dataset.l;
   // The lit one again clears it: back to the guess, and the photo read may fill it.
   if(sheet.item.level===l) delete sheet.item.level; else sheet.item.level=l;
+  // A tap, not a changed value: picking 3 and clearing it again is still a choice,
+  // and must win over a level the photo read writes meanwhile (Codex review).
+  sheet.levelTouched=true;
   paintSheetSegs();};
 $("shMinus").onclick=()=>{if(sheet&&sheet.item.count>1){sheet.item.count--;paintSheetSegs();}};
 $("shPlus").onclick=()=>{if(sheet&&sheet.item.count<99){sheet.item.count++;paintSheetSegs();}};
@@ -6682,12 +6694,16 @@ $("shSave").onclick=async()=>{
   const sameKind=idx>=0&&closet[idx].group===it.group&&closet[idx].type===it.type;
   // The dress level has its picker now: touched, it is the wearer's (cleared = the
   // guess again); untouched, it defers like the others.
-  const lvTouched=it.level!==sheet.level0;
+  const hadLevel=idx>=0&&LEVELS.includes(closet[idx].level);
   for(const k of ["level","material","gauge"]){
-    if(k==="level"&&lvTouched){ if(!LEVELS.includes(it.level)) delete it.level; continue; }
+    if(k==="level"&&sheet.levelTouched){ if(!LEVELS.includes(it.level)) delete it.level; continue; }
     if(sameKind&&closet[idx][k]!==undefined) it[k]=closet[idx][k]; else if(idx>=0&&!sameKind) delete it[k];
   }
   if(!LEVELED.has(it.group)) delete it.level;
+  // A level gone — cleared, or the kind changed — is the guess again, from the name
+  // and kind alone: the tags the old level left behind go too, or they would steer
+  // it (Codex reviews, 2026-10-22).
+  if(hadLevel&&!LEVELS.includes(it.level)) it.formality=["casual","smart"];
   withLevelFormality(it);
   // The laundry fields, only where the sheet showed them. Fabric like pattern: an
   // untouched picker defers to what the photo scan may have written meanwhile.

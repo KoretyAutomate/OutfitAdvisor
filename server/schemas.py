@@ -200,6 +200,9 @@ class ClosetItem(BaseModel):
         object.__setattr__(self, "group", grp)
         object.__setattr__(self, "type", kind)
         object.__setattr__(self, "roles", roles)
+        # A stated level decides the tags too, whatever an older phone sent beside it.
+        if self.level is not None:
+            object.__setattr__(self, "formality", list(garment.LEVEL_FORMALITY[self.level]))
         return self
 
     @field_validator("type", mode="before")

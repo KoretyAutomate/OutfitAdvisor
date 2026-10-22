@@ -403,7 +403,15 @@ def reconcile(
     # Roles that all contradicted the group leave nothing behind. The item's own
     # (now legal) category is the honest answer, not an empty role set that would
     # make the item unpickable for every slot.
-    return category, grp, kind, clean or [category]
+    if not clean:
+        return category, grp, kind, [category]
+    # The primary layer is one the garment is worn as: with no picker for it any more
+    # (user, 2026-10-22), a role taken away takes the category with it — packing files
+    # by category (Codex plan review, 2026-10-22).
+    if category not in clean:
+        default = GROUP_DEFAULT_CATEGORY[grp]
+        category = default if default in clean else clean[0]
+    return category, grp, kind, clean
 
 
 def apply_type_defaults(kind: str | None, warmth: int | None, formality: list[str] | None):

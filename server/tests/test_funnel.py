@@ -71,13 +71,13 @@ def test_2026_10_18_1035_a_long_sleeve_never_goes_under_a_tee():
         assert not (o.picks.get("inner") == INNER_LS["id"] and o.picks.get("base") == TEE["id"])
 
 
-def test_2026_10_18_1029_a_polo_never_goes_under_a_plain_or_heavy_sweater():
+def test_2026_10_18_1029_a_polo_never_goes_under_a_sweater():
     closet = [UNDER, POLO, ROSE, REINDEER, MERINO, PARKA, CHINOS, SNEAK]
     d, r = run(3, *closet, hi=12)
     assert_valid(d, r)
     for o in r.outfits:
         if o.picks.get("base") == POLO["id"]:
-            assert o.picks.get("mid") in (None, MERINO["id"]), o.picks
+            assert o.picks.get("mid") is None, o.picks
 
 
 def test_drawstring_only_is_served_with_a_note_not_refused():

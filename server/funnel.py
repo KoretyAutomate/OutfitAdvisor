@@ -43,11 +43,10 @@ K = 4                   # outfits the model chooses among
 # The last width takes every candidate: a strict outfit beyond the first sixteen is
 # found before any rule gives way (pre-push reviewer, 2026-10-20).
 WIDTHS = ((6, 120), (16, 400), (None, 400))
-# After the whole ladder: every candidate, everything relaxed (needed() still reports
-# only what the served outfit gives up), the widest beam. The beam is the one bound
-# left: a search that finds nothing within it hands over to the model loop
-# (advisor._dress_model), so a wardrobe is never refused for it.
-EXHAUSTIVE = (None, 2000)
+# Every candidate, no beam: the walk that settles whether ANY outfit keeps a step's
+# rules before the next one gives way (user, 2026-10-23: "it must try all the
+# possible combinations"). The beam is fast and nearly always right; this is the proof.
+EXHAUSTIVE = (None, None)
 CHECKED_CAP = 60        # complete outfits that pass check.issues, at most
 VISIBLE = pairing.VISIBLE
 OPTIONAL = ("inner", "accessories")
@@ -71,6 +70,7 @@ NOTES = {
     "band2": "well off the day's usual dress level — little at it is free today",
     "band3": "well off the day's usual dress level — little at it is free today",
 }
+TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
@@ -125,9 +125,10 @@ class Outfit:
     shape: tuple
     relaxed: tuple = ()
     off: tuple = ()          # what comes off by midday, for the advice text
-    # Ranked before the score, in this order (pre-push plan review, 2026-10-20):
-    # a re-roll shows something else wherever it can; a cold morning gets knitwear AND
-    # a coat; they wear an undershirt whenever one fits; fewer rules given up.
+    # Ranked before the score, in this order (pre-push plan review, 2026-10-20; rules
+    # first since 2026-10-23): fewer rules given up; a re-roll shows something else
+    # wherever it can; a cold morning gets knitwear AND a coat; they wear an undershirt
+    # whenever one fits.
     rank: tuple = ()
 
     @property
@@ -141,6 +142,10 @@ class Result:
     relaxed: tuple
     target: int
     removed: dict = field(default_factory=dict)   # stage -> count, for the log
+    # False when the deadline stopped the search before it had tried every combination
+    # of a step: the advice then says so instead of claiming nothing better exists.
+    complete: bool = True
+    exact: int = 0       # outfits the exhaustive walks reached, for the log
 
 
 # ── steps 2-3: what each slot may hold today ─────────────────────────────────────
@@ -304,6 +309,123 @@ def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> li
                                 -_partial(ctx, q, priority), key(q)))
         partials = nxt[:_width(ctx)[1]]
     return partials
+
+
+class _OutOfTime(Exception):
+    """The deadline passed in the middle of a walk."""
+
+
+def _walk(ctx: Ctx, cands: dict, order: list, shape: tuple, visit, worse=None) -> None:
+    """Every combination, slot by slot, depth first: each candidate that goes with what
+    is already chosen, and visit(picks) on every complete outfit. A branch is cut only
+    where a rule in force is broken — no garment added later mends a broken pair — so
+    nothing that keeps the rules is skipped. The same choices as _beam, without its cut.
+    `worse(picks)`: a branch that can only end worse than what is already in hand.
+    Raises _OutOfTime past ctx.deadline."""
+    warm = _warm_fixable(ctx)
+    opts: list = []
+    for slot in order:
+        o = list(cands.get(slot) or ())
+        if slot in OPTIONAL or not o or (slot == "base" and len(shape) > 1 and "bottoms" in order):
+            o.append(None)
+        opts.append(o)
+    steps = [0]
+
+    def go(n: int, picks: dict) -> None:
+        if n == len(order):
+            visit(picks)
+            return
+        steps[0] += 1
+        if not steps[0] % 256 and time.monotonic() > ctx.deadline:
+            raise _OutOfTime
+        slot, worn = order[n], set(picks.values())
+        for iid in opts[n]:
+            if iid and iid in worn:
+                continue
+            trial = {**picks, slot: iid}
+            if iid and (clash(ctx, trial) or (worse and worse(trial))):
+                continue
+            if warm and slot == "inner" and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan):
+                continue
+            go(n + 1, trial)
+    go(0, {})
+
+
+def _bare_for_sure(ctx: Ctx, cands: dict, order: list) -> bool:
+    """No outfit of this walk can pass check.py: trousers or shoes have nothing to wear
+    under these rules though they own some (check._dressed's no-bottoms / no-footwear,
+    hard), and nothing that could change that is worn elsewhere in the walk. Without
+    it an office day whose only trousers sit below the band walks millions of outfits
+    with bare legs (2026-10-23: 2.8M, six minutes, on 87 garments)."""
+    for slot in ("bottoms", "footwear"):
+        if slot not in order or cands.get(slot):
+            continue
+        could = {i for i in ctx.wd.ids if slot in (ctx.wd.by_roles.get(i) or ())}
+        elsewhere = any(i in could for s in order if s != slot for i in cands.get(s) or ())
+        if not elsewhere and ctx.day.owns_for(slot, {}):
+            return True
+    return False
+
+
+def _exact(ctx: Ctx, priority, bound: tuple | None = None) -> tuple[list, int, bool]:
+    """(outfits, reached, finished): every combination the rules in ctx allow, for the
+    outfits that give up the least (funnel.cost of needed()) — strictly less than
+    `bound` when given, the cost of what the beam already has. Branch and bound: what
+    a partial outfit gives up only grows as garments are added, so a branch already
+    past the best in hand is cut, never one that could still beat it. Every outfit at
+    the best cost is checked against check.issues, up to CHECKED_CAP of them; after
+    that the walk goes on only where something strictly better could be.
+    finished=False only when the deadline cut it (Codex review, 2026-10-23)."""
+    ctx = Ctx(ctx.day, ctx.target, ctx.relaxed, ctx.exclude, len(WIDTHS), ctx.deadline)
+    cands, _ = candidates(ctx, priority)
+    today = frozenset(s for s, ids in cands.items() if ids)
+    ok: list = []
+    seen: set = set()
+    reached = [0]
+    # The best cost in hand, and whether outfits AT it are still wanted.
+    best: list = [bound, bound is None]
+
+    def worse(p: dict) -> bool:
+        if best[0] is None:
+            return False
+        c = cost(needed(ctx, p))
+        return c > best[0] or (c == best[0] and not best[1])
+
+    onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
+    dress_owned = any(ctx.wd.by_group.get(i) == "onepiece" and "base" in (ctx.wd.by_roles.get(i) or ())
+                      and _keeps(ctx, "base", i, 4) is None for i in ctx.wd.ids)
+    try:
+        for shape in SHAPES:
+            if ctx.day.plan >= check.HOT_DAY_C and shape != ("base",):
+                continue
+            for one in (False, True) if onepieces else (False,):
+                if dress_owned and not one and not cands["bottoms"]:
+                    continue
+                c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
+                order = _order(shape, c, one)
+                if _bare_for_sure(ctx, c, order):
+                    continue
+
+                def visit(p: dict, shape: tuple = shape) -> None:
+                    reached[0] += 1
+                    full = _full(p)
+                    if look(p) in ctx.exclude or key(full) in seen or worse(full):
+                        return
+                    seen.add(key(full))
+                    got = _evaluate(ctx, [(shape, p)], priority, today)
+                    if not got:
+                        return
+                    c = cost(got[0].relaxed)
+                    if best[0] is None or c < best[0]:
+                        best[0], best[1] = c, True
+                        ok[:] = [o for o in ok if cost(o.relaxed) <= c]
+                    ok.extend(got)
+                    if len(ok) >= CHECKED_CAP:
+                        best[1] = False
+                _walk(ctx, c, order, shape, visit, worse)
+    except _OutOfTime:
+        return ok, reached[0], False
+    return ok, reached[0], True
 
 
 def _left_off(q: dict, slot: str, cands: dict) -> int:
@@ -480,8 +602,11 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
     over = int("layers" in kinds)
-    # Flat, so any() still reads "falls short somewhere": an empty severity is ().
-    return (repeats, cold, bare, topless, over, *cost(gave))
+    # Fewer rules given up before anything else: a re-roll, the undershirt or the
+    # knit-and-coat never buy a broken rule (user, 2026-10-23: "make sure the selection
+    # is nothing violating the rule"; Codex review — a shown navy tee traded for a
+    # colour clash). Flat, so any() still reads "falls short somewhere".
+    return (*cost(gave), repeats, cold, bare, topless, over)
 
 
 def _diverse(ranked: list) -> list:
@@ -516,9 +641,10 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (_repeats(c, r[2]), _cold(c, r[1]), int("inner" in today and not r[2].get("inner")),
-                                   int("base" in today and not r[2].get("base")), _over(c, r[2]),
-                                   cost(needed(c, _full(r[2]))), -r[0], key(_full(r[2]))))
+                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), _cold(c, r[1]),
+                                   int("inner" in today and not r[2].get("inner")),
+                                   int("base" in today and not r[2].get("base")), _over(c, r[2]), -r[0],
+                                   key(_full(r[2]))))
     ok: list = []
     seen: set = set()
     for pre, shape, p in prelim:
@@ -541,17 +667,20 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
 def search(ctx: Ctx, priority=None) -> Result:
     """Steps 6-11 with the relax ladder: the top K outfits that pass every absolute
     rule and check.issues, giving up the fewest relaxable ones. Each step is tried
-    narrow, then wide, then with every candidate, before the next rule gives way;
-    last, every candidate with everything relaxed and the widest beam. Empty only
-    when nothing passes within those bounds."""
+    narrow, then wide, then with every candidate; where all three find nothing, every
+    combination is walked (_exact) before the next rule gives way — so a rule is given
+    up only when no outfit in the closet keeps it. Empty only when nothing passes with
+    the whole ladder given up, or the deadline came first (complete=False)."""
     priority = priority or priority_for(ctx)
     relaxed: list = []
     removed: dict = {}
-    passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))] + [(None, len(WIDTHS))]
+    passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))]
     held: list = []          # a pass's best, held while a wider pass may do better
+    complete, reached = True, 0
     for n, (step, width) in enumerate(passes):
         if time.monotonic() > ctx.deadline:
             log.warning("funnel: out of time after %d pass(es)", n)
+            complete = False
             break
         if step and step not in relaxed:
             relaxed.append(step)
@@ -565,19 +694,40 @@ def search(ctx: Ctx, priority=None) -> Result:
         if ok and any(ok[0].rank) and not last_width:
             held = ok
             continue
+        bound = min((cost(o.relaxed) for o in ok), default=None)
+        if last_width and bound != cost(()):
+            # The beam found nothing that keeps this step's rules, or only outfits that
+            # give some up: every combination, before a rule gives way and before one
+            # is said to be needed (user, 2026-10-23; Codex review — 21 striped tees
+            # filled the beam while a plain navy one broke one rule fewer).
+            more_ok, more, complete = _exact(c, priority, bound)
+            reached += more
+            ok = sorted(ok + more_ok, key=lambda o: (o.rank, -o.score, key(o.picks)))
+            if more_ok:
+                log.info("funnel: the beam missed %d outfit(s) giving up less at %s (%d reached)",
+                         len(more_ok), step or "the strict rules", more)
+            if not complete and not ok:
+                break
         if ok:
             # The model chooses by eye, so it is only offered the top tier: no outfit
             # it can pick repeats what could change, skips the coat's knit or the
             # undershirt, wears a layer as the top, or gives up more rules than the
             # best ones do.
             tier = [o for o in ok if o.rank == ok[0].rank]
-            return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
+            return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)
     if held:     # out of time with something in hand: serve the best of it
         tier = [o for o in held if o.rank == held[0].rank]
-        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed)
-    return Result([], tuple(relaxed), ctx.target, removed)
+        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, False, reached)
+    return Result([], tuple(relaxed), ctx.target, removed, complete, reached)
 
 
-def notes(relaxed: tuple) -> list[str]:
-    """What the day had to give up, in words — at most the two most telling."""
-    return [NOTES[r] for r in reversed(relaxed) if r in NOTES][:2]
+def notes(relaxed: tuple, complete: bool = True) -> list[str]:
+    """What the served outfit gives up, in words — every rule it breaks, after a line
+    saying that no combination keeps them all (user, 2026-10-23: "If there is truly no
+    combination ... it needs to mention that in the commentary")."""
+    said = [NOTES[r] for r in reversed(relaxed) if r in NOTES]
+    if not said:
+        return []
+    lead = (TRIED_ALL if complete else
+            "time ran out before every combination was tried — none of those tried keeps every rule")
+    return [lead, *said]

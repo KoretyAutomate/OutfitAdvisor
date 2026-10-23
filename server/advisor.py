@@ -13,14 +13,17 @@ check.py tells it what is objectively wrong with an answer and it chooses again.
 Reasoning is a "look" sentence written BEFORE the picks: thinking mode was measured
 at 147 s and unfinished (2026-10-11), against 13 s without.
 
-Time: the phone gives up at 90 s, counted from the request (prefs.look.t0 is set
-before the weather fetch). A revision only starts by REVISE_BY_S, the stylist only
-with STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S.
+Time: counted from the request (prefs.look.t0 is set before the weather fetch). The
+model loop: a revision only starts by REVISE_BY_S, the stylist only with
+STYLIST_MIN_LEFT_S to spare, and every call is cut off at DEADLINE_S. The funnel has
+FUNNEL_DEADLINE_S, the phone ten minutes: it tries every combination before a rule
+gives way, however long that takes (user, 2026-10-23: "I don't care if it takes 10
+minutes to pick") — measured at most 11 s on 87 garments.
 """
 import asyncio
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import check
 import chooser
@@ -48,7 +51,9 @@ RESCUE_MIN_LEFT_S = 30.0
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
 MAX_REVISIONS = 2
-SEARCH_MAX_S = 20.0     # the funnel's own time, at most (2026-10-21)
+SEARCH_MAX_S = 480.0    # the funnel's own time, at most (2026-10-23; was 20 s)
+# The search, then the chooser's call, inside the phone's 600 s (AdviceWorker, index.html).
+FUNNEL_DEADLINE_S = 540.0
 
 SYSTEM = (
     "You are a personal stylist with years of experience dressing real people for "
@@ -270,15 +275,16 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
 
     def left() -> float:
-        return DEADLINE_S - (time.monotonic() - t0)
+        return FUNNEL_DEADLINE_S - (time.monotonic() - t0)
 
     # On a worker thread: a search that finds nothing tries every relax step at three
-    # widths and a last exhaustive pass (about 10 s on 40 garments at worst), and the
-    # event loop serves /health meanwhile.
+    # widths, and every combination before each step gives way (11 s on 87 garments at
+    # worst, measured 2026-10-23), and the event loop serves /health meanwhile.
     result = await asyncio.to_thread(funnel.search, funnel.Ctx(day, funnel.target_level(day.look),
                                                                deadline=_search_until(left())))
-    log.info("advisor: funnel level %s, removed %s, %d outfit(s), relaxed %s (%.2fs)", result.target,
-             result.removed, len(result.outfits), list(result.relaxed) or "-", time.monotonic() - t0)
+    log.info("advisor: funnel level %s, removed %s, %d outfit(s), %d reached by every-combination walks%s, "
+             "relaxed %s (%.2fs)", result.target, result.removed, len(result.outfits), result.exact,
+             "" if result.complete else " (out of time)", list(result.relaxed) or "-", time.monotonic() - t0)
     if not result.outfits:
         return None
     said = await chooser.choose(day, result, _gaps_of(result, day), left())
@@ -287,8 +293,14 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
         turned = frozenset(funnel.look(o.picks) for o in result.outfits)
         again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
                                                                   deadline=_search_until(left())))
-        if again.outfits:
-            result = again
+        # Only outfits that give up nothing the best turned-down one kept: the model's
+        # eye never trades a rule kept for one broken (user, 2026-10-23: "make sure the
+        # selection is nothing violating the rule"; Codex review — colour for belt is
+        # a trade too, whatever cost() says).
+        gave = set(result.outfits[0].relaxed)
+        fair = [o for o in again.outfits if set(o.relaxed) <= gave]
+        if fair:
+            result = replace(again, outfits=fair)
             said = await chooser.choose(day, result, _gaps_of(result, day), left())
     chose = bool(said and said["choice"] >= 1)
     pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
@@ -302,7 +314,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
     final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})),
-                        [f"Note: {n}." for n in funnel.notes(pick.relaxed)])
+                        [f"Note: {n}." for n in funnel.notes(pick.relaxed, result.complete)])
     # "llm" only when the model's words survived into what is shown — a bare number is
     # not text it wrote, and _finish may strip a line or tip naming something unowned.
     kept = any(t and final["lines"].get(s) == t for s, t in lines.items()) or bool(tip and tip in final["tip"])

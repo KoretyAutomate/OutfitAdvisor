@@ -228,8 +228,9 @@ LOOK_PRINCIPLES = (
     # polo and sweater doesn't go well".
     "- Texture: what goes under a sweater must suit its knit. A chunky, cable or "
     "patterned knit (Fair Isle, Nordic, reindeer) goes over a plain tee, a long-sleeve "
-    "tee or a button-up shirt — never a polo. A polo goes under fine-gauge knitwear or "
-    "a cardigan, in a contrasting colour.\n"
+    "tee or a button-up shirt — never a polo. No polo under any sweater, however fine "
+    "(user, 2026-10-23: knit on knit); a polo goes under a cardigan or a jacket, in a "
+    "contrasting colour.\n"
 )
 
 def stylist_enabled() -> bool:

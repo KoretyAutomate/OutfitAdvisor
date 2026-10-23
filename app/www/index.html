@@ -1867,7 +1867,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.55";
+const WEB_BUILD="1.56";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3995,8 +3995,9 @@ async function getAdvice(lat,lon){
     // the role validator costs a corrective retry on top of a 20-30s generation.
     // At 30s the app aborted a request the SERVER had already answered — logged
     // "advice ok ... 34.99s" while the user saw "offline estimate" and concluded
-    // the LLM was down (2026-08-13). Match the native worker's 90s ceiling.
-    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?90000:15000);
+    // the LLM was down (2026-08-13). Ten minutes since 2026-10-23: the server tries
+    // every combination before a rule gives way ("I don't care if it takes 10 minutes").
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),cl.length?600000:15000);
     const body={lat,lon,gender:state.gender,style:kindStyle,day:0,tempOffset};
     if(kind) body.occasion=kind;
     if(outUntil) body.outUntil=outUntil;

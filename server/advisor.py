@@ -266,7 +266,17 @@ async def dress(w: dict, closet: list[dict], prefs: "pk.Prefs", recent: dict | N
         if served is not None:
             return served
         log.info("advisor: the funnel found nothing — asking the model to choose from everything")
+        return await _dress_model(day, closet, wd, _model_start(day))
     return await _dress_model(day, closet, wd)
+
+
+def _model_start(day: check.Day) -> float:
+    """Where the model loop counts its DEADLINE_S from after the funnel found nothing:
+    now, so a long search does not leave it no time — but never so late that it runs
+    past FUNNEL_DEADLINE_S, the phone's wait (pre-push gate, 2026-10-23)."""
+    t0 = getattr(day.prefs.look, "t0", None) or time.monotonic()
+    left = FUNNEL_DEADLINE_S - (time.monotonic() - t0)
+    return time.monotonic() - max(0.0, DEADLINE_S - left)
 
 
 async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
@@ -358,13 +368,15 @@ def _holes(picks: dict, day: check.Day) -> set[str]:
     return holes
 
 
-async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe") -> dict | None:
+async def _dress_model(day: check.Day, closet: list[dict], wd: "pk.Wardrobe",
+                       t0: float | None = None) -> dict | None:
     """The 2026-10-11 loop: the model picks from the whole wardrobe, check.py says
-    what is wrong, it chooses again; the fallback search mends a hard fact left."""
+    what is wrong, it chooses again; the fallback search mends a hard fact left.
+    `t0`: where its time is counted from — the request's start unless given."""
     prefs = day.prefs
     by_handle = pk.handles_for(closet)
     handles = {v: k for k, v in by_handle.items()}
-    t0 = getattr(prefs.look, "t0", None) or time.monotonic()
+    t0 = t0 or getattr(prefs.look, "t0", None) or time.monotonic()
     temperature = 0.9 if prefs.shown else 0.4        # a re-roll samples away from the peak
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": prompt(day, closet, handles)}]

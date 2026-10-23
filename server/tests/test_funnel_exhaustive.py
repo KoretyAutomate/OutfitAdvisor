@@ -10,6 +10,7 @@ main's beam, squeezed to one outfit, gave a rule up needlessly 5/60
 from dataclasses import replace
 
 import funnel
+import walks
 import rules
 from test_funnel import (CHINOS, DRAWSTR, LOAFERS, WHITE_OX, assert_valid, dress, prefs, run)
 from wardrobe_fixtures import JEANS, SNEAK, TEE, g, weather
@@ -57,7 +58,7 @@ def test_a_beam_that_cuts_every_legal_outfit_still_finds_one(monkeypatch):
 def test_with_the_walk_switched_off_the_same_closet_gives_a_rule_up(monkeypatch):
     """The control for the test above: it is the walk that keeps the rule."""
     monkeypatch.setattr(funnel, "WIDTHS", ((1, 1),))
-    monkeypatch.setattr(funnel, "_exact", lambda ctx, priority, bound=None: ([], 0, True))
+    monkeypatch.setattr(walks, "exact", lambda ctx, priority, bound=None: ([], 0, True))
     a = {**g("atee00001", "red striped tee", "tops", "t_shirt", ["base"], 1, colors=["red"], pattern="striped"),
          "_ago": 7}
     b = {**g("btee00001", "navy tee", "tops", "t_shirt", ["base"], 1), "_ago": 0}
@@ -159,3 +160,31 @@ def test_a_reroll_shows_the_same_tee_again_rather_than_break_a_rule():
     assert_valid(d, r)
     assert r.outfits[0].relaxed == ("band1",), r.outfits[0].relaxed
     assert r.outfits[0].picks["base"] == plain["id"]
+
+
+def test_a_long_search_that_finds_nothing_still_leaves_the_model_its_time(monkeypatch):
+    """Pre-push gate, 2026-10-23: 100 s into the request the model loop's own 75 s
+    were spent before it began, and it never asked the model."""
+    import asyncio
+    import time
+
+    import advisor
+    import fake_model
+    import style
+    monkeypatch.setenv("OUTFIT_ENGINE", "funnel")
+    monkeypatch.setattr(advisor.funnel, "search", lambda ctx, priority=None: funnel.Result([], (), ctx.target))
+    seen = fake_model.install(monkeypatch, [fake_model.outfit(base=WHITE_OX["id"], bottoms=CHINOS["id"],
+                                                              footwear=LOAFERS["id"])])
+    p = replace(prefs(), look=replace(style.Look("casual", "man", ""), t0=time.monotonic() - 100))
+    out = asyncio.run(advisor.dress(weather(14, 20), [WHITE_OX, CHINOS, LOAFERS], p))
+    assert seen["calls"] >= 1, "the model was asked"
+    assert out and out["picks"]["base"] == WHITE_OX["id"]
+    late = replace(p, look=replace(p.look, t0=time.monotonic() - advisor.FUNNEL_DEADLINE_S))
+    assert advisor._model_start(check_day(late)) <= time.monotonic() - advisor.DEADLINE_S + 1, \
+        "past the phone's wait: no time is invented"
+
+
+def check_day(p):
+    import check
+    import picks as pk
+    return check.Day.of(weather(14, 20), pk._index([WHITE_OX, CHINOS, LOAFERS]), p)

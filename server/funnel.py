@@ -33,6 +33,7 @@ import rules
 import scale
 import sleeves
 import style
+import walks
 from llm import log
 from vocab import CATEGORIES
 
@@ -253,11 +254,6 @@ def _order(shape: tuple, cands: dict, onepiece_only: bool) -> list[str]:
     return [*need, *OPTIONAL]
 
 
-def _partial(ctx: Ctx, picks: dict, priority) -> float:
-    worn = [(sl, i) for sl, i in picks.items() if i and sl != "accessories"]
-    return sum(priority(i, sl) for sl, i in worn) / max(1, len(worn)) + _accessory(ctx, picks)
-
-
 def _warm_fixable(ctx: Ctx) -> bool:
     """They own a torso garment warm enough for the coldest hour that they could wear
     today: not banned outright, and not too warm for the slot (a warmth-5 sweater on a
@@ -268,169 +264,6 @@ def _warm_fixable(ctx: Ctx) -> bool:
         r in check.TORSO and not rules.violations(outright, {r: i}, wd.by_item)
         and not layers.overdressed(it, r, wd, day.plan, day.peak, day.rules) for r in wd.by_roles.get(i) or ())
         for i, it in wd.by_item.items())
-
-
-def _beam(ctx: Ctx, cands: dict, order: list, priority, shape: tuple = ()) -> list:
-    """Slot by slot, the most constrained first: every candidate that goes with what
-    is already chosen, keeping the BEAM best partial outfits after each slot. Wide
-    where a depth-first walk is deep — it sees every first choice, not one."""
-    partials: list = [{}]
-    # Warm enough is a fact of the whole torso (check.py's cold issue): judged the
-    # moment the torso is complete, so the beam never fills up with outfits that can
-    # only fail at the end.
-    warm = _warm_fixable(ctx)
-    for slot in order:
-        if time.monotonic() > ctx.deadline:
-            return []
-        opts = list(cands.get(slot) or ())
-        # An optional slot may stay empty; so may a required one they own nothing
-        # for, which is a gap (gaps.py), not a reason to dress nobody; and so may the
-        # top under a layer, which can be the top itself (a cardigan alone) — check.py
-        # judges whether that dresses them, the rank prefers a top where one fits.
-        # Not in the one-piece pass (no trousers in its order): there the base IS the legs.
-        if slot in OPTIONAL or not opts or (slot == "base" and len(shape) > 1 and "bottoms" in order):
-            opts.append(None)
-        nxt = []
-        for p in partials:
-            for iid in opts:
-                if iid and iid in p.values():
-                    continue
-                trial = {**p, slot: iid}
-                if iid and clash(ctx, trial):
-                    continue
-                # Judged once the undershirt is decided too — it is the first optional slot,
-                # after every layer — since it adds warmth (pre-push gate, 2026-10-21).
-                if warm and slot == "inner" and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan):
-                    continue
-                nxt.append(trial)
-        # Once the undershirt's or the top's slot is decided, outfits with one go ahead
-        # of those without, before the cut — the rank puts them first, so must the beam.
-        nxt.sort(key=lambda q: (_repeats(ctx, q), _left_off(q, "inner", cands), _left_off(q, "base", cands),
-                                -_partial(ctx, q, priority), key(q)))
-        partials = nxt[:_width(ctx)[1]]
-    return partials
-
-
-class _OutOfTime(Exception):
-    """The deadline passed in the middle of a walk."""
-
-
-def _walk(ctx: Ctx, cands: dict, order: list, shape: tuple, visit, worse=None) -> None:
-    """Every combination, slot by slot, depth first: each candidate that goes with what
-    is already chosen, and visit(picks) on every complete outfit. A branch is cut only
-    where a rule in force is broken — no garment added later mends a broken pair — so
-    nothing that keeps the rules is skipped. The same choices as _beam, without its cut.
-    `worse(picks)`: a branch that can only end worse than what is already in hand.
-    Raises _OutOfTime past ctx.deadline."""
-    warm = _warm_fixable(ctx)
-    opts: list = []
-    for slot in order:
-        o = list(cands.get(slot) or ())
-        if slot in OPTIONAL or not o or (slot == "base" and len(shape) > 1 and "bottoms" in order):
-            o.append(None)
-        opts.append(o)
-    steps = [0]
-
-    def go(n: int, picks: dict) -> None:
-        if n == len(order):
-            visit(picks)
-            return
-        steps[0] += 1
-        if not steps[0] % 256 and time.monotonic() > ctx.deadline:
-            raise _OutOfTime
-        slot, worn = order[n], set(picks.values())
-        for iid in opts[n]:
-            if iid and iid in worn:
-                continue
-            trial = {**picks, slot: iid}
-            if iid and (clash(ctx, trial) or (worse and worse(trial))):
-                continue
-            if warm and slot == "inner" and not layers._still_warm(trial, ctx.wd.by_item, ctx.day.plan):
-                continue
-            go(n + 1, trial)
-    go(0, {})
-
-
-def _bare_for_sure(ctx: Ctx, cands: dict, order: list) -> bool:
-    """No outfit of this walk can pass check.py: trousers or shoes have nothing to wear
-    under these rules though they own some (check._dressed's no-bottoms / no-footwear,
-    hard), and nothing that could change that is worn elsewhere in the walk. Without
-    it an office day whose only trousers sit below the band walks millions of outfits
-    with bare legs (2026-10-23: 2.8M, six minutes, on 87 garments)."""
-    for slot in ("bottoms", "footwear"):
-        if slot not in order or cands.get(slot):
-            continue
-        could = {i for i in ctx.wd.ids if slot in (ctx.wd.by_roles.get(i) or ())}
-        elsewhere = any(i in could for s in order if s != slot for i in cands.get(s) or ())
-        if not elsewhere and ctx.day.owns_for(slot, {}):
-            return True
-    return False
-
-
-def _exact(ctx: Ctx, priority, bound: tuple | None = None) -> tuple[list, int, bool]:
-    """(outfits, reached, finished): every combination the rules in ctx allow, for the
-    outfits that give up the least (funnel.cost of needed()) — strictly less than
-    `bound` when given, the cost of what the beam already has. Branch and bound: what
-    a partial outfit gives up only grows as garments are added, so a branch already
-    past the best in hand is cut, never one that could still beat it. Every outfit at
-    the best cost is checked against check.issues, up to CHECKED_CAP of them; after
-    that the walk goes on only where something strictly better could be.
-    finished=False only when the deadline cut it (Codex review, 2026-10-23)."""
-    ctx = Ctx(ctx.day, ctx.target, ctx.relaxed, ctx.exclude, len(WIDTHS), ctx.deadline)
-    cands, _ = candidates(ctx, priority)
-    today = frozenset(s for s, ids in cands.items() if ids)
-    ok: list = []
-    seen: set = set()
-    reached = [0]
-    # The best cost in hand, and whether outfits AT it are still wanted.
-    best: list = [bound, bound is None]
-
-    def worse(p: dict) -> bool:
-        if best[0] is None:
-            return False
-        c = cost(needed(ctx, p))
-        return c > best[0] or (c == best[0] and not best[1])
-
-    onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
-    dress_owned = any(ctx.wd.by_group.get(i) == "onepiece" and "base" in (ctx.wd.by_roles.get(i) or ())
-                      and _keeps(ctx, "base", i, 4) is None for i in ctx.wd.ids)
-    try:
-        for shape in SHAPES:
-            if ctx.day.plan >= check.HOT_DAY_C and shape != ("base",):
-                continue
-            for one in (False, True) if onepieces else (False,):
-                if dress_owned and not one and not cands["bottoms"]:
-                    continue
-                c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
-                order = _order(shape, c, one)
-                if _bare_for_sure(ctx, c, order):
-                    continue
-
-                def visit(p: dict, shape: tuple = shape) -> None:
-                    reached[0] += 1
-                    full = _full(p)
-                    if look(p) in ctx.exclude or key(full) in seen or worse(full):
-                        return
-                    seen.add(key(full))
-                    got = _evaluate(ctx, [(shape, p)], priority, today)
-                    if not got:
-                        return
-                    c = cost(got[0].relaxed)
-                    if best[0] is None or c < best[0]:
-                        best[0], best[1] = c, True
-                        ok[:] = [o for o in ok if cost(o.relaxed) <= c]
-                    ok.extend(got)
-                    if len(ok) >= CHECKED_CAP:
-                        best[1] = False
-                _walk(ctx, c, order, shape, visit, worse)
-    except _OutOfTime:
-        return ok, reached[0], False
-    return ok, reached[0], True
-
-
-def _left_off(q: dict, slot: str, cands: dict) -> int:
-    """This slot is decided, left empty, and something could have filled it."""
-    return int(slot in q and not q[slot] and bool(cands.get(slot)))
 
 
 def _width(ctx: Ctx) -> tuple:
@@ -554,7 +387,7 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
             if dress_owned and not one and not cands["bottoms"]:
                 continue
             c = {**cands, "base": onepieces if one else [i for i in cands["base"] if i not in onepieces]}
-            found += [(shape, p) for p in _beam(ctx, c, _order(shape, c, one), priority, shape)]
+            found += [(shape, p) for p in walks.beam(ctx, c, _order(shape, c, one), priority, shape)]
     return found, removed, frozenset(s for s, ids in cands.items() if ids)
 
 
@@ -700,7 +533,7 @@ def search(ctx: Ctx, priority=None) -> Result:
             # give some up: every combination, before a rule gives way and before one
             # is said to be needed (user, 2026-10-23; Codex review — 21 striped tees
             # filled the beam while a plain navy one broke one rule fewer).
-            more_ok, more, complete = _exact(c, priority, bound)
+            more_ok, more, complete = walks.exact(c, priority, bound)
             reached += more
             ok = sorted(ok + more_ok, key=lambda o: (o.rank, -o.score, key(o.picks)))
             if more_ok:

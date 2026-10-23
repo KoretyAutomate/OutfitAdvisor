@@ -59,14 +59,15 @@ def _register(ctx: "Ctx", picks: dict) -> bool:
 
 
 def _texture(ctx: "Ctx", picks: dict) -> bool:
-    """A polo goes under a fine-gauge sweater or a cardigan, never a heavier knit
-    (user, 2026-10-18: "Fabric of polo and sweater doesn't go well"); a chunky knit
+    """A polo goes under a cardigan, never under a sweater, however fine (user,
+    2026-10-18: "Fabric of polo and sweater doesn't go well"; 2026-10-23, a light blue
+    polo under a black v-neck: "Why did knit on knit happened?"); a chunky knit
     goes over a tee, a button-up shirt or a dress only; a shirt worn open
     as a layer goes over a tee or a tank, never over another collar."""
     # Every lower/upper pair of the layers, not only against the base: a knit in mid
     # is what an outer layer sits on (pre-push gate, 2026-10-20).
     layered = _items(ctx, picks, ("base", "mid", "outer"))
-    return not any((u.get("type") == "polo" and o.get("type") == "sweater" and garment.gauge(o) != "fine")
+    return not any((u.get("type") == "polo" and o.get("type") == "sweater")
                    or (garment.gauge(o) == "chunky" and u.get("type") not in _UNDER_CHUNKY)
                    or (o.get("type") in ("shirt", "blouse") and u.get("type") not in ("t_shirt", "tank"))
                    for k, u in enumerate(layered) for o in layered[k + 1:])

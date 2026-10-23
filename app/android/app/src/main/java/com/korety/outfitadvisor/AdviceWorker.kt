@@ -307,8 +307,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 connectTimeout = 10_000
                 // Measured 26-29s on the closet path; a 122B behind a shared vLLM can
                 // spike well past that. There is no visible UI waiting on this now,
-                // so a generous ceiling costs nothing.
-                readTimeout = 90_000
+                // so a generous ceiling costs nothing. 570 s since 2026-10-23: the server
+                // may try every combination for up to 540 s, and WorkManager stops a
+                // worker at ten minutes.
+                readTimeout = 570_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 // Identify the caller and its build. Without this, "did the morning

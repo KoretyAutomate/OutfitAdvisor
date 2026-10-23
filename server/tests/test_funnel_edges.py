@@ -544,7 +544,7 @@ def test_register_gives_way_only_after_two_steps_off_the_level():
     o = r.outfits[0]
     assert o.picks["base"] == tee["id"], (o.picks, o.relaxed)
     assert o.relaxed == ("band2",), o.relaxed
-    assert funnel.notes(o.relaxed) == [funnel.NOTES["band2"]]
+    assert funnel.notes(o.relaxed) == [funnel.TRIED_ALL, funnel.NOTES["band2"]]
 
 
 def test_three_steps_off_the_level_is_reported_as_band3():

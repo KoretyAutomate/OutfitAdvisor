@@ -9,8 +9,8 @@ kind and the fabric — the same posture as sleeves.sleeve_of and style.pattern_
     level      dress level 1-5: 1 sport · 2 weekend · 3 smart casual ·
                4 business casual · 5 formal
     material   what a shoe's upper is made of (rain: mesh and canvas soak through)
-    gauge      how heavy a sweater or cardigan's knit is (a polo goes under fine
-               knit only — user, 2026-10-18)
+    gauge      how heavy a sweater or cardigan's knit is (a chunky knit goes over
+               a tee or a shirt only — user, 2026-10-18)
 
 An unknown reading never removes a garment by itself: `material` None passes the
 wet-shoe filter, `gauge` falls back to "mid", and `level` always has an answer from

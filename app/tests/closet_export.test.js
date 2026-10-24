@@ -3,10 +3,11 @@
  *
  * "export a file which I can give to LLM my closet and typical weekly schedule +
  * occasions it needs to be aware of" — the routine AI-written from the calendar.
- * What matters: the calendar is read as OCCURRENCES (a weekly series begun months ago
- * is in it), only the ticked calendars are asked for at all, and it is boiled down to
- * patterns on the phone — a recurring series is one line, a one-off keeps its date,
- * and two appointments a week apart are not a routine. The whole wardrobe goes with
+ * Then: "calendar shall be skipped and more generalized e.g., dinner X times in
+ * average per month, business trip every X frequency". What matters: the calendar is
+ * read as OCCURRENCES (a weekly series begun months ago is in it), only the ticked
+ * calendars are asked for at all, and it is COUNTED on the phone — how often, which
+ * weekdays, time of day, nights away, online; no date or place leaves. The whole wardrobe goes with
  * the laundry marked, the file reaches the share sheet, and a calendar that cannot be
  * read never stops the export.
  *
@@ -65,24 +66,25 @@ function at(daysFromNow, h, m = 0) {
     day: iso(at(4, 12)), endDay: iso(at(7, 12)) }));
   w.__inst = list;
 
-  console.log("\n--- 1. the calendar, boiled down to patterns ----------------------");
-  const digest = ev(`calDigest(__inst, ${now})`);
-  const gym = digest.filter(e => e.title === "Gym");
-  check("a recurring series is ONE line", gym.length === 1 && !gym[0].date, digest);
-  check("with its weekday, time, length and weeks", gym[0] && gym[0].weekdays.length === 1
-    && gym[0].start === "18:30" && gym[0].minutes === 60 && gym[0].weeks >= 3, gym[0]);
-  check("a title seen in two past weeks is a habit", digest.some(e => /squash/i.test(e.title) && !e.date), digest);
-  const dentist = digest.filter(e => e.title === "Dentist");
-  check("two appointments a week apart stay two dated entries", dentist.length === 2
-    && dentist.every(e => e.date), dentist);
-  check("each with its own length and place", dentist[0].minutes === 30 && dentist[0].location === "Uptown"
-    && dentist[1].minutes === 120 && dentist[1].location === "Downtown", dentist);
-  const dinner = digest.find(e => /Dinner/.test(e.title));
-  check("a one-off keeps its date, time, length and place", dinner && dinner.date && dinner.start === "19:00"
-    && dinner.minutes === 150 && dinner.location === "Nobu", dinner);
+  console.log("\n--- 1. the calendar, COUNTED — never an entry -------------------");
+  const digest = ev(`calDigest(__inst)`);
+  const gym = digest.find(e => e.title === "Gym");
+  check("a recurring series is one group, counted", gym && gym.n === 5 && gym.evening === 5, gym);
+  check("its weekday counted", gym && gym.weekdays.reduce((a, b) => a + b, 0) === 5
+    && Math.max(...gym.weekdays) === 5, gym);
+  check("a repeated title is one group", digest.filter(e => /squash/i.test(e.title)).length === 1
+    && digest.find(e => /squash/i.test(e.title)).morning === 2, digest);
+  const dentist = digest.find(e => e.title === "Dentist");
+  check("two appointments are one group of two", dentist && dentist.n === 2, dentist);
   const trip = digest.find(e => /conference/.test(e.title));
-  check("a multi-day all-day entry keeps the native dates, first and last",
-    trip && trip.allDay && trip.date === iso(at(4, 12)) && trip.endDate === iso(at(7, 12)) && trip.start === "", trip);
+  check("a multi-day entry counts its nights away, from the native dates", trip && trip.nights === 3
+    && trip.allDay === 1, trip);
+  const call = ev(`calDigest([${JSON.stringify(inst({ eventId: "z1", title: "Standup", begin: Date.now(),
+    location: "https://zoom.us/j/1" }))}])`)[0];
+  check("a video-call place counts as online", call.online === 1, call);
+  check("nothing but counts and the title leaves the phone",
+    digest.every(e => Object.keys(e).sort().join() ===
+      "afternoon,allDay,evening,morning,n,nights,online,title,weekdays"), digest[0]);
 
   console.log("\n--- 2. the export: what is asked for, what is sent, the share sheet -");
   ev(`
@@ -110,16 +112,16 @@ function at(daysFromNow, h, m = 0) {
   await ev("shareCloset()");
   const asked = ev("__asked"), sent = ev("__sent");
   check("only the ticked calendars are asked for", JSON.stringify(asked.calendarIds) === JSON.stringify(["c1"]), asked);
-  check("four weeks back, two ahead", Math.round((now - asked.from) / DAY) === 28
-    && Math.round((asked.to - now) / DAY) === 14, asked);
+  check("twelve weeks back, nothing ahead", Math.round((asked.to - asked.from) / DAY) === 84
+    && asked.to <= now, asked);
   check("and an unticked calendar's entry is dropped even if the native layer returned it",
     !sent.events.some(e => /Someone else/.test(e.title)), sent.events);
   check("it posts to /export", /\/export$/.test(ev("__url")), ev("__url"));
   check("the WHOLE wardrobe goes, the laundry marked", sent.closet.length === 2
     && JSON.stringify(sent.laundry) === JSON.stringify(["itm-a0000001"]), sent.laundry);
   check("with the wear history in days", sent.recent["itm-a0000001"] === 0, sent.recent);
-  check("the digest, not the raw occurrences", sent.calendar === true
-    && sent.events.filter(e => e.title === "Gym").length === 1, sent.events);
+  check("the counted groups, not the raw occurrences", sent.calendar === true && sent.days === 84
+    && sent.events.filter(e => e.title === "Gym").length === 1 && !sent.events.some(e => "day" in e), sent.events);
   check("the file is written and handed to the share sheet",
     ev("__written").path === "my-closet-x.md" && ev("__written").data === "# My closet"
     && ev("__shared").files[0] === "file:///cache/my-closet-x.md", ev("__shared"));

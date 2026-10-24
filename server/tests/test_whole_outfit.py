@@ -318,3 +318,13 @@ def test_a_warm_outfit_always_outranks_a_cold_one():
     d, r = run(7, TEE, loud, JEANS, loud_shoes, hi=12)
     assert_valid(d, r)
     assert r.outfits[0].picks["mid"] == loud["id"] and "colour" in r.outfits[0].relaxed
+
+
+def test_a_cold_fallback_is_always_said(monkeypatch):
+    import rules as rl
+    swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
+    ban = rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "jeans"}}])
+    out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(rules=tuple(ban)),
+                      [fake_model.choice(1)])
+    assert funnel.COLD in out["text"]
+    assert "None of these is warm enough" in seen["chooser"][0]

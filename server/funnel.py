@@ -72,6 +72,8 @@ NOTES = {
     "band2": "well off the day's usual dress level — little at it is free today",
     "band3": "well off the day's usual dress level — little at it is free today",
 }
+# Served only when no combination is warm (search's `chilly`), and always said.
+COLD = "nothing warm enough for the coldest hour goes with the rest today — take an extra layer"
 TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))

@@ -72,6 +72,9 @@ def prompt(day, result: "funnel.Result", gaps_owned_none: list[str]) -> str:
              "(1 sport, 2 weekend, 3 smart casual, 4 business casual, 5 formal).")
     if occ := style.occasion_line(look.occasion):
         today += f" {occ}"
+    if result.outfits and result.outfits[0].rank and result.outfits[0].rank[0]:
+        today += (" None of these is warm enough for the coldest hour — nothing warmer goes with the "
+                  "rest — so the tip says to take an extra layer.")
     # Handles, as the whole-wardrobe prompt uses: the wearer's liked and disliked pairs
     # and their notes name garments by them (pre-push gate, 2026-10-20).
     handles = {v: k for k, v in hd.handles_for(list(day.wd.by_item.values())).items()}

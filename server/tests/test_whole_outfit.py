@@ -290,3 +290,31 @@ def test_a_cardigan_filed_only_as_outer_can_take_the_undershirt():
     d, r = run(7, warm_under, TEE, outer_cardi, JEANS, SNEAK, hi=12)
     assert_valid(d, r)
     assert r.outfits[0].picks["inner"] == warm_under["id"], r.outfits[0].picks
+
+
+def test_a_guess_that_something_warmer_fits_never_leaves_them_nothing():
+    """Pre-push gate, 2026-10-24, and on main too: the only warm layer is banned with
+    the only jeans, or the only shirt that takes the warm undershirt is — "cold" says a
+    warmer garment is owned, but no combination is warm. The closest is served."""
+    import rules as rl
+    from wardrobe_fixtures import OXFORD
+    swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
+    ban = tuple(rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "jeans"}}]))
+    d, r = run(7, TEE, swt, JEANS, SNEAK, hi=12, p=prefs(rules=ban))
+    assert r.outfits and r.outfits[0].picks["mid"] is None and r.complete
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    ban = tuple(rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "shirt"}, "b": {"type": "jeans"}}]))
+    d, r = run(7, warm_under, TEE, {**OXFORD, "warmth": 1}, JEANS, SNEAK, hi=12, p=prefs(rules=ban))
+    assert r.outfits and r.outfits[0].picks["base"] == TEE["id"]
+
+
+def test_a_warm_outfit_always_outranks_a_cold_one():
+    """Giving up a pairing rule beats being cold: the warm layer is served though it
+    breaks the colour rule, when nothing warm keeps it."""
+    from wardrobe_fixtures import TEE
+    loud = g("redswt001", "red striped sweater", "tops", "sweater", ["mid"], 4, colors=["red"], pattern="striped")
+    loud_shoes = g("redsnk002", "red striped sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["red"],
+                   pattern="striped")
+    d, r = run(7, TEE, loud, JEANS, loud_shoes, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["mid"] == loud["id"] and "colour" in r.outfits[0].relaxed

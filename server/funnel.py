@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass, field
 
 import check
+import fit
 import garment
 import layers
 import pairing
@@ -128,7 +129,7 @@ class Outfit:
     off: tuple = ()          # what comes off by midday, for the advice text
     # Ranked before the score, in this order (pre-push plan review, 2026-10-20; rules
     # first since 2026-10-23): fewer rules given up; a re-roll shows something else
-    # wherever it can; the layers fit the day (_layering, 2026-10-24); they wear an
+    # wherever it can; the layers fit the day (fit.layering, 2026-10-24); they wear an
     # undershirt whenever one fits, never under a T-shirt.
     rank: tuple = ()
 
@@ -416,43 +417,6 @@ def _over(ctx: Ctx, picks: dict) -> int:
     return int(n > layers.max_layers(picks, ctx.wd.by_item, ctx.day.plan))
 
 
-def _layering(ctx: Ctx, picks: dict) -> int:
-    """The layers do not fit the day (user, 2026-10-24: "Coat over the top"). On a cold
-    morning: no coat; or a knit under it where the coat alone is warm enough, or none
-    where it is not (always knit and coat below layers.KNIT_AND_COAT_BELOW_C). On a
-    milder one: a knit AND a jacket where either alone is warm enough."""
-    wd, plan = ctx.wd, ctx.day.plan
-    mid, outer = (wd.by_item.get(picks.get(s)) for s in ("mid", "outer"))
-    if plan < layers.COAT_BELOW_C:
-        if not outer:
-            return 1
-        # Knitwear under the coat — in mid, or as the top itself — is the warmth
-        # between: a shirt open over a tee is not (2026-10-24; Codex review: a sweater
-        # worn as the top was ranked down and moved into mid over nothing).
-        base = wd.by_item.get(picks.get("base")) or {}
-        if check.is_coat(outer) and layers.coat_alone(outer, plan):
-            # Extra only as a layer BETWEEN: a sweater that is the only top stays on
-            # (pre-push gate, 2026-10-24 — the parka went over the undershirt alone).
-            # A cardigan with nothing under it is the top, too.
-            return int(bool(mid) and bool(base) and mid.get("type") in pairing.KNITWEAR)
-        return int((mid or base).get("type") not in pairing.KNITWEAR)
-    return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
-
-
-def bare(ctx: Ctx, picks: dict, cands: dict) -> int:
-    """The undershirt's slot is decided, empty, something could fill it, and the top
-    takes one — never a T-shirt (check.tee_base)."""
-    return int("inner" in picks and not picks["inner"] and bool(cands.get("inner"))
-               and not check.tee_base(picks, ctx.wd.by_item))
-
-
-def _topless(picks: dict, today: frozenset) -> int:
-    """No top where one fits: an empty base that something could fill, or nothing at
-    all between the undershirt and the coat while a mid layer could be worn (pre-push
-    gate, 2026-10-24 — a parka over the undershirt alone beat the only cardigan)."""
-    return int(not picks.get("base") and ("base" in today or (not picks.get("mid") and "mid" in today)))
-
-
 def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) -> tuple:
     """`today`: the slots something can be worn in. They wear an undershirt whenever
     they own one (user, 2026-07-15) — so an outfit whose top cannot take it ranks
@@ -461,10 +425,10 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     shape, picks = outfit
     kinds = {i.kind for i in issues}
     repeats = max(sum(1 for k in kinds if k.startswith("repeat-")), _repeats(ctx, picks))
-    cold = _layering(ctx, picks)
+    cold = fit.layering(ctx, picks)
     under = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")
                                         and not check.tee_base(picks, ctx.wd.by_item)))
-    topless = _topless(picks, today)
+    topless = fit.topless(picks, today)
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
     over = int("layers" in kinds)
@@ -507,10 +471,10 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), _layering(c, r[2]),
+                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
-                                   _topless(r[2], today), _over(c, r[2]), -r[0],
+                                   fit.topless(r[2], today), _over(c, r[2]), -r[0],
                                    key(_full(r[2]))))
     ok: list = []
     seen: set = set()
@@ -520,13 +484,19 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         seen.add(key(full))
         issues = check.issues(full, c.day)
-        if check.hard(issues):
+        hard = check.hard(issues)
+        # "Cold" is the one hard issue kept, ranked below every warm outfit: it says a
+        # warmer garment is owned, a guess about the closet that only the search can
+        # settle. Served only when no combination is warm — rejected outright, a wrong
+        # guess left them nothing (pre-push gate, 2026-10-24; on main too, a sweater
+        # banned with the only jeans).
+        if hard - {"cold"}:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        rank = _rank(c, (shape, full), issues, gave, today)
+        rank = (int(bool(hard)), *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank))
-        if len(ok) >= CHECKED_CAP:
+        if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break
     return ok
 
@@ -543,7 +513,16 @@ def search(ctx: Ctx, priority=None) -> Result:
     removed: dict = {}
     passes = [(step, w) for step in (None, *RELAX) for w in range(len(WIDTHS))]
     held: list = []          # a pass's best, held while a wider pass may do better
+    chilly: list = []        # the best outfits only a warmer garment would fix, if none is warm
     complete, reached = True, 0
+
+    def warm(outfits: list) -> list:
+        """The warm ones, in rank order; the cold ones kept aside in `chilly`."""
+        seen = {key(o.picks) for o in chilly}
+        chilly.extend(o for o in outfits if o.rank[0] and key(o.picks) not in seen)
+        chilly.sort(key=lambda o: (o.rank, -o.score, key(o.picks)))
+        del chilly[CHECKED_CAP:]
+        return sorted((o for o in outfits if not o.rank[0]), key=lambda o: (o.rank, -o.score, key(o.picks)))
     for n, (step, width) in enumerate(passes):
         if time.monotonic() > ctx.deadline:
             log.warning("funnel: out of time after %d pass(es)", n)
@@ -553,7 +532,7 @@ def search(ctx: Ctx, priority=None) -> Result:
             relaxed.append(step)
         c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, width, ctx.deadline)
         found, removed, today = _pass(c, priority)
-        ok = sorted(_evaluate(c, found, priority, today) + held, key=lambda o: (o.rank, -o.score, key(o.picks)))
+        ok = warm(_evaluate(c, found, priority, today) + held)
         last_width = n + 1 == len(passes) or passes[n + 1][0] != step
         # The best still falls short somewhere the rank counts — a repeat, no knit and
         # coat, no undershirt, no top under the layer, a rule given up: a wider pass of
@@ -569,7 +548,7 @@ def search(ctx: Ctx, priority=None) -> Result:
             # filled the beam while a plain navy one broke one rule fewer).
             more_ok, more, complete = walks.exact(c, priority, bound)
             reached += more
-            ok = sorted(ok + more_ok, key=lambda o: (o.rank, -o.score, key(o.picks)))
+            ok = warm(ok + more_ok)
             if more_ok:
                 log.info("funnel: the beam missed %d outfit(s) giving up less at %s (%d reached)",
                          len(more_ok), step or "the strict rules", more)
@@ -585,6 +564,9 @@ def search(ctx: Ctx, priority=None) -> Result:
     if held:     # out of time with something in hand: serve the best of it
         tier = [o for o in held if o.rank == held[0].rank]
         return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, False, reached)
+    if chilly:   # no combination is warm, whatever the guess says: the closest
+        tier = [o for o in chilly if o.rank == chilly[0].rank]
+        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)
     return Result([], tuple(relaxed), ctx.target, removed, complete, reached)
 
 

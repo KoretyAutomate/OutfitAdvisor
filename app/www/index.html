@@ -5412,7 +5412,9 @@ function calDigest(inst,now=Date.now()){
       routine.push({...base,weekdays:[...new Set(evs.map(e=>e.weekday))].sort(),
         start:allDay?"":most(evs.map(e=>e.time))||"",weeks:Math.min(4,weeks),n:evs.length});
     }else for(const e of evs.filter(e=>e.endDay>=today))
-      upcoming.push({...base,date:e.day,endDate:e.endDay!==e.day?e.endDay:"",start:e.allDay?"":e.time||""});
+      // Each occurrence its own: two dentist visits are not one length in one place.
+      upcoming.push({title:e.title,allDay:!!e.allDay,minutes:Math.max(0,Math.round((e.end-e.begin)/60000)),
+        location:(e.location||"").trim(),date:e.day,endDate:e.endDay!==e.day?e.endDay:"",start:e.allDay?"":e.time||""});
   }
   routine.sort((a,b)=>b.n-a.n);
   upcoming.sort((a,b)=>a.date<b.date?-1:1);
@@ -5447,8 +5449,8 @@ async function shareCloset(){
     if(!r.ok) throw new Error(r.status===400?"Photograph your clothes first.":"server "+r.status);
     const d=await r.json();
     await shareText(d.filename,d.markdown);
-    note.textContent=(calendar?(d.routine?"Your week was read from your calendar. ":
-      "Your calendar had nothing recurring to describe. "):"No calendar was readable, so the file says so. ")+
+    note.textContent=(calendar?(events.length?"Your week was read from your calendar. ":
+      "Your calendar had nothing in these weeks. "):"No calendar was readable, so the file says so. ")+
       "Attach it in a chat with any AI and ask it to dress you.";
   }catch(e){
     note.textContent=e&&e.message==="Photograph your clothes first."?e.message:

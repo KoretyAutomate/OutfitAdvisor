@@ -56,8 +56,8 @@ function at(daysFromNow, h, m = 0) {
   list.push(inst({ eventId: "s1", title: "Squash with Ken", begin: at(-15, 7), end: at(-15, 8) }));
   list.push(inst({ eventId: "s2", title: "squash with ken ", begin: at(-8, 7), end: at(-8, 8) }));
   // Two future appointments a week apart: not a routine — two dated entries.
-  list.push(inst({ eventId: "d1", title: "Dentist", begin: at(2, 9), end: at(2, 10) }));
-  list.push(inst({ eventId: "d2", title: "Dentist", begin: at(9, 9), end: at(9, 10) }));
+  list.push(inst({ eventId: "d1", title: "Dentist", begin: at(2, 9), end: at(2, 9, 30), location: "Uptown" }));
+  list.push(inst({ eventId: "d2", title: "Dentist", begin: at(9, 9), end: at(9, 11), location: "Downtown" }));
   // A one-off dinner, and a four-day conference with the native layer's own dates.
   list.push(inst({ eventId: "x1", title: "Dinner with Tanaka team", begin: at(6, 19), end: at(6, 21, 30),
     location: "Nobu" }));
@@ -75,6 +75,8 @@ function at(daysFromNow, h, m = 0) {
   const dentist = digest.filter(e => e.title === "Dentist");
   check("two appointments a week apart stay two dated entries", dentist.length === 2
     && dentist.every(e => e.date), dentist);
+  check("each with its own length and place", dentist[0].minutes === 30 && dentist[0].location === "Uptown"
+    && dentist[1].minutes === 120 && dentist[1].location === "Downtown", dentist);
   const dinner = digest.find(e => /Dinner/.test(e.title));
   check("a one-off keeps its date, time, length and place", dinner && dinner.date && dinner.start === "19:00"
     && dinner.minutes === 150 && dinner.location === "Nobu", dinner);

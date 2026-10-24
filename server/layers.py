@@ -118,7 +118,9 @@ def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: fl
     (pre-push gate, 2026-10-24: a warmth-5 sweater on a 7-12C day, a shirt banned
     with the undershirt — neither is a top to change into)."""
     return any(it.get("type") != "t_shirt" and any(
-        r in ("base", "mid") and not rules.violations(user_rules or [], {r: i, "inner": under}, wd.by_item)
+        # Any torso slot but a coat's: a cardigan filed only as outer is still the top.
+        (r in ("base", "mid") or (r == "outer" and it.get("group") != "outerwear"))
+        and not rules.violations(user_rules or [], {r: i, "inner": under}, wd.by_item)
         and not sleeves.sleeve_clashes({r: i, "inner": under}, wd.by_item)
         and not overdressed(it, r, wd, plan_temp, peak_temp, user_rules) for r in wd.by_roles.get(i) or ())
         for i, it in wd.by_item.items() if i != under)

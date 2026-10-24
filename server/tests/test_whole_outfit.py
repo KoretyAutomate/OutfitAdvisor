@@ -282,3 +282,11 @@ def test_a_shirt_banned_with_the_undershirt_is_no_top_for_it():
     cool = {**OXFORD, "warmth": 1}
     d, r = run(7, warm_under, TEE, cool, JEANS, SNEAK, hi=12, p=prefs(rules=ban))
     assert_valid(d, r)
+
+
+def test_a_cardigan_filed_only_as_outer_can_take_the_undershirt():
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    outer_cardi = g("ocardi001", "navy cardigan", "tops", "cardigan", ["outer"], 2)
+    d, r = run(7, warm_under, TEE, outer_cardi, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["inner"] == warm_under["id"], r.outfits[0].picks

@@ -108,7 +108,9 @@ def test_a_hot_day_has_no_layer_and_a_cold_one_has_knit_and_coat():
     d, cold = run(2, UNDER, TEE, OXFORD, SWEATER, PARKA, JEANS, SNEAK, hi=9)
     assert_valid(d, cold)
     best = cold.outfits[0].picks
-    assert best["mid"] and best["outer"] == PARKA["id"] and best["inner"] == UNDER["id"], best
+    assert best["mid"] == SWEATER["id"] and best["outer"] == PARKA["id"], best
+    # Under the oxford an undershirt; under the tee none (user, 2026-10-24).
+    assert best["inner"] == (None if best["base"] == TEE["id"] else UNDER["id"]), best
 
 
 def test_accessories_only_for_a_reason():
@@ -344,7 +346,9 @@ def test_a_black_belt_never_goes_with_brown_shoes():
 
 
 def test_an_outfit_without_the_undershirt_is_not_offered_when_one_fits():
-    """The tee cannot take the long-sleeve thermal under it; the oxford can — so only
-    oxford outfits are offered, though the tee outfit looks different."""
+    """The oxford takes the thermal under it, so every oxford outfit wears it; a tee
+    never does (user, 2026-10-24: "No undershirt rule is for T-shirt and not shirts")."""
     _, r = run(3, INNER_LS, TEE, OXFORD, MERINO, PARKA, CHINOS, LOAFERS, hi=9)
-    assert r.outfits and all(o.picks["inner"] == INNER_LS["id"] for o in r.outfits), [o.picks for o in r.outfits]
+    assert r.outfits
+    for o in r.outfits:
+        assert o.picks["inner"] == (None if o.picks["base"] == TEE["id"] else INNER_LS["id"]), o.picks

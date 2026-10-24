@@ -27,7 +27,7 @@ def test_the_morning_as_served_is_now_a_hard_issue_that_says_how_to_fix_it():
     d = day(-1, UNDER, POLO, SWEATER, COAT, JEANS, SNEAK, hi=10)
     issue = found(ids(inner=UNDER, base=POLO, mid=SWEATER, bottoms=JEANS, footwear=SNEAK), d)["no-coat"]
     assert issue.hard
-    assert "navy wool coat" in issue.text and "outer" in issue.text and "mid" in issue.text
+    assert "navy wool coat" in issue.text and "outer" in issue.text
 
 
 def test_a_sweater_filed_as_outer_is_not_the_coat():

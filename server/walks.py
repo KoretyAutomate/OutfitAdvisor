@@ -17,6 +17,7 @@ monkeypatches funnel.WIDTHS reaches it too.
 import time
 
 import check
+import fit
 import funnel
 import layers
 
@@ -61,7 +62,7 @@ def beam(ctx: "funnel.Ctx", cands: dict, order: list, priority, shape: tuple = (
                 nxt.append(trial)
         # Once the undershirt's or the top's slot is decided, outfits with one go ahead
         # of those without, before the cut — the rank puts them first, so must the beam.
-        nxt.sort(key=lambda q: (funnel._repeats(ctx, q), _left_off(q, "inner", cands),
+        nxt.sort(key=lambda q: (funnel._repeats(ctx, q), fit.bare(ctx, q, cands),
                                 _left_off(q, "base", cands), -_partial(ctx, q, priority), funnel.key(q)))
         partials = nxt[:funnel._width(ctx)[1]]
     return partials
@@ -76,18 +77,22 @@ class _OutOfTime(Exception):
     """The deadline passed in the middle of a walk."""
 
 
-def _walk(ctx: "funnel.Ctx", cands: dict, order: list, shape: tuple, visit, worse=None) -> None:
+def _walk(ctx: "funnel.Ctx", cands: dict, order: list, visit, worse=None, prune_cold: bool = True) -> None:
     """Every combination, slot by slot, depth first: each candidate that goes with what
     is already chosen, and visit(picks) on every complete outfit. A branch is cut only
     where a rule in force is broken — no garment added later mends a broken pair — so
     nothing that keeps the rules is skipped. The same choices as beam(), without its cut.
     `worse(picks)`: a branch that can only end worse than what is already in hand.
-    Raises _OutOfTime past ctx.deadline."""
-    warm = funnel._warm_fixable(ctx)
+    Raises _OutOfTime past ctx.deadline. `prune_cold`: cut a torso no garment makes
+    warm where _warm_fixable guesses one could — the guess exact() drops when it
+    finds nothing at all."""
+    warm = prune_cold and funnel._warm_fixable(ctx)
     opts: list = []
+    # A layer in the order is a shape with more than the base (beam()'s len(shape) > 1).
+    layered = "mid" in order or "outer" in order
     for slot in order:
         o = list(cands.get(slot) or ())
-        if slot in funnel.OPTIONAL or not o or (slot == "base" and len(shape) > 1 and "bottoms" in order):
+        if slot in funnel.OPTIONAL or not o or (slot == "base" and layered and "bottoms" in order):
             o.append(None)
         opts.append(o)
     steps = [0]
@@ -128,7 +133,7 @@ def _bare_for_sure(ctx: "funnel.Ctx", cands: dict, order: list) -> bool:
     return False
 
 
-def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list, int, bool]:
+def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None, cold_too: bool = False) -> tuple[list, int, bool]:
     """(outfits, reached, finished): every combination the rules in ctx allow, for the
     outfits that give up the least (funnel.cost of funnel.needed()) — strictly less than
     `bound` when given, the cost of what the beam already has. Branch and bound: what
@@ -136,11 +141,13 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
     past the best in hand is cut, never one that could still beat it. Every outfit at
     the best cost is checked against check.issues, up to CHECKED_CAP of them; after
     that the walk goes on only where something strictly better could be.
-    finished=False only when the deadline cut it (Codex review, 2026-10-23)."""
+    finished=False only when the deadline cut it (Codex review, 2026-10-23).
+    `cold_too`: the outfits no garment makes warm as well, for search's last resort."""
     ctx = funnel.Ctx(ctx.day, ctx.target, ctx.relaxed, ctx.exclude, len(funnel.WIDTHS), ctx.deadline)
     cands, _ = funnel.candidates(ctx, priority)
     today = frozenset(s for s, ids in cands.items() if ids)
     ok: list = []
+    cold: list = []
     seen: set = set()
     reached = [0]
     # The best cost in hand, and whether outfits AT it are still wanted.
@@ -155,7 +162,8 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
     dress_owned = any(ctx.wd.by_group.get(i) == "onepiece" and "base" in (ctx.wd.by_roles.get(i) or ())
                       and funnel._keeps(ctx, "base", i, 4) is None for i in ctx.wd.ids)
-    try:
+
+    def every(prune_cold: bool) -> None:
         for shape in funnel.SHAPES:
             if ctx.day.plan >= check.HOT_DAY_C and shape != ("base",):
                 continue
@@ -176,6 +184,14 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
                     got = funnel._evaluate(ctx, [(shape, p)], priority, today)
                     if not got:
                         return
+                    if got[0].rank[0]:
+                        # Cold: the best CHECKED_CAP by rank, for a closet with nothing
+                        # warm — never a bound (pre-push gate, 2026-10-24: the first
+                        # sixty hid one breaking fewer rules).
+                        cold.extend(got)
+                        cold.sort(key=lambda o: (o.rank, -o.score, funnel.key(o.picks)))
+                        del cold[funnel.CHECKED_CAP:]
+                        return
                     c = funnel.cost(got[0].relaxed)
                     if best[0] is None or c < best[0]:
                         best[0], best[1] = c, True
@@ -183,7 +199,15 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
                     ok.extend(got)
                     if len(ok) >= funnel.CHECKED_CAP:
                         best[1] = False
-                _walk(ctx, c, order, shape, visit, worse)
+                _walk(ctx, c, order, visit, worse, prune_cold)
+
+    try:
+        # `cold_too`: search's last resort, once no step of the ladder found anything
+        # warm — the cold-torso cut rests on a guess that a warmer garment fits, and
+        # only this walk can say it does not. Never earlier: walking every cold
+        # combination at each step spent the time a warm outfit needed (pre-push gate,
+        # 2026-10-24).
+        every(not cold_too)
     except _OutOfTime:
-        return ok, reached[0], False
-    return ok, reached[0], True
+        return ok + cold, reached[0], False
+    return ok + cold, reached[0], True

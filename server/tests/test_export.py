@@ -210,3 +210,40 @@ def test_nights_are_said_for_trips_only_and_places_decide_online():
     lines = [export._kind_line(k, 84) for k in export._kinds(req, {0: ("office", 3), 1: ("meeting", 3)})]
     assert not any("night" in x for x in lines), lines
     assert not any("person" in x or "online" in x for x in lines), "no place is no evidence"
+
+
+def test_a_real_mix_of_places_is_said_as_a_mix():
+    mix = {"title": "Sync", "n": 10, "weekdays": [0, 10, 0, 0, 0, 0, 0], "morning": 10, "online": 6, "inPerson": 4}
+    req = export.ExportRequest.model_validate(body(events=[mix]))
+    assert "online and in person" in export._kind_line(export._kinds(req, {0: ("meeting", 3)})[0], 84)
+
+
+def test_a_level_out_of_range_is_no_classification(monkeypatch):
+    model(monkeypatch, {"entries": [{"i": 0, "kind": "sport", "level": 100}, {"i": 1, "kind": "client", "level": 4},
+                                    {"i": 2, "kind": "travel", "level": "2"}, {"i": 3, "kind": "meeting",
+                                                                               "level": True}]})
+    assert client.post("/export", json=body()).json()["routine"] is False
+
+
+def test_the_classifier_never_outlasts_its_budget(monkeypatch):
+    import asyncio
+    import time
+
+    calls = []
+
+    async def slow(messages, timeout=60, **kw):
+        calls.append(timeout)
+        await asyncio.sleep(0.4)
+        return None
+    monkeypatch.setattr(export, "_chat", slow)
+    groups = [{**GYM, "title": f"Session {n}"} for n in range(80)]
+    req = export.ExportRequest.model_validate(body(events=groups))
+    t = time.monotonic()
+    assert asyncio.run(export._routine(req)) is None
+    # Four batches and four retries, two rounds at once: 0.8 s, not 3.2 s one by one.
+    assert len(calls) == 8 and time.monotonic() - t < 1.6, (len(calls), time.monotonic() - t)
+    assert all(c <= export.ROUTINE_BUDGET_S for c in calls)
+    calls.clear()
+    monkeypatch.setattr(export, "ROUTINE_BUDGET_S", 3)
+    asyncio.run(export._routine(req))
+    assert calls == [], "under five seconds left, no call starts"

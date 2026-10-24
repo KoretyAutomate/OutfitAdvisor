@@ -20,6 +20,7 @@ believes about each garment. A model that fails costs only the week's patterns.
 PRIVACY: as /triage — event text is used and discarded, never logged or stored. The
 log carries counts only.
 """
+import asyncio
 import re
 import time
 from datetime import date
@@ -225,33 +226,44 @@ def _routine_prompt(req: ExportRequest, batch: list[int]) -> str:
 
 
 BATCH = 20      # groups per classifier call: a short answer is a whole answer
+ROUTINE_BUDGET_S = 90   # every call together, inside the phone's 120 s wait (Codex review)
 
 
-async def _classify(req: ExportRequest, batch: list[int]) -> dict:
-    """{index: (kind, level)} for the batch's entries the model classified."""
+async def _classify(req: ExportRequest, batch: list[int], until: float) -> dict:
+    """{index: (kind, level)} for the batch's entries the model classified validly —
+    a level that is not a whole number 1-5 is no classification, never clamped into
+    one (Codex review, 2026-10-24)."""
+    left = until - time.monotonic()
+    if left < 5:
+        return {}
     try:
         raw = await _chat([{"role": "user", "content": _routine_prompt(req, batch)}], max_tokens=600,
-                          timeout=ROUTINE_TIMEOUT_S, temperature=0.1)
+                          timeout=min(ROUTINE_TIMEOUT_S, left), temperature=0.1)
     except Exception:
         return {}
     out = _parse_json(raw) if raw else None
     rows = out.get("entries") if isinstance(out, dict) else None
-    return {o["i"]: (o["kind"], _int(o.get("level"), 1, 5)) for o in rows if isinstance(o, dict)
-            and o.get("i") in batch and _int(o.get("i"), 0, len(req.events) - 1, -1) == o.get("i")
-            and o.get("kind") in KINDS} if isinstance(rows, list) else {}
+    if not isinstance(rows, list):
+        return {}
+    return {o["i"]: (o["kind"], o["level"]) for o in rows if isinstance(o, dict)
+            and o.get("i") in batch and o.get("kind") in KINDS
+            and isinstance(o.get("level"), int) and not isinstance(o.get("level"), bool) and 1 <= o["level"] <= 5}
 
 
 async def _routine(req: ExportRequest) -> dict | None:
     """{entry index: (kind, level)} for EVERY group, or None. A group the model left
     out would vanish from its kind's count — two dinners a month read as one (Codex
-    review, 2026-10-24) — so the groups go in batches, what is missing is asked once
-    more, and anything still missing costs the whole summary rather than a wrong one."""
+    review, 2026-10-24) — so the groups go in batches, at once, what is missing is asked
+    once more, and anything still missing (or the budget spent) costs the whole
+    summary rather than a wrong one."""
+    until = time.monotonic() + ROUTINE_BUDGET_S
+    batches = [list(range(k, min(k + BATCH, len(req.events)))) for k in range(0, len(req.events), BATCH)]
     got: dict = {}
-    for k in range(0, len(req.events), BATCH):
-        batch = list(range(k, min(k + BATCH, len(req.events))))
-        got |= await _classify(req, batch)
-        if missing := [n for n in batch if n not in got]:
-            got |= await _classify(req, missing)
+    for part in await asyncio.gather(*(_classify(req, b, until) for b in batches)):
+        got |= part
+    missing = [[n for n in b if n not in got] for b in batches]
+    for part in await asyncio.gather(*(_classify(req, m, until) for m in missing if m)):
+        got |= part
     return got if len(got) == len(req.events) else None
 
 
@@ -340,7 +352,8 @@ def _kind_line(k: dict, days: int) -> str:
     t = max(k["times"], key=lambda x: k["times"][x])
     when = ("all day" if t == "allDay" else f"in the {t}") if k["times"][t] * 2 > n else ""
     # Only from what the places say: a meeting with no place is unknown, never "in
-    # person" (Codex review, 2026-10-24) — and said only when most of them say.
+    # person" (Codex review, 2026-10-24). Said only when more than half have a place;
+    # "mostly" one way at four in five of those, and a real mix is said as a mix.
     known = k["online"] + k["inPerson"]
     where = ("mostly online" if k["online"] * 5 >= known * 4 else "mostly in person" if k["inPerson"] * 5 >= known * 4
              else "online and in person") if k["kind"] in ("meeting", "client", "office") and known * 2 > n else ""

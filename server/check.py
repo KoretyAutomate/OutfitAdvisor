@@ -124,6 +124,12 @@ def _legal(worn: dict, day: Day) -> list[Issue]:
 def _dressed(worn: dict, day: Day) -> list[Issue]:
     """A top, trousers (or a one-piece) and shoes — when they own them."""
     out: list[Issue] = []
+    # A coat is not a top: one over the undershirt alone leaves them in underwear
+    # once it comes off (pre-push gate, 2026-10-24) — when they own a top for under it.
+    coat_only = (not worn.get("base") and not worn.get("mid") and bool(worn.get("outer"))
+                 and is_coat(day.wd.by_item[worn["outer"]]))
+    if coat_only and any(day.owns_for(c, worn) for c in ("base", "mid")):
+        out.append(Issue("no-top", "only a coat over the undershirt — wear a top under it", True))
     if not any(worn.get(c) for c in TORSO):
         # Only where they own a top: otherwise it is a wardrobe gap (gaps.py), and
         # asking again cannot help. An undershirt alone is always fixable — take it

@@ -240,3 +240,26 @@ def test_a_rejection_naming_an_unowned_coat_is_not_repeated_on_a_closet_only_war
     no = fake_model.choice(0, reason="add a wool overcoat to make these work")
     out, _ = dress(monkeypatch, [*shirts, CHINOS, MESH_SNK], weather(16, 22), prefs(closet_only=True), [no, no, no])
     assert "overcoat" not in out["text"] and "nothing quite works together" in out["text"]
+
+
+def test_a_coat_over_the_undershirt_alone_is_never_served():
+    """Pre-push gate, 2026-10-24: an office day, a level-4 shirt, a level-2 parka —
+    avoiding the coat mismatch must not drop the shirt."""
+    from test_funnel import LOAFERS
+    from wardrobe_fixtures import UNDER
+    smart = g("smshirt01", "white dress shirt", "tops", "shirt", ["base"], 2, colors=["white"], level=4)
+    low = {**PARKA, "level": 2}
+    d, r = run(6, UNDER, smart, low, CHINOS, LOAFERS, hi=12, p=prefs("office"))
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert o.picks["base"] or o.picks["mid"], o.picks
+    picks = {"inner": UNDER["id"], "outer": low["id"], "bottoms": CHINOS["id"], "footwear": LOAFERS["id"]}
+    assert "no-top" in check.hard(check.issues(picks, d))
+
+
+def test_a_sweater_too_warm_to_wear_is_no_top_for_the_undershirt():
+    from wardrobe_fixtures import TEE
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    hot_knit = g("hotknit01", "heavy wool sweater", "tops", "sweater", ["base", "mid"], 5)
+    d, r = run(7, warm_under, TEE, hot_knit, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)

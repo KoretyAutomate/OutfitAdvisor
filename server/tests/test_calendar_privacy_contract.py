@@ -151,8 +151,15 @@ def test_the_web_layer_has_no_second_calendar_lister():
 def test_the_scan_filters_events_through_a_positive_allow_list():
     """A negative filter degrades to 'read everything' the moment it is empty."""
     src = INDEX.read_text()
-    scan = src[src.index("async function scanCalendar()"):]
+    # One door since 2026-10-24: the trip scan and "Share my closet with an AI" both
+    # read through readAllowedEvents, so the contract is checked there and both are
+    # held to going through it.
+    scan = src[src.index("async function readAllowedEvents("):]
     scan = scan[:scan.index("\nasync function ") if "\nasync function " in scan else len(scan)]
+    for caller in ("async function scanCalendar()", "async function shareCloset()"):
+        body = src[src.index(caller):]
+        body = body[:body.index("\nasync function ")]
+        assert "readAllowedEvents(" in body and "listEventsInRange" not in body, caller
     assert "calAvail=await loadCalendars()" in scan, "the allow-list must be rebuilt from the device each scan"
     assert re.search(r"filter\(e=>allow\.has\(String\(e\.calendarId\)\)\)", scan), \
         "events must be filtered by an allow-list, not by an exclusion that can be empty"

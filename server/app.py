@@ -47,6 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import advisor
 import cutout
+import export
 import engine
 import llm
 import local_llm
@@ -104,6 +105,7 @@ app.add_middleware(
 app.include_router(updates.router)
 # Garment cutouts (background removed, on white) — cutout.py, 2026-09-07.
 app.include_router(cutout.router)
+app.include_router(export.router)
 
 
 @app.get("/health")

@@ -54,7 +54,8 @@ def test_the_file_has_the_closet_the_rules_and_the_week(monkeypatch):
     assert "Office days: Monday, Wednesday — dressed smart" in md
     assert "**Gym** (Tue/Thu 18:30)" in md and "2026-10-30 — **Client dinner**" in md
     assert "Inferred by an AI" in md
-    assert "No knit on knit" in md, "the styling rules the app follows go with it"
+    assert "No knit on knit:" in md, "the styling rules the app follows go with it"
+    assert "2026-10-23" not in md, "without the code's provenance notes"
     # The calendar reached the model as data, fenced, with its pattern.
     assert "Gym — legs — every Tue/Thu, 4 of the last 4 weeks at 18:30, 1h00" in seen[0]
     assert "on 2026-10-30 (Friday) at 19:00, 2h30, at Nobu downtown" in seen[0]

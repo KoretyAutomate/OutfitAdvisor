@@ -247,3 +247,12 @@ def test_the_classifier_never_outlasts_its_budget(monkeypatch):
     monkeypatch.setattr(export, "ROUTINE_BUDGET_S", 3)
     asyncio.run(export._routine(req))
     assert calls == [], "under five seconds left, no call starts"
+
+
+def test_malformed_classifier_rows_are_retried_never_a_crash(monkeypatch):
+    """Codex review, 2026-10-24: an unhashable kind raised; true and 1.0 passed as index 1."""
+    model(monkeypatch, {"entries": [{"i": 0, "kind": [], "level": 3}, {"i": True, "kind": "sport", "level": 1},
+                                    {"i": 1.0, "kind": "sport", "level": 1}, {"i": 2, "kind": {"a": 1}, "level": 2},
+                                    {"i": 3, "kind": "meeting", "level": 3.0}, "row", None]})
+    r = client.post("/export", json=body())
+    assert r.status_code == 200 and r.json()["routine"] is False

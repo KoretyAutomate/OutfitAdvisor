@@ -246,8 +246,14 @@ async def _classify(req: ExportRequest, batch: list[int], until: float) -> dict:
     if not isinstance(rows, list):
         return {}
     return {o["i"]: (o["kind"], o["level"]) for o in rows if isinstance(o, dict)
-            and o.get("i") in batch and o.get("kind") in KINDS
-            and isinstance(o.get("level"), int) and not isinstance(o.get("level"), bool) and 1 <= o["level"] <= 5}
+            and _whole(o.get("i")) and o["i"] in batch
+            and isinstance(o.get("kind"), str) and o["kind"] in KINDS
+            and _whole(o.get("level")) and 1 <= o["level"] <= 5}
+
+
+def _whole(v: object) -> bool:
+    """A JSON integer: not true (== 1), not 1.0 — a row's index and level are exact."""
+    return type(v) is int
 
 
 async def _routine(req: ExportRequest) -> dict | None:

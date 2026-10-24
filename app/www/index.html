@@ -459,6 +459,13 @@
         <p class="note" id="shopNote" style="margin:5px 0 0"></p>
       </div>
       <div id="shopOut"></div>
+      <!-- Share my closet with an AI (user, 2026-10-24): one text file — the closet, the
+           rules, and the typical week read from the calendars ticked under Trips. -->
+      <div style="margin-top:11px">
+        <button class="ghost" id="exportBtn" style="width:100%;padding:10px">Share my closet with an AI</button>
+        <p class="note" id="exportNote" style="margin:5px 0 0">A file for Claude, ChatGPT or any AI: your clothes,
+          your rules and your typical week from your calendar — then ask it to dress you for your day.</p>
+      </div>
       <div class="grid" id="closetGrid"></div>
       <p class="note">Photograph your clothes once — the advisor then dresses you from what you
         actually own and skips items still in the laundry. Photos stay on this phone; the DGX
@@ -1867,7 +1874,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.56";
+const WEB_BUILD="1.58";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3549,7 +3556,10 @@ function toCandidate(ev){
           hint:(ev.location||"").trim()};
 }
 
-async function scanCalendar(){
+/* The calendars they ticked, as a set of ids — the one allow-list the trip scan and
+   "Share my closet with an AI" both read through (own calendars by choice, shared ones
+   only if ticked, failing closed). */
+async function calendarAllowList(){
   const Cal=Plugins.CapacitorCalendar;
   if(!Cal){ throw new Error("Calendar isn't available here — open the app on your phone."); }
   let res;
@@ -3558,7 +3568,6 @@ async function scanCalendar(){
     const r=await Cal.requestPermission({alias:"readCalendar"});
     if(!r||r.result!=="granted") throw new Error("Calendar permission denied — no trips can be found.");
   }
-  const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
   // The allow-list is rebuilt from the device on every scan rather than trusted
   // from the saved selection: that is what makes "a shared calendar is never read"
   // hold even for a calendar that was ticked before it was shared, and it fails
@@ -3573,15 +3582,35 @@ async function scanCalendar(){
     throw new Error(calReadable().length
       ? "None of your own calendars are ticked — choose at least one under Calendars."
       : "None of your calendars are ticked — choose at least one under Calendars.");
+  return allow;
+}
+/* The trip scan's events, between two instants, through calendarAllowList. */
+async function readAllowedEvents(from,to){
+  const Cal=Plugins.CapacitorCalendar, allow=await calendarAllowList();
   // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
   // dates for both, so the calendar scan could never have worked on a device. The
   // T2 tests passed because they mocked the plugin using OUR parameter names, so
   // the mock and the code agreed with each other and disagreed with reality.
   const {result}=await Cal.listEventsInRange({startDate:from,endDate:to});
-  const have=new Set(trips.map(t=>t.calId));
   // The plugin returns every calendar's events, so this positive allow-list is
   // what keeps a shared calendar — and birthdays, and holiday feeds — out.
-  const events=(result||[]).filter(e=>allow.has(String(e.calendarId)));
+  return (result||[]).filter(e=>allow.has(String(e.calendarId)));
+}
+/* Every OCCURRENCE in the ticked calendars (OutfitAlarm.listInstances, native): a weekly
+   series begun months ago is in it, which the plugin's Events query misses, and only
+   the allowed calendars are queried at all (Codex review, 2026-10-24). Filtered again
+   here, so the allow-list holds even against a native layer that ignored it. */
+async function readAllowedInstances(from,to){
+  const allow=await calendarAllowList(), Alarm=Plugins.OutfitAlarm;
+  if(!Alarm||!Alarm.listInstances) throw new Error("Calendar isn't available here — open the app on your phone.");
+  const {instances}=await Alarm.listInstances({from,to,calendarIds:[...allow]});
+  return (instances||[]).filter(e=>allow.has(String(e.calendarId)));
+}
+
+async function scanCalendar(){
+  const from=Date.now(), to=from+TRIP_SCAN_DAYS*DAY_MS;
+  const events=await readAllowedEvents(from,to);
+  const have=new Set(trips.map(t=>t.calId));
   candidates=events.map(toCandidate).filter(Boolean)
     .filter(c=>!have.has(c.calId)&&!tripsDismissed.includes(c.calId))
     .sort((a,b)=>a.start<b.start?-1:1);
@@ -5348,6 +5377,104 @@ function renderShopping(d){
        </div>`).join("");
 }
 
+/* ───────── Share my closet with an AI (user, 2026-10-24) ─────────
+   "export a file which I can give to LLM my closet and typical weekly schedule +
+   occasions it needs to be aware of" — the routine AI-written, never typed. The
+   calendar is boiled down HERE to patterns (title, weekdays, usual time, how many
+   weeks), so the DGX sees what recurs, not a diary; /export writes the week and
+   renders the file, and the share sheet hands it to whichever AI they use. */
+const EXPORT_PAST_DAYS=84;   // twelve weeks: enough to say "twice a month" or "every six weeks"
+let exportBusy=false;
+/* The occurrences, COUNTED (user, 2026-10-24: "calendar shall be skipped and more
+   generalized e.g., dinner X times in average per month, business trip every X
+   frequency"): one group per recurring series or repeated title, with how often it
+   happened, on which weekdays, at what time of day, how many nights it kept them away
+   and how often it was a video call. The title goes to the DGX only so its model can
+   say what KIND of entry it is; the file it writes carries counts, never an entry.
+   Weekday, time and nights come from the native layer, by calendar fields. */
+// A video call by its service, never by "a URL": a restaurant's website is a place.
+const ONLINE=/zoom\.us|zoom meeting|teams\.microsoft|microsoft teams|meet\.google|google meet|webex|skype|whereby|\bonline\b|\bvirtual\b|オンライン/i;
+function calDigest(inst){
+  const groups=new Map();
+  for(const e of inst){
+    if(!e||!e.title||!e.day) continue;
+    const key=e.recurring?"r:"+e.eventId:"t:"+String(e.title).trim().toLowerCase().replace(/\s+/g," ");
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(e);
+  }
+  const out=[];
+  for(const evs of groups.values()){
+    const g={title:evs[0].title,n:evs.length,weekdays:[0,0,0,0,0,0,0],morning:0,afternoon:0,evening:0,
+      allDay:0,nights:0,online:0,inPerson:0};
+    const nights=[];
+    for(const e of evs){
+      if(e.weekday>=0&&e.weekday<=6) g.weekdays[e.weekday]++;
+      const h=+String(e.time||"").slice(0,2);
+      if(e.allDay||!e.time) g.allDay++; else if(h<12) g.morning++; else if(h<17) g.afternoon++; else g.evening++;
+      const where=(e.location||"").trim();
+      if(ONLINE.test(where)) g.online++; else if(where) g.inPerson++;
+      // First to last day, Monday to Thursday, is three nights away.
+      if(e.endDay>e.day) nights.push(Math.round((isoMs(e.endDay)-isoMs(e.day))/DAY_MS));
+    }
+    // Nights it spans, when most of its occurrences cross dates: the median. "Away"
+    // only once the DGX has called it a trip.
+    nights.sort((a,b)=>a-b);
+    g.nights=nights.length*2>evs.length?Math.max(1,nights[Math.floor(nights.length/2)]):0;
+    out.push(g);
+  }
+  return out.sort((a,b)=>b.n-a.n).slice(0,80);
+}
+async function shareCloset(){
+  if(exportBusy) return;
+  const btn=$("exportBtn"), note=$("exportNote"), old=btn.textContent;
+  exportBusy=true; btn.disabled=true; btn.textContent="Reading your week…"; note.textContent="";
+  try{
+    let events=[], calendar=true;
+    try{
+      const now=Date.now();
+      events=calDigest(await readAllowedInstances(dayStart(now,EXPORT_PAST_DAYS),dayStart(now)));
+    }catch(e){ calendar=false; }
+    btn.textContent="Writing the file…";
+    const now=Date.now(), today=dayStart(now), recent={};
+    for(const [id,ts] of Object.entries(lastWorn)){
+      const t=Math.max(...(Array.isArray(ts)?ts:[]).filter(x=>x<=now));
+      if(isFinite(t)) recent[id]=Math.min(365,Math.round((today-dayStart(t))/DAY_MS));
+    }
+    // The WHOLE wardrobe, as closetOwned: the laundry is marked, never left out — an
+    // AI planning Friday must know the coat exists though it is in the wash today.
+    const r=await fetchT(120000,state.baseUrl.replace(/\/+$/,"")+"/export",{
+      method:"POST",headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
+      body:JSON.stringify({closet:closet.map(i=>({...itemMeta(i),availableCount:Math.max(1,i.count||1)})),
+        laundry:closet.filter(i=>avail(i)<1).map(i=>i.id),recent,
+        rules:userRules.map(x=>({kind:x.kind,a:x.a,b:x.b||null,id:x.id,text:x.text})),
+        prefers:swapSummary(closet),styleVotes:styleSummary(closet.map(i=>i.id)),
+        gender:state.gender,style:state.style,styleOffice:state.styleOffice,
+        officeDays:state.officeDays||[],tempOffset,events,calendar,days:EXPORT_PAST_DAYS})});
+    if(!r.ok) throw new Error(r.status===400?"Photograph your clothes first.":"server "+r.status);
+    const d=await r.json();
+    await shareText(d.filename,d.markdown);
+    note.textContent=(calendar?(events.length?"How often things happen was counted from your calendar — no entry is in the file. ":
+      "Your calendar had nothing in these weeks. "):"No calendar was readable, so the file says so. ")+
+      "Attach it in a chat with any AI and ask it to dress you.";
+  }catch(e){
+    note.textContent=e&&e.message==="Photograph your clothes first."?e.message:
+      "Couldn't write the file — check Tailscale, then try again.";
+  }finally{ exportBusy=false; btn.disabled=false; btn.textContent=old; }
+}
+/* A text file to the share sheet: written to the app's cache (Filesystem), then
+   Share opens Android's chooser on its URI. In a browser, a download. */
+async function shareText(name,text){
+  const Share=Plugins.Share, FS=Plugins.Filesystem;
+  if(Share&&FS){
+    const {uri}=await FS.writeFile({path:name,data:text,directory:"CACHE",encoding:"utf8"});
+    await Share.share({title:"My closet",files:[uri],dialogTitle:"Share your closet with an AI"});
+    return;
+  }
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/markdown"})); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 /* ───────── the wearer's own rules (2026-08-24) ─────────
 
    "I got white V-neck inner + white T recommendation. this combination shall be
@@ -6093,6 +6220,7 @@ $("rescanBtn").onclick=()=>{ rescanTypes(); };
 $("tidyBtn").onclick=()=>{ tidyPhotos(); };
 $("brandBtn").onclick=()=>{ scanBrands(); };
 $("shopBtn").onclick=()=>{ askShopping(); };
+$("exportBtn").onclick=()=>{ shareCloset(); };
 $("closetDone").onchange=async()=>{
   closetComplete=$("closetDone").checked;
   await prefSet("oa.closetComplete", closetComplete?"1":"0");

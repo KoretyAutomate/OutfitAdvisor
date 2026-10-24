@@ -151,9 +151,26 @@ def test_the_web_layer_has_no_second_calendar_lister():
 def test_the_scan_filters_events_through_a_positive_allow_list():
     """A negative filter degrades to 'read everything' the moment it is empty."""
     src = INDEX.read_text()
-    scan = src[src.index("async function scanCalendar()"):]
-    scan = scan[:scan.index("\nasync function ") if "\nasync function " in scan else len(scan)]
-    assert "calAvail=await loadCalendars()" in scan, "the allow-list must be rebuilt from the device each scan"
+    # One allow-list since 2026-10-24: the trip scan reads events and "Share my closet
+    # with an AI" reads occurrences, both through calendarAllowList — so the contract is
+    # checked there and in each reader, and each caller is held to its reader.
+    def body(head: str) -> str:
+        b = src[src.index(head):]
+        return b[:b.index("\nasync function ")] if "\nasync function " in b else b
+    gate = body("async function calendarAllowList()")
+    assert "calAvail=await loadCalendars()" in gate, "the allow-list must be rebuilt from the device each scan"
+    for reader in ("async function readAllowedEvents(", "async function readAllowedInstances("):
+        r = body(reader)
+        assert "await calendarAllowList()" in r, reader
+        assert re.search(r"filter\(e=>allow\.has\(String\(e\.calendarId\)\)\)", r), reader
+        assert "!allow||" not in r, reader
+    assert "calendarIds:[...allow]" in body("async function readAllowedInstances("), \
+        "the native query is told which calendars it may read"
+    for caller, reader in (("async function scanCalendar()", "readAllowedEvents("),
+                           ("async function shareCloset()", "readAllowedInstances(")):
+        b = body(caller)
+        assert reader in b and "listEventsInRange" not in b and "listInstances" not in b, caller
+    scan = body("async function readAllowedEvents(")
     assert re.search(r"filter\(e=>allow\.has\(String\(e\.calendarId\)\)\)", scan), \
         "events must be filtered by an allow-list, not by an exclusion that can be empty"
     assert "!allow||" not in scan, "an 'or no filter' escape hatch reads every calendar"

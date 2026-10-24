@@ -281,6 +281,30 @@ class OutfitAlarmPlugin : Plugin() {
      * owns the permission prompt (the plugin's `readCalendar` alias) and asks
      * first. Nothing is stored, and no event text is touched: ids and titles only.
      */
+    /** Every occurrence in these calendars between two instants — see CalendarInstances.
+     *  `calendarIds` are the web layer's allow-list (own by choice, shared only if
+     *  ticked); only those calendars are queried. */
+    @PluginMethod
+    fun listInstances(call: PluginCall) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            call.reject("Calendar access hasn't been granted yet.")
+            return
+        }
+        val from = call.getLong("from") ?: 0L
+        val to = call.getLong("to") ?: 0L
+        val ids = mutableListOf<Long>()
+        call.getArray("calendarIds")?.let { arr ->
+            for (i in 0 until arr.length()) arr.optString(i).toLongOrNull()?.let { ids.add(it) }
+        }
+        try {
+            call.resolve(JSObject().put("instances", CalendarInstances.list(context, from, to, ids)))
+        } catch (e: Exception) {
+            call.reject("Couldn't read the calendar.")
+        }
+    }
+
     /** The hour an evening event keeps the wearer out until, or null — see EveningOut. */
     @PluginMethod
     fun eveningOut(call: PluginCall) {

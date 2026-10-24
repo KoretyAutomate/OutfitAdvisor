@@ -133,7 +133,7 @@ def _bare_for_sure(ctx: "funnel.Ctx", cands: dict, order: list) -> bool:
     return False
 
 
-def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list, int, bool]:
+def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None, cold_too: bool = False) -> tuple[list, int, bool]:
     """(outfits, reached, finished): every combination the rules in ctx allow, for the
     outfits that give up the least (funnel.cost of funnel.needed()) — strictly less than
     `bound` when given, the cost of what the beam already has. Branch and bound: what
@@ -141,7 +141,8 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
     past the best in hand is cut, never one that could still beat it. Every outfit at
     the best cost is checked against check.issues, up to CHECKED_CAP of them; after
     that the walk goes on only where something strictly better could be.
-    finished=False only when the deadline cut it (Codex review, 2026-10-23)."""
+    finished=False only when the deadline cut it (Codex review, 2026-10-23).
+    `cold_too`: the outfits no garment makes warm as well, for search's last resort."""
     ctx = funnel.Ctx(ctx.day, ctx.target, ctx.relaxed, ctx.exclude, len(funnel.WIDTHS), ctx.deadline)
     cands, _ = funnel.candidates(ctx, priority)
     today = frozenset(s for s, ids in cands.items() if ids)
@@ -201,11 +202,12 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
                 _walk(ctx, c, order, visit, worse, prune_cold)
 
     try:
-        every(True)
-        if not ok and not cold:
-            # Nothing at all: the cold-torso cut rests on a guess that a warmer garment
-            # fits, and only this walk can say it does not (pre-push gate, 2026-10-24).
-            every(False)
+        # `cold_too`: search's last resort, once no step of the ladder found anything
+        # warm — the cold-torso cut rests on a guess that a warmer garment fits, and
+        # only this walk can say it does not. Never earlier: walking every cold
+        # combination at each step spent the time a warm outfit needed (pre-push gate,
+        # 2026-10-24).
+        every(not cold_too)
     except _OutOfTime:
         return ok + cold, reached[0], False
     return ok + cold, reached[0], True

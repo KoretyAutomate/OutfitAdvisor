@@ -370,3 +370,22 @@ def test_the_best_cold_outfits_are_kept_not_the_first_sixty(monkeypatch):
     ban = tuple(rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "trousers"}}]))
     d, r = run(7, *shirts, *mesh, leather, swt, CHINOS, hi=12, p=prefs("office", rules=ban), rain=80, isRain=True)
     assert r.outfits and r.outfits[0].picks["footwear"] == leather["id"], [o.relaxed for o in r.outfits]
+
+
+def test_a_warm_outfit_behind_a_relaxed_rule_is_found_before_the_cold_walk():
+    """Pre-push gate, 2026-10-24: twenty each of shirts, jeans and patterned sneakers,
+    one patterned sweater — the warm outfit needs colour relaxed, and must be found
+    inside a short deadline rather than spent on walking every cold combination."""
+    import time
+    from wardrobe_fixtures import day as mkday
+    shirts = [g(f"pshirt{n:03d}", f"checked shirt {n}", "tops", "shirt", ["base"], 1, pattern="checked")
+              for n in range(20)]
+    legs = [g(f"jean{n:05d}", f"jeans {n}", "bottoms", "jeans", ["bottoms"], 3) for n in range(20)]
+    shoes = [g(f"psnk{n:05d}", f"striped sneakers {n}", "footwear", "sneakers", ["footwear"], 2, pattern="striped")
+             for n in range(20)]
+    knit = g("pknit0001", "fair isle sweater", "tops", "sweater", ["mid"], 4)
+    d = mkday(7, *shirts, *legs, *shoes, knit, hi=12, prefs=prefs())
+    r = funnel.search(funnel.Ctx(d, funnel.target_level(d.look), deadline=time.monotonic() + 20))
+    assert r.outfits and r.outfits[0].picks["mid"] == knit["id"] and not r.outfits[0].rank[0], r.outfits[0].relaxed
+    # Before the fix the strict step walked all 800 cold shirt-jeans-shoes outfits first.
+    assert r.exact < 100, r.exact

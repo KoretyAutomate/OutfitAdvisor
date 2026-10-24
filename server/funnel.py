@@ -570,6 +570,15 @@ def search(ctx: Ctx, priority=None) -> Result:
     if held:     # out of time with something in hand: serve the best of it
         tier = [o for o in held if o.rank == held[0].rank]
         return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, False, reached)
+    if not chilly and complete and time.monotonic() < ctx.deadline:
+        # Nothing warm anywhere on the ladder: once, with every rule it may give up,
+        # the walk without its cold-torso cut (walks.exact's cold_too).
+        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, len(WIDTHS) - 1, ctx.deadline)
+        more_ok, more, complete = walks.exact(c, priority, None, cold_too=True)
+        reached += more
+        if hot := warm(more_ok):
+            return Result(_diverse([o for o in hot if o.rank == hot[0].rank]), tuple(relaxed), ctx.target,
+                          removed, complete, reached)
     if chilly:   # no combination is warm, whatever the guess says: the closest
         tier = [o for o in chilly if o.rank == chilly[0].rank]
         return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)

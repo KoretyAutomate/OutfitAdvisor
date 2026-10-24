@@ -256,3 +256,10 @@ def test_malformed_classifier_rows_are_retried_never_a_crash(monkeypatch):
                                     {"i": 3, "kind": "meeting", "level": 3.0}, "row", None]})
     r = client.post("/export", json=body())
     assert r.status_code == 200 and r.json()["routine"] is False
+
+
+def test_a_calendar_of_nothing_to_dress_for_is_not_a_failure(monkeypatch):
+    model(monkeypatch, {"entries": [{"i": 0, "kind": "ignore", "level": 2}]})
+    focus = {"title": "Focus time", "n": 40, "weekdays": [0, 8, 8, 8, 8, 8, 0], "afternoon": 40}
+    md = client.post("/export", json=body(events=[focus])).json()["markdown"]
+    assert "Nothing regular in my calendar changes how I dress" in md and "couldn't be summarised" not in md

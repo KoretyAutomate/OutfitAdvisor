@@ -381,9 +381,11 @@ def _week(req: ExportRequest, routine: dict | None) -> str:
         return out + "\n_No calendar was readable when this was exported — I'll tell you about my week._\n"
     if not req.events:
         return out + f"\n_Nothing in my calendar over the last {round(req.days / 7)} weeks._\n"
-    kinds = _kinds(req, routine) if routine else []
-    if not kinds:
+    if routine is None:
         return out + "\n_My calendar couldn't be summarised this time — ask me about my week._\n"
+    kinds = _kinds(req, routine)
+    if not kinds:      # every entry classified, and none of them changes what I wear
+        return out + "\n_Nothing regular in my calendar changes how I dress._\n"
     # Patterns only, never an entry: no title, place or date from the calendar is in this
     # file (user, 2026-10-24).
     return (out + f"\n_How often things happen, from my calendar over the last {round(req.days / 7)} weeks; "

@@ -44,7 +44,8 @@ _PAT = (
     (re.compile(r"strip|breton|pinstripe|ボーダー|ストライプ", re.I), "striped"),
     (re.compile(r"check|plaid|tartan|gingham|houndstooth|チェック", re.I), "checked"),
     # Knit patterns too (user, 2026-10-18: a "navy reindeer sweater" read as plain).
-    (re.compile(r"floral|paisley|polka|\bdots?\b|camo|leopard|print|fair ?isle|nordic|reindeer|"
+    # "patterned" too (2026-10-24: a "navy patterned button-up shirt" read as plain).
+    (re.compile(r"patterned|floral|paisley|polka|\bdots?\b|camo|leopard|print|fair ?isle|nordic|reindeer|"
                 r"snowflake|argyle|intarsia|jacquard|柄|ノルディック", re.I), "print"),
     (re.compile(r"graphic|logo tee|band tee", re.I), "graphic"),
 )
@@ -223,14 +224,18 @@ LOOK_PRINCIPLES = (
     "jackets — not with a polo or fine knitwear.\n"
     "- Colour: build on neutrals (navy, grey, charcoal, white, black, beige, olive, "
     "brown, denim) with at most ONE accent colour or pattern; two pastels or two "
-    "accents compete.\n"
+    "accents compete. A textured knit (marl, heather, waffle, cable) counts as the "
+    "pattern: never over a print. A belt in an accent colour matches the shoes.\n"
     # User, 2026-10-18, on a navy knit polo under a navy reindeer sweater: "Fabric of
     # polo and sweater doesn't go well".
     "- Texture: what goes under a sweater must suit its knit. A chunky, cable or "
     "patterned knit (Fair Isle, Nordic, reindeer) goes over a plain tee, a long-sleeve "
-    "tee or a button-up shirt — never a polo. No polo under any sweater, however fine "
-    "(user, 2026-10-23: knit on knit); a polo goes under a cardigan or a jacket, in a "
-    "contrasting colour.\n"
+    "tee or a button-up shirt — never a polo. No knit on knit (user, 2026-10-23): a "
+    "polo, sweater or cardigan never goes under a sweater or a cardigan, however fine; "
+    "a polo goes under a jacket or a coat. A turtleneck under a cardigan is the one "
+    "exception.\n"
+    "- The whole outfit: no more layers than the morning needs, and the coat as smart "
+    "as what it covers, within a step.\n"
 )
 
 def stylist_enabled() -> bool:

@@ -61,7 +61,7 @@ def beam(ctx: "funnel.Ctx", cands: dict, order: list, priority, shape: tuple = (
                 nxt.append(trial)
         # Once the undershirt's or the top's slot is decided, outfits with one go ahead
         # of those without, before the cut — the rank puts them first, so must the beam.
-        nxt.sort(key=lambda q: (funnel._repeats(ctx, q), _left_off(q, "inner", cands),
+        nxt.sort(key=lambda q: (funnel._repeats(ctx, q), funnel.bare(ctx, q, cands),
                                 _left_off(q, "base", cands), -_partial(ctx, q, priority), funnel.key(q)))
         partials = nxt[:funnel._width(ctx)[1]]
     return partials

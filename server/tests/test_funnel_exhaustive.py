@@ -95,7 +95,8 @@ def test_turning_every_outfit_down_never_buys_a_broken_rule(monkeypatch):
     out, seen = dress(monkeypatch, closet, weather(10, 19), prefs("office"),
                       [{"choice": 0, "reason": "too plain"}, {"choice": 1, "look": "", "lines": {}, "tip": ""}])
     assert out["picks"]["bottoms"] == CHINOS["id"]
-    assert "Note:" not in out["text"]
+    # No rule given up; only the stylist's own word that it turned this down (2026-10-24).
+    assert "every combination" not in out["text"] and "looked right to the stylist" in out["text"]
 
 
 # ── Codex review, 2026-10-23 (thread 01a1689a) ─────────────────────────────────────

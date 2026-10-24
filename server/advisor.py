@@ -47,6 +47,7 @@ REVISE_BY_S = 40.0
 STYLIST_MIN_LEFT_S = 20.0
 # The one round after the fallback (see _rescue): a model answer and a review.
 RESCUE_MIN_LEFT_S = 30.0
+RESCUES = 2             # re-searches after the chooser turns every outfit down
 # The phone draws any slot not starting "None" as a garment to wear (slotIsEmpty in
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
@@ -64,13 +65,15 @@ SYSTEM = (
     "it at the warmest. Warm enough for the first, not overdressed for the second; a "
     "layer they can take off covers the difference.\n"
     "- Build from the skin out: an undershirt — only a garment that can be worn as "
-    "inner; they wear one whenever they own one, and a tee is never an undershirt — "
+    "inner; they wear one under a shirt, polo or knit whenever they own one, never under "
+    "a T-shirt, and a tee is never an undershirt — "
     "then ONE top: tee, polo, shirt or blouse. Warmth is added with "
     "knitwear (sweater, cardigan, hoodie, fleece) and then a jacket or coat, never by "
     "stacking a second top. An open button-up shirt over a tee is the one exception.\n"
     f"- Outdoors on a cold morning — below {layers.COAT_BELOW_C}C felt at the coldest hour "
-    "— it is undershirt, top, knitwear AND a jacket or coat, warm enough for that hour; "
-    "the coat comes off indoors and by midday. Knitwear alone is for indoors.\n"
+    "— a jacket or coat goes over the top. Knitwear goes between only when the coat "
+    f"alone is not warm enough for that hour, and always below {layers.KNIT_AND_COAT_BELOW_C}C "
+    "felt. The coat comes off indoors and by midday. Knitwear alone is for indoors.\n"
     "- Never a long sleeve under a short one. Never invent a layer the day does not "
     "need: on a warm day mid and outer stay empty.\n"
     + style.LOOK_PRINCIPLES +
@@ -298,20 +301,25 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     if not result.outfits:
         return None
     said = await chooser.choose(day, result, _gaps_of(result, day), left())
-    if said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S:
-        log.info("advisor: the chooser turned every outfit down — searching again without them")
-        turned = frozenset(funnel.look(o.picks) for o in result.outfits)
+    # Only outfits that give up nothing the best turned-down one kept: the model's eye
+    # never trades a rule kept for one broken (user, 2026-10-23: "make sure the
+    # selection is nothing violating the rule"; Codex review — colour for belt is a
+    # trade too, whatever cost() says).
+    gave = set(result.outfits[0].relaxed)
+    turned: frozenset = frozenset()
+    for _ in range(RESCUES):
+        if not (said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S):
+            break
+        log.info("advisor: the chooser turned every outfit down (%s) — searching again without them",
+                 said["reason"] or "no reason")
+        turned |= frozenset(funnel.look(o.picks) for o in result.outfits)
         again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
                                                                   deadline=_search_until(left())))
-        # Only outfits that give up nothing the best turned-down one kept: the model's
-        # eye never trades a rule kept for one broken (user, 2026-10-23: "make sure the
-        # selection is nothing violating the rule"; Codex review — colour for belt is
-        # a trade too, whatever cost() says).
-        gave = set(result.outfits[0].relaxed)
         fair = [o for o in again.outfits if set(o.relaxed) <= gave]
-        if fair:
-            result = replace(again, outfits=fair)
-            said = await chooser.choose(day, result, _gaps_of(result, day), left())
+        if not fair:
+            break
+        result = replace(again, outfits=fair)
+        said = await chooser.choose(day, result, _gaps_of(result, day), left())
     chose = bool(said and said["choice"] >= 1)
     pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
     words: dict = said if said and chose else {"look": "", "lines": {}, "tip": ""}
@@ -323,8 +331,13 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     out = {"look": look, "lines": lines, "tip": tip, "missing": []}
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
-    final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})),
-                        [f"Note: {n}." for n in funnel.notes(pick.relaxed, result.complete)])
+    notes = [f"Note: {n}." for n in funnel.notes(pick.relaxed, result.complete)]
+    if said and said["choice"] == 0:
+        # Turned down every time: served, since something must be, and said so (user,
+        # 2026-10-24 — the chooser picked the least bad and called it good).
+        why = said["reason"].rstrip(".") if said["reason"] else "nothing quite works together"
+        notes.append(f"Note: none of today's options looked right to the stylist — {why}. This is the closest.")
+    final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), notes)
     # "llm" only when the model's words survived into what is shown — a bare number is
     # not text it wrote, and _finish may strip a line or tip naming something unowned.
     kept = any(t and final["lines"].get(s) == t for s, t in lines.items()) or bool(tip and tip in final["tip"])

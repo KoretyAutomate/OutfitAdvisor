@@ -41,6 +41,17 @@ _TORSO = ("inner", "base", "mid", "outer")
 # over the knitwear (user, 2026-10-18: a 2-13C morning served a sweater and no coat).
 # The plan temperature already carries the wearer's warm/cold calibration.
 COAT_BELOW_C = 8
+# Below this the coat goes over knitwear whatever the coat (user, 2026-10-18: felt
+# -1..10C). Between it and COAT_BELOW_C a warm coat over the top is enough (user,
+# 2026-10-24: "Coat over the top" — a knit polo, a cardigan AND a parka at 5-12C).
+KNIT_AND_COAT_BELOW_C = 5
+
+
+def coat_alone(item: dict, plan_temp: float) -> bool:
+    """This coat is warm enough over the top by itself this cold morning: a level
+    warmer than the coldest hour asks of the outermost garment."""
+    need = scale.min_outer_warmth(plan_temp, scale.graded_on(item))
+    return plan_temp >= KNIT_AND_COAT_BELOW_C and (item.get("warmth") or 3) >= need + 1
 
 
 def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
@@ -53,7 +64,7 @@ def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
     """
     ref = by_item.get(picks.get("base")) or next(
         (by_item.get(picks[c]) for c in _TORSO if picks.get(c)), None) or {}
-    # A cold morning is undershirt, top, knitwear AND a coat — four, whatever the
+    # A cold morning can be undershirt, top, knitwear AND a coat — four, whatever the
     # scale says, or the budget fights the coat the check demands and the undershirt
     # is what gets dropped (plan review, 2026-10-18).
     return max(4 if plan_temp < COAT_BELOW_C else 2, _budget(plan_temp, ref))

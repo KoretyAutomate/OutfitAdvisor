@@ -128,8 +128,8 @@ class Outfit:
     off: tuple = ()          # what comes off by midday, for the advice text
     # Ranked before the score, in this order (pre-push plan review, 2026-10-20; rules
     # first since 2026-10-23): fewer rules given up; a re-roll shows something else
-    # wherever it can; a cold morning gets knitwear AND a coat; they wear an undershirt
-    # whenever one fits.
+    # wherever it can; the layers fit the day (_layering, 2026-10-24); they wear an
+    # undershirt whenever one fits, never under a T-shirt.
     rank: tuple = ()
 
     @property
@@ -240,7 +240,7 @@ def clash(ctx: Ctx, picks: dict) -> str | None:
     if any(a in ids and b in ids for a, b in day.look.disliked):
         return "disliked"
     if (check.stacked(picks, wd.by_item) or sleeves.sleeve_clashes(picks, wd.by_item)
-            or pairing.top_over_knit(ctx, picks)):
+            or pairing.top_over_knit(ctx, picks) or (picks.get("inner") and check.tee_base(picks, wd.by_item))):
         return "stack"
     if wd.by_group.get(picks.get("base")) == "onepiece" and picks.get("bottoms"):
         return "onepiece"
@@ -416,9 +416,27 @@ def _over(ctx: Ctx, picks: dict) -> int:
     return int(n > layers.max_layers(picks, ctx.wd.by_item, ctx.day.plan))
 
 
-def _cold(ctx: Ctx, shape: tuple) -> int:
-    """A cold morning dressed without knitwear AND a coat."""
-    return int(ctx.day.plan < layers.COAT_BELOW_C and shape != SHAPES[-1])
+def _layering(ctx: Ctx, picks: dict) -> int:
+    """The layers do not fit the day (user, 2026-10-24: "Coat over the top"). On a cold
+    morning: no coat; or a knit under it where the coat alone is warm enough, or none
+    where it is not (always knit and coat below layers.KNIT_AND_COAT_BELOW_C). On a
+    milder one: a knit AND a jacket where either alone is warm enough."""
+    wd, plan = ctx.wd, ctx.day.plan
+    mid, outer = (wd.by_item.get(picks.get(s)) for s in ("mid", "outer"))
+    if plan < layers.COAT_BELOW_C:
+        if not outer:
+            return 1
+        # Knitwear is the warmth between: a shirt open over a tee is not (2026-10-24).
+        knit = bool(mid) and mid.get("type") in pairing.KNITWEAR
+        return int(knit == (check.is_coat(outer) and layers.coat_alone(outer, plan)))
+    return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
+
+
+def bare(ctx: Ctx, picks: dict, cands: dict) -> int:
+    """The undershirt's slot is decided, empty, something could fill it, and the top
+    takes one — never a T-shirt (check.tee_base)."""
+    return int("inner" in picks and not picks["inner"] and bool(cands.get("inner"))
+               and not check.tee_base(picks, ctx.wd.by_item))
 
 
 def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) -> tuple:
@@ -429,8 +447,9 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     shape, picks = outfit
     kinds = {i.kind for i in issues}
     repeats = max(sum(1 for k in kinds if k.startswith("repeat-")), _repeats(ctx, picks))
-    cold = _cold(ctx, shape)
-    bare = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")))
+    cold = _layering(ctx, picks)
+    under = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")
+                                        and not check.tee_base(picks, ctx.wd.by_item)))
     topless = int("base" in today and not picks.get("base"))
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
@@ -439,7 +458,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # knit-and-coat never buy a broken rule (user, 2026-10-23: "make sure the selection
     # is nothing violating the rule"; Codex review — a shown navy tee traded for a
     # colour clash). Flat, so any() still reads "falls short somewhere".
-    return (*cost(gave), repeats, cold, bare, topless, over)
+    return (*cost(gave), repeats, cold, under, topless, over)
 
 
 def _diverse(ranked: list) -> list:
@@ -474,8 +493,9 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), _cold(c, r[1]),
-                                   int("inner" in today and not r[2].get("inner")),
+                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), _layering(c, r[2]),
+                                   int("inner" in today and not r[2].get("inner")
+                                       and not check.tee_base(r[2], c.wd.by_item)),
                                    int("base" in today and not r[2].get("base")), _over(c, r[2]), -r[0],
                                    key(_full(r[2]))))
     ok: list = []

@@ -328,3 +328,18 @@ def test_a_cold_fallback_is_always_said(monkeypatch):
                       [fake_model.choice(1)])
     assert funnel.COLD in out["text"]
     assert "None of these is warm enough" in seen["chooser"][0]
+
+
+def test_a_cold_fallback_after_the_deadline_does_not_claim_nothing_warm_exists(monkeypatch):
+    import advisor
+    from dataclasses import replace
+    import rules as rl
+    swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
+    ban = rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "jeans"}}])
+    real = funnel.search
+    monkeypatch.setattr(advisor.funnel, "search",
+                        lambda ctx, priority=None: replace(real(ctx, priority), complete=False))
+    out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(rules=tuple(ban)),
+                      [fake_model.choice(1)])
+    assert funnel.COLD_UNSURE in out["text"] and funnel.COLD not in out["text"]
+    assert "nothing warmer goes" not in seen["chooser"][0]

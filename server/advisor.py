@@ -315,7 +315,9 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
     notes = [f"Note: {n}." for n in funnel.notes(pick.relaxed, result.complete)]
     if pick.rank and pick.rank[0]:
-        notes.append(f"Note: {funnel.COLD}.")      # warmth given up: never silent (pre-push gate)
+        # Warmth given up: never silent, and "nothing warm goes" only when every
+        # combination was tried (pre-push gate, 2026-10-24).
+        notes.append(f"Note: {funnel.COLD if result.complete else funnel.COLD_UNSURE}.")
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,
         # 2026-10-24 — the chooser picked the least bad and called it good).

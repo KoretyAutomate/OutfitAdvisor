@@ -74,6 +74,8 @@ NOTES = {
 }
 # Served only when no combination is warm (search's `chilly`), and always said.
 COLD = "nothing warm enough for the coldest hour goes with the rest today — take an extra layer"
+COLD_UNSURE = ("time ran out before a warm enough outfit was found — this one is light for the coldest "
+               "hour; take an extra layer")
 TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))

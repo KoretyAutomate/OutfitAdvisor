@@ -350,3 +350,23 @@ def test_a_rescue_never_trades_a_warm_outfit_for_a_cold_one(monkeypatch):
     no = fake_model.choice(0, reason="no")
     out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(), [no, no, no])
     assert out["picks"]["mid"] == swt["id"] and funnel.COLD not in out["text"]
+
+
+def test_the_best_cold_outfits_are_kept_not_the_first_sixty(monkeypatch):
+    """Pre-push gate, 2026-10-24: with nothing warm, a rainy office day — the walk meets
+    the striped mesh sneakers (colour, wet and band1) before the plain leather ones
+    (band1 alone). The one giving up least is served, not the first CHECKED_CAP."""
+    import rules as rl
+    monkeypatch.setattr(funnel, "CHECKED_CAP", 3)
+    beam = funnel._pass
+    monkeypatch.setattr(funnel, "_pass", lambda ctx, priority: ([], *beam(ctx, priority)[1:]))
+    shirts = [g(f"sshirt{n:03d}", f"striped shirt {n}", "tops", "shirt", ["base"], 1, colors=["blue"],
+                pattern="striped") for n in range(6)]
+    mesh = [g(f"msnk{n:05d}", f"striped mesh sneakers {n}", "footwear", "sneakers", ["footwear"], 2,
+              colors=["red"], pattern="striped", material="mesh") for n in range(4)]
+    leather = {**g("lsnk00009", "white leather sneakers", "footwear", "sneakers", ["footwear"], 2,
+                   colors=["white"], material="leather", level=2), "_ago": 0}
+    swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
+    ban = tuple(rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "trousers"}}]))
+    d, r = run(7, *shirts, *mesh, leather, swt, CHINOS, hi=12, p=prefs("office", rules=ban), rain=80, isRain=True)
+    assert r.outfits and r.outfits[0].picks["footwear"] == leather["id"], [o.relaxed for o in r.outfits]

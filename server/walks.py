@@ -146,6 +146,7 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
     cands, _ = funnel.candidates(ctx, priority)
     today = frozenset(s for s, ids in cands.items() if ids)
     ok: list = []
+    cold: list = []
     seen: set = set()
     reached = [0]
     # The best cost in hand, and whether outfits AT it are still wanted.
@@ -183,25 +184,28 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None) -> tuple[list
                     if not got:
                         return
                     if got[0].rank[0]:
-                        # Cold: kept for a closet with nothing warm, never a bound.
-                        if sum(1 for o in ok if o.rank[0]) < funnel.CHECKED_CAP:
-                            ok.extend(got)
+                        # Cold: the best CHECKED_CAP by rank, for a closet with nothing
+                        # warm — never a bound (pre-push gate, 2026-10-24: the first
+                        # sixty hid one breaking fewer rules).
+                        cold.extend(got)
+                        cold.sort(key=lambda o: (o.rank, -o.score, funnel.key(o.picks)))
+                        del cold[funnel.CHECKED_CAP:]
                         return
                     c = funnel.cost(got[0].relaxed)
                     if best[0] is None or c < best[0]:
                         best[0], best[1] = c, True
                         ok[:] = [o for o in ok if funnel.cost(o.relaxed) <= c]
                     ok.extend(got)
-                    if sum(1 for o in ok if not o.rank[0]) >= funnel.CHECKED_CAP:
+                    if len(ok) >= funnel.CHECKED_CAP:
                         best[1] = False
                 _walk(ctx, c, order, visit, worse, prune_cold)
 
     try:
         every(True)
-        if not ok:
+        if not ok and not cold:
             # Nothing at all: the cold-torso cut rests on a guess that a warmer garment
             # fits, and only this walk can say it does not (pre-push gate, 2026-10-24).
             every(False)
     except _OutOfTime:
-        return ok, reached[0], False
-    return ok, reached[0], True
+        return ok + cold, reached[0], False
+    return ok + cold, reached[0], True

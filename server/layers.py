@@ -111,15 +111,17 @@ def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float,
 
 
 def _top_for_an_undershirt(wd, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:
-    """They own a top other than a tee, not banned outright: the undershirt goes under
+    """They own a top other than a tee — a shirt, a knit, a cardigan worn as the top —
+    not banned outright and not too warm today: the undershirt goes under
     that instead — so the cold tee is a choice to change, not a gap (pre-push gate,
     2026-10-24)."""
     outright = [r for r in user_rules or [] if not rules.is_combination(r)]
     # …that today allows: a warmth-5 sweater on a 7-12C day is no top to change into.
-    return any("base" in (wd.by_roles.get(i) or ()) and it.get("type") != "t_shirt"
-               and not rules.violations(outright, {"base": i}, wd.by_item)
-               and not overdressed(it, "base", wd, plan_temp, peak_temp, user_rules)
-               for i, it in wd.by_item.items())
+    # A cardigan worn as the top goes over the undershirt too (pre-push gate, 2026-10-24).
+    return any(it.get("type") != "t_shirt" and any(
+        r in ("base", "mid") and not rules.violations(outright, {r: i}, wd.by_item)
+        and not overdressed(it, r, wd, plan_temp, peak_temp, user_rules) for r in wd.by_roles.get(i) or ())
+        for i, it in wd.by_item.items())
 
 
 def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict],

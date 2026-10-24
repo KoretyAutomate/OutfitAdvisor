@@ -263,3 +263,12 @@ def test_a_sweater_too_warm_to_wear_is_no_top_for_the_undershirt():
     hot_knit = g("hotknit01", "heavy wool sweater", "tops", "sweater", ["base", "mid"], 5)
     d, r = run(7, warm_under, TEE, hot_knit, JEANS, SNEAK, hi=12)
     assert_valid(d, r)
+
+
+def test_a_cardigan_can_take_the_warm_undershirt_instead_of_the_cold_tee():
+    from wardrobe_fixtures import TEE
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    light_cardi = g("lcardi001", "navy cardigan", "tops", "cardigan", ["mid", "outer"], 2)
+    d, r = run(7, warm_under, TEE, light_cardi, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["inner"] == warm_under["id"], r.outfits[0].picks

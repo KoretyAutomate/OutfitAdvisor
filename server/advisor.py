@@ -340,7 +340,12 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,
         # 2026-10-24 — the chooser picked the least bad and called it good).
-        why = said["reason"].rstrip(".") if said["reason"] else "nothing quite works together"
+        why = said["reason"].rstrip(".")
+        # The model's words, so held to what _finish holds its tip to: on a closet-only
+        # wardrobe it never names something they do not own (pre-push gate, 2026-10-24).
+        if not why or (day.prefs.closet_only
+                       and prose._names_something_unowned(why, _owned_words(pick.picks, wd))):
+            why = "nothing quite works together"
         notes.append(f"Note: none of today's options looked right to the stylist — {why}. This is the closest.")
     final = _with_notes(_finish(Answer(out, pick.picks, pick.found), day, wd, (pick.picks, {})), notes)
     # "llm" only when the model's words survived into what is shown — a bare number is

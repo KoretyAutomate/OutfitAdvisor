@@ -433,7 +433,8 @@ def _layering(ctx: Ctx, picks: dict) -> int:
         if check.is_coat(outer) and layers.coat_alone(outer, plan):
             # Extra only as a layer BETWEEN: a sweater that is the only top stays on
             # (pre-push gate, 2026-10-24 — the parka went over the undershirt alone).
-            return int(bool(mid) and mid.get("type") in pairing.KNITWEAR)
+            # A cardigan with nothing under it is the top, too.
+            return int(bool(mid) and bool(base) and mid.get("type") in pairing.KNITWEAR)
         return int((mid or base).get("type") not in pairing.KNITWEAR)
     return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
 
@@ -443,6 +444,13 @@ def bare(ctx: Ctx, picks: dict, cands: dict) -> int:
     takes one — never a T-shirt (check.tee_base)."""
     return int("inner" in picks and not picks["inner"] and bool(cands.get("inner"))
                and not check.tee_base(picks, ctx.wd.by_item))
+
+
+def _topless(picks: dict, today: frozenset) -> int:
+    """No top where one fits: an empty base that something could fill, or nothing at
+    all between the undershirt and the coat while a mid layer could be worn (pre-push
+    gate, 2026-10-24 — a parka over the undershirt alone beat the only cardigan)."""
+    return int(not picks.get("base") and ("base" in today or (not picks.get("mid") and "mid" in today)))
 
 
 def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) -> tuple:
@@ -456,7 +464,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     cold = _layering(ctx, picks)
     under = int("no-inner" in kinds or ("inner" in today and not picks.get("inner")
                                         and not check.tee_base(picks, ctx.wd.by_item)))
-    topless = int("base" in today and not picks.get("base"))
+    topless = _topless(picks, today)
     # More layers than the day allows (check.py's soft "layers"): never offered beside
     # outfits within it — the chooser is told every outfit fits the weather (2026-10-21).
     over = int("layers" in kinds)
@@ -502,7 +510,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
                     key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), _layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
-                                   int("base" in today and not r[2].get("base")), _over(c, r[2]), -r[0],
+                                   _topless(r[2], today), _over(c, r[2]), -r[0],
                                    key(_full(r[2]))))
     ok: list = []
     seen: set = set()

@@ -218,3 +218,25 @@ def test_the_chooser_s_reason_never_reaches_the_log(monkeypatch, caplog):
     with caplog.at_level(logging.INFO):
         dress(monkeypatch, [*shirts, CHINOS, MESH_SNK], weather(16, 22), prefs(), [no, no, no])
     assert "turned every outfit down" in caplog.text and "too plain" not in caplog.text
+
+
+def test_a_cardigan_that_is_the_only_top_stays_on_under_a_warm_coat():
+    from wardrobe_fixtures import CARDI, UNDER
+    d, r = run(6, UNDER, CARDI, PARKA, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["mid"] == CARDI["id"] or r.outfits[0].picks["outer"] == CARDI["id"], r.outfits[0].picks
+
+
+def test_a_cold_tee_is_never_served_while_a_shirt_could_take_the_warm_undershirt():
+    from wardrobe_fixtures import OXFORD
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    d, r = run(7, warm_under, OXFORD, TEE, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == OXFORD["id"] and r.outfits[0].picks["inner"] == warm_under["id"]
+
+
+def test_a_rejection_naming_an_unowned_coat_is_not_repeated_on_a_closet_only_wardrobe(monkeypatch):
+    shirts = [g(f"shrt{n:05d}", f"white shirt {n}", "tops", "shirt", ["base"], 2, colors=["white"]) for n in range(4)]
+    no = fake_model.choice(0, reason="add a wool overcoat to make these work")
+    out, _ = dress(monkeypatch, [*shirts, CHINOS, MESH_SNK], weather(16, 22), prefs(closet_only=True), [no, no, no])
+    assert "overcoat" not in out["text"] and "nothing quite works together" in out["text"]

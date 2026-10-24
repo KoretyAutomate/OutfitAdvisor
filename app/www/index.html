@@ -3556,10 +3556,10 @@ function toCandidate(ev){
           hint:(ev.location||"").trim()};
 }
 
-/* The events of the calendars they ticked, between two instants — the trip scan and
-   "Share my closet with an AI" read through this one door, so the allow-list below
-   (own calendars by choice, shared ones only if ticked, failing closed) holds for both. */
-async function readAllowedEvents(from,to){
+/* The calendars they ticked, as a set of ids — the one allow-list the trip scan and
+   "Share my closet with an AI" both read through (own calendars by choice, shared ones
+   only if ticked, failing closed). */
+async function calendarAllowList(){
   const Cal=Plugins.CapacitorCalendar;
   if(!Cal){ throw new Error("Calendar isn't available here — open the app on your phone."); }
   let res;
@@ -3582,6 +3582,11 @@ async function readAllowedEvents(from,to){
     throw new Error(calReadable().length
       ? "None of your own calendars are ticked — choose at least one under Calendars."
       : "None of your calendars are ticked — choose at least one under Calendars.");
+  return allow;
+}
+/* The trip scan's events, between two instants, through calendarAllowList. */
+async function readAllowedEvents(from,to){
+  const Cal=Plugins.CapacitorCalendar, allow=await calendarAllowList();
   // {startDate, endDate} — NOT {from, to}. The plugin silently received undefined
   // dates for both, so the calendar scan could never have worked on a device. The
   // T2 tests passed because they mocked the plugin using OUR parameter names, so
@@ -3590,6 +3595,16 @@ async function readAllowedEvents(from,to){
   // The plugin returns every calendar's events, so this positive allow-list is
   // what keeps a shared calendar — and birthdays, and holiday feeds — out.
   return (result||[]).filter(e=>allow.has(String(e.calendarId)));
+}
+/* Every OCCURRENCE in the ticked calendars (OutfitAlarm.listInstances, native): a weekly
+   series begun months ago is in it, which the plugin's Events query misses, and only
+   the allowed calendars are queried at all (Codex review, 2026-10-24). Filtered again
+   here, so the allow-list holds even against a native layer that ignored it. */
+async function readAllowedInstances(from,to){
+  const allow=await calendarAllowList(), Alarm=Plugins.OutfitAlarm;
+  if(!Alarm||!Alarm.listInstances) throw new Error("Calendar isn't available here — open the app on your phone.");
+  const {instances}=await Alarm.listInstances({from,to,calendarIds:[...allow]});
+  return (instances||[]).filter(e=>allow.has(String(e.calendarId)));
 }
 
 async function scanCalendar(){
@@ -5370,34 +5385,38 @@ function renderShopping(d){
    renders the file, and the share sheet hands it to whichever AI they use. */
 const EXPORT_PAST_DAYS=28, EXPORT_NEXT_DAYS=14;
 let exportBusy=false;
-function calDigest(events,now=Date.now()){
-  const hhmm=t=>{ const d=new Date(t); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+/* The occurrences, boiled down: a recurring series (or a title seen in two different
+   past weeks) is ONE line — weekdays, usual time, length, weeks seen; anything else
+   still to come is a dated entry, with its last day when it spans several. Dates and
+   weeks come from the native layer, by calendar fields: an all-day date is never
+   shifted by the time zone, and a daylight-saving week is still one week. */
+function calDigest(inst,now=Date.now()){
+  const today=dayISO(now);
   const most=xs=>{ const n=new Map(); xs.forEach(x=>n.set(x,(n.get(x)||0)+1));
     return [...n.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]; };
   const groups=new Map();
-  for(const e of events){
-    if(!e.startDate||!e.title) continue;
-    const key=String(e.title).trim().toLowerCase().replace(/\s+/g," ");
+  for(const e of inst){
+    if(!e||!e.title||!e.day) continue;
+    const key=e.recurring?"r:"+e.eventId:"t:"+String(e.title).trim().toLowerCase().replace(/\s+/g," ");
     if(!groups.has(key)) groups.set(key,[]);
     groups.get(key).push(e);
   }
-  const recurring=[], upcoming=[];
+  const routine=[], upcoming=[];
   for(const evs of groups.values()){
-    const weeks=new Set(evs.map(e=>Math.floor((e.startDate-now)/(7*DAY_MS))));
-    const first=evs[0], allDay=evs.filter(e=>e.isAllDay).length*2>evs.length;
-    const mins=evs.map(e=>Math.max(0,Math.round(((e.endDate||e.startDate)-e.startDate)/60000))).sort((a,b)=>a-b);
-    const base={title:first.title,allDay,start:allDay?"":most(evs.map(e=>hhmm(e.startDate))),
-      minutes:mins[Math.floor(mins.length/2)]||0,location:most(evs.map(e=>(e.location||"").trim()))||""};
-    if(weeks.size>=2){
-      const past=new Set(evs.filter(e=>e.startDate<now).map(e=>Math.floor((e.startDate-now)/(7*DAY_MS))));
-      recurring.push({...base,weekdays:[...new Set(evs.map(e=>new Date(e.startDate).getDay()))].sort(),
-        weeks:Math.min(4,past.size),n:evs.length});
-    }else for(const e of evs.filter(e=>e.startDate>=dayStart(now)))
-      upcoming.push({...base,date:dayISO(e.startDate),start:allDay?"":hhmm(e.startDate)});
+    const past=evs.filter(e=>e.day<today), weeks=new Set(past.map(e=>e.week)).size;
+    const allDay=evs.filter(e=>e.allDay).length*2>evs.length;
+    const mins=evs.map(e=>Math.max(0,Math.round((e.end-e.begin)/60000))).sort((a,b)=>a-b);
+    const base={title:evs[0].title,allDay,minutes:mins[Math.floor(mins.length/2)]||0,
+      location:most(evs.map(e=>(e.location||"").trim()))||""};
+    if(evs[0].recurring?evs.length>=2:weeks>=2){
+      routine.push({...base,weekdays:[...new Set(evs.map(e=>e.weekday))].sort(),
+        start:allDay?"":most(evs.map(e=>e.time))||"",weeks:Math.min(4,weeks),n:evs.length});
+    }else for(const e of evs.filter(e=>e.endDay>=today))
+      upcoming.push({...base,date:e.day,endDate:e.endDay!==e.day?e.endDay:"",start:e.allDay?"":e.time||""});
   }
-  recurring.sort((a,b)=>b.n-a.n);
+  routine.sort((a,b)=>b.n-a.n);
   upcoming.sort((a,b)=>a.date<b.date?-1:1);
-  return [...recurring.slice(0,60).map(({n,...r})=>r),...upcoming.slice(0,20)];
+  return [...routine.slice(0,60).map(({n,...r})=>r),...upcoming.slice(0,20)];
 }
 async function shareCloset(){
   if(exportBusy) return;
@@ -5407,7 +5426,7 @@ async function shareCloset(){
     let events=[], calendar=true;
     try{
       const now=Date.now();
-      events=calDigest(await readAllowedEvents(now-EXPORT_PAST_DAYS*DAY_MS,now+EXPORT_NEXT_DAYS*DAY_MS),now);
+      events=calDigest(await readAllowedInstances(now-EXPORT_PAST_DAYS*DAY_MS,now+EXPORT_NEXT_DAYS*DAY_MS),now);
     }catch(e){ calendar=false; }
     btn.textContent="Writing the file…";
     const now=Date.now(), today=dayStart(now), recent={};

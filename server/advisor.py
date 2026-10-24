@@ -319,6 +319,9 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
         if not fair:
             break
         result = replace(again, outfits=fair)
+        # The ceiling tightens: a rule this round kept is never given up by the next
+        # (Codex review, 2026-10-24 — colour+belt, then colour, then belt again).
+        gave = set(result.outfits[0].relaxed)
         said = await chooser.choose(day, result, _gaps_of(result, day), left())
     chose = bool(said and said["choice"] >= 1)
     pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]

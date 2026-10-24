@@ -96,7 +96,8 @@ def test_below_five_it_is_knit_and_coat_whatever_the_coat():
     warm = {**PARKA, "warmth": 5}
     d, r = run(3, INNER, WHITE_SHIRT, PLAIN_SWT, warm, TROUSERS, MESH_SNK, hi=10)
     assert_valid(d, r)
-    assert r.outfits[0].picks["mid"] == PLAIN_SWT["id"]
+    for o in r.outfits:
+        assert PLAIN_SWT["id"] in (o.picks["base"], o.picks["mid"]) and o.picks["outer"] == warm["id"], o.picks
 
 
 def test_a_mild_day_wears_a_knit_or_a_jacket_not_both():
@@ -153,3 +154,49 @@ def test_turned_down_every_time_is_served_with_the_reason_and_searches_at_most_t
     assert len(seen["chooser"]) <= 1 + 2, len(seen["chooser"])
     assert "the shoes are too sporty for the trousers" in out["text"]
     assert "looked right to the stylist" in out["text"]
+
+
+# ── Codex review, 2026-10-24 (thread 01a16dd8) ─────────────────────────────────────
+
+def test_a_tee_only_closet_on_a_cold_day_still_dresses_them():
+    """The warm undershirt cannot go under the tee, so it fixes nothing: the tee alone
+    is a gap in the wardrobe, not a hard cold issue that leaves them nothing."""
+    warm_under = g("under0003", "white undershirt", "underwear", "undershirt", ["inner"], 3, sleeve="short")
+    d, r = run(7, warm_under, TEE, JEANS, SNEAK, hi=12)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == TEE["id"] and r.outfits[0].picks["inner"] is None
+
+
+def test_a_sweater_worn_as_the_top_under_a_coat_is_knit_and_coat():
+    d, r = run(2, PLAIN_SWT, PARKA, JEANS, SNEAK, hi=8)
+    assert_valid(d, r)
+    assert r.outfits[0].picks["base"] == PLAIN_SWT["id"] and r.outfits[0].picks["mid"] is None
+
+
+def test_a_marl_knit_polo_is_the_busy_piece():
+    marl_polo = g("marlpolo1", "grey marl knit polo", "tops", "polo", ["base"], 2, colors=["grey"])
+    checked = g("chkchino1", "checked trousers", "bottoms", "trousers", ["bottoms"], 3, colors=["grey"])
+    assert garment.textured(marl_polo)
+    ctx = strict(14, marl_polo, checked, hi=20)
+    assert funnel.clash(ctx, _picks(base=marl_polo, bottoms=checked)) == "colour"
+
+
+def test_the_notes_name_the_coat_and_any_belt_mismatch():
+    assert "coat" in funnel.NOTES["register"] and "leathers" not in funnel.NOTES["belt"]
+
+
+def test_a_second_rescue_never_breaks_a_rule_the_first_restored(monkeypatch):
+    """Codex review, 2026-10-24: colour+belt turned down, then colour alone turned
+    down — an outfit giving up belt again is never offered."""
+    import advisor
+    from dataclasses import replace
+    from test_funnel import BROWN_BELT, LOAFERS, WHITE_OX
+    closet = [WHITE_OX, CHINOS, LOAFERS, BROWN_BELT]
+    base = run(14, *closet, hi=20)[1]
+    rounds = [replace(base, outfits=[replace(o, relaxed=gave) for o in base.outfits])
+              for gave in (("colour", "belt"), ("colour",), ("belt",))]
+    calls = iter(rounds)
+    monkeypatch.setattr(advisor.funnel, "search", lambda ctx, priority=None: next(calls))
+    no = fake_model.choice(0, reason="no")
+    out, seen = dress(monkeypatch, closet, weather(14, 20), prefs(), [no, no, fake_model.choice(1)])
+    assert len(seen["chooser"]) == 2, "the belt-breaking third round is never offered"

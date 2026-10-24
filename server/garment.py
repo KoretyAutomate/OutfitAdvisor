@@ -156,8 +156,9 @@ def gauge(item: dict) -> str | None:
 
 
 def textured(item: dict) -> bool:
-    """A sweater or cardigan whose knit has a visible texture: marl, waffle, cable."""
-    return item.get("type") in KNITS and bool(_TEXTURED.search(_label(item)))
+    """A sweater, cardigan or polo — a polo is knitted (2026-10-23) — whose knit has a
+    visible texture: marl, waffle, cable (Codex review, 2026-10-24: a marl knit polo)."""
+    return item.get("type") in (*KNITS, "polo") and bool(_TEXTURED.search(_label(item)))
 
 
 def turtleneck(item: dict) -> bool:

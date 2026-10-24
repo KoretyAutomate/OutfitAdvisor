@@ -38,10 +38,7 @@ HOT_DAY_C = 24      # the coldest felt hour at or above this: no layer (llm._wea
 TOPS = frozenset({"t_shirt", "polo", "tank", "blouse"})
 
 
-def tee_base(picks: dict, by_item: dict) -> bool:
-    """The top is a T-shirt: no undershirt under it (user, 2026-10-24: "No undershirt
-    rule is for T-shirt and not shirts"). Under a shirt, a polo or a knit, as before."""
-    return (by_item.get(picks.get("base")) or {}).get("type") == "t_shirt"
+tee_base = layers.tee_base
 
 
 @dataclass(frozen=True)

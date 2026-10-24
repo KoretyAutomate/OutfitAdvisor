@@ -62,10 +62,10 @@ RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band
 # gear unwearable with everything else — check.py then asks for nothing either.
 NOTES = {
     "colour": "colours a little busier than usual — nothing quieter fits today",
-    "belt": "the belt and shoes are different leathers — nothing matching is free today",
+    "belt": "the belt doesn't match the shoes — nothing matching is free today",
     "texture": "the knit and the top are not the ideal pairing — nothing better is free today",
     "wet": "nothing water-resistant to wear on your feet today — expect damp shoes in the rain",
-    "register": "the trousers or shoes don't match the top — nothing that does is free today",
+    "register": "the trousers, shoes or coat don't match the top — nothing that does is free today",
     # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
     "band1": "a step off the day's usual dress level — nothing at it is free today",
     "band2": "well off the day's usual dress level — little at it is free today",
@@ -426,8 +426,11 @@ def _layering(ctx: Ctx, picks: dict) -> int:
     if plan < layers.COAT_BELOW_C:
         if not outer:
             return 1
-        # Knitwear is the warmth between: a shirt open over a tee is not (2026-10-24).
-        knit = bool(mid) and mid.get("type") in pairing.KNITWEAR
+        # Knitwear under the coat — in mid, or as the top itself — is the warmth
+        # between: a shirt open over a tee is not (2026-10-24; Codex review: a sweater
+        # worn as the top was ranked down and moved into mid over nothing).
+        base = wd.by_item.get(picks.get("base")) or {}
+        knit = (mid or base).get("type") in pairing.KNITWEAR
         return int(knit == (check.is_coat(outer) and layers.coat_alone(outer, plan)))
     return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
 

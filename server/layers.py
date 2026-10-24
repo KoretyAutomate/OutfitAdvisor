@@ -54,6 +54,12 @@ def coat_alone(item: dict, plan_temp: float) -> bool:
     return plan_temp >= KNIT_AND_COAT_BELOW_C and (item.get("warmth") or 3) >= need + 1
 
 
+def tee_base(picks: dict, by_item: dict) -> bool:
+    """The top is a T-shirt: no undershirt under it (user, 2026-10-24: "No undershirt
+    rule is for T-shirt and not shirts"). Under a shirt, a polo or a knit, as before."""
+    return (by_item.get(picks.get("base")) or {}).get("type") == "t_shirt"
+
+
 def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
     """How many torso layers today allows: 2 on a mild or warm day, up to 4 in the
     cold. The same warmth the day asks of an outer layer, so 12-18C on the absolute
@@ -121,7 +127,11 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict
     return not any(scale.warm_enough(item, plan_temp)
                    and any(not scale.too_warm(item, pk._heat_temp(r, plan_temp, peak))
                            and not rules.violations(user_rules, {r: iid}, wd.by_item)
-                           for r in wd.by_roles.get(iid) or () if r in _TORSO)
+                           for r in wd.by_roles.get(iid) or () if r in _TORSO
+                           # An undershirt warms nobody wearing a tee: it never goes
+                           # under one (Codex review, 2026-10-24 — every tee outfit
+                           # was "fixably" cold, and a tee-only closet got nothing).
+                           and not (r == "inner" and tee_base(picks, wd.by_item)))
                    for iid, item in wd.by_item.items() if iid not in picks.values())
 
 

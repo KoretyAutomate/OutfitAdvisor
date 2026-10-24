@@ -200,3 +200,21 @@ def test_a_second_rescue_never_breaks_a_rule_the_first_restored(monkeypatch):
     no = fake_model.choice(0, reason="no")
     out, seen = dress(monkeypatch, closet, weather(14, 20), prefs(), [no, no, fake_model.choice(1)])
     assert len(seen["chooser"]) == 2, "the belt-breaking third round is never offered"
+
+
+# ── pre-push gate, 2026-10-24 ─────────────────────────────────────────────────────
+
+def test_a_sweater_that_is_the_only_top_stays_on_under_a_warm_coat():
+    from wardrobe_fixtures import SWEATER, UNDER
+    d, r = run(6, SWEATER, PARKA, JEANS, SNEAK, UNDER, hi=12)
+    assert_valid(d, r)
+    assert SWEATER["id"] in (r.outfits[0].picks["base"], r.outfits[0].picks["mid"]), r.outfits[0].picks
+
+
+def test_the_chooser_s_reason_never_reaches_the_log(monkeypatch, caplog):
+    import logging
+    shirts = [g(f"shrt{n:05d}", f"white shirt {n}", "tops", "shirt", ["base"], 2, colors=["white"]) for n in range(4)]
+    no = fake_model.choice(0, reason="the white shirt 2 is too plain")
+    with caplog.at_level(logging.INFO):
+        dress(monkeypatch, [*shirts, CHINOS, MESH_SNK], weather(16, 22), prefs(), [no, no, no])
+    assert "turned every outfit down" in caplog.text and "too plain" not in caplog.text

@@ -307,11 +307,13 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     # trade too, whatever cost() says).
     gave = set(result.outfits[0].relaxed)
     turned: frozenset = frozenset()
-    for _ in range(RESCUES):
+    for n in range(RESCUES):
         if not (said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S):
             break
-        log.info("advisor: the chooser turned every outfit down (%s) — searching again without them",
-                 said["reason"] or "no reason")
+        # Never the reason itself: the model writes it from their garment labels
+        # (pre-push gate, 2026-10-24; llm.py's privacy line).
+        log.info("advisor: the chooser turned every outfit down (round %d) — searching again without them",
+                 n + 1)
         turned |= frozenset(funnel.look(o.picks) for o in result.outfits)
         again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
                                                                   deadline=_search_until(left())))

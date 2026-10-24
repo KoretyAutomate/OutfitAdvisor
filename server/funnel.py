@@ -430,8 +430,11 @@ def _layering(ctx: Ctx, picks: dict) -> int:
         # between: a shirt open over a tee is not (2026-10-24; Codex review: a sweater
         # worn as the top was ranked down and moved into mid over nothing).
         base = wd.by_item.get(picks.get("base")) or {}
-        knit = (mid or base).get("type") in pairing.KNITWEAR
-        return int(knit == (check.is_coat(outer) and layers.coat_alone(outer, plan)))
+        if check.is_coat(outer) and layers.coat_alone(outer, plan):
+            # Extra only as a layer BETWEEN: a sweater that is the only top stays on
+            # (pre-push gate, 2026-10-24 — the parka went over the undershirt alone).
+            return int(bool(mid) and mid.get("type") in pairing.KNITWEAR)
+        return int((mid or base).get("type") not in pairing.KNITWEAR)
     return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
 
 

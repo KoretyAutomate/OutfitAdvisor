@@ -73,9 +73,11 @@ NOTES = {
     "band3": "well off the day's usual dress level — little at it is free today",
 }
 # Served only when no combination is warm (search's `chilly`), and always said.
-COLD = "nothing warm enough for the coldest hour goes with the rest today — take an extra layer"
+# A fact, never an instruction: "take a layer" would name what a closet-only wardrobe
+# may not have (pre-push gate, 2026-10-24).
+COLD = "nothing warm enough for the coldest hour goes with the rest today — expect to feel cold early on"
 COLD_UNSURE = ("time ran out before a warm enough outfit was found — this one is light for the coldest "
-               "hour; take an extra layer")
+               "hour")
 TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))

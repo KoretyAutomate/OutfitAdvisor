@@ -5392,7 +5392,8 @@ let exportBusy=false;
    and how often it was a video call. The title goes to the DGX only so its model can
    say what KIND of entry it is; the file it writes carries counts, never an entry.
    Weekday, time and nights come from the native layer, by calendar fields. */
-const ONLINE=/zoom|teams|meet\.google|webex|skype|whereby|https?:|online|virtual|オンライン/i;
+// A video call by its service, never by "a URL": a restaurant's website is a place.
+const ONLINE=/zoom\.us|zoom meeting|teams\.microsoft|microsoft teams|meet\.google|google meet|webex|skype|whereby|\bonline\b|\bvirtual\b|オンライン/i;
 function calDigest(inst){
   const groups=new Map();
   for(const e of inst){
@@ -5404,17 +5405,19 @@ function calDigest(inst){
   const out=[];
   for(const evs of groups.values()){
     const g={title:evs[0].title,n:evs.length,weekdays:[0,0,0,0,0,0,0],morning:0,afternoon:0,evening:0,
-      allDay:0,nights:0,online:0};
+      allDay:0,nights:0,online:0,inPerson:0};
     const nights=[];
     for(const e of evs){
       if(e.weekday>=0&&e.weekday<=6) g.weekdays[e.weekday]++;
       const h=+String(e.time||"").slice(0,2);
       if(e.allDay||!e.time) g.allDay++; else if(h<12) g.morning++; else if(h<17) g.afternoon++; else g.evening++;
-      if(ONLINE.test(e.location||"")) g.online++;
+      const where=(e.location||"").trim();
+      if(ONLINE.test(where)) g.online++; else if(where) g.inPerson++;
       // First to last day, Monday to Thursday, is three nights away.
       if(e.endDay>e.day) nights.push(Math.round((isoMs(e.endDay)-isoMs(e.day))/DAY_MS));
     }
-    // Nights away only when most of its occurrences span days: the median of those.
+    // Nights it spans, when most of its occurrences cross dates: the median. "Away"
+    // only once the DGX has called it a trip.
     nights.sort((a,b)=>a-b);
     g.nights=nights.length*2>evs.length?Math.max(1,nights[Math.floor(nights.length/2)]):0;
     out.push(g);

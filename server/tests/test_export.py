@@ -18,10 +18,11 @@ PARKA = {"id": "itm-parka-0001", "label": "olive hooded parka", "category": "out
          "group": "outerwear", "roles": ["outer"], "colors": ["olive"], "warmth": 4}
 # Counted on the phone over 84 days: groups, never entries.
 GYM = {"title": "Gym \u2014 legs", "n": 24, "weekdays": [0, 0, 12, 0, 12, 0, 0], "evening": 24}
-DINNER = {"title": "Dinner with the Tanaka team", "n": 6, "weekdays": [0, 0, 0, 0, 1, 5, 0], "evening": 6}
+DINNER = {"title": "Dinner with the Tanaka team", "n": 6, "weekdays": [0, 0, 0, 0, 1, 5, 0], "evening": 6,
+          "inPerson": 6}
 TRIP = {"title": "Chicago conference", "n": 2, "weekdays": [0, 2, 0, 0, 0, 0, 0], "allDay": 2, "nights": 3}
 SYNC = {"title": "Weekly sync with Bob", "n": 12, "weekdays": [0, 12, 0, 0, 0, 0, 0], "morning": 12,
-        "online": 11}
+        "online": 11, "inPerson": 1}
 # The model only classifies the numbered groups.
 ROUTINE = {"entries": [{"i": 0, "kind": "sport", "level": 1}, {"i": 1, "kind": "client", "level": 4},
                        {"i": 2, "kind": "travel", "level": 2}, {"i": 3, "kind": "meeting", "level": 3},
@@ -158,3 +159,54 @@ def test_how_often_in_words():
     assert export._often(60, 84) == "about 5 times a week"
     assert export._often(2, 84) == "about every 6 weeks"
     assert export._often(1, 84) == "once in the last 12 weeks"
+
+
+def test_a_group_the_model_leaves_out_is_asked_again_and_never_silently_dropped(monkeypatch):
+    """Codex review, 2026-10-24: two dinner groups, the model answers for one — they
+    must not read as half as often."""
+    answers = iter([{"entries": [{"i": 0, "kind": "dinner", "level": 3}]},
+                    {"entries": [{"i": 1, "kind": "dinner", "level": 3}]}])
+    seen = []
+
+    async def fake(messages, **kw):
+        seen.append(messages[-1]["content"])
+        return json.dumps(next(answers))
+    monkeypatch.setattr(export, "_chat", fake)
+    two = [{**DINNER, "title": "Dinner A"}, {**DINNER, "title": "Dinner B"}]
+    md = client.post("/export", json=body(events=two)).json()["markdown"]
+    assert len(seen) == 2 and "1. Dinner B" in seen[1] and "0. Dinner A" not in seen[1], "only the missing one again"
+    assert "**Dinner out** — about once a week" in md, "twelve in twelve weeks, both groups counted"
+
+
+def test_a_group_still_missing_costs_the_summary_not_its_count(monkeypatch):
+    model(monkeypatch, {"entries": [{"i": 0, "kind": "dinner", "level": 3}]})
+    two = [{**DINNER, "title": "Dinner A"}, {**DINNER, "title": "Dinner B"}]
+    out = client.post("/export", json=body(events=two)).json()
+    assert out["routine"] is False and "couldn't be summarised" in out["markdown"]
+
+
+def test_many_groups_go_in_batches():
+    import asyncio
+    calls = []
+
+    async def fake(messages, **kw):
+        batch = [int(line.split(".")[0]) for line in messages[-1]["content"].split("```")[1].strip().splitlines()]
+        calls.append(batch)
+        return json.dumps({"entries": [{"i": i, "kind": "sport", "level": 1} for i in batch]})
+    groups = [{**GYM, "title": f"Session {n}"} for n in range(45)]
+    req = export.ExportRequest.model_validate(body(events=groups))
+    orig, export._chat = export._chat, fake
+    try:
+        got = asyncio.run(export._routine(req))
+    finally:
+        export._chat = orig
+    assert [len(c) for c in calls] == [20, 20, 5] and len(got) == 45
+
+
+def test_nights_are_said_for_trips_only_and_places_decide_online():
+    on_call = {"title": "On call", "n": 4, "weekdays": [0, 4, 0, 0, 0, 0, 0], "allDay": 4, "nights": 4}
+    blank = {"title": "Sync", "n": 12, "weekdays": [0, 12, 0, 0, 0, 0, 0], "morning": 12}
+    req = export.ExportRequest.model_validate(body(events=[on_call, blank]))
+    lines = [export._kind_line(k, 84) for k in export._kinds(req, {0: ("office", 3), 1: ("meeting", 3)})]
+    assert not any("night" in x for x in lines), lines
+    assert not any("person" in x or "online" in x for x in lines), "no place is no evidence"

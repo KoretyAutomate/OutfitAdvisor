@@ -81,10 +81,13 @@ function at(daysFromNow, h, m = 0) {
     && trip.allDay === 1, trip);
   const call = ev(`calDigest([${JSON.stringify(inst({ eventId: "z1", title: "Standup", begin: Date.now(),
     location: "https://zoom.us/j/1" }))}])`)[0];
-  check("a video-call place counts as online", call.online === 1, call);
+  check("a video-call place counts as online", call.online === 1 && call.inPerson === 0, call);
+  const venue = ev(`calDigest([${JSON.stringify(inst({ eventId: "z2", title: "Dinner", begin: Date.now(),
+    location: "https://nobu.example.com" }))}])`)[0];
+  check("a venue's website is a place, not a call", venue.online === 0 && venue.inPerson === 1, venue);
   check("nothing but counts and the title leaves the phone",
     digest.every(e => Object.keys(e).sort().join() ===
-      "afternoon,allDay,evening,morning,n,nights,online,title,weekdays"), digest[0]);
+      "afternoon,allDay,evening,inPerson,morning,n,nights,online,title,weekdays"), digest[0]);
 
   console.log("\n--- 2. the export: what is asked for, what is sent, the share sheet -");
   ev(`

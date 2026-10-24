@@ -23,7 +23,7 @@ minutes to pick") — measured at most 11 s on 87 garments.
 import asyncio
 import os
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import check
 import chooser
@@ -46,8 +46,7 @@ DEADLINE_S = 75.0
 REVISE_BY_S = 40.0
 STYLIST_MIN_LEFT_S = 20.0
 # The one round after the fallback (see _rescue): a model answer and a review.
-RESCUE_MIN_LEFT_S = 30.0
-RESCUES = 2             # re-searches after the chooser turns every outfit down
+RESCUE_MIN_LEFT_S = chooser.RESCUE_MIN_LEFT_S
 # The phone draws any slot not starting "None" as a garment to wear (slotIsEmpty in
 # index.html), so an absence is always said this way.
 NOTHING_OWNED = "None — nothing in your closet for this"
@@ -301,30 +300,8 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     if not result.outfits:
         return None
     said = await chooser.choose(day, result, _gaps_of(result, day), left())
-    # Only outfits that give up nothing the best turned-down one kept: the model's eye
-    # never trades a rule kept for one broken (user, 2026-10-23: "make sure the
-    # selection is nothing violating the rule"; Codex review — colour for belt is a
-    # trade too, whatever cost() says).
-    gave = set(result.outfits[0].relaxed)
-    turned: frozenset = frozenset()
-    for n in range(RESCUES):
-        if not (said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S):
-            break
-        # Never the reason itself: the model writes it from their garment labels
-        # (pre-push gate, 2026-10-24; llm.py's privacy line).
-        log.info("advisor: the chooser turned every outfit down (round %d) — searching again without them",
-                 n + 1)
-        turned |= frozenset(funnel.look(o.picks) for o in result.outfits)
-        again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
-                                                                  deadline=_search_until(left())))
-        fair = [o for o in again.outfits if set(o.relaxed) <= gave]
-        if not fair:
-            break
-        result = replace(again, outfits=fair)
-        # The ceiling tightens: a rule this round kept is never given up by the next
-        # (Codex review, 2026-10-24 — colour+belt, then colour, then belt again).
-        gave = set(result.outfits[0].relaxed)
-        said = await chooser.choose(day, result, _gaps_of(result, day), left())
+    result, said = await chooser.rescue(day, result, said, left, lambda r: _gaps_of(r, day),
+                                        lambda: _search_until(left()))
     chose = bool(said and said["choice"] >= 1)
     pick = result.outfits[said["choice"] - 1] if said and chose else result.outfits[0]
     words: dict = said if said and chose else {"look": "", "lines": {}, "tip": ""}

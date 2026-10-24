@@ -14,6 +14,7 @@ lines (advisor._dress_funnel).
 """
 import asyncio
 import time
+from dataclasses import replace
 
 import funnel
 import garment
@@ -24,6 +25,8 @@ from llm import _chat, _fenced, _parse_json, log, skipped_block
 from vocab import CATEGORIES, TYPE_LABEL
 
 CHOOSE_TIMEOUT_S = 25
+RESCUES = 2             # re-searches after the chooser turns every outfit down
+RESCUE_MIN_LEFT_S = 30.0  # …each only with this much of the request's time left
 
 SYSTEM = (
     "You are a personal stylist. A filter has already checked every outfit you are shown "
@@ -137,3 +140,35 @@ async def choose(day, result: "funnel.Result", gaps_owned_none: list[str], left:
     return {"choice": n, "reason": _fenced(out.get("reason"), 160), "look": str(out.get("look") or ""),
             "lines": {c: str(v) for c, v in lines.items() if c in CATEGORIES and isinstance(v, str)},
             "tip": str(out.get("tip") or "")}
+
+
+async def rescue(day, result: "funnel.Result", said: dict | None, left, gaps_of, until):
+    """Turned every outfit down: search again without them, at most RESCUES times, and
+    ask again. (result, said) — said["choice"] still 0 when every round was turned
+    down or nothing fair was left; advisor serves the closest, with the reason.
+
+    Only outfits that give up nothing the best turned-down one kept: the model's eye
+    never trades a rule kept for one broken (user, 2026-10-23: "make sure the selection
+    is nothing violating the rule"; Codex review — colour for belt is a trade too,
+    whatever cost() says)."""
+    gave = set(result.outfits[0].relaxed)
+    turned: frozenset = frozenset()
+    for n in range(RESCUES):
+        if not (said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S):
+            break
+        # Never the reason itself: the model writes it from their garment labels
+        # (pre-push gate, 2026-10-24; llm.py's privacy line).
+        log.info("advisor: the chooser turned every outfit down (round %d) — searching again without them",
+                 n + 1)
+        turned |= frozenset(funnel.look(o.picks) for o in result.outfits)
+        again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
+                                                                  deadline=until()))
+        fair = [o for o in again.outfits if set(o.relaxed) <= gave]
+        if not fair:
+            break
+        result = replace(again, outfits=fair)
+        # The ceiling tightens: a rule this round kept is never given up by the next
+        # (Codex review, 2026-10-24 — colour+belt, then colour, then belt again).
+        gave = set(result.outfits[0].relaxed)
+        said = await choose(day, result, gaps_of(result), left())
+    return result, said

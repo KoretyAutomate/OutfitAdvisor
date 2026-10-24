@@ -34,6 +34,7 @@ Split into its own module because picks.py sits at the 600-line ceiling.
 import picks as pk
 import rules
 import scale
+import sleeves
 
 _TORSO = ("inner", "base", "mid", "outer")
 
@@ -41,6 +42,23 @@ _TORSO = ("inner", "base", "mid", "outer")
 # over the knitwear (user, 2026-10-18: a 2-13C morning served a sweater and no coat).
 # The plan temperature already carries the wearer's warm/cold calibration.
 COAT_BELOW_C = 8
+# Below this the coat goes over knitwear whatever the coat (user, 2026-10-18: felt
+# -1..10C). Between it and COAT_BELOW_C a warm coat over the top is enough (user,
+# 2026-10-24: "Coat over the top" — a knit polo, a cardigan AND a parka at 5-12C).
+KNIT_AND_COAT_BELOW_C = 5
+
+
+def coat_alone(item: dict, plan_temp: float) -> bool:
+    """This coat is warm enough over the top by itself this cold morning: a level
+    warmer than the coldest hour asks of the outermost garment."""
+    need = scale.min_outer_warmth(plan_temp, scale.graded_on(item))
+    return plan_temp >= KNIT_AND_COAT_BELOW_C and (item.get("warmth") or 3) >= need + 1
+
+
+def tee_base(picks: dict, by_item: dict) -> bool:
+    """The top is a T-shirt: no undershirt under it (user, 2026-10-24: "No undershirt
+    rule is for T-shirt and not shirts"). Under a shirt, a polo or a knit, as before."""
+    return (by_item.get(picks.get("base")) or {}).get("type") == "t_shirt"
 
 
 def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
@@ -53,7 +71,7 @@ def max_layers(picks: dict, by_item: dict, plan_temp: float) -> int:
     """
     ref = by_item.get(picks.get("base")) or next(
         (by_item.get(picks[c]) for c in _TORSO if picks.get(c)), None) or {}
-    # A cold morning is undershirt, top, knitwear AND a coat — four, whatever the
+    # A cold morning can be undershirt, top, knitwear AND a coat — four, whatever the
     # scale says, or the budget fights the coat the check demands and the undershirt
     # is what gets dropped (plan review, 2026-10-18).
     return max(4 if plan_temp < COAT_BELOW_C else 2, _budget(plan_temp, ref))
@@ -93,6 +111,21 @@ def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float,
                for i, it in wd.by_item.items() if it is not item)
 
 
+def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:
+    """They own a top other than a tee — a shirt, a knit, a cardigan worn as the top —
+    that THIS undershirt can go under: within every rule of theirs, sleeves that fit,
+    and not too warm today. Then the cold tee is a choice to change, not a gap
+    (pre-push gate, 2026-10-24: a warmth-5 sweater on a 7-12C day, a shirt banned
+    with the undershirt — neither is a top to change into)."""
+    return any(it.get("type") != "t_shirt" and any(
+        # Any torso slot but a coat's: a cardigan filed only as outer is still the top.
+        (r in ("base", "mid") or (r == "outer" and it.get("group") != "outerwear"))
+        and not rules.violations(user_rules or [], {r: i, "inner": under}, wd.by_item)
+        and not sleeves.sleeve_clashes({r: i, "inner": under}, wd.by_item)
+        and not overdressed(it, r, wd, plan_temp, peak_temp, user_rules) for r in wd.by_roles.get(i) or ())
+        for i, it in wd.by_item.items() if i != under)
+
+
 def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict],
                         peak_temp: float | None = None) -> bool:
     """Nothing on the torso is warm enough for the morning, after every repair has
@@ -110,7 +143,12 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict
     return not any(scale.warm_enough(item, plan_temp)
                    and any(not scale.too_warm(item, pk._heat_temp(r, plan_temp, peak))
                            and not rules.violations(user_rules, {r: iid}, wd.by_item)
-                           for r in wd.by_roles.get(iid) or () if r in _TORSO)
+                           for r in wd.by_roles.get(iid) or () if r in _TORSO
+                           # An undershirt warms nobody wearing a tee: it never goes
+                           # under one (Codex review, 2026-10-24 — every tee outfit
+                           # was "fixably" cold, and a tee-only closet got nothing).
+                           and not (r == "inner" and tee_base(picks, wd.by_item)
+                                    and not _top_for_an_undershirt(wd, iid, user_rules, plan_temp, peak)))
                    for iid, item in wd.by_item.items() if iid not in picks.values())
 
 

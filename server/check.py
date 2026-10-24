@@ -38,6 +38,9 @@ HOT_DAY_C = 24      # the coldest felt hour at or above this: no layer (llm._wea
 TOPS = frozenset({"t_shirt", "polo", "tank", "blouse"})
 
 
+tee_base = layers.tee_base
+
+
 @dataclass(frozen=True)
 class Issue:
     kind: str       # stable key, for comparing two answers ("no-footwear", "cold", …)
@@ -121,6 +124,12 @@ def _legal(worn: dict, day: Day) -> list[Issue]:
 def _dressed(worn: dict, day: Day) -> list[Issue]:
     """A top, trousers (or a one-piece) and shoes — when they own them."""
     out: list[Issue] = []
+    # A coat is not a top: one over the undershirt alone leaves them in underwear
+    # once it comes off (pre-push gate, 2026-10-24) — when they own a top for under it.
+    coat_only = (not worn.get("base") and not worn.get("mid") and bool(worn.get("outer"))
+                 and is_coat(day.wd.by_item[worn["outer"]]))
+    if coat_only and any(day.owns_for(c, worn) for c in ("base", "mid")):
+        out.append(Issue("no-top", "only a coat over the undershirt — wear a top under it", True))
     if not any(worn.get(c) for c in TORSO):
         # Only where they own a top: otherwise it is a wardrobe gap (gaps.py), and
         # asking again cannot help. An undershirt alone is always fixable — take it
@@ -219,7 +228,7 @@ def _coat(worn: dict, day: Day) -> list[Issue]:
             return []
         warm = [i for i in can if scale.warm_enough(wd.by_item[i], day.plan)] or can
         return [Issue("no-coat", f"a cold morning ({day.plan:.0f}C felt) and no jacket or coat — put one they "
-                      f"own in outer, such as {_name(day, warm[0])}, and keep the knitwear in mid", True)]
+                      f"own in outer, such as {_name(day, warm[0])}", True)]
     top = worn_coats[-1]
     if not scale.warm_enough(wd.by_item[top], day.plan):
         warmer = [i for i in can if scale.warm_enough(wd.by_item[i], day.plan)]
@@ -236,6 +245,9 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
     wd = day.wd
     out: list[Issue] = []
     torso = [worn[c] for c in TORSO if worn.get(c)]
+    if worn.get("inner") and tee_base(worn, wd.by_item):
+        out.append(Issue("inner-tee", f"{_name(day, worn['inner'])} under {_name(day, worn['base'])} — "
+                         "they wear no undershirt under a T-shirt; leave inner empty", True))
     if stacked(worn, wd.by_item):
         out.append(Issue("stacked", " over ".join(_name(day, i) for i in reversed(torso))
                          + " — two tops stacked; warmth comes from knitwear or a jacket", True))
@@ -248,7 +260,8 @@ def _taste(worn: dict, day: Day) -> list[Issue]:
     n, cap = sum(1 for c in ("inner", *TORSO) if worn.get(c)), layers.max_layers(worn, wd.by_item, day.plan)
     if n > cap:
         out.append(Issue("layers", f"{n} torso layers; today needs at most {cap}", False))
-    elif n < cap and not worn.get("inner") and torso and (spare := _undershirt(worn, day)):
+    elif (n < cap and not worn.get("inner") and torso and not tee_base(worn, wd.by_item)
+          and (spare := _undershirt(worn, day))):
         # They wear one whenever they own one (SYSTEM) — and on a cold morning the model
         # dropped it five times in six once a coat was asked for (replay, 2026-10-18).
         # Soft, and only where the layer budget has room: never a fight with "layers".

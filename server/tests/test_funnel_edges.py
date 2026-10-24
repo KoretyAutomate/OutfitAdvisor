@@ -13,6 +13,9 @@ from test_funnel import (CHINOS, LOAFERS, MESH, OFFICE, PARKA,
 from wardrobe_fixtures import (CARDI, DRESS, JACKET, JEANS, OXFORD, POLO, SNEAK, SWEATER, TEE, UNDER, g,
                                weather)
 
+# Takes an undershirt where a tee never does (user, 2026-10-24).
+SS_POLO = g("sspolo001", "navy short-sleeve polo", "tops", "polo", ["base"], 1, sleeve="short")
+
 # ── code review, 2026-10-20 (Codex thread 01a15c48) ───────────────────────────────
 
 def test_an_empty_optional_slot_is_no_gap_and_a_dress_gets_no_trousers_line(monkeypatch):
@@ -77,6 +80,9 @@ def test_midday_sheds_only_what_the_day_lets_go_and_never_the_only_top():
     d, r = run(2, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, hi=4)
     assert r.outfits[0].sheds == (), "a cold, flat day keeps everything on"
     d, r = run(6, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, hi=19)
+    # The parka is warm enough over the shirt by itself at 6C: no knit (2026-10-24).
+    assert r.outfits[0].picks["mid"] is None and r.outfits[0].sheds == ("outer",)
+    d, r = run(2, UNDER, OXFORD, SWEATER, PARKA, JEANS, SNEAK, hi=19)
     assert set(r.outfits[0].sheds) == {"outer", "mid"}
 
 
@@ -183,11 +189,12 @@ def test_snow_boots_they_disliked_with_their_only_jeans_leave_the_sneakers():
 
 
 def test_many_shirts_never_crowd_out_the_knit_and_the_undershirt():
-    """The pre-push gate's case: six each of shirts, chinos and sneakers at 6-19C."""
+    """The pre-push gate's case: six each of shirts, chinos and sneakers — at 2-19C, a
+    morning that wants knit AND coat (at 6C the parka alone does since 2026-10-24)."""
     shirts = [g(f"shrt{n:05d}", f"shirt {n}", "tops", "shirt", ["base", "mid", "outer"], 2) for n in range(6)]
     legs = [g(f"chin{n:05d}", f"chinos {n}", "bottoms", "trousers", ["bottoms"], 3) for n in range(6)]
     shoes = [g(f"snk{n:06d}", f"sneakers {n}", "footwear", "sneakers", ["footwear"], 2) for n in range(6)]
-    d, r = run(6, *shirts, *legs, *shoes, UNDER, SWEATER, PARKA, hi=19)
+    d, r = run(2, *shirts, *legs, *shoes, UNDER, SWEATER, PARKA, hi=19)
     assert_valid(d, r)
     for o in r.outfits:
         assert o.picks["inner"] == UNDER["id"] and o.picks["mid"] == SWEATER["id"], o.picks
@@ -305,7 +312,7 @@ def test_a_usable_undershirt_past_the_first_six_is_found():
              for n in range(6)]
     short = {**g("ssin00001", "white crew undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="short"),
              "_ago": 0}
-    d, r = run(20, *longs, short, TEE, JEANS, SNEAK, hi=24)
+    d, r = run(20, *longs, short, SS_POLO, JEANS, SNEAK, hi=24)
     assert_valid(d, r)
     assert r.outfits[0].picks["inner"] == short["id"], r.outfits[0].picks
 
@@ -348,14 +355,14 @@ def test_joggers_on_a_smart_office_day_are_served_with_a_note_not_refused():
 
 
 def test_the_undershirt_counts_toward_warmth():
-    """A warmth-2 undershirt under a warmth-1 tee is warm enough at 14C: the cardigan
+    """A warmth-2 undershirt under a warmth-1 polo is warm enough at 14C: the cardigan
     is not needed, and when the cardigan is banned with the jeans the tee outfit stays."""
     import rules
     warm_inner = g("winner001", "white cotton undershirt", "underwear", "undershirt", ["inner"], 2, sleeve="short")
     ban = tuple(rules.clean_rules([{"kind": "avoid_pair", "a": {"type": "cardigan"}, "b": {"type": "jeans"}}]))
-    d, r = run(14, warm_inner, TEE, CARDI, JEANS, SNEAK, hi=20, p=prefs(rules=ban))
+    d, r = run(14, warm_inner, SS_POLO, CARDI, JEANS, SNEAK, hi=20, p=prefs(rules=ban))
     assert_valid(d, r)
-    assert r.outfits[0].picks["base"] == TEE["id"] and r.outfits[0].picks["inner"] == warm_inner["id"]
+    assert r.outfits[0].picks["base"] == SS_POLO["id"] and r.outfits[0].picks["inner"] == warm_inner["id"]
 
 
 def test_an_outfit_giving_up_more_rules_is_never_offered():
@@ -439,7 +446,7 @@ def test_a_reroll_keeps_the_only_undershirt():
 def test_a_reroll_never_empties_a_slot_to_look_different():
     short = g("ssin00001", "white crew undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="short")
     long_ = g("lsin00001", "long-sleeve undershirt", "underwear", "undershirt", ["inner"], 1, sleeve="long")
-    closet = [short, long_, TEE, JEANS, SNEAK]
+    closet = [short, long_, SS_POLO, JEANS, SNEAK]
     _, first = run(20, *closet, hi=24)
     shown = {s: i for s, i in first.outfits[0].picks.items() if i}
     assert shown.get("inner") == short["id"]

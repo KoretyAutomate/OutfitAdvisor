@@ -71,6 +71,10 @@ _CHUNKY = re.compile(r"chunky|cable|aran|fair\s*isle|nordic|reindeer|snowflake|h
 _FINE = re.compile(r"merino|fine|cashmere|lightweight|light\s*weight|extra\s*fine|silk|"
                    r"ハイゲージ|メリノ|カシミア", re.I)
 KNITS = frozenset({"sweater", "cardigan"})
+# A knit whose surface reads as a pattern beside one (user, 2026-10-24).
+_TEXTURED = re.compile(r"marl|heather|m[eé]lange|tweed|fleck|speckle|waffle|cable|aran|boucl|popcorn|"
+                       r"杢|ワッフル|ケーブル|ツイード", re.I)
+_TURTLE = re.compile(r"turtle|roll[\s\-]?neck|polo[\s\-]?neck|mock[\s\-]?neck|タートル|モックネック", re.I)
 
 # Trousers that belong with tees and sweatshirts, never with a collar or fine knit
 # (style.LOOK_PRINCIPLES; user, 2026-10-18 and 2026-10-20).
@@ -149,6 +153,16 @@ def gauge(item: dict) -> str | None:
         return "fine"
     pattern = item.get("pattern")
     return "chunky" if pattern not in (None, "solid") else "mid"
+
+
+def textured(item: dict) -> bool:
+    """A sweater, cardigan or polo — a polo is knitted (2026-10-23) — whose knit has a
+    visible texture: marl, waffle, cable (Codex review, 2026-10-24: a marl knit polo)."""
+    return item.get("type") in (*KNITS, "polo") and bool(_TEXTURED.search(_label(item)))
+
+
+def turtleneck(item: dict) -> bool:
+    return bool(_TURTLE.search(_label(item)))
 
 
 def utility_trousers(item: dict) -> bool:

@@ -152,7 +152,7 @@ async def rescue(day, result: "funnel.Result", said: dict | None, left, gaps_of,
     never trades a rule kept for one broken (user, 2026-10-23: "make sure the selection
     is nothing violating the rule"; Codex review — colour for belt is a trade too,
     whatever cost() says)."""
-    gave = set(result.outfits[0].relaxed)
+    gave, warm = set(result.outfits[0].relaxed), result.outfits[0].rank[:1]
     turned: frozenset = frozenset()
     for n in range(RESCUES):
         if not (said and said["choice"] == 0 and left() > RESCUE_MIN_LEFT_S):
@@ -164,12 +164,14 @@ async def rescue(day, result: "funnel.Result", said: dict | None, left, gaps_of,
         turned |= frozenset(funnel.look(o.picks) for o in result.outfits)
         again = await asyncio.to_thread(funnel.search, funnel.Ctx(day, result.target, exclude=turned,
                                                                   deadline=until()))
-        fair = [o for o in again.outfits if set(o.relaxed) <= gave]
+        # Warmth too: a warm outfit turned down is never traded for a cold one
+        # (pre-push gate, 2026-10-24 — "cold" is not in `relaxed`).
+        fair = [o for o in again.outfits if set(o.relaxed) <= gave and o.rank[:1] <= warm]
         if not fair:
             break
         result = replace(again, outfits=fair)
         # The ceiling tightens: a rule this round kept is never given up by the next
         # (Codex review, 2026-10-24 — colour+belt, then colour, then belt again).
-        gave = set(result.outfits[0].relaxed)
+        gave, warm = set(result.outfits[0].relaxed), result.outfits[0].rank[:1]
         said = await choose(day, result, gaps_of(result), left())
     return result, said

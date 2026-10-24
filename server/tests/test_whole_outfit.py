@@ -343,3 +343,10 @@ def test_a_cold_fallback_after_the_deadline_does_not_claim_nothing_warm_exists(m
                       [fake_model.choice(1)])
     assert funnel.COLD_UNSURE in out["text"] and funnel.COLD not in out["text"]
     assert "nothing warmer goes" not in seen["chooser"][0]
+
+
+def test_a_rescue_never_trades_a_warm_outfit_for_a_cold_one(monkeypatch):
+    swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
+    no = fake_model.choice(0, reason="no")
+    out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(), [no, no, no])
+    assert out["picks"]["mid"] == swt["id"] and funnel.COLD not in out["text"]

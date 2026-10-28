@@ -537,10 +537,10 @@ def test_the_register_note_says_what_was_given_up():
     assert "match" in funnel.NOTES["register"] and "smarter" not in funnel.NOTES["register"]
 
 
-def test_register_gives_way_only_after_two_steps_off_the_level():
-    """Office + Smart (level 4). Smart-casual cargos under a shirt give up the match and
-    one step; a tee over them gives up two steps and nothing else. The tee is served:
-    the match outranks the day's level by two steps (user, 2026-10-22)."""
+def test_register_gives_way_only_after_a_step_off_the_level():
+    """Office (level 3, smart or not — user, 2026-10-28). Smart-casual cargos under a
+    shirt give up the match; a tee over them gives up a step and nothing else. The tee
+    is served: the match outranks the day's level (user, 2026-10-22)."""
     cargo = g("cargo0001", "beige cargo pants", "bottoms", "trousers", ["bottoms"], 1,
               colors=["beige"], formality=["smart"])
     shirt = g("shirt0001", "navy shirt", "tops", "shirt", ["base", "mid", "outer"], 1, colors=["navy"])
@@ -550,12 +550,13 @@ def test_register_gives_way_only_after_two_steps_off_the_level():
     assert_valid(d, r)
     o = r.outfits[0]
     assert o.picks["base"] == tee["id"], (o.picks, o.relaxed)
-    assert o.relaxed == ("band2",), o.relaxed
-    assert funnel.notes(o.relaxed) == [funnel.TRIED_ALL, funnel.NOTES["band2"]]
+    assert o.relaxed == ("band1",), o.relaxed
+    assert funnel.notes(o.relaxed) == [funnel.TRIED_ALL, funnel.NOTES["band1"]]
 
 
 def test_three_steps_off_the_level_is_reported_as_band3():
-    ctx = strict(20, TEE, hi=24, p=prefs("office", "smart"))
+    # A level-4 target: an office day is a 3 now, where shorts are only two steps off.
+    ctx = funnel.Ctx(strict(20, TEE, hi=24, p=prefs("office", "smart")).day, 4)
     shorts = g("shorts001", "grey running shorts", "bottoms", "shorts", ["bottoms"], 1, level=1)
     ctx.wd.by_item[shorts["id"]] = shorts
     assert "band3" in funnel.needed(ctx, {"base": TEE["id"], "bottoms": shorts["id"]})

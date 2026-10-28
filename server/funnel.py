@@ -84,10 +84,13 @@ SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"
 
 
 def target_level(look: "style.Look") -> int:
-    """Step 1: how dressed-up today is, 1-5."""
+    """Step 1: how dressed-up today is, 1-5. An office day is a 3, smart or not: at 4 a
+    T-shirt under a reindeer sweater was served (user, 2026-10-28)."""
     if look.style == "active":
         return 1
-    return min(5, {"office": 3}.get(look.occasion, 2) + (1 if look.style == "smart" else 0))
+    if look.occasion == "office":
+        return 3
+    return min(5, 2 + (1 if look.style == "smart" else 0))
 
 
 def band(slot: str, target: int, office: bool, widen: int) -> tuple[int, int]:

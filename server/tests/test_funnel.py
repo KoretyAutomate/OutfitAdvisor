@@ -242,6 +242,17 @@ def strict(t, *items, hi=None, p=None, **w):
     return funnel.Ctx(d, funnel.target_level(d.look))
 
 
+def test_an_office_day_is_a_3_smart_or_not_and_only_office_days_changed():
+    """User, 2026-10-28: at 4 a shirt, trousers and a sweater all sat below an office
+    day, and the band gave way to a T-shirt and a reindeer sweater. "Making it to 3 is
+    only for the office days" — every other day keeps its level."""
+    assert funnel.target_level(prefs("office", "smart").look) == 3
+    assert funnel.target_level(prefs("office").look) == 3
+    assert funnel.target_level(prefs("", "smart").look) == 3
+    assert funnel.target_level(prefs("").look) == 2
+    assert funnel.target_level(prefs("office", "active").look) == 1
+
+
 def test_the_occasion_band_removes_weekend_trousers_on_an_office_day():
     ctx = strict(6, *OFFICE, hi=19, p=prefs("office"))
     cands, removed = funnel.candidates(ctx, funnel.priority_for(ctx))

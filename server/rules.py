@@ -181,10 +181,10 @@ def _colors(item: dict) -> set[str]:
 # A garment whose NAME says what it is answers a rule about that kind, whatever type
 # it was filed under: "Do not wear a polo shirt" missed a "navy long-sleeve polo"
 # filed as another type and served it (user, 2026-10-28: "it still ignores. Please
-# tighten this rule"). What a name says is its LAST garment word — English and
-# Japanese both put the noun last — so a brand or a model before it says nothing:
-# "Polo Ralph Lauren oxford shirt" is a shirt, "Tommy Jeans chino shorts" are shorts,
-# "Nike Blazer Low sneakers" are shoes (pre-push gate, 2026-10-28). A polo neck is a
+# tighten this rule"). The name overrides the filing only when it names that kind and
+# NO other — "Polo Ralph Lauren oxford shirt" names a shirt too, "Tommy Jeans chino
+# shorts" shorts, "Nike Blazer Low sneakers" shoes — so any doubt keeps the type
+# (pre-push gate, 2026-10-28). Known brands are taken out first. A polo neck is a
 # turtleneck. Only kinds with one unmistakable name are read this way ("shirt" is in
 # t-shirt and polo shirt), and only where the garment's group can hold that kind.
 _NOUNS: tuple[tuple[str, str], ...] = (
@@ -195,7 +195,7 @@ _NOUNS: tuple[tuple[str, str], ...] = (
     (r"shirts?|blouses?|シャツ|ブラウス", "shirt"),
     (r"sweaters?|jumpers?|pullovers?|crewnecks?|セーター|ニット", "sweater"),
     (r"cardigans?|カーディガン", "cardigan"),
-    (r"hoodies?|hooded\s+sweat\w*", "hoodie"),
+    (r"hoodies?|hooded\s+sweat\w*|sweatshirts?|sweats|スウェット|トレーナー", "hoodie"),
     (r"blazers?|ブレザー", "blazer"),
     (r"jackets?|coats?|parkas?|ジャケット|コート", "jacket"),
     (r"jeans|ジーンズ|ジーパン", "jeans"),
@@ -217,23 +217,23 @@ _NOUNS: tuple[tuple[str, str], ...] = (
 # Each phrase whole between the bounds: "polo" is not in apology, nor in Polonaise.
 _NOUN = re.compile("|".join(f"(?P<n{i}>(?<![a-z])(?:{p})(?![a-z]))" for i, (p, _) in enumerate(_NOUNS)), re.I)
 _BY_NAME = ("polo", "cardigan", "hoodie", "blazer", "jeans", "leggings", "sneakers", "loafers")
+# Brands named after a garment, wherever they stand in the name.
+_BRANDS = re.compile(r"polo\s+(?:by\s+)?ralph\s+lauren|u\.?\s?s\.?\s+polo(?:\s+assn\.?)?|"
+                     r"(?:tommy|calvin\s+klein|armani|guess)\s+jeans|nike\s+blazers?", re.I)
 # Every dash NFKC leaves alone: a "polo‑neck" typed with U+2011 is still a polo neck.
 _DASHES = re.compile("[\u2010-\u2015\u2212\uff0d]")
 
 
-def _head(label: str) -> str | None:
-    """The kind the name's last garment word says, or None."""
-    text = _DASHES.sub("-", unicodedata.normalize("NFKC", label))
-    last = None
-    for m in _NOUN.finditer(text):
-        last = m
-    return _NOUNS[int(last.lastgroup[1:])][1] if last and last.lastgroup else None
+def _kinds(label: str) -> set[str]:
+    """Every garment kind the name says, brands taken out."""
+    text = _BRANDS.sub(" ", _DASHES.sub("-", unicodedata.normalize("NFKC", label)))
+    return {_NOUNS[int(m.lastgroup[1:])][1] for m in _NOUN.finditer(text) if m.lastgroup}
 
 
 def _named(kind: str, item: dict) -> bool:
     if kind not in _BY_NAME or not vocab.normalize_type(kind, vocab.canonical_group(_norm(item.get("group")))):
         return False
-    return _head(str(item.get("label") or "")) == kind
+    return _kinds(str(item.get("label") or "")) == {kind}
 
 
 def _matches(desc: dict, slot: str, item: dict) -> bool:

@@ -313,7 +313,8 @@ def test_every_spelling_of_polo_is_caught(label):
                                    "Polo Ralph Lauren oxford shirt", "Polo by Ralph Lauren tee", "U.S. Polo Assn. tee",
                                    "black polo\u2010neck", "black polo\u2011neck jumper",
                                    "white blouse (Polonaise)", "white tee with apology slogan",
-                                   "Polo Ralph Lauren tank top"])
+                                   "Polo Ralph Lauren tank top", "white oxford shirt (Polo Ralph Lauren)",
+                                   "Polo Ralph Lauren sweatshirt", "Polo Ralph Lauren", "polo-style shirt"])
 def test_what_is_not_a_polo_is_left_alone(label):
     assert not rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("sweater", label)})
 

@@ -204,9 +204,18 @@ _NOUNS: tuple[tuple[str, str], ...] = (
     (r"leggings?|レギンス", "leggings"),
     (r"sneakers?|trainers?|スニーカー", "sneakers"),
     (r"loafers?|ローファー", "loafers"),
-    (r"boots?|shoes?|ブーツ|シューズ", "shoes"),
+    (r"boots?|shoes?|derbys?|derbies|brogues?|sandals?|ブーツ|シューズ|サンダル", "shoes"),
+    # Every other kind a closet holds, so a brand word is never the last one left:
+    # "Tommy Jeans denim skirt" is a skirt (pre-push gate, 2026-10-28).
+    (r"tank\s*tops?|tanks?|camisoles?|vests?|gilets?|waistcoats?|タンクトップ|ベスト", "tank"),
+    (r"skirts?|dress(?:es)?|jumpsuits?|overalls|dungarees|スカート|ワンピース", "dress"),
+    (r"fleeces?|puffers?|anoraks?|raincoats?|フリース|ダウン", "jacket"),
+    (r"undershirts?|thermals?|inners?|camis?|インナー", "undershirt"),
+    (r"socks?|belts?|scarf|scarves|hats?|caps?|beanies?|gloves?|ties?|umbrellas?|bras?|briefs|boxers|"
+     r"pajamas|pyjamas|靴下|ベルト|マフラー|帽子|手袋|ネクタイ|傘", "accessory"),
 )
-_NOUN = re.compile("|".join(f"(?P<n{i}>(?<![a-z]){p}(?![a-z]))" for i, (p, _) in enumerate(_NOUNS)), re.I)
+# Each phrase whole between the bounds: "polo" is not in apology, nor in Polonaise.
+_NOUN = re.compile("|".join(f"(?P<n{i}>(?<![a-z])(?:{p})(?![a-z]))" for i, (p, _) in enumerate(_NOUNS)), re.I)
 _BY_NAME = ("polo", "cardigan", "hoodie", "blazer", "jeans", "leggings", "sneakers", "loafers")
 # Every dash NFKC leaves alone: a "polo‑neck" typed with U+2011 is still a polo neck.
 _DASHES = re.compile("[\u2010-\u2015\u2212\uff0d]")

@@ -311,7 +311,9 @@ def test_every_spelling_of_polo_is_caught(label):
 
 @pytest.mark.parametrize("label", ["black polo neck", "polo-neck jumper", "blue oxford shirt", "Polonaise blouse",
                                    "Polo Ralph Lauren oxford shirt", "Polo by Ralph Lauren tee", "U.S. Polo Assn. tee",
-                                   "black polo\u2010neck", "black polo\u2011neck jumper"])
+                                   "black polo\u2010neck", "black polo\u2011neck jumper",
+                                   "white blouse (Polonaise)", "white tee with apology slogan",
+                                   "Polo Ralph Lauren tank top"])
 def test_what_is_not_a_polo_is_left_alone(label):
     assert not rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("sweater", label)})
 
@@ -346,5 +348,7 @@ def test_a_brand_before_the_garment_word_says_nothing():
               "category": "bottoms", "colors": ["beige"]}
     jeans = {**shorts, "id": "b2", "label": "dark wash jeans", "type": "trousers"}
     ban = [{"kind": "avoid_item", "a": {"type": "jeans"}}]
+    skirt = {**shorts, "id": "b3", "label": "Tommy Jeans denim skirt", "type": "skirt"}
     assert not rules.violations(ban, {"bottoms": "b1"}, {"b1": shorts})
+    assert not rules.violations(ban, {"bottoms": "b3"}, {"b3": skirt})
     assert rules.violations(ban, {"bottoms": "b2"}, {"b2": jeans})

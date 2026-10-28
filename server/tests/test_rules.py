@@ -303,12 +303,14 @@ def test_a_polo_by_name_is_caught_whatever_type_it_was_filed_under(kind):
     assert rules.violations([NO_POLO], {"base": "p1"}, {"p1": p})
 
 
-@pytest.mark.parametrize("label", ["Grey knit polo", "POLO shirt", "ポロシャツ", "navy polos"])
+@pytest.mark.parametrize("label", ["Grey knit polo", "POLO shirt", "ポロシャツ", "navy polos",
+                                   "Polo Ralph Lauren polo shirt"])
 def test_every_spelling_of_polo_is_caught(label):
     assert rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("shirt", label)})
 
 
-@pytest.mark.parametrize("label", ["black polo neck", "polo-neck jumper", "blue oxford shirt", "Polonaise blouse"])
+@pytest.mark.parametrize("label", ["black polo neck", "polo-neck jumper", "blue oxford shirt", "Polonaise blouse",
+                                   "Polo Ralph Lauren oxford shirt", "Polo by Ralph Lauren tee", "U.S. Polo Assn. tee"])
 def test_what_is_not_a_polo_is_left_alone(label):
     assert not rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("sweater", label)})
 
@@ -328,3 +330,10 @@ def test_the_polo_rule_keeps_it_out_of_the_funnel():
     ctx = strict(12, polo, OXFORD, CHINOS, SNEAK, hi=18, p=prefs("office", rules=(NO_POLO,)))
     cands, removed = funnel.candidates(ctx, funnel.priority_for(ctx))
     assert polo["id"] not in cands["base"] and OXFORD["id"] in cands["base"] and removed.get("rules")
+
+
+def test_a_name_only_counts_where_the_garment_could_be_that_kind():
+    """"Nike Blazer Low sneakers" are shoes: a blazer rule never takes them (pre-push gate)."""
+    shoes = {"id": "s1", "label": "Nike Blazer Low sneakers", "type": "sneakers", "group": "footwear",
+             "category": "footwear", "colors": ["white"]}
+    assert not rules.violations([{"kind": "avoid_item", "a": {"type": "blazer"}}], {"footwear": "s1"}, {"s1": shoes})

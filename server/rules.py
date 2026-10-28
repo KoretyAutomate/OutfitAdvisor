@@ -182,10 +182,13 @@ def _colors(item: dict) -> set[str]:
 # it was filed under: "Do not wear a polo shirt" missed a "navy long-sleeve polo"
 # filed as another type and served it (user, 2026-10-28: "it still ignores. Please
 # tighten this rule"). Only names that mean one kind and nothing else — "shirt" is
-# in t-shirt and polo shirt, "coat" in raincoat and topcoat — and never the polo
-# neck, which is a turtleneck.
+# in t-shirt and polo shirt, "coat" in raincoat and topcoat — never the polo neck,
+# which is a turtleneck, nor the brand: a "Polo Ralph Lauren oxford shirt" is a shirt.
+# And only where the garment's group can hold that kind: "Nike Blazer" sneakers are
+# shoes (pre-push gate, 2026-10-28).
 _NAMES: dict[str, re.Pattern] = {
-    "polo": re.compile(r"\bpolos?\b(?![\s\-]*neck)|ポロシャツ", re.I),
+    "polo": re.compile(r"(?<!u\.s\. )(?<!us )\bpolos?\b(?![\s\-]*neck)(?!\s+(?:by\s+)?ralph|\s+assn)|ポロシャツ",
+                       re.I),
     "cardigan": re.compile(r"cardigan|カーディガン", re.I),
     "hoodie": re.compile(r"hoodie|hooded sweat", re.I),
     "blazer": re.compile(r"blazer|ブレザー", re.I),
@@ -198,7 +201,9 @@ _NAMES: dict[str, re.Pattern] = {
 
 def _named(kind: str, item: dict) -> bool:
     pat = _NAMES.get(kind)
-    return bool(pat and pat.search(unicodedata.normalize("NFKC", str(item.get("label") or ""))))
+    if not pat or not vocab.normalize_type(kind, vocab.canonical_group(_norm(item.get("group")))):
+        return False
+    return bool(pat.search(unicodedata.normalize("NFKC", str(item.get("label") or ""))))
 
 
 def _matches(desc: dict, slot: str, item: dict) -> bool:

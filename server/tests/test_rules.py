@@ -304,7 +304,8 @@ def test_a_polo_by_name_is_caught_whatever_type_it_was_filed_under(kind):
 
 
 @pytest.mark.parametrize("label", ["Grey knit polo", "POLO shirt", "ポロシャツ", "navy polos",
-                                   "Polo Ralph Lauren polo shirt"])
+                                   "Polo Ralph Lauren polo shirt", "ニットポロシャツ", "UNIQLOポロシャツ",
+                                   "ポロシャツM"])
 def test_every_spelling_of_polo_is_caught(label):
     assert rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("shirt", label)})
 

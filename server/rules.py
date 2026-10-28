@@ -193,7 +193,8 @@ _NOUNS: tuple[tuple[str, str], ...] = (
     (r"polo[\s\-]*shirts?|polos?|ポロシャツ", "polo"),
     (r"t[\s\-]*shirts?|tees?|tシャツ", "t_shirt"),
     (r"shirts?|blouses?|シャツ|ブラウス", "shirt"),
-    (r"sweaters?|jumpers?|pullovers?|crewnecks?|セーター|ニット", "sweater"),
+    # ニット alone is a sweater; before another noun it is the fabric (ニットポロシャツ).
+    (r"sweaters?|jumpers?|pullovers?|crewnecks?|セーター|ニット(?![ァ-ヶー])", "sweater"),
     (r"cardigans?|カーディガン", "cardigan"),
     (r"hoodies?|hooded\s+sweat\w*|sweatshirts?|sweats|スウェット|トレーナー", "hoodie"),
     (r"blazers?|ブレザー", "blazer"),
@@ -214,8 +215,15 @@ _NOUNS: tuple[tuple[str, str], ...] = (
     (r"socks?|belts?|scarf|scarves|hats?|caps?|beanies?|gloves?|ties?|umbrellas?|bras?|briefs|boxers|"
      r"pajamas|pyjamas|靴下|ベルト|マフラー|帽子|手袋|ネクタイ|傘", "accessory"),
 )
-# Each phrase whole between the bounds: "polo" is not in apology, nor in Polonaise.
-_NOUN = re.compile("|".join(f"(?P<n{i}>(?<![a-z])(?:{p})(?![a-z]))" for i, (p, _) in enumerate(_NOUNS)), re.I)
+
+
+def _bounded(p: str) -> str:
+    """Each English word whole: "polo" is not in apology, nor in Polonaise. Japanese
+    has no spaces to bound — UNIQLOポロシャツ is a polo shirt."""
+    return "|".join(f"(?<![a-z])(?:{a})(?![a-z])" if a[:1].isascii() else a for a in p.split("|"))
+
+
+_NOUN = re.compile("|".join(f"(?P<n{i}>{_bounded(p)})" for i, (p, _) in enumerate(_NOUNS)), re.I)
 _BY_NAME = ("polo", "cardigan", "hoodie", "blazer", "jeans", "leggings", "sneakers", "loafers")
 # Brands named after a garment, wherever they stand in the name.
 _BRANDS = re.compile(r"polo\s+(?:by\s+)?ralph\s+lauren|u\.?\s?s\.?\s+polo(?:\s+assn\.?)?|"

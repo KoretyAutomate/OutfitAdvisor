@@ -310,7 +310,8 @@ def test_every_spelling_of_polo_is_caught(label):
 
 
 @pytest.mark.parametrize("label", ["black polo neck", "polo-neck jumper", "blue oxford shirt", "Polonaise blouse",
-                                   "Polo Ralph Lauren oxford shirt", "Polo by Ralph Lauren tee", "U.S. Polo Assn. tee"])
+                                   "Polo Ralph Lauren oxford shirt", "Polo by Ralph Lauren tee", "U.S. Polo Assn. tee",
+                                   "black polo\u2010neck", "black polo\u2011neck jumper"])
 def test_what_is_not_a_polo_is_left_alone(label):
     assert not rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("sweater", label)})
 
@@ -337,3 +338,13 @@ def test_a_name_only_counts_where_the_garment_could_be_that_kind():
     shoes = {"id": "s1", "label": "Nike Blazer Low sneakers", "type": "sneakers", "group": "footwear",
              "category": "footwear", "colors": ["white"]}
     assert not rules.violations([{"kind": "avoid_item", "a": {"type": "blazer"}}], {"footwear": "s1"}, {"s1": shoes})
+
+
+def test_a_brand_before_the_garment_word_says_nothing():
+    """"Tommy Jeans chino shorts" are shorts: a jeans rule never takes them (pre-push gate)."""
+    shorts = {"id": "b1", "label": "Tommy Jeans chino shorts", "type": "shorts", "group": "bottoms",
+              "category": "bottoms", "colors": ["beige"]}
+    jeans = {**shorts, "id": "b2", "label": "dark wash jeans", "type": "trousers"}
+    ban = [{"kind": "avoid_item", "a": {"type": "jeans"}}]
+    assert not rules.violations(ban, {"bottoms": "b1"}, {"b1": shorts})
+    assert rules.violations(ban, {"bottoms": "b2"}, {"b2": jeans})

@@ -36,7 +36,7 @@ if TYPE_CHECKING:                       # only here to name the type in a signat
 log = logging.getLogger("outfit.llm")
 
 
-async def _chat(messages: list, max_tokens: int, timeout: int = 45,
+async def _chat(messages: list, max_tokens: int, timeout: float = 45,
                 temperature: float = 0.4) -> str | None:
     """0.4 is the house setting and what every caller should want. It is a parameter
     only for the re-roll (see reroll.py): asked twice for the same day the model

@@ -84,10 +84,8 @@ SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"
 
 
 def target_level(look: "style.Look") -> int:
-    """Step 1: how dressed-up today is, 1-5. An office day is a 3, smart or not: at 4
-    a plain shirt, trousers and a sweater all sit below it, so nothing kept the strict
-    level and the band gave way to a T-shirt and a reindeer sweater (user, 2026-10-28:
-    "let's simply tighten that requirements to maybe 3 and see")."""
+    """Step 1: how dressed-up today is, 1-5. An office day is a 3, smart or not: at 4 a
+    T-shirt under a reindeer sweater was served (user, 2026-10-28)."""
     if look.style == "active":
         return 1
     if look.occasion == "office":

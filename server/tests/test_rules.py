@@ -284,3 +284,47 @@ def test_a_colour_that_normalises_away_is_not_a_shared_colour():
 # ── trousers under a dress, when the retry has already been spent ──────────────
 
 
+
+
+# ── a rule reads the garment's name, not only the type it was filed under ──────────
+# User, 2026-10-28: "I added rule to avoid Knit polo on office day but it still
+# ignores. Please tighten this rule" — a "navy long-sleeve polo" filed as a shirt was
+# served under "Do not wear a polo shirt on office days".
+NO_POLO = {"kind": "avoid_item", "a": {"type": "polo"}, "text": "Do not wear a polo shirt on office days"}
+
+
+def _polo_filed_as(kind, label="navy long-sleeve polo"):
+    return {"id": "p1", "label": label, "type": kind, "group": "tops", "category": "base", "colors": ["navy"]}
+
+
+@pytest.mark.parametrize("kind", ["shirt", "sweater", "t_shirt", "polo"])
+def test_a_polo_by_name_is_caught_whatever_type_it_was_filed_under(kind):
+    p = _polo_filed_as(kind)
+    assert rules.violations([NO_POLO], {"base": "p1"}, {"p1": p})
+
+
+@pytest.mark.parametrize("label", ["Grey knit polo", "POLO shirt", "ポロシャツ", "navy polos"])
+def test_every_spelling_of_polo_is_caught(label):
+    assert rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("shirt", label)})
+
+
+@pytest.mark.parametrize("label", ["black polo neck", "polo-neck jumper", "blue oxford shirt", "Polonaise blouse"])
+def test_what_is_not_a_polo_is_left_alone(label):
+    assert not rules.violations([NO_POLO], {"base": "p1"}, {"p1": _polo_filed_as("sweater", label)})
+
+
+def test_a_name_never_widens_a_rule_about_an_ambiguous_kind():
+    """"shirt" is in t-shirt and polo shirt: a rule about shirts goes by type alone."""
+    no_shirt = {"kind": "avoid_item", "a": {"type": "shirt"}}
+    assert not rules.violations([no_shirt], {"base": "p1"}, {"p1": _polo_filed_as("polo", "white polo shirt")})
+
+
+def test_the_polo_rule_keeps_it_out_of_the_funnel():
+    """The funnel drops a banned garment before any search: the polo is not a candidate."""
+    import funnel
+    from test_funnel import CHINOS, prefs, strict
+    from wardrobe_fixtures import OXFORD, SNEAK, g
+    polo = g("lspolo001", "navy long-sleeve polo", "tops", "shirt", ["base", "mid", "outer"], 3)
+    ctx = strict(12, polo, OXFORD, CHINOS, SNEAK, hi=18, p=prefs("office", rules=(NO_POLO,)))
+    cands, removed = funnel.candidates(ctx, funnel.priority_for(ctx))
+    assert polo["id"] not in cands["base"] and OXFORD["id"] in cands["base"] and removed.get("rules")

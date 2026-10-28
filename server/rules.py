@@ -19,6 +19,7 @@ server stays stateless.
 """
 
 import re
+import unicodedata
 
 import vocab
 
@@ -177,6 +178,29 @@ def _colors(item: dict) -> set[str]:
     return {c for c in (_norm_color(x) for x in (item.get("colors") or [])) if c}
 
 
+# A garment whose NAME says what it is answers a rule about that kind, whatever type
+# it was filed under: "Do not wear a polo shirt" missed a "navy long-sleeve polo"
+# filed as another type and served it (user, 2026-10-28: "it still ignores. Please
+# tighten this rule"). Only names that mean one kind and nothing else — "shirt" is
+# in t-shirt and polo shirt, "coat" in raincoat and topcoat — and never the polo
+# neck, which is a turtleneck.
+_NAMES: dict[str, re.Pattern] = {
+    "polo": re.compile(r"\bpolos?\b(?![\s\-]*neck)|ポロシャツ", re.I),
+    "cardigan": re.compile(r"cardigan|カーディガン", re.I),
+    "hoodie": re.compile(r"hoodie|hooded sweat", re.I),
+    "blazer": re.compile(r"blazer|ブレザー", re.I),
+    "jeans": re.compile(r"\bjeans\b|ジーンズ|ジーパン", re.I),
+    "sneakers": re.compile(r"sneaker|trainer|スニーカー", re.I),
+    "loafers": re.compile(r"loafer|ローファー", re.I),
+    "leggings": re.compile(r"legging|レギンス", re.I),
+}
+
+
+def _named(kind: str, item: dict) -> bool:
+    pat = _NAMES.get(kind)
+    return bool(pat and pat.search(unicodedata.normalize("NFKC", str(item.get("label") or ""))))
+
+
 def _matches(desc: dict, slot: str, item: dict) -> bool:
     """Does the garment in this slot answer this description?
 
@@ -186,7 +210,7 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
     """
     if "role" in desc and desc["role"] != slot:
         return False
-    if "type" in desc and _norm(item.get("type")) != desc["type"]:
+    if "type" in desc and _norm(item.get("type")) != desc["type"] and not _named(desc["type"], item):
         return False
     if "group" in desc and vocab.canonical_group(_norm(item.get("group"))) != desc["group"]:
         return False

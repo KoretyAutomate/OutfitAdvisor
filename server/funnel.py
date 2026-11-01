@@ -61,7 +61,6 @@ _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
-COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
 
@@ -191,10 +190,14 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
     return None
 
 
+def _widen(ctx: Ctx) -> int:
+    return 4 if "band3" in ctx.relaxed else 2 if "band2" in ctx.relaxed else 1 if "band1" in ctx.relaxed else 0
+
+
 def candidates(ctx: Ctx, priority) -> tuple[dict, dict]:
     """({slot: [ids, best first]}, {stage: removed}) — steps 2-3 and 5."""
     # band3 spans every level, 1-5, whatever the day's target: what they have is worn.
-    widen = 4 if "band3" in ctx.relaxed else 2 if "band2" in ctx.relaxed else 1 if "band1" in ctx.relaxed else 0
+    widen = _widen(ctx)
     out: dict = {s: [] for s in CATEGORIES}
     removed: dict = {}
     for iid in sorted(ctx.wd.ids):
@@ -277,22 +280,6 @@ def _repeats(ctx: Ctx, picks: dict) -> int:
     return sum(1 for s, i in ctx.day.prefs.shown_map.items() if i in worn or (s in picks and not picks[s]))
 
 
-def sheds(day: "check.Day", picks: dict) -> tuple:
-    """What comes off by midday: the coat once the day warms by six degrees AND reaches
-    a coatless 14, the knit once it reaches 18 — and only over a top that stays on.
-    A -5 to 1C day warms by six and keeps the coat on (pre-push gate, 2026-10-20)."""
-    if not picks.get("base"):
-        return ()
-    off: list = []
-    for slot, warm in (("outer", day.peak >= day.plan + 6 and day.peak >= COATLESS_C), ("mid", day.peak >= 18)):
-        rest = {s: i for s, i in picks.items() if s not in (*off, slot)}
-        # …and what stays on is warm enough by itself at the warmest hour (pre-push
-        # gate, 2026-10-21: a thin tee under a jacket at 8-14C keeps the jacket).
-        if warm and picks.get(slot) and layers._still_warm(rest, day.wd.by_item, day.peak):
-            off.append(slot)
-    return tuple(off)
-
-
 # ── step 5: priority ─────────────────────────────────────────────────────────────
 
 def _level_pull(ctx: Ctx, slot: str, it: dict) -> float:
@@ -348,16 +335,17 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     return tuple(k for k in RELAX if k in out)
 
 
-def _steps_off(strict: Ctx, picks: dict) -> list[int]:
-    """Steps each visible garment sits outside the strict band. A layer over tops decided
-    empty is the top, or a day off's shirt returns over the undershirt (2026-11-01)."""
+def _steps_off(ctx: Ctx, picks: dict, widen: int = 0, tops_only: bool = False) -> list[int]:
+    """Steps each visible garment sits outside the band. On a day off a layer over tops
+    decided empty is the top, or the shirt returns over the undershirt (2026-11-01)."""
     out = []
     for slot in VISIBLE:
         iid = picks.get(slot)
-        if iid and not (_snow_gear(strict, slot) and strict.wd.by_item[iid].get("waterproof")):
-            as_top = slot in ("mid", "outer") and all(s in picks and not picks[s] for s in VISIBLE[:VISIBLE.index(slot)])
-            lo, hi = band("base" if as_top else slot, strict.target, strict.day.look.occasion, 0)
-            lvl = garment.level(strict.wd.by_item[iid])
+        top = ctx.day.look.occasion == "off" and slot in ("mid", "outer") and all(
+            s in picks and not picks[s] for s in VISIBLE[:VISIBLE.index(slot)])
+        if iid and (top or not tops_only) and not (_snow_gear(ctx, slot) and ctx.wd.by_item[iid].get("waterproof")):
+            lo, hi = band("base" if top else slot, ctx.target, ctx.day.look.occasion, widen)
+            lvl = garment.level(ctx.wd.by_item[iid])
             out.append(max(0, lo - lvl, lvl - hi))
     return out
 
@@ -511,12 +499,14 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # settle. Served only when no combination is warm — rejected outright, a wrong
         # guess left them nothing (pre-push gate, 2026-10-24; on main too, a sweater
         # banned with the only jeans).
-        if hard - {"cold"}:
+        # A layer worn as the top meets the top's band at the pass's width: judged whole,
+        # since a shape without a mid never decides one (pre-push gate, 2026-11-01).
+        if hard - {"cold"} or any(_steps_off(c, full, _widen(c), tops_only=True)):
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
         rank = (int(bool(hard)), *_rank(c, (shape, full), issues, gave, today))
-        ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank))
+        ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break
     return ok

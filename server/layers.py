@@ -31,10 +31,15 @@ A person would reach for the cardigan, so the repair does too.
 Split into its own module because picks.py sits at the 600-line ceiling.
 """
 
+from typing import TYPE_CHECKING
+
 import picks as pk
 import rules
 import scale
 import sleeves
+
+if TYPE_CHECKING:
+    import check
 
 _TORSO = ("inner", "base", "mid", "outer")
 
@@ -42,6 +47,7 @@ _TORSO = ("inner", "base", "mid", "outer")
 # over the knitwear (user, 2026-10-18: a 2-13C morning served a sweater and no coat).
 # The plan temperature already carries the wearer's warm/cold calibration.
 COAT_BELOW_C = 8
+COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 # Below this the coat goes over knitwear whatever the coat (user, 2026-10-18: felt
 # -1..10C). Between it and COAT_BELOW_C a warm coat over the top is enough (user,
 # 2026-10-24: "Coat over the top" — a knit polo, a cardigan AND a parka at 5-12C).
@@ -152,3 +158,18 @@ def too_cold_for_outfit(picks: dict, wd, plan_temp: float, user_rules: list[dict
                    for iid, item in wd.by_item.items() if iid not in picks.values())
 
 
+def sheds(day: "check.Day", picks: dict) -> tuple:
+    """What comes off by midday (from funnel.py at its 600-line ceiling, 2026-11-01): the
+    coat once the day warms by six degrees AND reaches a coatless 14, the knit once it
+    reaches 18 — and only over a top that stays on. A -5 to 1C day warms by six and
+    keeps the coat on (pre-push gate, 2026-10-20)."""
+    if not picks.get("base"):
+        return ()
+    off: list = []
+    for slot, warm in (("outer", day.peak >= day.plan + 6 and day.peak >= COATLESS_C), ("mid", day.peak >= 18)):
+        rest = {s: i for s, i in picks.items() if s not in (*off, slot)}
+        # …and what stays on is warm enough by itself at the warmest hour (pre-push
+        # gate, 2026-10-21: a thin tee under a jacket at 8-14C keeps the jacket).
+        if warm and picks.get(slot) and _still_warm(rest, day.wd.by_item, day.peak):
+            off.append(slot)
+    return tuple(off)

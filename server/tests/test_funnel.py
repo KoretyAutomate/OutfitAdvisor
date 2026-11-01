@@ -465,3 +465,13 @@ def test_only_a_day_off_caps_the_top_at_the_level():
     assert funnel.band("base", 2, "wfh", 0) == (1, 3), "a video call may want a collar"
     assert funnel.band("base", 2, "", 0) == (1, 3)
     assert BUTTON_UP["id"] not in funnel.candidates(ctx, funnel.priority_for(ctx))[0]["base"]
+
+
+def test_a_day_off_takes_the_shirt_one_step_off_before_the_one_two_steps_off():
+    """Pre-push gate, 2026-11-01: the strict pass took a level-4 dress shirt alone in
+    the outer slot (two steps off) before the band1 pass could reach the oxford."""
+    oxford = {**OXFORD, "roles": ["base"], "category": "base"}
+    dress_shirt = g("dshirt001", "white dress shirt", "tops", "shirt", ["base", "mid", "outer"], 2, colors=["white"])
+    d, r = run(16, UNDER, oxford, dress_shirt, CHINOS, LOAFERS, hi=20, p=prefs("off"))
+    assert_valid(d, r)
+    assert r.outfits[0].relaxed == ("band1",) and r.outfits[0].picks["base"] == oxford["id"], r.outfits[0].picks

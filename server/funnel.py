@@ -75,12 +75,15 @@ def target_level(look: "style.Look") -> int:
     return min(5, 2 + (1 if look.style == "smart" else 0))
 
 
-def band(slot: str, target: int, office: bool, widen: int) -> tuple[int, int]:
+def band(slot: str, target: int, occasion: str, widen: int) -> tuple[int, int]:
     """Step 2: the levels a visible garment may have. Never below the office's level
-    on an office day; a coat is commute wear and gets more room either way."""
+    on an office day; never above the day's on a day off for the top worn (user,
+    2026-11-01: a button-up shirt on a Sunday); a coat is commute wear and gets more
+    room either way."""
     if slot == "outer":
         return target - 1 - widen, target + 2 + widen
-    return target - (0 if office else 1) - widen, target + 1 + widen
+    office, top_off = occasion == "office", occasion == "off" and slot == "base"
+    return target - (0 if office else 1) - widen, target + (0 if top_off else 1) + widen
 
 
 @dataclass
@@ -180,7 +183,7 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
     if slot == "outer" and "coat" not in ctx.relaxed and _coat_day(ctx) and not check.is_coat(it):
         return "coat"
     if slot in VISIBLE and not (snow and it.get("waterproof")):
-        lo, hi = band(slot, ctx.target, ctx.office, widen)
+        lo, hi = band(slot, ctx.target, ctx.day.look.occasion, widen)
         if not lo <= garment.level(it) <= hi:
             return "occasion"
     if slot == "footwear" and ctx.wet and "wet" not in ctx.relaxed and garment.wets_through(it):
@@ -296,7 +299,7 @@ def _level_pull(ctx: Ctx, slot: str, it: dict) -> float:
     """The day's level, worth a few days of rotation (user, 2026-11-01: office days and
     days off looked the same — it was worth one point against rotation's seven): +3 at
     the level, or anywhere in an office day's band; -3 a step outside the band."""
-    lo, hi = band(slot, ctx.target, ctx.office, 0)
+    lo, hi = band(slot, ctx.target, ctx.day.look.occasion, 0)
     lvl = garment.level(it)
     if lvl < lo or lvl > hi:
         return -3.0 * max(lo - lvl, lvl - hi)
@@ -346,12 +349,14 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
 
 
 def _steps_off(strict: Ctx, picks: dict) -> list[int]:
-    """How many steps each visible garment sits outside the strict band; 0 inside."""
+    """Steps each visible garment sits outside the strict band. A layer over a top decided
+    empty is the top, or a day off's shirt returns over the undershirt (2026-11-01)."""
     out = []
     for slot in VISIBLE:
         iid = picks.get(slot)
         if iid and not (_snow_gear(strict, slot) and strict.wd.by_item[iid].get("waterproof")):
-            lo, hi = band(slot, strict.target, strict.office, 0)
+            as_top = slot == "mid" and "base" in picks and not picks["base"]
+            lo, hi = band("base" if as_top else slot, strict.target, strict.day.look.occasion, 0)
             lvl = garment.level(strict.wd.by_item[iid])
             out.append(max(0, lo - lvl, lvl - hi))
     return out

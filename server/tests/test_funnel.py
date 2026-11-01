@@ -410,3 +410,46 @@ def test_a_needed_knit_is_never_left_off_to_be_nearer_the_level():
     d, r = run(2, UNDER, OXFORD, knit, PARKA, CHINOS, SNEAK, hi=6, p=prefs("office"))
     assert_valid(d, r)
     assert knit["id"] in r.outfits[0].picks.values(), r.outfits[0].picks
+
+
+# ── no button-up shirt on a day off (user, 2026-11-01) ───────────────────────────
+
+BUTTON_UP = g("blkshirt1", "black long sleeve button-up shirt", "tops", "shirt", ["base", "mid", "outer"], 2,
+              colors=["black"])
+SUNDAY = [UNDER, {**TEE, "_ago": 2}, {**BUTTON_UP, "_ago": 7}, {**SWEATER, "_ago": 7}, RAINJKT,
+          {**DRAWSTR, "_ago": 7}, SNEAK]
+
+
+def test_a_day_off_dresses_the_top_casual_however_long_the_shirt_has_rested():
+    """User, 2026-11-01, 3-15C on a Sunday: "I get shirt on a day off". A level-3
+    shirt sat inside a day off's 1-3 band, and the chooser picked it."""
+    d, r = run(6, *SUNDAY, hi=15, p=prefs("off"))
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert o.picks["base"] == TEE["id"], o.picks
+        assert BUTTON_UP["id"] not in o.picks.values(), "not as a layer either: the tee leads"
+
+
+def test_a_day_off_wears_the_shirt_only_when_no_casual_top_is_owned():
+    """No tee and no sweater to wear as the top: the shirt, said as a step off the level."""
+    closet = [JEANS if i["id"] == DRAWSTR["id"] else i for i in SUNDAY if i["id"] not in (TEE["id"], SWEATER["id"])]
+    d, r = run(6, *closet, hi=15, p=prefs("off"))
+    assert_valid(d, r)
+    assert BUTTON_UP["id"] in r.outfits[0].picks.values() and "band1" in r.outfits[0].relaxed, r.outfits[0].picks
+
+
+def test_a_day_off_shirt_turned_down_as_the_top_is_no_freer_as_the_layer_over_nothing():
+    ctx = strict(6, *SUNDAY, hi=15, p=prefs("off"))
+    as_layer = {"inner": UNDER["id"], "base": None, "mid": BUTTON_UP["id"]}
+    assert funnel.needed(ctx, as_layer) == ("band1",)
+    assert funnel.needed(ctx, {**as_layer, "base": TEE["id"]}) == (), "over a tee it is a layer"
+    assert funnel.needed(ctx, {k: v for k, v in as_layer.items() if k != "base"}) == (), "top not decided yet"
+
+
+def test_only_a_day_off_caps_the_top_at_the_level():
+    ctx = strict(6, *SUNDAY, hi=15, p=prefs("off"))
+    assert funnel.band("base", 2, "off", 0) == (1, 2)
+    assert funnel.band("mid", 2, "off", 0) == (1, 3), "a knit or overshirt keeps its room"
+    assert funnel.band("base", 2, "wfh", 0) == (1, 3), "a video call may want a collar"
+    assert funnel.band("base", 2, "", 0) == (1, 3)
+    assert BUTTON_UP["id"] not in funnel.candidates(ctx, funnel.priority_for(ctx))[0]["base"]

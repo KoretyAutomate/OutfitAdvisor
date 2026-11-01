@@ -349,13 +349,13 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
 
 
 def _steps_off(strict: Ctx, picks: dict) -> list[int]:
-    """Steps each visible garment sits outside the strict band. A layer over a top decided
+    """Steps each visible garment sits outside the strict band. A layer over tops decided
     empty is the top, or a day off's shirt returns over the undershirt (2026-11-01)."""
     out = []
     for slot in VISIBLE:
         iid = picks.get(slot)
         if iid and not (_snow_gear(strict, slot) and strict.wd.by_item[iid].get("waterproof")):
-            as_top = slot == "mid" and "base" in picks and not picks["base"]
+            as_top = slot in ("mid", "outer") and all(s in picks and not picks[s] for s in VISIBLE[:VISIBLE.index(slot)])
             lo, hi = band("base" if as_top else slot, strict.target, strict.day.look.occasion, 0)
             lvl = garment.level(strict.wd.by_item[iid])
             out.append(max(0, lo - lvl, lvl - hi))

@@ -444,6 +444,18 @@ def test_a_day_off_shirt_turned_down_as_the_top_is_no_freer_as_the_layer_over_no
     assert funnel.needed(ctx, as_layer) == ("band1",)
     assert funnel.needed(ctx, {**as_layer, "base": TEE["id"]}) == (), "over a tee it is a layer"
     assert funnel.needed(ctx, {k: v for k, v in as_layer.items() if k != "base"}) == (), "top not decided yet"
+    alone = {"inner": UNDER["id"], "base": None, "mid": None, "outer": BUTTON_UP["id"]}
+    assert funnel.needed(ctx, alone) == ("band1",), "nor as the outer layer over nothing (pre-push gate)"
+    assert funnel.needed(ctx, {**alone, "mid": None, "base": TEE["id"]}) == ()
+
+
+def test_a_day_off_shirt_alone_in_the_outer_slot_is_still_a_step_off():
+    """Pre-push gate, 2026-11-01: with no rain jacket in the way, the shirt went into
+    the outer slot over the undershirt and was served with no note."""
+    d, r = run(16, UNDER, BUTTON_UP, JEANS, SNEAK, hi=20, p=prefs("off"))
+    assert_valid(d, r)
+    for o in r.outfits:
+        assert "band1" in o.relaxed, o.picks
 
 
 def test_only_a_day_off_caps_the_top_at_the_level():

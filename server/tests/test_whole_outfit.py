@@ -14,6 +14,7 @@ import check
 import chooser
 import fake_model
 import funnel
+import relaxnotes
 import garment
 import pairing
 from test_funnel import CHINOS, assert_valid, dress, prefs, run, strict
@@ -182,7 +183,7 @@ def test_a_marl_knit_polo_is_the_busy_piece():
 
 
 def test_the_notes_name_the_coat_and_any_belt_mismatch():
-    assert "coat" in funnel.NOTES["register"] and "leathers" not in funnel.NOTES["belt"]
+    assert "coat" in relaxnotes.NOTES["register"] and "leathers" not in relaxnotes.NOTES["belt"]
 
 
 def test_a_second_rescue_never_breaks_a_rule_the_first_restored(monkeypatch):
@@ -326,7 +327,7 @@ def test_a_cold_fallback_is_always_said(monkeypatch):
     ban = rl.clean_rules([{"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "jeans"}}])
     out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(rules=tuple(ban)),
                       [fake_model.choice(1)])
-    assert funnel.COLD in out["text"]
+    assert relaxnotes.COLD in out["text"]
     assert "None of these is warm enough" in seen["chooser"][0]
 
 
@@ -341,7 +342,7 @@ def test_a_cold_fallback_after_the_deadline_does_not_claim_nothing_warm_exists(m
                         lambda ctx, priority=None: replace(real(ctx, priority), complete=False))
     out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(rules=tuple(ban)),
                       [fake_model.choice(1)])
-    assert funnel.COLD_UNSURE in out["text"] and funnel.COLD not in out["text"]
+    assert relaxnotes.COLD_UNSURE in out["text"] and relaxnotes.COLD not in out["text"]
     assert "nothing warmer goes" not in seen["chooser"][0]
 
 
@@ -349,7 +350,7 @@ def test_a_rescue_never_trades_a_warm_outfit_for_a_cold_one(monkeypatch):
     swt = g("sweater09", "navy sweater", "tops", "sweater", ["mid"], 4)
     no = fake_model.choice(0, reason="no")
     out, seen = dress(monkeypatch, [TEE, swt, JEANS, SNEAK], weather(7, 12), prefs(), [no, no, no])
-    assert out["picks"]["mid"] == swt["id"] and funnel.COLD not in out["text"]
+    assert out["picks"]["mid"] == swt["id"] and relaxnotes.COLD not in out["text"]
 
 
 def test_the_best_cold_outfits_are_kept_not_the_first_sixty(monkeypatch):

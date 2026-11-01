@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import fake_model
 import funnel
+import relaxnotes
 import picks as pk
 import style
 from test_funnel import (CHINOS, LOAFERS, MESH, OFFICE, PARKA,
@@ -303,7 +304,7 @@ def test_the_dress_level_note_is_true_both_ways():
     formal = g("oxshoe001", "black oxford shoes", "footwear", "dress_shoes", ["footwear"], 2, colors=["black"], level=5)
     d, r = run(18, UNDER, TEE, JEANS, formal, hi=24)
     assert r.outfits and r.outfits[0].relaxed
-    for n in funnel.notes(r.outfits[0].relaxed):
+    for n in relaxnotes.notes(r.outfits[0].relaxed):
         assert "relaxed" not in n, n
 
 
@@ -534,7 +535,7 @@ def test_cargo_trousers_set_to_smart_casual_go_with_the_shirt():
 
 
 def test_the_register_note_says_what_was_given_up():
-    assert "match" in funnel.NOTES["register"] and "smarter" not in funnel.NOTES["register"]
+    assert "match" in relaxnotes.NOTES["register"] and "smarter" not in relaxnotes.NOTES["register"]
 
 
 def test_register_gives_way_only_after_a_step_off_the_level():
@@ -551,7 +552,7 @@ def test_register_gives_way_only_after_a_step_off_the_level():
     o = r.outfits[0]
     assert o.picks["base"] == tee["id"], (o.picks, o.relaxed)
     assert o.relaxed == ("band1",), o.relaxed
-    assert funnel.notes(o.relaxed) == [funnel.TRIED_ALL, funnel.NOTES["band1"]]
+    assert relaxnotes.notes(o.relaxed) == [relaxnotes.TRIED_ALL, relaxnotes.NOTES["band1"]]
 
 
 def test_three_steps_off_the_level_is_reported_as_band3():

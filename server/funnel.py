@@ -61,24 +61,6 @@ _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
-NOTES = {
-    "colour": "colours a little busier than usual — nothing quieter fits today",
-    "belt": "the belt doesn't match the shoes — nothing matching is free today",
-    "texture": "the knit and the top are not the ideal pairing — nothing better is free today",
-    "wet": "nothing water-resistant to wear on your feet today — expect damp shoes in the rain",
-    "register": "the trousers, shoes or coat don't match the top — nothing that does is free today",
-    # Either way off — too relaxed or too dressy (pre-push gate, 2026-10-20).
-    "band1": "a step off the day's usual dress level — nothing at it is free today",
-    "band2": "well off the day's usual dress level — little at it is free today",
-    "band3": "well off the day's usual dress level — little at it is free today",
-}
-# Served only when no combination is warm (search's `chilly`), and always said.
-# A fact, never an instruction: "take a layer" would name what a closet-only wardrobe
-# may not have (pre-push gate, 2026-10-24).
-COLD = "nothing warm enough for the coldest hour goes with the rest today — expect to feel cold early on"
-COLD_UNSURE = ("time ran out before a warm enough outfit was found — this one is light for the coldest "
-               "hour")
-TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 COATLESS_C = 14         # felt: warm enough at midday to carry the coat
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
@@ -310,10 +292,21 @@ def sheds(day: "check.Day", picks: dict) -> tuple:
 
 # ── step 5: priority ─────────────────────────────────────────────────────────────
 
+def _level_pull(ctx: Ctx, slot: str, it: dict) -> float:
+    """The day's level, worth a few days of rotation (user, 2026-11-01: office days and
+    days off looked the same — it was worth one point against rotation's seven): +3 at
+    the level, or anywhere in an office day's band; -3 a step outside the band."""
+    lo, hi = band(slot, ctx.target, ctx.office, 0)
+    lvl = garment.level(it)
+    if lvl < lo or lvl > hi:
+        return -3.0 * max(lo - lvl, lvl - hi)
+    return 3.0 if ctx.office or lvl == ctx.target else 0.0
+
+
 def priority_for(ctx: Ctx):
     """(id, slot) -> how much they would want it today, higher first: days since
     worn (capped at a week; yesterday's strongly down), a habit for that slot, the
-    exact level of the day — and what is already on screen when they asked for
+    day's level (_level_pull) — and what is already on screen when they asked for
     something else, well down."""
     prefs = ctx.day.prefs
     habits = {(p.get("slot"), p.get("id")) for p in prefs.prefers if isinstance(p, dict)}
@@ -328,7 +321,7 @@ def priority_for(ctx: Ctx):
             p = 7.0 if not isinstance(ago, int) else float(min(max(ago, 0), 7)) - (3 if ago <= 1 else 0)
             p += 2 if (slot, iid) in habits else 0
             p -= 6 if shown.get(slot) == iid else 0
-            p += 1 if slot in VISIBLE and garment.level(it) == ctx.target else 0
+            p += _level_pull(ctx, slot, it) if slot in VISIBLE else 0
             # A cardigan is knitwear before it is a coat: each garment a little ahead in
             # the slot it is filed under, so a lone layer reads as what it is.
             p += 1 if it.get("category") == slot else 0
@@ -347,15 +340,21 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if strict.wet and garment.wets_through(shoes):
         out.append("wet")
-    worst = 0
-    for slot in VISIBLE:
-        iid = picks.get(slot)
-        if iid and not (_snow_gear(strict, slot) and ctx.wd.by_item[iid].get("waterproof")):
-            lo, hi = band(slot, ctx.target, strict.office, 0)
-            lvl = garment.level(ctx.wd.by_item[iid])
-            worst = max(worst, lo - lvl, lvl - hi)
+    worst = max(_steps_off(strict, picks), default=0)
     out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
+
+
+def _steps_off(strict: Ctx, picks: dict) -> list[int]:
+    """How many steps each visible garment sits outside the strict band; 0 inside."""
+    out = []
+    for slot in VISIBLE:
+        iid = picks.get(slot)
+        if iid and not (_snow_gear(strict, slot) and strict.wd.by_item[iid].get("waterproof")):
+            lo, hi = band(slot, strict.target, strict.office, 0)
+            lvl = garment.level(strict.wd.by_item[iid])
+            out.append(max(0, lo - lvl, lvl - hi))
+    return out
 
 
 def cost(gave: tuple) -> tuple:
@@ -363,6 +362,14 @@ def cost(gave: tuple) -> tuple:
     steps off the level and a mismatch is worse than one step and the same mismatch
     (Codex review, 2026-10-22)."""
     return len(gave), tuple(sorted((RELAX.index(k) for k in gave), reverse=True))
+
+
+def off_level(ctx: Ctx, picks: dict) -> int:
+    """Steps off the level, summed over the garments: the band widens for the one slot
+    that needs it, not the outfit — sneakers for want of smart shoes never let the
+    T-shirt in (user, 2026-11-01). Ranked after the layers: leaving a knit off lowers
+    the sum, never the bar for warmth (pre-push gate, 2026-11-01)."""
+    return sum(_steps_off(Ctx(ctx.day, ctx.target), picks))
 
 def _full(picks: dict) -> dict:
     return {c: picks.get(c) for c in CATEGORIES}
@@ -445,7 +452,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # knit-and-coat never buy a broken rule (user, 2026-10-23: "make sure the selection
     # is nothing violating the rule"; Codex review — a shown navy tee traded for a
     # colour clash). Flat, so any() still reads "falls short somewhere".
-    return (*cost(gave), repeats, cold, under, topless, over)
+    return (*cost(gave), repeats, cold, under, topless, over, off_level(ctx, picks))
 
 
 def _diverse(ranked: list) -> list:
@@ -483,7 +490,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
                     key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
-                                   fit.topless(r[2], today), _over(c, r[2]), -r[0],
+                                   fit.topless(r[2], today), _over(c, r[2]), off_level(c, r[2]), -r[0],
                                    key(_full(r[2]))))
     ok: list = []
     seen: set = set()
@@ -586,15 +593,3 @@ def search(ctx: Ctx, priority=None) -> Result:
         tier = [o for o in chilly if o.rank == chilly[0].rank]
         return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)
     return Result([], tuple(relaxed), ctx.target, removed, complete, reached)
-
-
-def notes(relaxed: tuple, complete: bool = True) -> list[str]:
-    """What the served outfit gives up, in words — every rule it breaks, after a line
-    saying that no combination keeps them all (user, 2026-10-23: "If there is truly no
-    combination ... it needs to mention that in the commentary")."""
-    said = [NOTES[r] for r in reversed(relaxed) if r in NOTES]
-    if not said:
-        return []
-    lead = (TRIED_ALL if complete else
-            "time ran out before every combination was tried — none of those tried keeps every rule")
-    return [lead, *said]

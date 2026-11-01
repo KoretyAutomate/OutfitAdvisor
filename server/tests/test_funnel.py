@@ -7,6 +7,7 @@ import advisor
 import check
 import fake_model
 import funnel
+import relaxnotes
 import picks as pk
 import style
 from wardrobe_fixtures import (CARDI, DRESS, JACKET, JEANS, OXFORD, POLO, SHORTS, SNEAK, SWEATER, TEE, UNDER,
@@ -85,7 +86,7 @@ def test_drawstring_only_is_served_with_a_note_not_refused():
     d, r = run(10, *closet, hi=19, p=prefs("office"))
     assert_valid(d, r)
     assert r.outfits[0].picks["bottoms"] == DRAWSTR["id"]
-    assert r.outfits[0].relaxed and funnel.notes(r.outfits[0].relaxed)
+    assert r.outfits[0].relaxed and relaxnotes.notes(r.outfits[0].relaxed)
 
 
 def test_mesh_only_on_a_wet_day_is_served_with_a_note():
@@ -93,7 +94,7 @@ def test_mesh_only_on_a_wet_day_is_served_with_a_note():
     d, r = run(14, *closet, hi=20, rain=90, isRain=True)
     assert r.outfits[0].picks["footwear"] == MESH["id"]
     assert "wet" in r.outfits[0].relaxed
-    assert any("damp" in n for n in funnel.notes(r.outfits[0].relaxed))
+    assert any("damp" in n for n in relaxnotes.notes(r.outfits[0].relaxed))
 
 
 def test_a_dry_day_never_mentions_shoes():
@@ -363,3 +364,42 @@ def test_an_outfit_without_the_undershirt_is_not_offered_when_one_fits():
     assert r.outfits
     for o in r.outfits:
         assert o.picks["inner"] == (None if o.picks["base"] == TEE["id"] else INNER_LS["id"]), o.picks
+
+
+# ── office days and days off differ (user, 2026-11-01) ───────────────────────────
+
+# The tee and jeans rested a week; the shirt and chinos were worn the day before last.
+RESTED = [UNDER, {**TEE, "_ago": 7}, {**JEANS, "_ago": 7}, {**OXFORD, "_ago": 1}, {**CHINOS, "_ago": 1}, SNEAK]
+
+
+def test_an_office_day_without_smart_shoes_widens_for_the_shoes_alone():
+    """User, 2026-11-01: "I don't see any difference between office days and days
+    off". Every office request widened the band to 2-5 for the whole outfit because
+    one slot had nothing at 3, so the T-shirt and jeans the rotation liked came back."""
+    d, r = run(16, *RESTED, hi=22, p=prefs("office"))
+    assert_valid(d, r)
+    o = r.outfits[0]
+    assert worn(o, "base", "bottoms", "footwear") == {
+        "base": OXFORD["id"], "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}, o.picks
+    assert o.relaxed == ("band1",), "the sneakers, and only they, are a step off"
+
+
+def test_the_same_closet_dresses_a_day_off_down_and_an_office_day_up():
+    """The day's level outweighs a couple of days of rotation, both ways: the
+    rested shirt loses to the tee on a day off, the rested tee to the shirt at work."""
+    def closet(casual_ago: int, smart_ago: int) -> list:
+        return [{**TEE, "_ago": casual_ago}, {**JEANS, "_ago": casual_ago},
+                {**OXFORD, "_ago": smart_ago}, {**CHINOS, "_ago": smart_ago}, SNEAK]
+    _, off = run(20, *closet(4, 6), hi=26, p=prefs("off"))         # warm enough for a lone tee
+    _, office = run(20, *closet(6, 4), hi=26, p=prefs("office"))
+    assert worn(off.outfits[0], "base", "bottoms") == {"base": TEE["id"], "bottoms": JEANS["id"]}
+    assert worn(office.outfits[0], "base", "bottoms") == {"base": OXFORD["id"], "bottoms": CHINOS["id"]}
+
+
+def test_a_garment_off_the_level_costs_more_the_further_it_is():
+    ctx = strict(16, *RESTED, hi=22, p=prefs("office"))
+    one = {"base": OXFORD["id"], "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}
+    three = {"base": TEE["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}
+    assert funnel.cost_of(ctx, one) == (1, (funnel.RELAX.index("band1"),), 1)
+    assert funnel.cost_of(ctx, three) == (1, (funnel.RELAX.index("band1"),), 3)
+    assert funnel.cost_of(ctx, one) < funnel.cost_of(ctx, three)

@@ -10,6 +10,7 @@ main's beam, squeezed to one outfit, gave a rule up needlessly 5/60
 from dataclasses import replace
 
 import funnel
+import relaxnotes
 import walks
 import rules
 from test_funnel import (CHINOS, DRAWSTR, LOAFERS, WHITE_OX, assert_valid, dress, prefs, run)
@@ -38,7 +39,7 @@ def test_only_the_polo_and_the_sweater_is_texture_given_up_and_said():
     o = r.outfits[0]
     if o.picks.get("mid") == VNECK["id"]:
         assert "texture" in o.relaxed
-        assert funnel.notes(o.relaxed)[0] == funnel.TRIED_ALL
+        assert relaxnotes.notes(o.relaxed)[0] == relaxnotes.TRIED_ALL
 
 
 def test_a_beam_that_cuts_every_legal_outfit_still_finds_one(monkeypatch):
@@ -81,11 +82,11 @@ def test_an_office_day_with_only_weekend_trousers_skips_the_walk_with_bare_legs(
 
 def test_every_rule_given_up_is_said_after_the_line_that_all_were_tried():
     gave = ("colour", "texture", "register")
-    said = funnel.notes(gave)
-    assert said[0] == funnel.TRIED_ALL
-    assert said[1:] == [funnel.NOTES[k] for k in reversed(gave)], "all three, not the first two"
-    assert funnel.notes(()) == []
-    assert "time ran out" in funnel.notes(("colour",), complete=False)[0]
+    said = relaxnotes.notes(gave)
+    assert said[0] == relaxnotes.TRIED_ALL
+    assert said[1:] == [relaxnotes.NOTES[k] for k in reversed(gave)], "all three, not the first two"
+    assert relaxnotes.notes(()) == []
+    assert "time ran out" in relaxnotes.notes(("colour",), complete=False)[0]
 
 
 def test_turning_every_outfit_down_never_buys_a_broken_rule(monkeypatch):

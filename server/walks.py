@@ -156,7 +156,7 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None, cold_too: boo
     def worse(p: dict) -> bool:
         if best[0] is None:
             return False
-        c = funnel.cost(funnel.needed(ctx, p))
+        c = funnel.cost_of(ctx, p)
         return c > best[0] or (c == best[0] and not best[1])
 
     onepieces = [i for i in cands["base"] if ctx.wd.by_group.get(i) == "onepiece"]
@@ -192,10 +192,10 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None, cold_too: boo
                         cold.sort(key=lambda o: (o.rank, -o.score, funnel.key(o.picks)))
                         del cold[funnel.CHECKED_CAP:]
                         return
-                    c = funnel.cost(got[0].relaxed)
+                    c = got[0].cost
                     if best[0] is None or c < best[0]:
                         best[0], best[1] = c, True
-                        ok[:] = [o for o in ok if funnel.cost(o.relaxed) <= c]
+                        ok[:] = [o for o in ok if o.cost <= c]
                     ok.extend(got)
                     if len(ok) >= funnel.CHECKED_CAP:
                         best[1] = False

@@ -19,6 +19,7 @@ server stays stateless.
 """
 
 import re
+import unicodedata
 
 import vocab
 
@@ -177,6 +178,72 @@ def _colors(item: dict) -> set[str]:
     return {c for c in (_norm_color(x) for x in (item.get("colors") or [])) if c}
 
 
+# A garment whose NAME says what it is answers a rule about that kind, whatever type
+# it was filed under: "Do not wear a polo shirt" missed a "navy long-sleeve polo"
+# filed as another type and served it (user, 2026-10-28: "it still ignores. Please
+# tighten this rule"). The name overrides the filing only when it names that kind and
+# NO other — "Polo Ralph Lauren oxford shirt" names a shirt too, "Tommy Jeans chino
+# shorts" shorts, "Nike Blazer Low sneakers" shoes — so any doubt keeps the type
+# (pre-push gate, 2026-10-28). Known brands are taken out first. A polo neck is a
+# turtleneck. Only kinds with one unmistakable name are read this way ("shirt" is in
+# t-shirt and polo shirt), and only where the garment's group can hold that kind.
+_NOUNS: tuple[tuple[str, str], ...] = (
+    # Longer phrases first: "polo shirt" is one noun, not "shirt".
+    (r"polo[\s\-]*necks?|turtle[\s\-]*necks?|タートルネック", "sweater"),
+    (r"polo[\s\-]*shirts?|polos?|ポロシャツ", "polo"),
+    (r"t[\s\-]*shirts?|tees?|tシャツ", "t_shirt"),
+    (r"shirts?|blouses?|シャツ|ブラウス", "shirt"),
+    # ニット alone is a sweater; before another noun it is the fabric (ニットポロシャツ).
+    (r"sweaters?|jumpers?|pullovers?|crewnecks?|セーター|ニット(?![ァ-ヶー])", "sweater"),
+    (r"cardigans?|カーディガン", "cardigan"),
+    (r"hoodies?|hooded\s+sweat\w*|sweatshirts?|sweats|スウェット|トレーナー", "hoodie"),
+    (r"blazers?|ブレザー", "blazer"),
+    (r"jackets?|coats?|parkas?|ジャケット|コート", "jacket"),
+    (r"jeans|ジーンズ|ジーパン", "jeans"),
+    (r"shorts|ショーツ|ショートパンツ", "shorts"),
+    (r"trousers|pants|chinos?|slacks|パンツ|スラックス", "trousers"),
+    (r"leggings?|レギンス", "leggings"),
+    (r"sneakers?|trainers?|スニーカー", "sneakers"),
+    (r"loafers?|ローファー", "loafers"),
+    (r"boots?|shoes?|derbys?|derbies|brogues?|sandals?|ブーツ|シューズ|サンダル", "shoes"),
+    # Every other kind a closet holds, so a brand word is never the last one left:
+    # "Tommy Jeans denim skirt" is a skirt (pre-push gate, 2026-10-28).
+    (r"tank\s*tops?|tanks?|camisoles?|vests?|gilets?|waistcoats?|タンクトップ|ベスト", "tank"),
+    (r"skirts?|dress(?:es)?|jumpsuits?|overalls|dungarees|スカート|ワンピース", "dress"),
+    (r"fleeces?|puffers?|anoraks?|raincoats?|フリース|ダウン", "jacket"),
+    (r"undershirts?|thermals?|inners?|camis?|インナー", "undershirt"),
+    (r"socks?|belts?|scarf|scarves|hats?|caps?|beanies?|gloves?|ties?|umbrellas?|bras?|briefs|boxers|"
+     r"pajamas|pyjamas|靴下|ベルト|マフラー|帽子|手袋|ネクタイ|傘", "accessory"),
+)
+
+
+def _bounded(p: str) -> str:
+    """Each English word whole: "polo" is not in apology, nor in Polonaise. Japanese
+    has no spaces to bound — UNIQLOポロシャツ is a polo shirt."""
+    return "|".join(f"(?<![a-z])(?:{a})(?![a-z])" if a[:1].isascii() else a for a in p.split("|"))
+
+
+_NOUN = re.compile("|".join(f"(?P<n{i}>{_bounded(p)})" for i, (p, _) in enumerate(_NOUNS)), re.I)
+_BY_NAME = ("polo", "cardigan", "hoodie", "blazer", "jeans", "leggings", "sneakers", "loafers")
+# Brands named after a garment, wherever they stand in the name.
+_BRANDS = re.compile(r"polo\s+(?:by\s+)?ralph\s+lauren|u\.?\s?s\.?\s+polo(?:\s+assn\.?)?|"
+                     r"(?:tommy|calvin\s+klein|armani|guess)\s+jeans|nike\s+blazers?", re.I)
+# Every dash NFKC leaves alone: a "polo‑neck" typed with U+2011 is still a polo neck.
+_DASHES = re.compile("[\u2010-\u2015\u2212\uff0d]")
+
+
+def _kinds(label: str) -> set[str]:
+    """Every garment kind the name says, brands taken out."""
+    text = _BRANDS.sub(" ", _DASHES.sub("-", unicodedata.normalize("NFKC", label)))
+    return {_NOUNS[int(m.lastgroup[1:])][1] for m in _NOUN.finditer(text) if m.lastgroup}
+
+
+def _named(kind: str, item: dict) -> bool:
+    if kind not in _BY_NAME or not vocab.normalize_type(kind, vocab.canonical_group(_norm(item.get("group")))):
+        return False
+    return _kinds(str(item.get("label") or "")) == {kind}
+
+
 def _matches(desc: dict, slot: str, item: dict) -> bool:
     """Does the garment in this slot answer this description?
 
@@ -186,7 +253,7 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
     """
     if "role" in desc and desc["role"] != slot:
         return False
-    if "type" in desc and _norm(item.get("type")) != desc["type"]:
+    if "type" in desc and _norm(item.get("type")) != desc["type"] and not _named(desc["type"], item):
         return False
     if "group" in desc and vocab.canonical_group(_norm(item.get("group"))) != desc["group"]:
         return False

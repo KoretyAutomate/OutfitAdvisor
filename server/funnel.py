@@ -123,7 +123,6 @@ class Outfit:
     # wherever it can; the layers fit the day (fit.layering, 2026-10-24); they wear an
     # undershirt whenever one fits, never under a T-shirt.
     rank: tuple = ()
-    cost: tuple = ()         # funnel.cost: what it gives up, and how far off the level
 
     @property
     def sheds(self) -> tuple:
@@ -358,18 +357,19 @@ def _steps_off(strict: Ctx, picks: dict) -> list[int]:
     return out
 
 
-def cost(gave: tuple, off: int = 0) -> tuple:
+def cost(gave: tuple) -> tuple:
     """Fewer rules given up first; on a tie, the later on the ladder the worse — two
     steps off the level and a mismatch is worse than one step and the same mismatch
-    (Codex review, 2026-10-22); then the fewest steps off the level, summed over the
-    garments: the band widens for the one slot that needs it, not the outfit — sneakers
-    for want of smart shoes never let the T-shirt in (user, 2026-11-01)."""
-    return len(gave), tuple(sorted((RELAX.index(k) for k in gave), reverse=True)), off
+    (Codex review, 2026-10-22)."""
+    return len(gave), tuple(sorted((RELAX.index(k) for k in gave), reverse=True))
 
 
-def cost_of(ctx: Ctx, picks: dict) -> tuple:
-    """cost() of an outfit, complete or partial: it only grows as garments are added."""
-    return cost(needed(ctx, picks), sum(_steps_off(Ctx(ctx.day, ctx.target), picks)))
+def off_level(ctx: Ctx, picks: dict) -> int:
+    """Steps off the level, summed over the garments: the band widens for the one slot
+    that needs it, not the outfit — sneakers for want of smart shoes never let the
+    T-shirt in (user, 2026-11-01). Ranked after the layers: leaving a knit off lowers
+    the sum, never the bar for warmth (pre-push gate, 2026-11-01)."""
+    return sum(_steps_off(Ctx(ctx.day, ctx.target), picks))
 
 def _full(picks: dict) -> dict:
     return {c: picks.get(c) for c in CATEGORIES}
@@ -433,7 +433,7 @@ def _over(ctx: Ctx, picks: dict) -> int:
     return int(n > layers.max_layers(picks, ctx.wd.by_item, ctx.day.plan))
 
 
-def _rank(ctx: Ctx, outfit: tuple, issues: list, cst: tuple, today: frozenset) -> tuple:
+def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) -> tuple:
     """`today`: the slots something can be worn in. They wear an undershirt whenever
     they own one (user, 2026-07-15) — so an outfit whose top cannot take it ranks
     below one whose top can, not only one that merely left it off; and a layer worn
@@ -452,7 +452,7 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, cst: tuple, today: frozenset) -
     # knit-and-coat never buy a broken rule (user, 2026-10-23: "make sure the selection
     # is nothing violating the rule"; Codex review — a shown navy tee traded for a
     # colour clash). Flat, so any() still reads "falls short somewhere".
-    return (*cst, repeats, cold, under, topless, over)
+    return (*cost(gave), repeats, cold, under, topless, over, off_level(ctx, picks))
 
 
 def _diverse(ranked: list) -> list:
@@ -487,10 +487,10 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (cost_of(c, _full(r[2])), _repeats(c, r[2]), fit.layering(c, r[2]),
+                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
-                                   fit.topless(r[2], today), _over(c, r[2]), -r[0],
+                                   fit.topless(r[2], today), _over(c, r[2]), off_level(c, r[2]), -r[0],
                                    key(_full(r[2]))))
     ok: list = []
     seen: set = set()
@@ -510,9 +510,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        cst = cost(gave, sum(_steps_off(Ctx(c.day, c.target), full)))
-        rank = (int(bool(hard)), *_rank(c, (shape, full), issues, cst, today))
-        ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank, cst))
+        rank = (int(bool(hard)), *_rank(c, (shape, full), issues, gave, today))
+        ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break
     return ok
@@ -557,7 +556,7 @@ def search(ctx: Ctx, priority=None) -> Result:
         if ok and any(ok[0].rank) and not last_width:
             held = ok
             continue
-        bound = min((o.cost for o in ok), default=None)
+        bound = min((cost(o.relaxed) for o in ok), default=None)
         if last_width and bound != cost(()):
             # The beam found nothing that keeps this step's rules, or only outfits that
             # give some up: every combination, before a rule gives way and before one

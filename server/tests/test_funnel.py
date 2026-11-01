@@ -396,10 +396,17 @@ def test_the_same_closet_dresses_a_day_off_down_and_an_office_day_up():
     assert worn(office.outfits[0], "base", "bottoms") == {"base": OXFORD["id"], "bottoms": CHINOS["id"]}
 
 
-def test_a_garment_off_the_level_costs_more_the_further_it_is():
+def test_a_garment_off_the_level_counts_more_the_further_it_is():
     ctx = strict(16, *RESTED, hi=22, p=prefs("office"))
-    one = {"base": OXFORD["id"], "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}
-    three = {"base": TEE["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}
-    assert funnel.cost_of(ctx, one) == (1, (funnel.RELAX.index("band1"),), 1)
-    assert funnel.cost_of(ctx, three) == (1, (funnel.RELAX.index("band1"),), 3)
-    assert funnel.cost_of(ctx, one) < funnel.cost_of(ctx, three)
+    assert funnel.off_level(ctx, {"base": OXFORD["id"], "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}) == 1
+    assert funnel.off_level(ctx, {"base": TEE["id"], "bottoms": JEANS["id"], "footwear": SNEAK["id"]}) == 3
+
+
+def test_a_needed_knit_is_never_left_off_to_be_nearer_the_level():
+    """Pre-push gate, 2026-11-01: at 2C an office day dropped a level-2 sweater under
+    the parka, because one garment fewer off the level summed lower. The layers the
+    weather needs rank first."""
+    knit = {**SWEATER, "level": 2}
+    d, r = run(2, UNDER, OXFORD, knit, PARKA, CHINOS, SNEAK, hi=6, p=prefs("office"))
+    assert_valid(d, r)
+    assert knit["id"] in r.outfits[0].picks.values(), r.outfits[0].picks

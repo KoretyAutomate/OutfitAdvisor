@@ -566,7 +566,7 @@ def test_three_steps_off_the_level_is_reported_as_band3():
 def test_a_tie_on_rules_given_up_goes_to_the_one_less_far_down_the_ladder():
     assert funnel.cost(("band1", "register")) < funnel.cost(("band2", "register"))
     assert funnel.cost(("band2",)) < funnel.cost(("band1", "register")), "fewer first"
-    assert funnel.cost(()) == (0, (), 0)
+    assert funnel.cost(()) == (0, ())
 
 
 def test_when_every_outfit_breaks_the_match_the_one_nearer_the_level_wins():

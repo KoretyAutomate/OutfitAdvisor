@@ -115,6 +115,9 @@ function capture(w, state) {
   check("only the top was their own choice (vs served, not the re-roll on screen)",
     JSON.stringify(e3.chose) === JSON.stringify(["base"]), e3.chose);
   check("the correction kept the weather it was logged with", e3.temp === 15, e3);
+  const snap3 = await disk("oa.pushPayload");
+  check("the push snapshot has the corrected outfit (pre-push gate, 2026-11-16)",
+    (snap3.worn.find(e => e.day === today) || {picks:{}}).picks.base === "tee-000002", snap3.worn);
 
   console.log("\n--- 4. undo takes the record and the entry back --------------------");
   await w.document.getElementById("dWear").onclick(); await drain();

@@ -89,6 +89,14 @@ def test_clean_worn_keeps_an_entry_with_no_occasion_and_trims_bad_fields():
                   "picks": {"base": TEE["id"], "mid": OXFORD["id"]}, "chose": ["mid"]}]
 
 
+def test_unhashable_choices_are_dropped_not_raised():
+    """Pre-push gate, 2026-11-16: `[{}] in worn` raised TypeError and cost /advice."""
+    for bad in ([{}], [[]], [None, 3, "base"]):
+        got = taste.clean_worn([{**E(1, base=TEE), "chose": bad}])
+        assert len(got) == 1 and got[0]["chose"] == (["base"] if "base" in bad else [])
+    assert len(AdviceRequest(lat=1, lon=1, worn=[{**E(1, base=TEE), "chose": [{}]}]).worn) == 1
+
+
 def test_the_last_entry_of_a_day_wins_whatever_its_timestamp():
     first, last = {**E(1, base=TEE), "at": 99999999999999}, {**E(1, base=TEE_B), "at": 1}
     assert [e["picks"]["base"] for e in taste.clean_worn([first, last])] == [TEE_B["id"]]

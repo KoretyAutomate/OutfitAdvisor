@@ -5303,6 +5303,9 @@ async function saveWore(){
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
   woreServed={...picked};
   await commitToday(makeEntry(ctx,woreLogged,woreServed));
+  // saveCloset above wrote the push snapshot before the log changed: written again, or
+  // the 05:00 worker learns from the outfit just corrected (pre-push gate, 2026-11-16).
+  await savePushPayload();
   // Saved as suggested is "Wearing it" by another route: today's reason is withdrawn.
   // A genuinely different outfit keeps it — the suggestion still went unworn.
   if(!wornDiffers()) await dropTodaysSkip(tapAt);

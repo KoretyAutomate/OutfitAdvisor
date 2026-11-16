@@ -71,7 +71,8 @@ def _entry(e: object) -> dict | None:
     occasion = e.get("occasion")
     return {"day": day, "occasion": occasion if occasion in OCCASIONS else None, "temp": temp,
             "rain": _num(e.get("rain"), 0, 100) or 0.0, "picks": worn,
-            "chose": sorted({s for s in chose if s in worn}) if isinstance(chose, list) else []}
+            # Each checked as a string first: `[{}] in worn` would raise, not drop (pre-push gate).
+            "chose": sorted({s for s in chose if isinstance(s, str) and s in worn}) if isinstance(chose, list) else []}
 
 
 def clean_worn(v: object) -> list[dict]:

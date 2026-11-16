@@ -17,7 +17,7 @@ division: here the garments, there the sentences that describe them.
 The through-line, from the PPK week onwards: a model is asked, and then checked.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import handles as _handles
 import rules
@@ -60,6 +60,9 @@ class Prefs:
     look: object = None   # style.Look — register, gender, the wearer's look votes
     #: reasons recent suggestions went unworn — already cleaned by the schema
     skipped: tuple = ()
+    #: taste.Taste — what they wore on days like today; left out of equality and the
+    #: hash, which stay about what they SAID
+    taste: object = field(default=None, compare=False)
 
     @classmethod
     def of(cls, rules_list: list[dict] | None, closet_only: bool = False,

@@ -34,6 +34,7 @@ import rules
 import scale
 import sleeves
 import style
+import taste
 import walks
 from llm import log
 from vocab import CATEGORIES
@@ -207,11 +208,17 @@ def candidates(ctx: Ctx, priority) -> tuple[dict, dict]:
                 removed[why] = removed.get(why, 0) + 1
             else:
                 out[slot].append(iid)
-    return {slot: _mixed(ctx, _best_first(ids, slot, priority)) for slot, ids in out.items()}, removed
+    tst = taste.get(ctx.day)
+    got = {slot: _mixed(ctx, _best_first(ids, slot, priority, tst)) for slot, ids in out.items()}
+    # Both garments of a favourite pair reach the search, past the cut (taste.py).
+    for slot, iid in (x for k in tst.strong_pairs() for x in k if x[1] in out[x[0]] and x[1] not in got[x[0]]):
+        got[slot].append(iid)
+    return got, removed
 
 
-def _best_first(ids: list, slot: str, priority) -> list:
-    return sorted(ids, key=lambda i: (-priority(i, slot), i))
+def _best_first(ids: list, slot: str, priority, tst: "taste.Taste") -> list:
+    # `potential`: the best pair a garment could still be part of — search only.
+    return sorted(ids, key=lambda i: (-priority(i, slot) - tst.potential(i, slot), i))
 
 
 def _mixed(ctx: Ctx, ranked: list) -> list:
@@ -300,7 +307,7 @@ def priority_for(ctx: Ctx):
     something else, well down."""
     prefs = ctx.day.prefs
     habits = {(p.get("slot"), p.get("id")) for p in prefs.prefers if isinstance(p, dict)}
-    shown = prefs.shown_map
+    shown, tst = prefs.shown_map, taste.get(ctx.day)
     cache: dict = {}
 
     def pri(iid: str, slot: str) -> float:
@@ -312,6 +319,7 @@ def priority_for(ctx: Ctx):
             p += 2 if (slot, iid) in habits else 0
             p -= 6 if shown.get(slot) == iid else 0
             p += _level_pull(ctx, slot, it) if slot in VISIBLE else 0
+            p += tst.bonus(iid, slot)    # worn on days like today (taste.py)
             # A cardigan is knitwear before it is a coat: each garment a little ahead in
             # the slot it is filed under, so a lone layer reads as what it is.
             p += 1 if it.get("category") == slot else 0
@@ -417,7 +425,8 @@ def _score(ctx: Ctx, picks: dict, priority, liked) -> float:
     worn = [(s, i) for s, i in picks.items() if i and s != "accessories"]
     mean = sum(priority(i, s) for s, i in worn) / max(1, len(worn))
     ids = {i for _, i in worn}
-    return mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
+    return (mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
+            + taste.get(ctx.day).pair(picks))
 
 
 def _over(ctx: Ctx, picks: dict) -> int:
@@ -446,30 +455,6 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     # is nothing violating the rule"; Codex review — a shown navy tee traded for a
     # colour clash). Flat, so any() still reads "falls short somewhere".
     return (*cost(gave), repeats, cold, under, topless, over, off_level(ctx, picks))
-
-
-def _diverse(ranked: list) -> list:
-    """The best K that differ from each other in at least two visible slots, then —
-    a wardrobe with one pair of shoes and one of trousers has few of those — any
-    other distinct outfit, best first."""
-    # The same garments filed in other slots are the same look on the person — a
-    # cardigan as "outer" over nothing is the cardigan in mid — so only the better
-    # ranked filing is offered.
-    looks: dict = {}
-    for o in ranked:
-        looks.setdefault(look(o.picks), o)
-    ranked = list(looks.values())
-    kept: list = []
-    for o in ranked:
-        if len(kept) < K and all(sum(o.picks.get(s) != k.picks.get(s) for s in VISIBLE) >= 2 for k in kept):
-            kept.append(o)
-    for o in ranked:
-        # Backfill: at least something you would see differs — a belt alone is not
-        # another outfit.
-        if len(kept) < K and o not in kept and all(
-                any(o.picks.get(s) != k.picks.get(s) for s in VISIBLE) for k in kept):
-            kept.append(o)
-    return sorted(kept, key=ranked.index)
 
 
 def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
@@ -571,10 +556,10 @@ def search(ctx: Ctx, priority=None) -> Result:
             # undershirt, wears a layer as the top, or gives up more rules than the
             # best ones do.
             tier = [o for o in ok if o.rank == ok[0].rank]
-            return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)
+            return Result(taste.offer(ctx.day, tier), tuple(relaxed), ctx.target, removed, complete, reached)
     if held:     # out of time with something in hand: serve the best of it
         tier = [o for o in held if o.rank == held[0].rank]
-        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, False, reached)
+        return Result(taste.offer(ctx.day, tier), tuple(relaxed), ctx.target, removed, False, reached)
     if not chilly and complete and time.monotonic() < ctx.deadline:
         # Nothing warm anywhere on the ladder: once, with every rule it may give up,
         # the walk without its cold-torso cut (walks.exact's cold_too).
@@ -582,9 +567,9 @@ def search(ctx: Ctx, priority=None) -> Result:
         more_ok, more, complete = walks.exact(c, priority, None, cold_too=True)
         reached += more
         if hot := warm(more_ok):
-            return Result(_diverse([o for o in hot if o.rank == hot[0].rank]), tuple(relaxed), ctx.target,
+            return Result(taste.offer(ctx.day, [o for o in hot if o.rank == hot[0].rank]), tuple(relaxed), ctx.target,
                           removed, complete, reached)
     if chilly:   # no combination is warm, whatever the guess says: the closest
         tier = [o for o in chilly if o.rank == chilly[0].rank]
-        return Result(_diverse(tier), tuple(relaxed), ctx.target, removed, complete, reached)
+        return Result(taste.offer(ctx.day, tier), tuple(relaxed), ctx.target, removed, complete, reached)
     return Result([], tuple(relaxed), ctx.target, removed, complete, reached)

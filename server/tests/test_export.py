@@ -263,3 +263,67 @@ def test_a_calendar_of_nothing_to_dress_for_is_not_a_failure(monkeypatch):
     focus = {"title": "Focus time", "n": 40, "weekdays": [0, 8, 8, 8, 8, 8, 0], "afternoon": 40}
     md = client.post("/export", json=body(events=[focus])).json()["markdown"]
     assert "Nothing regular in my calendar changes how I dress" in md and "couldn't be summarised" not in md
+
+
+# ── What I wore (2026-11-14) ─────────────────────────────────────────────────────
+
+JEANS_X = {"id": "itm-jeans-0001", "label": "blue jeans", "category": "bottoms", "type": "jeans",
+           "roles": ["bottoms"], "colors": ["blue"], "warmth": 3}
+
+
+def wore(day, temp, occasion="off", **picks):
+    return {"day": day, "occasion": occasion, "temp": temp, "rain": 0, "picks": picks, "chose": [], "at": 1}
+
+
+def section(md):
+    return md[md.index("## What I wore"):md.index("## My clothes")] if "## What I wore" in md else ""
+
+
+def test_what_i_wore_groups_by_day_and_half_open_temperature_band(monkeypatch):
+    model(monkeypatch, ROUTINE)
+    log = [wore("2026-11-01", 4.9, base=SHIRT["id"]), wore("2026-11-02", 5.0, base=SHIRT["id"]),
+           wore("2026-11-03", 25.0, "office", base=SHIRT["id"])]
+    md = section(client.post("/export", json=body(closet=[SHIRT, MARL, PARKA], worn=log,
+                                                  today="2026-11-10")).json()["markdown"])
+    assert "### Days off, below 5°C" in md and "### Days off, 5–10°C" in md
+    assert "### Office days, 25°C and above" in md
+    assert md.index("### Office days") < md.index("### Days off"), "office days first, as in the profile"
+    assert "2026-11" not in md, "counts only: never a date"
+
+
+def test_the_three_most_worn_with_ties_broken_by_the_most_recent(monkeypatch):
+    model(monkeypatch, ROUTINE)
+    a, b, c, d = ({"base": SHIRT["id"]}, {"base": MARL["id"]}, {"base": SHIRT["id"], "bottoms": JEANS_X["id"]},
+                  {"base": MARL["id"], "bottoms": JEANS_X["id"]})
+    log = [wore("2026-11-01", 12, **a), wore("2026-11-02", 12, **a), wore("2026-11-03", 12, **b),
+           wore("2026-11-06", 12, **c), wore("2026-11-04", 12, **d)]
+    md = section(client.post("/export", json=body(closet=[SHIRT, MARL, PARKA, JEANS_X], worn=log,
+                                                  today="2026-11-10")).json()["markdown"])
+    lines = [ln for ln in md.splitlines() if ln.startswith("- ")]
+    assert lines[0].startswith("- 2×: ") and "button-up" in lines[0]
+    assert "blue jeans" in lines[1] and "button-up" in lines[1], "tie: the most recent (11-06) first"
+    assert len(lines) == 3
+
+
+def test_removed_garments_are_numbered_markers_never_ids_and_never_merge(monkeypatch):
+    model(monkeypatch, ROUTINE)
+    log = [wore("2026-11-01", 12, base="itm-gone-aaaa1", bottoms=JEANS_X["id"]),
+           wore("2026-11-02", 12, base="itm-gone-bbbb2", bottoms=JEANS_X["id"])]
+    md = section(client.post("/export", json=body(closet=[SHIRT, JEANS_X], worn=log,
+                                                  today="2026-11-10")).json()["markdown"])
+    assert "(removed top #1)" in md and "(removed top #2)" in md
+    assert "itm-gone" not in md
+
+
+def test_the_log_is_aged_from_the_phones_today(monkeypatch):
+    model(monkeypatch, ROUTINE)
+    old = [wore("2026-07-01", 12, base=SHIRT["id"])]
+    assert section(client.post("/export", json=body(worn=old, today="2026-11-10")).json()["markdown"]) == ""
+    assert "### Days off" in section(client.post("/export", json=body(worn=old, today="2026-08-01"))
+                                     .json()["markdown"])
+
+
+def test_no_log_no_section_and_a_bad_log_costs_nothing(monkeypatch):
+    model(monkeypatch, ROUTINE)
+    r = client.post("/export", json=body(worn=[{"day": 1}, "x"], today="nonsense"))
+    assert r.status_code == 200 and "## What I wore" not in r.json()["markdown"]

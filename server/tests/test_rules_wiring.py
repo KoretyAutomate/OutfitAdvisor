@@ -45,7 +45,10 @@ def test_advice_passes_the_phones_rules_through():
     to reach both the prompt and the validation, and threading them separately is
     how a flag ends up honoured in one and ignored in the other."""
     app_src = (ROOT / "server" / "app.py").read_text()
-    assert re.search(r"Prefs\.of\(rules\.clean_rules\(req\.rules\)", app_src), \
+    # Built in taste.prefs since 2026-11-16 (the Prefs carry the outfit log's Taste too).
+    taste_src = (ROOT / "server" / "taste.py").read_text()
+    assert "prefs = taste.prefs(req, w, t0)" in app_src, "app.py no longer builds the Prefs"
+    assert re.search(r"Prefs\.of\(rules\.clean_rules\(req\.rules\)", taste_src), \
         "the request's rules never reach the generator"
     assert re.search(r"advisor\.dress\([^)]*prefs", app_src, re.S), \
         "the preferences are built but never passed"

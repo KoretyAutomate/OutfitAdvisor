@@ -43,6 +43,15 @@ PAD = 0.08             # of the garment's longer side, on every edge
 ALPHA_MIN = 16         # below this the matte is treated as background
 QUALITY = 88
 MIN_COVERAGE = 0.01    # foreground PIXELS below this share of the photo is "nothing found"
+# What a photo may be, checked BEFORE a pixel is decoded (security audit, 2026-11-18).
+# The 4.2M-character bound is on the COMPRESSED bytes: a 3 MB PNG can declare 170
+# megapixels, which Pillow decodes with only a warning — ~700 MB as RGBA, copied
+# again by the matte, for each request any device on the tailnet cares to send.
+# The phone sends 512 px JPEGs and gets 1024 px ones back; 4096 squared is far
+# above both. And only the formats a phone photo comes in: left open, Pillow picks
+# a decoder by the file's own header, including ones (EPS) that start Ghostscript.
+MAX_PIXELS = 4096 * 4096
+FORMATS = ("JPEG", "PNG", "WEBP")
 
 _session = None        # rembg session, built on first use
 
@@ -102,7 +111,9 @@ def compose(rgba: Image.Image) -> Image.Image | None:
 
 def _decode(b64: str) -> Image.Image:
     raw = base64.b64decode(b64.split(",", 1)[-1].strip(), validate=True)
-    img = Image.open(io.BytesIO(raw))
+    img = Image.open(io.BytesIO(raw), formats=FORMATS)   # UnidentifiedImageError is an OSError
+    if img.width * img.height > MAX_PIXELS:
+        raise ValueError("image has too many pixels")
     img.load()
     return ImageOps.exif_transpose(img).convert("RGBA")
 

@@ -382,7 +382,7 @@ const OUTFIT = {inner:"", base:"navy tee", mid:"", outer:"light jacket",
     check("wear entries have the app's fields",
       /put\("itemId", id\)\.put\("wornAt", now\)\.put\("key"/.test(fb) && /wearLog\.push\(\{itemId:e\.itemId,wornAt:e\.wornAt\}\)/.test(SRC));
     check("the day record has the app's fields",
-      /put\("day", today\)\.put\("map", picks\)/.test(fb) && /JSON\.stringify\(\{day:woreDay, map:woreLogged\}\)/.test(SRC));
+      /put\("day", today\)\.put\("map", picks\)/.test(fb) && /JSON\.stringify\(\{day:woreDay, map:woreLogged[,}]/.test(SRC));   // + entry, served (2026-11-14)
     check("one wear per garment per day, like logWear",
       /e\.optString\("itemId"\) == id && dayOf\(e\.optLong\("wornAt", 0L\)\) == today/.test(fb));
     check("idempotent: an existing record for today means nothing is written",

@@ -56,9 +56,8 @@ import packlist
 import rules
 import ruleparse
 import scale
-import picks as pk
 import shopping as shopping_llm
-import style
+import taste
 import updates
 import vocab
 import weather
@@ -140,8 +139,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
     missing: list[str] = []
     if req.closet:
         items = [i.model_dump() for i in req.closet]
-        prefs = style.look_of(pk.Prefs.of(rules.clean_rules(req.rules), req.closetOnly,
-                              [p.model_dump() for p in req.prefers], req.shown, req.skipped), req, t0)
+        prefs = taste.prefs(req, w, t0)
         result = await advisor.dress(wc, items, prefs, req.recent)
         if result is not None:
             text = result["text"]
@@ -257,6 +255,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         # layers): the phone judges a bought garment with THIS server's numbers.
         "planTemp": round(llm._plan_temp(wc), 1),
         "peakTemp": round(llm._peak_temp(wc, llm._plan_temp(wc)), 1),
+        **taste.raw_temps(w),   # the real forecast's, for the phone's outfit log
         "picks": picks,
         "tempOffset": req.tempOffset,
     }

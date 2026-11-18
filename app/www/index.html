@@ -466,6 +466,12 @@
         <p class="note" id="exportNote" style="margin:5px 0 0">A file for Claude, ChatGPT or any AI: your clothes,
           your rules and your typical week from your calendar — then ask it to dress you for your day.</p>
       </div>
+      <!-- What I wore (user, 2026-11-14): the outfit log the advisor learns taste from. -->
+      <div style="margin-top:11px">
+        <button class="ghost" id="histBtn" style="width:100%;padding:10px">What I wore</button>
+        <p class="note" style="margin:5px 0 0">Every outfit you logged, with the kind of day and the weather.
+          The advisor prefers what you wore on days like today.</p>
+      </div>
       <div class="grid" id="closetGrid"></div>
       <p class="note">Photograph your clothes once — the advisor then dresses you from what you
         actually own and skips items still in the laundry. Photos stay on this phone; the DGX
@@ -925,6 +931,33 @@
     <p class="note err" id="woreErr" style="margin:6px 0 0"></p>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="woreSave" style="flex:2">Save what I wore</button>
+    </div>
+  </div>
+</div>
+
+<!-- What I wore: the outfit log, newest first (2026-11-14). -->
+<div class="modal" id="histWrap">
+  <div class="sheet">
+    <div class="shHead"><b>What I wore</b>
+      <button class="ghost" id="histDone" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Done</button></div>
+    <p class="note" style="margin:0 0 10px">Logged with "Wearing it" or "I wore something else". Fix a day
+      that is wrong, or delete it — the advisor learns from what is here.</p>
+    <div id="histUndo"></div>
+    <div id="histList"></div>
+  </div>
+</div>
+
+<!-- Changing an earlier day: only the log changes, never the laundry or today's outfit. -->
+<div class="modal" id="histEditWrap">
+  <div class="sheet">
+    <div class="shHead"><b id="histEditTitle">What did you wear?</b>
+      <button class="ghost" id="histEditCancel" style="margin-left:auto;padding:5px 12px;font-size:.75rem">Cancel</button></div>
+    <p class="note" style="margin:0 0 10px">Change the lines that are wrong. This only changes what the advisor
+      learns from — nothing goes to the laundry.</p>
+    <div id="histEditList"></div>
+    <p class="note err" id="histEditErr" style="margin:6px 0 0"></p>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="histEditSave" style="flex:2">Save</button>
     </div>
   </div>
 </div>
@@ -1823,12 +1856,39 @@ async function mergeNativeWears(){
       applyWoreRaw(rawWore);
       // Saved into this page's OWN record before it is acknowledged — or a reload
       // reads an empty record and the acknowledged one is never taken again
-      // (pre-push reviewer, 2026-10-11, P1).
-      if(woreLogged&&woreDay===todayISO()) await saveWoreLogged();
+      // (pre-push reviewer, 2026-10-11, P1). The receiver's record carries today's
+      // outfit-log entry too (2026-11-14): commitToday writes record, then log.
+      if(woreLogged&&woreDay===todayISO()) await commitToday(woreEntry);
     }
     nativeWoreSeen=rawWore;
     try{ await prefSet("oa.nativeWoreSeen",nativeWoreSeen); }catch(e){}
   }
+  await mergeNativeOutfits();
+}
+/* The notification's outfit-log queue (oa.nativeOutfits, FeedbackReceiver.kt): each
+   entry folded ONCE, by key, and the log SAVED before the keys are acknowledged —
+   the order mergeNativeWears keeps, for the same reason. Today's entry arrives with
+   the receiver's day record instead (above); an earlier day's is taken unless this
+   page already holds one for that day. Never calls savePushPayload, which merges
+   first: the caller's next snapshot write carries what was folded. */
+async function mergeNativeOutfits(){
+  let q=[];
+  try{ q=(JSON.parse(await prefGet("oa.nativeOutfits","[]"))||[]).filter(x=>x&&x.key&&x.entry&&x.entry.day); }
+  catch(e){ return false; }
+  const today=todayISO();
+  let changed=false;
+  for(const x of q){
+    if(outfitSeen.has(x.key)) continue;
+    if(x.entry.day<today&&!outfitLog.some(e=>e.day===x.entry.day)){ putEntry(x.entry); changed=true; }
+    outfitSeen.add(x.key);
+  }
+  const live=new Set(q.map(x=>x.key));
+  for(const k of [...outfitSeen]) if(!live.has(k)) outfitSeen.delete(k);   // the receiver pruned it
+  try{
+    if(changed) await saveOutfitLog();
+    await prefSet("oa.nativeOutfitsSeen",JSON.stringify([...outfitSeen]));
+  }catch(e){}
+  return changed;
 }
 async function saveCloset(){
   await mergeNativeWears();
@@ -1874,7 +1934,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.58";
+const WEB_BUILD="1.59";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -3926,7 +3986,10 @@ async function savePushPayload(){
       recentAt:lastWornAt(),
       // Which notification wears this snapshot already counts — the worker applies
       // the rest of oa.nativeWears itself at fire time.
-      nativeSeen:[...nativeSeen]}));
+      nativeSeen:[...nativeSeen],
+      // What they wore, day by day (2026-11-14), and which of the notification's
+      // queued outfits it already holds: the worker adds the rest at fire time.
+      worn:outfitLog, outfitSeen:[...outfitSeen]}));
   }catch(e){}
 }
 
@@ -4065,6 +4128,9 @@ async function getAdvice(lat,lon){
     // since "too formal for my day" applies to generic advice just as well.
     const sk=liveSkips().slice(-SKIP_SEND).map(s=>String(s.reason).slice(0,SKIP_MAX));
     if(sk.length) body.skipped=sk;
+    // What they wore, day by day, with the weather (2026-11-14): the server prefers
+    // what was worn on days like today. As stored — the server matches the ids.
+    if(cl.length&&outfitLog.length) body.worn=outfitLog;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -4078,6 +4144,7 @@ async function getAdvice(lat,lon){
     return {at,weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source||"llm",
             closetUsed:!!d.closetUsed,picks:d.picks||null,closetSent:cl.length>0,
             missing:d.missing||[],planTemp:d.planTemp??null,peakTemp:d.peakTemp??null,
+            rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null,
             occasion:kind,style:kindStyle};
   }catch(e){
     // ONE advisor (2026-10-11): offline, the phone does not invent an outfit from a
@@ -4797,6 +4864,7 @@ function swapSummary(available){
   const inPlay=available?new Set(available.map(i=>i.id)):null;
   const by=new Map();
   for(const x of liveSwaps()){
+    if(loggedSwap(x)) continue;   // counted, with its day's context, in the outfit log
     const k=x.slot+"\u0000"+x.wore;
     const e=by.get(k);
     if(e) e.n++; else by.set(k,{slot:x.slot,id:x.wore,n:1});
@@ -4814,6 +4882,198 @@ const liveSwaps=()=>{
   const cut=dayISO(Date.now()-SWAP_KEEP_DAYS*DAY_MS);
   return swaps.filter(x=>x&&x.day>=cut);
 };
+
+/* ───────── What I wore: the outfit log (user, 2026-11-14) ─────────
+
+   "I want to keep a log of what I wore with parameters which influence decision
+   (occasion, weather, temperature) so that suggestion naturally fits into my taste."
+
+   One entry per DAY: the whole outfit, the kind of day and the RAW weather it was
+   worn in (rawPlanTemp — before the warm/cold calibration, so a later calibration
+   cannot make two identical days look apart). Sent with every request; the server
+   finds the days like today and prefers what was worn on them (server/taste.py).
+   It stays on this phone like everything else: the server remembers nothing.
+
+   Today's entry follows TODAY'S RECORD (oa.woreToday, which now carries it): the
+   record is written first and the log after, and at launch the log is set from the
+   record — so a crash between the two heals itself. Twin of the queue the
+   notification's "Wearing it" writes: FeedbackReceiver.kt (oa.nativeOutfits). */
+const OUTFIT_KEY="oa.outfitlog", OUTFIT_KEEP_DAYS=120, OUTFIT_MAX=90, OUTFIT_BYTES=48000;
+const LOG_SLOTS=["inner","base","mid","outer","bottoms","footwear"];
+let outfitLog=[];        // [{day, occasion, temp, peak, rain, wind, picks, chose, at}], by day
+let outfitSeen=new Set();   // notification queue entries folded in (oa.nativeOutfitsSeen)
+let woreEntry=null;      // today's log entry, as today's record holds it
+let woreServed=null;     // what was SERVED when today's outfit was logged: a correction's baseline
+/* The weather an outfit was chosen for, from the advice it came with. Null without
+   the raw temperatures (advice from an older server): no weather, no entry. */
+function outfitContext(res){
+  if(!res||typeof res.rawPlanTemp!=="number") return null;
+  const w=res.weather||{};
+  return {occasion:res.occasion||null, temp:res.rawPlanTemp,
+          peak:typeof res.rawPeakTemp==="number"?res.rawPeakTemp:null,
+          rain:Number(w.rain)||0, wind:Number(w.wind)||0};
+}
+/* `chose`: the slots where they wore something other than what was served. */
+function makeEntry(ctx,map,served,day=todayISO()){
+  if(!ctx) return null;
+  const picks={};
+  for(const s of LOG_SLOTS) if(map&&map[s]) picks[s]=map[s];
+  if(!Object.keys(picks).length) return null;
+  const chose=LOG_SLOTS.filter(s=>picks[s]&&served&&(served[s]||null)!==picks[s]);
+  return {day,...ctx,picks,chose,at:Date.now()};
+}
+/* Newest last, one per day; 120 days, 90 entries, then oldest first until it fits
+   48 KB — the same bounds the server and the notification's queue keep. */
+function pruneOutfitLog(log,today=todayISO()){
+  const cut=dayISO(Date.now()-OUTFIT_KEEP_DAYS*DAY_MS);
+  const by=new Map();
+  for(const e of log||[]) if(e&&typeof e.day==="string"&&e.day>=cut&&e.day<=today){ by.delete(e.day); by.set(e.day,e); }
+  let out=[...by.values()].sort((a,b)=>a.day<b.day?-1:a.day>b.day?1:0).slice(-OUTFIT_MAX);
+  while(out.length&&JSON.stringify(out).length>OUTFIT_BYTES) out=out.slice(1);
+  return out;
+}
+async function saveOutfitLog(){
+  outfitLog=pruneOutfitLog(outfitLog);
+  await prefSet(OUTFIT_KEY,JSON.stringify(outfitLog));
+}
+function putEntry(e){ if(!e) return; outfitLog=outfitLog.filter(x=>x.day!==e.day); outfitLog.push(e); }
+function dropEntry(day){ outfitLog=outfitLog.filter(x=>x.day!==day); }
+/* Today's record FIRST (it is what launch reconciles from), then the log. */
+async function commitToday(entry){
+  woreEntry=entry||null;
+  await saveWoreLogged();
+  if(woreEntry&&woreLogged) putEntry(woreEntry); else dropEntry(todayISO());
+  await saveOutfitLog();
+}
+/* At launch: the log's today is whatever today's record says. A record from an
+   older build (no entry) leaves it alone. */
+async function reconcileToday(){
+  const today=todayISO(), have=outfitLog.find(e=>e.day===today)||null, rec=wearRecord();
+  if(rec&&woreEntry){
+    if(JSON.stringify(have)!==JSON.stringify(woreEntry)){ putEntry(woreEntry); await saveOutfitLog(); }
+  }else if(!rec&&have){ dropEntry(today); await saveOutfitLog(); }
+}
+/* Swaps the log already holds — the same day, slot and garment, chosen — are left
+   out of `prefers`, so the server does not count one choice twice. */
+function loggedSwap(x){
+  const e=outfitLog.find(o=>o.day===x.day);
+  return !!(e&&Array.isArray(e.chose)&&e.chose.includes(x.slot)&&e.picks&&e.picks[x.slot]===x.wore);
+}
+
+/* ── the "What I wore" list ── */
+const OCC_LABEL={office:"Office day",wfh:"Working from home",off:"Day off"};
+let histDeleted=null;    // the last entry deleted, exactly as it was, for its undo
+let histEditing=null, histDraft=null;
+const histName=id=>{ const it=closet.find(i=>i.id===id); return it?it.label:"(removed garment)"; };
+function openHistory(){ histDeleted=null; renderHistory(); $("histWrap").classList.add("show"); }
+function renderHistory(){
+  const today=todayISO();
+  $("histUndo").innerHTML=histDeleted
+    ?`<button class="ghost" id="histUndoBtn" style="width:100%;margin:0 0 10px">Undo — put ${esc(histDate(histDeleted.day))} back</button>`:"";
+  if(histDeleted) $("histUndoBtn").onclick=()=>undoHistDelete();
+  if(!outfitLog.length){
+    $("histList").innerHTML=`<p class="note">Nothing yet. Tap "Wearing it" on today's outfit, or "I wore something
+      else", and the day is kept here with its weather.</p>`;
+    return;
+  }
+  $("histList").innerHTML=[...outfitLog].reverse().map(e=>{
+    const wx=`${Math.round(e.temp)}°`+(e.rain>=50?" · rain":"")+(e.wind>=8?" · windy":"");
+    const items=LOG_SLOTS.filter(s=>e.picks&&e.picks[s]).map(s=>esc(histName(e.picks[s]))+
+      ((e.chose||[]).includes(s)?' <i>(your pick)</i>':"")).join(", ");
+    return `<div class="calRow" style="padding-left:0;align-items:flex-start;gap:8px" data-hday="${esc(e.day)}">
+      <div style="flex:1;min-width:0">
+        <div><b>${esc(e.day===today?"Today":histDate(e.day))}</b>
+          <span class="chip">${esc(OCC_LABEL[e.occasion]||"Any day")}</span> <span class="note">${esc(wx)}</span></div>
+        <div class="note" style="margin-top:3px">${items}</div>
+      </div>
+      <button class="ghost" data-hedit="${esc(e.day)}" style="padding:4px 10px;font-size:.72rem">Edit</button>
+      <button class="ghost" data-hdel="${esc(e.day)}" style="padding:4px 10px;font-size:.72rem">Delete</button>
+    </div>`;
+  }).join("");
+  $("histList").querySelectorAll("[data-hedit]").forEach(b=>b.onclick=()=>editHistDay(b.dataset.hedit));
+  $("histList").querySelectorAll("[data-hdel]").forEach(b=>b.onclick=()=>deleteHistDay(b.dataset.hdel));
+}
+function histDate(day){
+  return new Date(day+"T12:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
+}
+/* Today's entry IS today's outfit: changed and deleted the way the outfit card does,
+   so the laundry and the record move with it and launch cannot bring it back. */
+async function deleteHistDay(day){
+  if(woreBusy) return;
+  if(day===todayISO()&&wearRecord()){
+    await $("dWear").onclick();     // the undo path: record, laundry, lesson and log together
+    renderHistory();
+    return;
+  }
+  const e=outfitLog.find(x=>x.day===day);
+  if(!e) return;
+  histDeleted={...e};
+  dropEntry(day);
+  await saveOutfitLog();
+  await savePushPayload();
+  renderHistory();
+}
+async function undoHistDelete(){
+  if(!histDeleted) return;
+  putEntry(histDeleted);
+  histDeleted=null;
+  await saveOutfitLog();
+  await savePushPayload();
+  renderHistory();
+}
+function editHistDay(day){
+  if(day===todayISO()&&wearRecord()){
+    if(!lastOutfit) return toast("Open today's outfit to change what you wore today");
+    $("histWrap").classList.remove("show");
+    return openWoreSheet();
+  }
+  const e=outfitLog.find(x=>x.day===day);
+  if(!e) return;
+  histEditing=e; histDraft={...e.picks};
+  $("histEditTitle").textContent=`What did you wear — ${histDate(day)}?`;
+  // Every garment that can fill the slot, available or not: this is about a day gone
+  // by, not what is clean now. A garment since removed stays as it was until changed.
+  $("histEditList").innerHTML=LOG_SLOTS.map(slot=>{
+    const cur=e.picks[slot]||"";
+    const options=closet.filter(i=>normRoles(i.roles,i.category).includes(slot));
+    const gone=cur&&!options.some(o=>o.id===cur)?`<option value="${esc(cur)}" selected>(removed garment)</option>`:"";
+    if(!options.length&&!gone) return "";
+    return `<div class="calRow" style="padding-left:0;align-items:center">
+      <span style="flex:0 0 34%;font-size:.76rem">${esc(LABELS[slot])}</span>
+      <select data-hslot="${slot}" style="flex:1;min-width:0">
+        <option value="">— nothing —</option>${gone}
+        ${options.map(i=>`<option value="${esc(i.id)}"${i.id===cur?" selected":""}>${esc(i.label)}</option>`).join("")}
+      </select></div>`;
+  }).join("");
+  $("histEditList").querySelectorAll("[data-hslot]").forEach(sel=>{
+    histDraft[sel.dataset.hslot]=sel.value||null;
+    sel.onchange=()=>{ histDraft[sel.dataset.hslot]=sel.value||null; $("histEditErr").textContent=""; };
+  });
+  $("histEditErr").textContent="";
+  $("histEditWrap").classList.add("show");
+}
+/* Only that day's entry changes. A slot changed here is one they say they chose. */
+async function saveHistEdit(){
+  const e=histEditing;
+  if(!e||!histDraft) return $("histEditWrap").classList.remove("show");
+  const ids=LOG_SLOTS.map(s=>histDraft[s]).filter(Boolean);
+  if(new Set(ids).size!==ids.length){
+    $("histEditErr").textContent="One garment can only be worn in one place — change one of those rows.";
+    return;
+  }
+  if(!ids.length){ $("histEditErr").textContent="Pick at least one thing, or delete the day instead."; return; }
+  const picks={};
+  for(const s of LOG_SLOTS) if(histDraft[s]) picks[s]=histDraft[s];
+  const changed=LOG_SLOTS.filter(s=>(e.picks[s]||null)!==(picks[s]||null));
+  const chose=LOG_SLOTS.filter(s=>picks[s]&&((e.chose||[]).includes(s)||changed.includes(s)));
+  putEntry({...e,picks,chose,at:Date.now()});
+  histEditing=null; histDraft=null;
+  await saveOutfitLog();
+  await savePushPayload();
+  $("histEditWrap").classList.remove("show");
+  renderHistory();
+  toast(changed.length?"Changed — the advisor learns from this now":"Nothing changed");
+}
 
 /* ── the "what did you wear?" sheet ── */
 let woreDraft=null;    // {slot: itemId|null}, the sheet's working copy
@@ -4837,8 +5097,12 @@ const WORE_KEY="oa.woreToday";
    is not stale, it is about a different outfit. */
 async function saveWoreLogged(){
   woreDay=woreLogged?todayISO():null;   // stamped in memory as well as on disk
+  if(!woreLogged){ woreEntry=null; woreServed=null; }
+  // `entry`: today's outfit-log entry, which launch restores the log from;
+  // `served`: what the advice was, the baseline a later correction is judged against
+  // (2026-11-14). Older readers see only day and map, as before.
   await prefSet(WORE_KEY, woreLogged
-    ? JSON.stringify({day:woreDay, map:woreLogged}) : "");
+    ? JSON.stringify({day:woreDay, map:woreLogged, entry:woreEntry, served:woreServed||woreLogged}) : "");
 }
 
 /* Read the day's record back from disk — at launch, and on returning to the
@@ -4853,7 +5117,10 @@ function applyWoreRaw(raw){
     const d=raw?JSON.parse(raw):null;
     woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
     woreDay=woreLogged?d.day:null;
-  }catch(e){ woreLogged=null; woreDay=null; }
+    // A record from an older build has neither: served is then what was logged.
+    woreEntry=woreLogged&&d.entry&&d.entry.day===d.day&&d.entry.picks?d.entry:null;
+    woreServed=woreLogged?(d.served&&typeof d.served==="object"?d.served:d.map):null;
+  }catch(e){ woreLogged=null; woreDay=null; woreEntry=null; woreServed=null; }
 }
 
 /* Today's record, or none. Everything that reads woreLogged goes through here, so a
@@ -4863,7 +5130,7 @@ function applyWoreRaw(raw){
    the disk copy bought nothing, and once the notification could write today's
    record it erased that: a page still holding yesterday's wrote "" over it. */
 function wearRecord(){
-  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; }
+  if(woreLogged && woreDay!==todayISO()){ woreLogged=null; woreDay=null; woreEntry=null; woreServed=null; }
   return woreLogged;
 }
 function openWoreSheet(){
@@ -4996,7 +5263,13 @@ async function saveWore(){
   // working out what to take back: a correction from outfit A (logged natively)
   // to B left A in the laundry beside B. Raised by the pre-push reviewer, 2026-10-11.
   await mergeNativeWears();
-  const picked=(lastRes&&lastRes.picks)||{};
+  // The baseline is what was SERVED when today was first logged, not the advice on
+  // screen now: log A, re-roll to B, correct A — A's unchanged slots are not choices.
+  const rec=wearRecord();
+  const picked=(rec&&woreServed)||(lastRes&&lastRes.picks)||{};
+  // The weather the logged outfit was chosen for, when there is one already.
+  const ctx=rec&&woreEntry?{occasion:woreEntry.occasion,temp:woreEntry.temp,peak:woreEntry.peak,
+                            rain:woreEntry.rain,wind:woreEntry.wind}:outfitContext(lastRes);
   const day=todayISO();
   // Take back whatever this outfit last put in the laundry, before adding what it
   // puts there now — including a correction restored from disk after a restart,
@@ -5028,7 +5301,11 @@ async function saveWore(){
   await saveSwaps();
   await saveCloset();
   woreLogged={...woreDraft};   // what the app now believes — see openWoreSheet
-  await saveWoreLogged();
+  woreServed={...picked};
+  await commitToday(makeEntry(ctx,woreLogged,woreServed));
+  // saveCloset above wrote the push snapshot before the log changed: written again, or
+  // the 05:00 worker learns from the outfit just corrected (pre-push gate, 2026-11-16).
+  await savePushPayload();
   // Saved as suggested is "Wearing it" by another route: today's reason is withdrawn.
   // A genuinely different outfit keeps it — the suggestion still went unworn.
   if(!wornDiffers()) await dropTodaysSkip(tapAt);
@@ -5449,7 +5726,8 @@ async function shareCloset(){
         rules:userRules.map(x=>({kind:x.kind,a:x.a,b:x.b||null,id:x.id,text:x.text})),
         prefers:swapSummary(closet),styleVotes:styleSummary(closet.map(i=>i.id)),
         gender:state.gender,style:state.style,styleOffice:state.styleOffice,
-        officeDays:state.officeDays||[],tempOffset,events,calendar,days:EXPORT_PAST_DAYS})});
+        officeDays:state.officeDays||[],tempOffset,events,calendar,days:EXPORT_PAST_DAYS,
+        worn:outfitLog,today:todayISO()})});
     if(!r.ok) throw new Error(r.status===400?"Photograph your clothes first.":"server "+r.status);
     const d=await r.json();
     await shareText(d.filename,d.markdown);
@@ -5768,7 +6046,8 @@ async function saveToday(res,how){
       occasion:res.occasion??dayKind(), style:res.style??styleFor(dayKind()),
       weather:res.weather, outfit:res.outfit, outfit_text:res.text,
       source:res.source, picks:res.picks||null, closetUsed:!!res.closetUsed,
-      missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null});
+      missing:res.missing||[], planTemp:res.planTemp??null, peakTemp:res.peakTemp??null,
+      rawPlanTemp:res.rawPlanTemp??null, rawPeakTemp:res.rawPeakTemp??null});
     await prefSet(TODAY_KEY, raw);
     todaySeen=raw;
   }catch(e){}
@@ -5792,7 +6071,8 @@ async function savedToday(){
     if(!d||d.day!==todayISO()||!d.outfit) return null;
     return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
             closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
-            place:d.place||null,occasion:d.occasion||"",style:d.style||null};
+            place:d.place||null,occasion:d.occasion||"",style:d.style||null,
+            rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
   }catch(e){ return null; }
 }
 async function loadToday(){
@@ -5807,7 +6087,8 @@ async function loadToday(){
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
   lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
            at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
-           picks:d.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null};
+           picks:d.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
+           rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and
   // recording only in the foreground path meant somebody who reads the notification
@@ -6067,6 +6348,8 @@ async function load(){
   try{ wearLog=JSON.parse(await prefGet("oa.wearlog","[]"))||[]; }catch(e){ wearLog=[]; }
   try{ nativeSeen=new Set(JSON.parse(await prefGet("oa.nativeSeen","[]"))||[]); }catch(e){ nativeSeen=new Set(); }
   try{ nativeWoreSeen=await prefGet("oa.nativeWoreSeen","")||""; }catch(e){ nativeWoreSeen=""; }
+  try{ outfitLog=pruneOutfitLog(JSON.parse(await prefGet(OUTFIT_KEY,"[]"))||[]); }catch(e){ outfitLog=[]; }
+  try{ outfitSeen=new Set(JSON.parse(await prefGet("oa.nativeOutfitsSeen","[]"))||[]); }catch(e){ outfitSeen=new Set(); }
   try{ lastWorn=JSON.parse(await prefGet("oa.lastWorn","{}"))||{}; }catch(e){ lastWorn={}; }
   try{ styleVotes=(JSON.parse(await prefGet("oa.styleVotes","[]"))||[])
          .filter(x=>x&&typeof x.day==="string"&&Array.isArray(x.ids)&&(x.v===1||x.v===-1)); }
@@ -6885,6 +7168,12 @@ $("wornToggle").onclick=()=>{ wornView=!wornView; refreshOutfitView(); };
 $("woreCancel").onclick=()=>$("woreWrap").classList.remove("show");
 $("woreWrap").onclick=e=>{ if(e.target===$("woreWrap")) $("woreWrap").classList.remove("show"); };
 $("woreSave").onclick=()=>{ saveWore(); };
+$("histBtn").onclick=()=>openHistory();
+$("histDone").onclick=()=>$("histWrap").classList.remove("show");
+$("histWrap").onclick=e=>{ if(e.target===$("histWrap")) $("histWrap").classList.remove("show"); };
+$("histEditCancel").onclick=()=>$("histEditWrap").classList.remove("show");
+$("histEditWrap").onclick=e=>{ if(e.target===$("histEditWrap")) $("histEditWrap").classList.remove("show"); };
+$("histEditSave").onclick=()=>{ saveHistEdit(); };
 /* "Some of these are in the laundry" (user, 2026-10-16). Every copy of a ticked
    garment goes in: "it's in the laundry" means it can't be worn today, and a second
    copy would only be recommended straight back. The marks are the Closet sheet's own
@@ -6934,7 +7223,9 @@ $("dWear").onclick=async()=>{
     // correction afterwards released nothing — the suggestion stayed in the laundry
     // and the corrected outfit was added beside it.
     woreLogged={...((lastRes&&lastRes.picks)||{})};
-    await saveWoreLogged();
+    woreServed={...woreLogged};
+    // Today's outfit log entry too, with the weather this advice was chosen for.
+    await commitToday(makeEntry(outfitContext(lastRes),woreLogged,woreServed));
     // Wearing it, AFTER saying it went unworn: today's reason is withdrawn. Here, on
     // the tap, and never on a render — a re-roll that lands on an outfit already
     // logged is not a wear (pre-push reviewer, 2026-10-16).
@@ -6948,7 +7239,7 @@ $("dWear").onclick=async()=>{
     // The RECORD, not lastPickIds: after a correction the two are different
     // garments, and undoing by the suggestion left the corrected outfit counted.
     loggedIds().forEach(unlogWearToday); wornLogged=false; woreLogged=null;
-    await saveWoreLogged();
+    await commitToday(null);       // the record and today's outfit log entry
     syncWearBtn();
     // Undo the LESSON as well as the laundry. This button is what somebody taps on
     // realising they logged the wrong outfit, and reverting the wear log while the
@@ -7258,6 +7549,8 @@ const appReady=(async()=>{
   // What the notification queued while the app was closed, BEFORE the button, the
   // card and the closet are drawn from it (pre-push reviewer, 2026-10-11).
   await mergeNativeWears();
+  // Today's outfit log entry from today's record: heals a crash between the two writes.
+  await reconcileToday();
   syncWearBtn();
   // loadToday drew the advice before the record was readable. If today already has
   // one, the pictures should be of what was worn — that is what the card is for.

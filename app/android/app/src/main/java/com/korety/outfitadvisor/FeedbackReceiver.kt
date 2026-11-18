@@ -169,12 +169,19 @@ class FeedbackReceiver : BroadcastReceiver() {
                 kept.put(JSONObject().put("itemId", id).put("wornAt", now).put("key", "n$now-$id"))
             }
         }
+        // What I wore (2026-11-14): today's outfit with the weather it was chosen for,
+        // queued for the app's outfit log and carried in the day record it adopts.
+        val wearCtx = try { intent.getStringExtra(EXTRA_CONTEXT)?.let { JSONObject(it) } } catch (e: Exception) { null }
+        val entry = OutfitLog.entry(today, picks, wearCtx, now)
+        val outfits = try { JSONArray(prefs.getString(OutfitLog.KEY_QUEUE, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
         prefs.edit()
+            .also { if (entry != null) it.putString(OutfitLog.KEY_QUEUE, OutfitLog.enqueue(outfits, entry, "o$now", today, now).toString()) }
             .putString(KEY_NATIVE_WEARS, kept.toString())
             // `at` makes every record a distinct EVENT: the same outfit logged again
             // after an undo in the app is a new record, not one already acknowledged
             // (pre-push reviewer, 2026-10-11).
-            .putString(KEY_NATIVE_WORE, JSONObject().put("day", today).put("map", picks).put("at", now).toString())
+            .putString(KEY_NATIVE_WORE, JSONObject().put("day", today).put("map", picks).put("at", now)
+                .also { if (entry != null) it.put("entry", entry) }.toString())
             .apply()
 
         OutfitNotification.afterWear(context)
@@ -226,6 +233,7 @@ class FeedbackReceiver : BroadcastReceiver() {
         const val ACTION_WEAR = "com.korety.outfitadvisor.WEAR"
         const val EXTRA_PICKS = "picks"
         const val EXTRA_DAY = "day"
+        const val EXTRA_CONTEXT = "wearContext"
         const val KEY_WEARLOG = "oa.wearlog"
         const val KEY_WORE = "oa.woreToday"
         // This receiver's OWN keys — the only ones it writes for a wear (2026-10-11).

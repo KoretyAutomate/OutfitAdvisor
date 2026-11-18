@@ -20,11 +20,18 @@ import check
 import fit
 import funnel
 import layers
+import taste
 
 
 def _partial(ctx: "funnel.Ctx", picks: dict, priority) -> float:
+    """A partial outfit's worth, for the beam's cut: its garments' priority, plus the
+    best pair each could still be part of (taste.potential — search guidance, so a
+    favourite pair's first member is not cut before its partner is chosen), plus the
+    pairs it already holds."""
+    tst = taste.get(ctx.day)
     worn = [(sl, i) for sl, i in picks.items() if i and sl != "accessories"]
-    return sum(priority(i, sl) for sl, i in worn) / max(1, len(worn)) + funnel._accessory(ctx, picks)
+    mean = sum(priority(i, sl) + tst.potential(i, sl) for sl, i in worn) / max(1, len(worn))
+    return mean + funnel._accessory(ctx, picks) + tst.pair(picks)
 
 
 def beam(ctx: "funnel.Ctx", cands: dict, order: list, priority, shape: tuple = ()) -> list:

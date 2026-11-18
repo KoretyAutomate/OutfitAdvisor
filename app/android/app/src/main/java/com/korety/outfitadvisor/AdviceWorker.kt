@@ -128,7 +128,8 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             // Only closet advice names garments to log — the app's "Wearing it"
             // has the same rule (renderOutfit: res.closetUsed && res.picks).
             wearPicks = advice.raw?.takeIf { it.optBoolean("closetUsed", false) }
-                ?.optJSONObject("picks")
+                ?.optJSONObject("picks"),
+            wearContext = advice.raw?.let { OutfitLog.context(it, occasion) }
         )
         maybeNotifyUpdate(base)
         return Result.success()
@@ -280,6 +281,10 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 // the server's own number rather than a second derivation of it.
                 .put("planTemp", raw.opt("planTemp"))
                 .put("peakTemp", raw.opt("peakTemp"))
+                // The real forecast's, before calibration: what the outfit log keeps
+                // when the app logs this advice (2026-11-14). Twin of saveToday.
+                .put("rawPlanTemp", raw.opt("rawPlanTemp"))
+                .put("rawPeakTemp", raw.opt("rawPeakTemp"))
             prefs.edit().putString(KEY_TODAY, out.toString()).apply()
             queueGaps(prefs, raw, out.getString("day"))
         } catch (e: Exception) {
@@ -552,6 +557,15 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 }
                 if (recent.length() > 0) body.put("recent", recent)
             }
+            // What they wore, day by day (2026-11-14): the snapshot's log plus what
+            // the notification queued since, bounded like the app's. Passed through:
+            // the server matches the ids against the closet it is sent.
+            val seen = p.optJSONArray("outfitSeen")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() }
+                ?: emptySet()
+            val queue = try { JSONArray(prefs.getString(OutfitLog.KEY_QUEUE, "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
+            val now = System.currentTimeMillis()
+            val worn = OutfitLog.overlay(p.optJSONArray("worn"), queue, seen, today(), now)
+            if (worn.length() > 0) body.put("worn", worn)
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

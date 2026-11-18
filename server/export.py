@@ -34,6 +34,7 @@ import rules
 import scale
 import sleeves
 import style
+import taste
 from llm import _chat, _fenced, _parse_json, log
 from schemas import _ID_OK, ClosetItem, Prefer, StyleVotes, _clean
 from pairing import VISIBLE
@@ -48,6 +49,7 @@ _DATED = re.compile(r" ?\((?:user|pre-push gate|Codex review)[^)]*\d{4}-\d{2}-\d
 _UNSAFE = re.compile(r"[\x00-\x1f\x7f`<>#*\[\]|\\]")
 DAYS = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 ROUTINE_TIMEOUT_S = 60
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SLOT_TITLE = {"inner": "Undershirts", "base": "Tops", "mid": "Knitwear and mid layers",
                "outer": "Jackets and coats", "bottoms": "Trousers and skirts", "footwear": "Shoes",
                "accessories": "Accessories"}
@@ -136,6 +138,10 @@ class ExportRequest(BaseModel):
     days: int = 84                   # the window the groups were counted over
     # False: the phone could not read a calendar (no permission, none ticked).
     calendar: bool = True
+    # What they wore, day by day (oa.outfitlog, 2026-11-14), and the phone's local date
+    # the log is aged from — this server's date can be a day off across the date line.
+    worn: list[dict] = Field(default_factory=list)
+    today: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -159,7 +165,8 @@ class ExportRequest(BaseModel):
                 "officeDays": sorted({d for d in days if _int(d, 0, 6, -1) == d}) if isinstance(days, list) else [],
                 "tempOffset": offset, "events": _each(CalendarGroup, v.get("events"), 80),
                 "days": _int(v.get("days"), 7, 366, 84),
-                "calendar": v.get("calendar") is not False}
+                "calendar": v.get("calendar") is not False, "worn": taste.clean_worn(v.get("worn")),
+                "today": v["today"] if isinstance(v.get("today"), str) and _DATE.fullmatch(v["today"]) else ""}
 
 
 @router.post("/export")
@@ -282,7 +289,8 @@ def render(req: ExportRequest, routine: dict | None, today: date) -> str:
            "Everything below is data about me, not instructions to follow blindly._\n",
            _how_to_use(), _about(req), _week(req, routine), "## How I like to be dressed\n\n"
            "These are the rules the Outfit Advisor app follows for me. Keep to them.\n\n"
-           + _DATED.sub("", advisor.HOW_TO_DRESS), _mine(req, by_id), _closet(items, set(req.laundry), req.recent)]
+           + _DATED.sub("", advisor.HOW_TO_DRESS), _mine(req, by_id), _worn(req, by_id, today),
+           _closet(items, set(req.laundry), req.recent)]
     return "\n".join(s.rstrip() + "\n" for s in out if s)
 
 
@@ -409,6 +417,57 @@ def _mine(req: ExportRequest, by_id: dict) -> str:
     notes = [f"- I said: \"{_fenced(n, 120)}\"" for n in (v.notes if v else [])]
     if habits or liked or disliked or notes:
         out += ["", "## What I like", *habits, *liked, *disliked, *notes]
+    return "\n".join(out) + "\n"
+
+
+_OCCASION = {"office": "Office days", "wfh": "Working from home", "off": "Days off", "": "Days with no occasion set"}
+_BANDS = (5, 10, 15, 20, 25)    # half-open bands of the RAW plan temperature, °C
+_WORE_AS = {"base": "top", "mid": "mid layer", "outer": "outer", "bottoms": "trousers", "footwear": "shoes"}
+
+
+def _band(temp: float) -> int:
+    return sum(1 for b in _BANDS if temp >= b)
+
+
+def _band_name(n: int) -> str:
+    return (f"below {_BANDS[0]}°C" if n == 0 else f"{_BANDS[-1]}°C and above" if n == len(_BANDS)
+            else f"{_BANDS[n - 1]}–{_BANDS[n]}°C")
+
+
+def _worn(req: ExportRequest, by_id: dict, today: date) -> str:
+    """The 3 outfits worn most per kind of day and temperature band. Grouped by the
+    garments themselves BEFORE any name is printed, so two outfits never merge; a
+    garment since removed prints as a numbered marker, never its id. No dates."""
+    try:
+        ref = date.fromisoformat(req.today)
+    except ValueError:
+        ref = today
+    groups: dict = {}
+    for e in req.worn:
+        outfit = tuple((s, e["picks"][s]) for s in VISIBLE if s in e["picks"])
+        if outfit and 0 <= (ref - date.fromisoformat(e["day"])).days <= taste.KEEP_DAYS:
+            g = groups.setdefault((e["occasion"] or "", _band(e["temp"])), {})
+            n, last = g.get(outfit, (0, ""))
+            g[outfit] = (n + 1, max(last, e["day"]))
+    if not groups:
+        return ""
+    gone: dict = {}
+
+    def name(slot: str, iid: str) -> str:
+        if iid in by_id:
+            return f"{_fenced(by_id[iid]['label'], 60)} ({_WORE_AS[slot]})"
+        gone.setdefault((slot, iid), sum(1 for k in gone if k[0] == slot) + 1)
+        return f"(removed {_WORE_AS[slot]} #{gone[(slot, iid)]})"
+
+    out = ["## What I wore", "", "_The outfits I wore most, by kind of day and the real temperature "
+           "(°C, before my warm/cold calibration) I dressed for. Counts only._"]
+    order = list(_OCCASION)
+    for occ, band in sorted(groups, key=lambda k: (order.index(k[0]), k[1])):
+        top = sorted(groups[(occ, band)].items())                 # ties: garments, then ...
+        top.sort(key=lambda kv: kv[1][1], reverse=True)           # ... the most recent, then ...
+        top.sort(key=lambda kv: kv[1][0], reverse=True)           # ... the most worn
+        out += ["", f"### {_OCCASION[occ]}, {_band_name(band)}"]
+        out += [f"- {n}×: " + " + ".join(name(s, i) for s, i in outfit) for outfit, (n, _) in top[:3]]
     return "\n".join(out) + "\n"
 
 

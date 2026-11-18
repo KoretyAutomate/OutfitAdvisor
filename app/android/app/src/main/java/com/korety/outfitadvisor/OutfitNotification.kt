@@ -48,7 +48,7 @@ object OutfitNotification {
      *   the wearer's own closet. With at least one id it adds "Wearing it".
      */
     fun post(context: Context, title: String, text: String, badge: String?, withFeedback: Boolean,
-             wearPicks: JSONObject? = null) {
+             wearPicks: JSONObject? = null, wearContext: JSONObject? = null) {
         ensureChannel(context)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -85,7 +85,7 @@ object OutfitNotification {
             // logged, FeedbackReceiver swaps "Just right" back in (afterWear), so
             // the full verdict set is there for the evening.
             if (wearPicks != null && FeedbackReceiver.pickIds(wearPicks).isNotEmpty()) {
-                b.addAction(wearAction(context, wearPicks))
+                b.addAction(wearAction(context, wearPicks, wearContext))
                 b.addAction(feedbackAction(context, "🥶 Too cold", -2, FeedbackReceiver.REQ_COLD))
                 b.addAction(feedbackAction(context, "🥵 Too warm", 2, FeedbackReceiver.REQ_WARM))
             } else {
@@ -164,10 +164,14 @@ object OutfitNotification {
      * Carries the picks and the DAY they were advised for: the notification can sit
      * in the shade overnight, and tomorrow's tap must not log today's outfit.
      */
-    private fun wearAction(context: Context, picks: JSONObject): Notification.Action {
+    private fun wearAction(context: Context, picks: JSONObject, wearContext: JSONObject?): Notification.Action {
         val i = Intent(context, FeedbackReceiver::class.java)
             .setAction(FeedbackReceiver.ACTION_WEAR)
             .putExtra(FeedbackReceiver.EXTRA_PICKS, picks.toString())
+            // The day this outfit was chosen for — occasion and RAW weather — so the
+            // outfit log gets it from the tap itself, never from oa.today, which a
+            // re-roll in the app may have overwritten since (2026-11-14).
+            .also { if (wearContext != null) it.putExtra(FeedbackReceiver.EXTRA_CONTEXT, wearContext.toString()) }
             .putExtra(FeedbackReceiver.EXTRA_DAY, FeedbackReceiver.dayOf(System.currentTimeMillis()))
         val pi = PendingIntent.getBroadcast(
             context, FeedbackReceiver.REQ_WEAR, i,

@@ -16,6 +16,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import garment
+import taste
 import vocab
 
 # Free text destined for the LLM prompt: keep word chars (incl. CJK), spaces,
@@ -378,6 +379,15 @@ class AdviceRequest(BaseModel):
     # Free text bound for a prompt, so it is cleaned like labels and fenced there;
     # over-long or malformed is DROPPED, never a 422 — the morning push must not fail.
     skipped: list[str] = Field(default_factory=list)
+    # What they wore, day by day, with the occasion and the RAW weather (user,
+    # 2026-11-14): the phone's oa.outfitlog. Shape-checked by taste.clean_worn, every
+    # malformed entry DROPPED, never a 422; dated against the forecast later, in taste.
+    worn: list[dict] = Field(default_factory=list)
+
+    @field_validator("worn", mode="before")
+    @classmethod
+    def _worn(cls, v: object) -> list:
+        return taste.clean_worn(v)
 
     @field_validator("recent", mode="before")
     @classmethod

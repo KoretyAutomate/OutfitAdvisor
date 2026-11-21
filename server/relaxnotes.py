@@ -20,6 +20,9 @@ NOTES = {
 COLD = "nothing warm enough for the coldest hour goes with the rest today — expect to feel cold early on"
 COLD_UNSURE = ("time ran out before a warm enough outfit was found — this one is light for the coldest "
                "hour")
+# Served only when nothing in season fits with the rest (season.py): an outfit holding
+# a garment from another season, ranked below every in-season one.
+SEASON = "something here is from another season — nothing in season goes with the rest today"
 TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 
 

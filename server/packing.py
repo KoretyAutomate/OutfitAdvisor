@@ -51,17 +51,18 @@ def suits(item: dict, cat: str, lo: float | None, hi: float | None) -> bool:
     the daily outfit, on the garment's own scale — but against the range, not
     both ends at once: a 5–25C trip needs both the warm trousers and the shorts,
     each for its own days (the reviewer again). So a garment is out only when it
-    is too much even on the COLDEST day, or — for bottoms, which are worn alone —
-    too thin even on the WARMEST. Tops are layered; a thin shirt under a coat is
-    right at -2C, so no floor applies to inner and base.
+    is too much even on the COLDEST day, or — for trousers and shoes, which are
+    worn alone — too thin even on the WARMEST. Tops are layered; a thin shirt under
+    a coat is right at -2C, so no floor applies to inner and base. The leg floor is
+    the daily outfit's (scale.too_cold_for_legs, 2026-11-18): summer wear only, so
+    the two never disagree about the same garment.
     """
     if lo is not None and scale.too_warm(item, lo):
         return False
-    if cat == "bottoms" and hi is not None:
-        need = scale.min_outer_warmth(hi, scale.graded_on(item))
-        if (item.get("warmth") or 3) < need - 1:
-            return False
-    return True
+    return not (cat in LEGS and hi is not None and scale.too_cold_for_legs(item, hi))
+
+
+LEGS = ("bottoms", "footwear")
 
 
 def owned_for(items: list[dict], cat: str, lo: float | None, hi: float | None) -> list[dict]:
@@ -90,6 +91,14 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     place, so ids the plan already references stay valid.
     """
     by_id = {i["id"]: i for i in items}
+    # Summer legs on a winter list come off, whatever the model's reason (user,
+    # 2026-11-18: "I don't need shorts nor summer pants ... during winter"). This
+    # reverses the 2026-09-07 call to keep them standing in for nothing.
+    dropped = [p for p in pack if p["category"] in LEGS and p["id"] in by_id
+               and not suits(by_id[p["id"]], p["category"], lo, hi)]
+    if dropped:
+        pack[:] = [p for p in pack if p not in dropped]
+        log.info("packing: %d leg item(s) too thin for the trip left out", len(dropped))
     for cat in SCALING:
         owned = owned_for(items, cat, lo, hi)
         ok_ids = {i["id"] for i in owned}

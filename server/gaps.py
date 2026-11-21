@@ -8,6 +8,7 @@ already have. The phone reads `missing` (index.html recordGaps), and COLD_GAP
 ("warmth") when nothing they own is warm enough for the morning.
 """
 import layers
+import scale
 from check import TORSO, Day
 from vocab import CATEGORIES
 
@@ -29,4 +30,11 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
     gaps = sorted((c for c in candidates if not day.owns_for(c, picks)), key=CATEGORIES.index)
     if layers.too_cold_for_outfit(picks, day.wd, day.plan, day.rules, day.peak):
         gaps.append(COLD_GAP)
+    # Summer legs worn on a cold morning because nothing warmer is owned: the slot is
+    # the gap (user, 2026-11-18). Owning warmer ones is check.py's cold-legs instead.
+    for slot in ("bottoms", "footwear"):
+        it = day.wd.by_item.get(picks.get(slot)) or {}
+        if it and scale.too_cold_for_legs(it, day.plan) and slot not in gaps and not layers.underdressed(
+                it, slot, day.wd, day.plan, day.peak, day.rules):
+            gaps.append(slot)
     return gaps

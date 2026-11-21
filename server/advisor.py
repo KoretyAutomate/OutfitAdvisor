@@ -318,10 +318,12 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
     notes = [f"Note: {n}." for n in relaxnotes.notes(pick.relaxed, result.complete)]
-    if pick.rank and pick.rank[0]:
+    if pick.rank and pick.rank[0] >= 2:
         # Warmth given up: never silent, and "nothing warm goes" only when every
         # combination was tried (pre-push gate, 2026-10-24).
         notes.append(f"Note: {relaxnotes.COLD if result.complete else relaxnotes.COLD_UNSURE}.")
+    if pick.rank and pick.rank[0] % 2:      # tier 1 or 3: out of season (funnel._evaluate)
+        notes.append(f"Note: {relaxnotes.SEASON}.")
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,
         # 2026-10-24 — the chooser picked the least bad and called it good).

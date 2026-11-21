@@ -106,8 +106,8 @@ def test_a_winter_trip_is_not_topped_up_with_shorts():
 
 def test_shorts_the_model_packed_do_not_count_as_winter_trousers():
     """The reviewer's second case: the model put one pair of shorts and one warm
-    pair on a winter list; two warm pairs are owned. Both warm pairs must leave —
-    the shorts stay on the list but stand in for nothing."""
+    pair on a winter list; two warm pairs are owned. Both warm pairs must leave.
+    Since the seasonal closet (user, 2026-11-18) the shorts come off the list too."""
     warm = [dict(item(41, "bottoms", "wool trousers"), warmth=4),
             dict(item(42, "bottoms", "flannel trousers"), warmth=4)]
     shorts = dict(item(50, "bottoms", "shorts"), warmth=1)
@@ -116,6 +116,18 @@ def test_shorts_the_model_packed_do_not_count_as_winter_trousers():
     out = packing.top_up(pack, warm + [shorts] + SHOES, 15, ["casual"], lo=-2, hi=6)
     ids = {p["id"] for p in out if p["category"] == "bottoms"}
     assert {"itm-00000041", "itm-00000042"} <= ids, "both warm pairs go"
+    assert "itm-00000050" not in ids, "the shorts stay home"
+
+
+def test_sandals_the_model_packed_stay_home_from_a_winter_trip_and_go_to_a_summer_one():
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(61, "footwear", "boots", typ="boots"), warmth=4)
+    pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"},
+            {"id": "itm-00000061", "category": "footwear", "label": "boots", "qty": 1, "why": "x"}]
+    winter = packing.top_up([dict(p) for p in pack], [sandals, boots], 5, ["casual"], lo=-2, hi=6)
+    assert [p["id"] for p in winter if p["category"] == "footwear"] == ["itm-00000061"]
+    summer = packing.top_up([dict(p) for p in pack[:1]], [sandals, boots], 5, ["casual"], lo=20, hi=30)
+    assert [p["id"] for p in summer if p["category"] == "footwear"] == ["itm-00000060"]
 
 
 def test_a_wide_range_keeps_both_the_warm_trousers_and_the_shorts():

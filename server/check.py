@@ -166,6 +166,12 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
     if day.plan >= HOT_DAY_C:
         out += [Issue(f"hot-{slot}", f"{_name(day, worn[slot])} as {slot}: no layer is needed on a hot day", True)
                 for slot in ("mid", "outer") if worn.get(slot)]
+    # Summer trousers, shorts or sandals on a cold morning, when they own warmer ones
+    # (user, 2026-11-18). Ranked like "cold": served only when nothing warm fits.
+    out += [Issue("cold-legs", f"{_name(day, iid)} is summer wear for the coldest hour ({day.plan:.0f}C felt) "
+                  f"— wear warmer {slot} they own", True)
+            for slot, iid in worn.items()
+            if layers.underdressed(wd.by_item[iid], slot, wd, day.plan, day.peak, day.rules)]
     out += _coat(worn, day)
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)

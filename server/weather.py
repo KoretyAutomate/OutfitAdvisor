@@ -268,6 +268,10 @@ async def fetch_climate_anchors(lat: float, lon: float) -> dict:
     months = [round((statistics.mean(his[m]) + statistics.mean(los[m])) / 2, 1) for m in range(1, 13)]
     return {
         "months": months,
+        # Each month's normal [low, high]: the seasonal closet judges a garment at the
+        # hour it is worn, as the daily outfit does (season.py, 2026-11-18).
+        "normals": [[round(statistics.mean(los[m]), 1), round(statistics.mean(his[m]), 1)]
+                    for m in range(1, 13)],
         "cold": round(min(months), 1),
         "avg": round(statistics.mean(months), 1),
         "hot": round(max(months), 1),

@@ -30,6 +30,7 @@ import app as srv
 import advisor
 import llm
 import scale as sc
+import season
 import weather
 from schemas import ClimateAnchors
 
@@ -85,6 +86,9 @@ def test_anchors_are_the_midpoints_of_each_months_average_range(monkeypatch):
     assert out["hot"] == 24.5                     # July
     assert out["avg"] == round(sum(out["months"]) / 12, 1)
     assert out["years"] == weather.NORMALS_YEARS
+    # The seasonal closet's normals: each month's [low, high], January first.
+    assert out["normals"] == [[lo, hi] for lo, hi in zip(LOWS, HIGHS, strict=True)]
+    assert season.clean_normals(out["normals"]) == out["normals"], "what /advice accepts back"
 
 
 def test_the_range_ends_are_averaged_separately_not_pooled(monkeypatch):

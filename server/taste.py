@@ -235,6 +235,7 @@ def prefs(req, w: dict, t0: float):
     import llm
     import picks as pk
     import rules
+    import season
     import style
     p = pk.Prefs.of(rules.clean_rules(req.rules), req.closetOnly, [x.model_dump() for x in req.prefers],
                     req.shown, req.skipped)
@@ -243,7 +244,8 @@ def prefs(req, w: dict, t0: float):
     if req.worn:
         # Counts only: never a date, a garment or an outfit (privacy, as /advice's other logs).
         log.info("taste: %d day(s) logged, %d counted, confidence %.2f", len(req.worn), t.days, t.confidence)
-    return style.look_of(replace(p, taste=t), req, t0)
+    n = season.normal_for(req.normals, w.get("date"))
+    return style.look_of(replace(p, taste=t, normal=n), req, t0)
 
 
 # ── what the chooser is offered ────────────────────────────────────────────────────

@@ -1934,7 +1934,7 @@ let updInfo=null, updBusy=false;
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.59";
+const WEB_BUILD="1.60";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -1955,7 +1955,7 @@ async function checkUpdate(){
     $("updSub").textContent=`You're on v${cur.versionName} · ${(v.size/1e6).toFixed(1)} MB · your closet and settings are kept`;
     if(v.notes){ $("updNotes").style.display="block"; $("updNotes").textContent=v.notes; }
     $("updWarn").style.display=cur.canInstall?"none":"block";
-    if(!cur.canInstall) $("updWarn").textContent="Android will ask you to allow installs from this app first — that's a one-time toggle.";
+    if(!cur.canInstall) $("updWarn").textContent="Allow installs from this app once (a one-time toggle) and future updates install by themselves.";
   }catch(e){ /* DGX unreachable: updates are never urgent, stay silent */ }
 }
 /* Report update state on screen and KEEP it there. Every previous failure mode was
@@ -1982,7 +1982,7 @@ async function renderVersion(){
     msg.style.display="none"; btn.style.display="none"; return;
   }
   if(!(v.versionCode>cur.versionCode)){
-    line.textContent=`v${cur.versionName} (ui ${WEB_BUILD}) · up to date`;
+    line.textContent=`v${cur.versionName} (ui ${WEB_BUILD}) · up to date · updates install by themselves`;
     msg.style.display="none"; btn.style.display="none"; return;
   }
   updInfo={...v,current:cur};
@@ -1994,6 +1994,10 @@ async function renderVersion(){
     msg.style.display="block";
     msg.innerHTML='Android is blocking installs from this app. Tap <b>Install</b> '
       +'and grant "Allow from this source", then come back and tap Install again.';
+  }else if(cur.lastError){
+    // Why the last automatic or tapped install didn't happen, kept on screen.
+    msg.style.display="block";
+    msg.textContent="It installs by itself while the app is closed. Last attempt: "+cur.lastError;
   }else if(v.notes){
     msg.style.display="block"; msg.textContent=v.notes;
   }else{ msg.style.display="none"; }
@@ -2010,13 +2014,16 @@ async function doUpdate(){
   try{
     const res=await Plugins.AppUpdate.install({
       url:state.baseUrl.replace(/\/+$/,"")+"/apk",
-      sha256:updInfo.sha256, size:updInfo.size});
+      sha256:updInfo.sha256, size:updInfo.size, versionName:updInfo.versionName});
     if(res&&res.status==="needs-permission"){
       say('Grant "Allow from this source" on the screen that just opened, then tap Install again.');
       toast("Allow installs, then tap Install again");
     }else{
-      say("Downloaded — Android's installer should be asking you to confirm.");
-      toast("Opening the installer…");
+      /* v1.60: installs itself (SelfUpdate.kt), which closes the app. Android may
+         still ask to confirm, and then its prompt opens instead. */
+      say("Installing — the app will close in a moment. Open it again for v"+esc(updInfo.versionName)
+        +". If Android asks you to confirm, tap Install.");
+      toast("Installing…");
     }
   }catch(e){
     // Written into the card, not a toast: the user needs to be able to read this

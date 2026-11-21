@@ -32,8 +32,28 @@ class BootReceiver : BroadcastReceiver() {
         when (intent?.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_TIMEZONE_CHANGED,
-            Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> AlarmScheduler.rearm(context)
+            Intent.ACTION_TIME_CHANGED -> AlarmScheduler.rearm(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                AlarmScheduler.rearm(context)
+                announceSelfUpdate(context)
+            }
         }
+    }
+
+    /**
+     * "Updated to vX", only after an update this app installed itself. A silent
+     * update must still be visible somewhere, and an adb or browser install
+     * doesn't need a notice.
+     */
+    private fun announceSelfUpdate(context: Context) {
+        val prefs = SelfUpdate.prefs(context)
+        if (prefs.getString(SelfUpdate.KEY_INSTALLING, null) == null) return
+        prefs.edit().remove(SelfUpdate.KEY_INSTALLING).apply()
+        SelfUpdate.clearDownload(context)
+        val name = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+        } catch (e: Exception) { "?" }
+        OutfitNotification.postUpdate(context, "Outfit Advisor updated to v$name",
+            "Installed by itself. Your closet and settings are kept.")
     }
 }

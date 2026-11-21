@@ -155,6 +155,55 @@ def test_garbage_is_a_422(monkeypatch):
     assert r.status_code == 422
 
 
+def _encoded(img, fmt):
+    buf = io.BytesIO()
+    img.save(buf, fmt)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _matte_must_not_run(img):
+    raise AssertionError("the image was decoded and handed to the matte")
+
+
+def test_a_small_file_declaring_a_huge_picture_is_refused_before_decoding(monkeypatch):
+    """Security audit, 2026-11-18. The request bound is on compressed bytes: this
+    PNG is a few KB and one pixel over the cap, and before the cap it was decoded
+    in full and matted (seen: 200 with the matte called)."""
+    monkeypatch.setattr(cutout, "available", lambda: True)
+    monkeypatch.setattr(cutout, "_matte", _matte_must_not_run)
+    side = int(cutout.MAX_PIXELS ** 0.5)
+    bomb = _encoded(Image.new("L", (side + 1, side), 255), "PNG")
+    assert len(bomb) < 100_000
+    r = client.post("/cutout", json={"imageB64": bomb})
+    assert r.status_code == 422
+
+
+def test_a_picture_exactly_at_the_pixel_cap_is_still_decoded(monkeypatch):
+    """The other side of the boundary: the cap refuses MORE than MAX_PIXELS."""
+    side = int(cutout.MAX_PIXELS ** 0.5)
+    img = cutout._decode(_encoded(Image.new("L", (side, side), 255), "PNG"))
+    assert img.size == (side, side)
+
+
+@pytest.mark.parametrize("fmt", ["BMP", "GIF", "TIFF", "PPM"])
+def test_only_photo_formats_reach_a_decoder(monkeypatch, fmt):
+    """Pillow picks its decoder from the file's own header. Left open, the caller
+    chooses which of some forty parsers runs — one of which starts Ghostscript.
+    Before the allowlist each of these came back 200."""
+    monkeypatch.setattr(cutout, "available", lambda: True)
+    monkeypatch.setattr(cutout, "_matte", _matte_must_not_run)
+    r = client.post("/cutout", json={"imageB64": _encoded(photo(), fmt)})
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("fmt", cutout.FORMATS)
+def test_every_format_a_phone_photo_comes_in_is_still_cut_out(monkeypatch, fmt):
+    monkeypatch.setattr(cutout, "available", lambda: True)
+    monkeypatch.setattr(cutout, "_matte", matte_keeping(100, 50, 300, 250))
+    r = client.post("/cutout", json={"imageB64": _encoded(photo(), fmt)})
+    assert r.status_code == 200
+
+
 def test_a_data_uri_prefix_is_tolerated(monkeypatch):
     monkeypatch.setattr(cutout, "available", lambda: True)
     monkeypatch.setattr(cutout, "_matte", matte_keeping(100, 50, 300, 250))

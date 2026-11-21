@@ -44,17 +44,26 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
             notifyOnce(ctx, pub)
             return Result.success()
         }
-        prefs.edit().putInt(KEY_TRIED_CODE, pub.code).putInt(KEY_TRIES, tries + 1).apply()
-
         return try {
             // The download takes a while; they may have opened the app meanwhile.
             SelfUpdate.fetchAndInstall(ctx, "${SelfUpdate.baseUrl(ctx)}/apk", pub.sha256, pub.size,
-                                       pub.name, stillWanted = { !visible || SelfUpdate.tapWaiting })
+                                       pub.name, stillWanted = { !visible || SelfUpdate.tapWaiting },
+                                       reserve = { reserveAttempt(ctx, pub.code) })
             Result.success()
         } catch (e: Exception) {
             SelfUpdate.recordError(ctx, "background update failed: ${e.message ?: "unknown"}")
             Result.success()                             // the next run is the retry
         }
+    }
+
+    /** Claim one of MAX_TRIES downloads for this version. Re-read here, under the
+     *  updater's lock, because another run may have spent one since doWork read it. */
+    private fun reserveAttempt(ctx: Context, code: Int): Boolean {
+        val prefs = SelfUpdate.prefs(ctx)
+        val tries = if (prefs.getInt(KEY_TRIED_CODE, -1) == code) prefs.getInt(KEY_TRIES, 0) else 0
+        if (tries >= MAX_TRIES) return false
+        prefs.edit().putInt(KEY_TRIED_CODE, code).putInt(KEY_TRIES, tries + 1).commit()
+        return true
     }
 
     /** The pre-1.60 notice, for when installing silently isn't possible. */

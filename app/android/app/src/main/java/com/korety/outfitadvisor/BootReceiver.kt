@@ -32,6 +32,9 @@ class BootReceiver : BroadcastReceiver() {
         when (intent?.action) {
             Intent.ACTION_BOOT_COMPLETED -> {
                 AlarmScheduler.rearm(context)
+                // A confirmation's notification doesn't survive a reboot, so nothing
+                // can reach its prompt; drop it and let the job start over.
+                SelfUpdate.abandonPending(context)
                 UpdateWorker.schedule(context)
             }
             Intent.ACTION_TIMEZONE_CHANGED,

@@ -52,6 +52,11 @@ object SelfUpdate {
     // other session, e.g. the failure Android reports for one a tap superseded, is
     // ignored (pre-push gate, 2026-11-21).
     private const val KEY_ACTIVE_SESSION = "oa.updActiveSession"
+    private const val KEY_PENDING_AT = "oa.updPendingAt"
+    // A confirmation nobody acted on for this long, e.g. its notification was
+    // swiped away, stops holding up the background job, which then starts over
+    // (pre-push gate, 2026-11-21).
+    private const val PENDING_MAX_MS = 24 * 60 * 60 * 1000L
     // How long a committed session counts as in flight: long enough to cover the
     // wearer reading the fallback confirm prompt, short enough that a session
     // that died without reporting never blocks updates for long.
@@ -75,8 +80,9 @@ object SelfUpdate {
      * Download, verify and commit, as one operation nobody else can interleave with.
      *
      * Background (`tap` false): skips and returns false if another run holds the
-     * lock. `stillWanted` is asked after the download, so it can back out if the
-     * app came on screen.
+     * lock or a session is already deciding. `reserve` then claims an attempt and
+     * may refuse. `stillWanted` is asked after the download and again just before
+     * commit, so it can back out if the app came on screen.
      *
      * Tap (`tap` true): waits for the lock instead. If the run it waited for
      * committed a session, that's this tap's install too, so it returns without a
@@ -86,7 +92,8 @@ object SelfUpdate {
      */
     fun fetchAndInstall(context: Context, url: String, sha: String?, size: Long,
                         versionName: String, tap: Boolean = false,
-                        stillWanted: () -> Boolean = { true }): Boolean {
+                        stillWanted: () -> Boolean = { true },
+                        reserve: () -> Boolean = { true }): Boolean {
         if (tap) {
             tapWaiting = true
             busy.lock()
@@ -97,6 +104,9 @@ object SelfUpdate {
             // Rechecked under the lock: another background run may have committed, or
             // been told to wait for a confirmation, since this one's early checks.
             if (inFlight(context) || awaitingConfirm(context)) { busy.unlock(); return false }
+            // The retry budget is spent here, under the lock and past every skip, so a
+            // run that downloads nothing never uses up an attempt.
+            if (!reserve()) { busy.unlock(); return false }
         }
         try {
             val apk = download(context, url, sha, size)
@@ -258,6 +268,7 @@ object SelfUpdate {
     fun awaitConfirm(context: Context, sessionId: Int) {
         prefs(context).edit()
             .putInt(KEY_PENDING_SESSION, sessionId)
+            .putLong(KEY_PENDING_AT, System.currentTimeMillis())
             .putLong(KEY_INSTALLING_AT, 0L)
             .apply()
     }
@@ -265,11 +276,18 @@ object SelfUpdate {
     /** A session is still waiting on the wearer's confirmation. The background job
      *  leaves it alone, so it neither re-downloads nor re-notifies every run. */
     fun awaitingConfirm(context: Context): Boolean {
-        val id = prefs(context).getInt(KEY_PENDING_SESSION, -1)
-        return id >= 0 && context.packageManager.packageInstaller.getSessionInfo(id) != null
+        val p = prefs(context)
+        val id = p.getInt(KEY_PENDING_SESSION, -1)
+        if (id < 0) return false
+        val fresh = System.currentTimeMillis() - p.getLong(KEY_PENDING_AT, 0L) < PENDING_MAX_MS
+        if (fresh && context.packageManager.packageInstaller.getSessionInfo(id) != null) return true
+        abandonPending(context)   // stale or gone: clear it so the next run starts over
+        return false
     }
 
-    private fun abandonPending(context: Context) {
+    /** Drop a session waiting on a confirmation. Also called at boot, when its
+     *  notification is gone and nothing could reach its prompt any more. */
+    fun abandonPending(context: Context) {
         val p = prefs(context)
         val id = p.getInt(KEY_PENDING_SESSION, -1)
         if (id < 0) return

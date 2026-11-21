@@ -360,3 +360,16 @@ def test_a_warm_months_sweater_still_goes_under_the_coat_on_a_2c_morning(api, mo
     seasonal = advise(api, monkeypatch, wx, closet, TOKYO)
     assert SWEATER["id"] in plain["picks"].values()
     assert seasonal["picks"] == plain["picks"]
+
+
+def test_on_a_coat_morning_the_trousers_still_follow_the_season(api, monkeypatch):
+    # Codex's reproduction (pre-push gate, 2026-11-21): 2C; the warm-months trousers
+    # sit at the day's level, the all-year pair a step off it. The layers decide
+    # nothing here, so the season holds the warm-months pair aside for the band step.
+    coat = g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4)
+    warm_tr = {**g("warmtr001", "light trousers", "bottoms", "trousers", ["bottoms"], 3), "season": "warm", "level": 2}
+    smart_tr = {**g("smarttr01", "wool trousers", "bottoms", "trousers", ["bottoms"], 3, colors=["grey"]), "level": 4}
+    closet = [TEE, SWEATER, coat, warm_tr, smart_tr, SNEAK]
+    wx = weather(2, 10, date="2026-11-20")
+    assert advise(api, monkeypatch, wx, closet)["picks"]["bottoms"] == warm_tr["id"], "without a season: the level"
+    assert advise(api, monkeypatch, wx, closet, TOKYO)["picks"]["bottoms"] == smart_tr["id"]

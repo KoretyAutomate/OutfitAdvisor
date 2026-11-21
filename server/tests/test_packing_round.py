@@ -534,3 +534,45 @@ def test_with_no_combination_keeping_every_rule_the_most_slots_are_filled():
     pack = [{"id": jeans["id"], "category": "bottoms"}, {"id": sneakers["id"], "category": "footwear"}]
     got = packing._refill(day, {"base": None}, pack, [ban], {jeans["id"]: jeans, sneakers["id"]: sneakers}, 0)
     assert sum(v is not None for v in got.values()) == 1, got
+
+
+def test_the_prose_names_what_was_left_at_home():
+    gone = [{"id": "itm-00000050", "category": "bottoms", "label": "khaki shorts", "qty": 1}]
+    line = packing.topup_line({"bottoms": 1}, {"bottoms": 1}, 5, gone)
+    assert line == "Left at home, too light for this trip's weather: khaki shorts."
+    both = packing.topup_line({"bottoms": 1}, {"bottoms": 2}, 6, gone)
+    assert both.startswith("Left at home") and "Added from your closet for 6 days: 1 more" in both
+
+
+def test_too_thin_names_the_summer_legs_only():
+    shorts = dict(item(50, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1}
+            for i in (shorts, sandals, TOPS[0], BOTTOMS[0])]
+    assert {p["id"] for p in packing.too_thin(pack, [shorts, sandals, TOPS[0], BOTTOMS[0]], -2, 6)} == \
+        {shorts["id"], sandals["id"]}
+    assert packing.too_thin(pack, [shorts, sandals, TOPS[0], BOTTOMS[0]], 20, 30) == []
+
+
+def test_packing_text_corrects_the_bullets_when_shorts_stay_home(monkeypatch):
+    # Codex's reproduction (pre-push gate, 2026-11-21): the bullets still said to
+    # bring the shorts the list had left out. Now the text says so first.
+    shorts = dict(item(50, "bottoms", "khaki shorts", typ="shorts"), warmth=1)
+    jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=4)
+
+    async def fake_range(lat, lon, start, end):
+        return {"days": days(5, start), "summary": {"nDays": 5, "loMin": -2, "hiMax": 6, "swing": 8, "windMax": 3,
+                                                  "isSnow": False, "isRain": False, "rainDays": 0, "mode": "forecast"}}
+
+    async def fake_chat(messages, max_tokens, timeout=45, **kw):
+        return ('{"pack": [{"id": "itm-00000050", "qty": 1, "why": "a"}, {"id": "itm-00000030", "qty": 1, "why": "b"}],'
+                ' "gaps": [], "bullets": ["Bring khaki shorts"], "tip": "x"}')
+
+    monkeypatch.setattr(srv.weather, "fetch_range", fake_range)
+    monkeypatch.setattr(llm, "_chat", fake_chat)
+    start = dt.date.today() + dt.timedelta(days=3)
+    d = TestClient(srv.app).post("/packing", json=_req(closet=[shorts, jeans, *TOPS, *SHOES], start=start.isoformat(),
+                                                       end=(start + dt.timedelta(days=4)).isoformat())).json()
+    ids = {p["id"] for p in d["pack"]}
+    assert shorts["id"] not in ids and jeans["id"] in ids
+    assert "Left at home, too light for this trip's weather: khaki shorts." in d["packing_text"], d["packing_text"]

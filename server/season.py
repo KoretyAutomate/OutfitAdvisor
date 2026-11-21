@@ -163,6 +163,10 @@ def counts(day, slot: str, iid: str) -> bool:
     return bool(n and it and out_of_season(it, slot, n, Normal(day.plan, day.peak)) and _fits(day, slot, n))
 
 
-def mismatches(day, picks: dict) -> int:
-    """How many worn garments are out of season, where something in season fits."""
-    return sum(1 for s, i in picks.items() if i and counts(day, s, i))
+def mismatches(day, picks: dict, legs_only: bool = False) -> int:
+    """How many worn garments are out of season, where something in season fits.
+    `legs_only`: trousers, shoes and one-pieces only, the slots the weather's layering
+    rules never touch (funnel holds these aside even on a coat morning)."""
+    by = day.wd.by_item
+    return sum(1 for s, i in picks.items()
+               if i and (not legs_only or layers.covers_legs(s, by.get(i) or {})) and counts(day, s, i))

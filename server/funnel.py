@@ -500,11 +500,11 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         gave = needed(c, full)
         # Tier: 0 fine, 1 out of season, 2 cold, 3 both. Anything above 0 is held
         # aside while the ladder looks for a 0 (season.py: comfort, then season).
-        # Not on a coat morning: there the layers the weather needs (fit.layering) are
-        # comfort, and the season only breaks ties after them (pre-push gate,
-        # 2026-11-21: a warm-months sweater lost from under the coat at 2C).
+        # The torso's only off a coat morning: there the layers the weather needs
+        # (fit.layering) are comfort, and its season only breaks ties after them; the
+        # legs, which no layering rule touches, always (pre-push gate, 2026-11-21).
         n = season.mismatches(c.day, full)
-        held = bool(n) and c.day.plan >= layers.COAT_BELOW_C
+        held = bool(season.mismatches(c.day, full, legs_only=True)) or (bool(n) and c.day.plan >= layers.COAT_BELOW_C)
         rank = (2 * bool(hard) + held, fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:

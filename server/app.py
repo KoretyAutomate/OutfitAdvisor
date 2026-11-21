@@ -325,11 +325,11 @@ async def packing(req: PackingRequest):
             # The model lists at most two per category; the COUNT is made here, from the
             # wardrobe (user, 2026-09-07: "cannot be survived with 2 pants").
             lo, hi = trippack.trip_range(felt[1])
-            before = trippack.counts(pack)
+            before, gone = trippack.counts(pack), trippack.too_thin(pack, items, lo, hi)
             pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
             # The bullets were written before the repair; say what changed, or the
             # text and the list disagree and the reader trusts neither.
-            added = trippack.topup_line(before, trippack.counts(pack), trip_days)
+            added = trippack.topup_line(before, trippack.counts(pack), trip_days, gone)
             if added and text:
                 text = f"• {added}\n{text}"
             plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)

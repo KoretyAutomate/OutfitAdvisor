@@ -95,8 +95,7 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     # Summer legs on a winter list come off, whatever the model's reason (user,
     # 2026-11-18: "I don't need shorts nor summer pants ... during winter"). This
     # reverses the 2026-09-07 call to keep them standing in for nothing.
-    dropped = [p for p in pack if p["category"] in LEGS and p["id"] in by_id
-               and not suits(by_id[p["id"]], p["category"], lo, hi)]
+    dropped = too_thin(pack, items, lo, hi)
     if dropped:
         pack[:] = [p for p in pack if p not in dropped]
         log.info("packing: %d leg item(s) too thin for the trip left out", len(dropped))
@@ -154,21 +153,33 @@ NOUN = {"inner": ("undershirt", "undershirts"), "base": ("top", "tops"),
         "bottoms": ("pair of bottoms", "pairs of bottoms")}
 
 
-def topup_line(before: dict[str, int], after: dict[str, int], n_days: int) -> str | None:
-    """One sentence saying what the server added, for the top of the prose.
+def too_thin(pack: list[dict], items: list[dict], lo: float | None, hi: float | None) -> list[dict]:
+    """Packed trousers and shoes too thin even for the trip's warmest day: what top_up
+    leaves at home (2026-11-18)."""
+    by_id = {i["id"]: i for i in items}
+    return [p for p in pack if p["category"] in LEGS and p["id"] in by_id
+            and not suits(by_id[p["id"]], p["category"], lo, hi)]
+
+
+def topup_line(before: dict[str, int], after: dict[str, int], n_days: int,
+               gone: list[dict] | None = None) -> str | None:
+    """One sentence saying what the server changed, for the top of the prose.
 
     The model's bullets were written before the repair and still say "two pairs";
     the list says five. Without this line the text and the list disagree and the
-    reader trusts neither (live probe, 2026-09-07).
+    reader trusts neither (live probe, 2026-09-07). `gone`: what too_thin left at
+    home, named, since the bullets may still say to bring it (pre-push gate,
+    2026-11-21).
     """
+    left = ("Left at home, too light for this trip's weather: "
+            + ", ".join(str(p.get("label") or "an item") for p in gone) + ".") if gone else ""
     parts = []
     for c in SCALING:
         d = after.get(c, 0) - before.get(c, 0)
         if d > 0:
             parts.append(f"{d} more {NOUN[c][0] if d == 1 else NOUN[c][1]}")
-    if not parts:
-        return None
-    return f"Added from your closet for {n_days} days: " + ", ".join(parts) + "."
+    added = f"Added from your closet for {n_days} days: " + ", ".join(parts) + "." if parts else ""
+    return " ".join(x for x in (left, added) if x) or None
 
 
 def shortfall(category: str, have: int, want: int, n_days: int) -> str:

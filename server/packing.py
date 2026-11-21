@@ -10,6 +10,7 @@ trip involves a travel day, and validation of the model's first-days plan.
 
 Split out of app.py, which sits at the line ceiling.
 """
+import itertools
 import logging
 import math
 
@@ -237,18 +238,36 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             if not broken:
                 break
             picks[broken[0]["slot"]] = None
-        onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
-        for slot in day.get("_refill", ()):
-            kind = [p["id"] for p in pack or () if p["category"] == slot and p["id"] in by_item]
-            kind = kind[n % len(kind):] + kind[:n % len(kind)] if kind else kind
-            if slot == "bottoms" and onepiece:
-                continue
-            picks[slot] = next((i for i in kind if not rules.violations(user_rules, {**picks, slot: i}, by_item)),
-                               None)
+        picks.update(_refill(day, picks, pack or [], user_rules, by_item, n))
         day = {k: v for k, v in day.items() if k != "_refill"}
         if any(picks.values()):
             out.append({**day, "picks": picks})
     return out
+
+
+def _refill(day: dict, picks: dict, pack: list[dict], user_rules: list[dict], by_item: dict, n: int) -> dict:
+    """The replacements for a morning's marked slots, chosen TOGETHER: trousers picked
+    first could rule out the only shoes another pair goes with (pre-push gate,
+    2026-11-21). The first combination keeping every rule with every slot filled,
+    else the one filling most; each slot's packed garments rotated by day `n`. Never
+    trousers under a one-piece."""
+    onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
+    slots = [s for s in day.get("_refill", ()) if not (s == "bottoms" and onepiece)]
+    options = []
+    for slot in slots:
+        kind = [p["id"] for p in pack if p["category"] == slot and p["id"] in by_item]
+        options.append([*(kind[n % len(kind):] + kind[:n % len(kind)] if kind else []), None])
+    best: tuple = (-1, ())
+    for combo in itertools.product(*options):
+        filled = sum(c is not None for c in combo)
+        if filled > best[0] and not rules.violations(user_rules, {**picks, **dict(zip(slots, combo, strict=True))},
+                                                     by_item):
+            best = (filled, combo)
+            if filled == len(slots):
+                break
+    # Nothing passed at all only if the morning still broke a rule on its own: refill
+    # nothing rather than raise.
+    return dict(zip(slots, best[1], strict=True)) if best[0] >= 0 else {}
 
 
 def wash_days(n_days: int, have: int, want: int) -> int:

@@ -506,3 +506,31 @@ def test_an_unrelated_banned_pair_does_not_veto_the_refill():
     raw = [{"inner": under["id"], "base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": SHOES[0]["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [ban], closet, pack)
     assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["inner"] is None, plan
+
+
+def test_replacement_trousers_and_shoes_are_chosen_together():
+    # Codex's reproduction (pre-push gate, 2026-11-21): jeans first would rule out the
+    # only shoes; chinos and sneakers keep every rule.
+    jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=3)
+    chinos = dict(item(42, "bottoms", "navy chinos", typ="chinos"), warmth=3)
+    sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    shorts = dict(item(50, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    ban = {"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}
+    closet = [jeans, chinos, sneakers, shorts, sandals, TOPS[0]]
+    pack = [{"id": p["id"], "category": p["category"], "label": p["label"], "qty": 1, "why": "x"}
+            for p in (jeans, chinos, sneakers, shorts, sandals, TOPS[0])]
+    pack = packing.top_up(pack, closet, 3, ["casual"], lo=-2, hi=6)
+    raw = [{"base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [ban], closet, pack)
+    assert plan[0]["picks"]["bottoms"] == chinos["id"] and plan[0]["picks"]["footwear"] == sneakers["id"], plan
+
+
+def test_with_no_combination_keeping_every_rule_the_most_slots_are_filled():
+    jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=3)
+    sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    ban = {"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}
+    day = {"_refill": ["bottoms", "footwear"]}
+    pack = [{"id": jeans["id"], "category": "bottoms"}, {"id": sneakers["id"], "category": "footwear"}]
+    got = packing._refill(day, {"base": None}, pack, [ban], {jeans["id"]: jeans, sneakers["id"]: sneakers}, 0)
+    assert sum(v is not None for v in got.values()) == 1, got

@@ -230,6 +230,13 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
+        # The morning's own rule breaks first, so an unrelated banned pair cannot veto
+        # every replacement (pre-push gate, 2026-11-21).
+        for _ in CATEGORIES:
+            broken = rules.violations(user_rules, picks, by_item)
+            if not broken:
+                break
+            picks[broken[0]["slot"]] = None
         onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
         for slot in day.get("_refill", ()):
             kind = [p["id"] for p in pack or () if p["category"] == slot and p["id"] in by_item]
@@ -239,11 +246,6 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             picks[slot] = next((i for i in kind if not rules.violations(user_rules, {**picks, slot: i}, by_item)),
                                None)
         day = {k: v for k, v in day.items() if k != "_refill"}
-        for _ in CATEGORIES:
-            broken = rules.violations(user_rules, picks, by_item)
-            if not broken:
-                break
-            picks[broken[0]["slot"]] = None
         if any(picks.values()):
             out.append({**day, "picks": picks})
     return out

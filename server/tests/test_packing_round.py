@@ -490,3 +490,19 @@ def test_only_trousers_and_shoes_that_named_something_are_refilled():
     plan = packing.validate_plan(raw, days(3), pack, travel=False)
     assert plan[0]["_refill"] == ["bottoms"], "a missing top is not invented"
     assert "_refill" not in plan[1], "trousers nobody named are not added"
+
+
+def test_an_unrelated_banned_pair_does_not_veto_the_refill():
+    # Codex's reproduction (pre-push gate, 2026-11-21): the morning also wears a banned
+    # undershirt-and-tee pair. The undershirt comes off; the jeans still go on.
+    under = dict(item(80, "inner", "undershirt", typ="undershirt"), group="underwear")
+    jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=3)
+    ban = {"kind": "avoid_pair", "a": {"type": "undershirt"}, "b": {"type": "t_shirt"}}
+    shorts = dict(item(50, "bottoms", "shorts", typ="shorts"), warmth=1)
+    closet = [under, jeans, shorts, TOPS[0], *SHOES]
+    pack = [{"id": p["id"], "category": p["category"], "label": p["label"], "qty": 1, "why": "x"}
+            for p in (under, shorts, TOPS[0], SHOES[0])]
+    pack = packing.top_up(pack, closet, 3, ["casual"], lo=-2, hi=6)
+    raw = [{"inner": under["id"], "base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": SHOES[0]["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [ban], closet, pack)
+    assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["inner"] is None, plan

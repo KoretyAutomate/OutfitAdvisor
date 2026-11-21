@@ -347,3 +347,16 @@ def test_a_cold_months_garment_is_in_season_from_an_actual_morning_under_12c():
     coat = {**g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4), "season": "cold"}
     assert not season.out_of_season(coat, "outer", JUL, season.Normal(11.9, 20))
     assert season.out_of_season(coat, "outer", JUL, season.Normal(12.0, 20))
+
+
+def test_a_warm_months_sweater_still_goes_under_the_coat_on_a_2c_morning(api, monkeypatch):
+    # Codex's reproduction (pre-push gate, 2026-11-21): 2-10C on November normals, the
+    # only sweater tagged warm months. Below the coat line the layers come first.
+    coat = g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4)
+    sweater = {**SWEATER, "season": "warm"}
+    closet = [TEE, sweater, coat, g("jeans0001", "blue jeans", "bottoms", "jeans", ["bottoms"], 3), SNEAK]
+    wx = weather(2, 10, date="2026-11-20")
+    plain = advise(api, monkeypatch, wx, closet)
+    seasonal = advise(api, monkeypatch, wx, closet, TOKYO)
+    assert SWEATER["id"] in plain["picks"].values()
+    assert seasonal["picks"] == plain["picks"]

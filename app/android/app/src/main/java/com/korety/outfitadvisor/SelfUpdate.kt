@@ -58,15 +58,35 @@ object SelfUpdate {
     // second 15 MB download.
     private val busy = ReentrantLock()
 
+    /** The wearer tapped Install and is waiting on the lock. A background run that
+     *  holds it must then install, not back out because the app is on screen:
+     *  backing out would leave the tap reported as installing with nothing
+     *  installed (pre-push gate, 2026-11-21). */
+    @Volatile var tapWaiting = false
+        private set
+
     /**
      * Download, verify and commit, as one operation nobody else can interleave with.
-     * Returns false when another update is already running. Throws on failure.
-     * Blocking: call it off the main thread. `stillWanted` is asked after the
-     * download, so a background caller can back out if the app came on screen.
+     *
+     * Background (`tap` false): skips and returns false if another run holds the
+     * lock. `stillWanted` is asked after the download, so it can back out if the
+     * app came on screen.
+     *
+     * Tap (`tap` true): waits for the lock instead. If the run it waited for
+     * committed a session, that's this tap's install too, so it returns without a
+     * second download.
+     *
+     * Throws on failure. Blocking: call it off the main thread.
      */
     fun fetchAndInstall(context: Context, url: String, sha: String?, size: Long,
-                        versionName: String, stillWanted: () -> Boolean = { true }): Boolean {
-        if (!busy.tryLock()) return false
+                        versionName: String, tap: Boolean = false,
+                        stillWanted: () -> Boolean = { true }): Boolean {
+        if (tap) {
+            tapWaiting = true
+            busy.lock()
+            tapWaiting = false
+            if (inFlight(context)) { busy.unlock(); return true }
+        } else if (!busy.tryLock()) return false
         try {
             val apk = download(context, url, sha, size)
             try {

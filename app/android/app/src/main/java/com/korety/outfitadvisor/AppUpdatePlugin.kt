@@ -77,9 +77,9 @@ class AppUpdatePlugin : Plugin() {
         // ~15 MB download: off the main thread so the WebView stays responsive.
         Thread {
             try {
-                // False means the background job is already installing it: the
-                // same outcome without a second download, so the same answer.
-                SelfUpdate.fetchAndInstall(context, url, expectedSha, expectedSize, versionName)
+                // Waits for a background run already in progress, which installs for
+                // this tap rather than backing out (SelfUpdate.tapWaiting).
+                SelfUpdate.fetchAndInstall(context, url, expectedSha, expectedSize, versionName, tap = true)
                 call.resolve(JSObject().put("status", "installing"))
             } catch (e: Exception) {
                 SelfUpdate.recordError(context, e.message ?: "download failed")

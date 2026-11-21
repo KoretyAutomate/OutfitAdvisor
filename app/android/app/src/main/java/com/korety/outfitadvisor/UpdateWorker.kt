@@ -48,7 +48,7 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
         return try {
             // The download takes a while; they may have opened the app meanwhile.
             SelfUpdate.fetchAndInstall(ctx, "${SelfUpdate.baseUrl(ctx)}/apk", pub.sha256, pub.size,
-                                       pub.name, stillWanted = { !visible })
+                                       pub.name, stillWanted = { !visible || SelfUpdate.tapWaiting })
             Result.success()
         } catch (e: Exception) {
             SelfUpdate.recordError(ctx, "background update failed: ${e.message ?: "unknown"}")

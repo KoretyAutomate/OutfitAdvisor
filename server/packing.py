@@ -156,9 +156,12 @@ NOUN = {"inner": ("undershirt", "undershirts"), "base": ("top", "tops"),
 def too_thin(pack: list[dict], items: list[dict], lo: float | None, hi: float | None) -> list[dict]:
     """Packed trousers and shoes too thin even for the trip's warmest day: what top_up
     leaves at home (2026-11-18)."""
+    # The cold side only: a pair too WARM for a hot trip is the model's call and stays,
+    # as before; only summer legs on a cold trip are left home (pre-push gate,
+    # 2026-11-21: warmth-3 jeans dropped from a 24-30C trip and called "too light").
     by_id = {i["id"]: i for i in items}
     return [p for p in pack if p["category"] in LEGS and p["id"] in by_id
-            and not suits(by_id[p["id"]], p["category"], lo, hi)]
+            and hi is not None and scale.too_cold_for_legs(by_id[p["id"]], hi)]
 
 
 def topup_line(before: dict[str, int], after: dict[str, int], n_days: int,

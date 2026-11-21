@@ -576,3 +576,11 @@ def test_packing_text_corrects_the_bullets_when_shorts_stay_home(monkeypatch):
     ids = {p["id"] for p in d["pack"]}
     assert shorts["id"] not in ids and jeans["id"] in ids
     assert "Left at home, too light for this trip's weather: khaki shorts." in d["packing_text"], d["packing_text"]
+
+
+def test_warm_trousers_on_a_hot_trip_are_not_too_thin_and_stay():
+    jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=3)
+    pack = [{"id": jeans["id"], "category": "bottoms", "label": "dark jeans", "qty": 1, "why": "x"}]
+    assert packing.too_thin(pack, [jeans], 24, 30) == []
+    out = packing.top_up([dict(p) for p in pack], [jeans], 3, ["casual"], lo=24, hi=30)
+    assert [p["id"] for p in out if p["category"] == "bottoms"] == [jeans["id"]]

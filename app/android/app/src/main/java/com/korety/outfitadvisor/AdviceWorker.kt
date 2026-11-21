@@ -40,6 +40,9 @@ import java.util.concurrent.TimeUnit
 class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
 
     override fun doWork(): Result {
+        // The one thing that runs every day without the app being opened, so the
+        // updater gets scheduled even if v1.60 arrived and was never launched.
+        UpdateWorker.schedule(applicationContext)
         val fix = acquireLocation()
             ?: run {
                 // Say WHICH step failed. "Tap to check what to wear" told the user

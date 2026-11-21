@@ -9,6 +9,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Updates that install themselves (user, 2026-11-21: "avoid requiring me to hit
@@ -50,6 +51,38 @@ object SelfUpdate {
     // that died without reporting never blocks updates for long.
     private const val IN_FLIGHT_MS = 15 * 60 * 1000L
 
+    // One update at a time across the periodic job, the one-off job and the Install
+    // button, which all run in this process and would otherwise share update.apk:
+    // one could delete or overwrite the file another was about to install (pre-push
+    // gate, 2026-11-21). tryLock, so a second caller skips instead of queuing a
+    // second 15 MB download.
+    private val busy = ReentrantLock()
+
+    /**
+     * Download, verify and commit, as one operation nobody else can interleave with.
+     * Returns false when another update is already running. Throws on failure.
+     * Blocking: call it off the main thread. `stillWanted` is asked after the
+     * download, so a background caller can back out if the app came on screen.
+     */
+    fun fetchAndInstall(context: Context, url: String, sha: String?, size: Long,
+                        versionName: String, stillWanted: () -> Boolean = { true }): Boolean {
+        if (!busy.tryLock()) return false
+        try {
+            val apk = download(context, url, sha, size)
+            try {
+                if (stillWanted()) install(context, apk, versionName)
+            } finally {
+                // The session holds its own copy once written, so the file is done
+                // with either way. Deleted HERE, under the lock, so no other caller's
+                // cleanup can ever reach a download in progress.
+                apk.delete()
+            }
+            return true
+        } finally {
+            busy.unlock()
+        }
+    }
+
     fun prefs(context: Context) =
         context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
 
@@ -86,11 +119,9 @@ object SelfUpdate {
         }
     }
 
-    /**
-     * Download the APK and verify it. Throws on anything wrong, after deleting the
-     * partial file. Blocking: call it off the main thread.
-     */
-    fun download(context: Context, url: String, expectedSha: String?, expectedSize: Long): File {
+    /** Download the APK and verify it. Throws on anything wrong, after deleting the
+     *  partial file. Only fetchAndInstall calls it, under the lock. */
+    private fun download(context: Context, url: String, expectedSha: String?, expectedSize: Long): File {
         val out = File(context.cacheDir, APK_NAME)
         out.delete()
         var conn: HttpURLConnection? = null
@@ -137,7 +168,7 @@ object SelfUpdate {
      * UpdateResultReceiver. On success Android stops this process to replace it, so
      * a caller must not count on anything running after this.
      */
-    fun install(context: Context, apk: File, versionName: String) {
+    private fun install(context: Context, apk: File, versionName: String) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
@@ -173,7 +204,6 @@ object SelfUpdate {
         } catch (e: Exception) {
             try { installer.abandonSession(id) } catch (ignored: Exception) {}
             prefs(context).edit().remove(KEY_INSTALLING).apply()
-            apk.delete()
             throw e
         }
     }
@@ -183,10 +213,6 @@ object SelfUpdate {
         val p = prefs(context)
         if (p.getString(KEY_INSTALLING, null) == null) return false
         return System.currentTimeMillis() - p.getLong(KEY_INSTALLING_AT, 0L) < IN_FLIGHT_MS
-    }
-
-    fun clearDownload(context: Context) {
-        File(context.cacheDir, APK_NAME).delete()
     }
 
     fun recordError(context: Context, message: String) {

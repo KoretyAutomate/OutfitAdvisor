@@ -30,11 +30,15 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         when (intent?.action) {
-            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_BOOT_COMPLETED -> {
+                AlarmScheduler.rearm(context)
+                UpdateWorker.schedule(context)
+            }
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_TIME_CHANGED -> AlarmScheduler.rearm(context)
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 AlarmScheduler.rearm(context)
+                UpdateWorker.schedule(context)
                 announceSelfUpdate(context)
             }
         }
@@ -49,7 +53,6 @@ class BootReceiver : BroadcastReceiver() {
         val prefs = SelfUpdate.prefs(context)
         if (prefs.getString(SelfUpdate.KEY_INSTALLING, null) == null) return
         prefs.edit().remove(SelfUpdate.KEY_INSTALLING).apply()
-        SelfUpdate.clearDownload(context)
         val name = try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
         } catch (e: Exception) { "?" }

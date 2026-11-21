@@ -77,10 +77,10 @@ class AppUpdatePlugin : Plugin() {
         // ~15 MB download: off the main thread so the WebView stays responsive.
         Thread {
             try {
-                val apk = SelfUpdate.download(context, url, expectedSha, expectedSize)
-                val bytes = apk.length()
-                SelfUpdate.install(context, apk, versionName)
-                call.resolve(JSObject().put("status", "installing").put("bytes", bytes))
+                // False means the background job is already installing it: the
+                // same outcome without a second download, so the same answer.
+                SelfUpdate.fetchAndInstall(context, url, expectedSha, expectedSize, versionName)
+                call.resolve(JSObject().put("status", "installing"))
             } catch (e: Exception) {
                 SelfUpdate.recordError(context, e.message ?: "download failed")
                 call.reject(e.message ?: "download failed")

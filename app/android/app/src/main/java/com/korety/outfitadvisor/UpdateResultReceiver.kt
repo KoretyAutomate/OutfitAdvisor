@@ -42,12 +42,11 @@ class UpdateResultReceiver : BroadcastReceiver() {
                     )
                 )
             }
-            PackageInstaller.STATUS_SUCCESS -> SelfUpdate.clearDownload(context)
+            PackageInstaller.STATUS_SUCCESS -> {}
             else -> {
                 // Includes the wearer pressing Cancel on the fallback prompt.
                 val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
                 SelfUpdate.recordError(context, "install failed ($status): ${msg ?: "no reason given"}")
-                SelfUpdate.clearDownload(context)
             }
         }
     }

@@ -46,10 +46,9 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
         prefs.edit().putInt(KEY_TRIED_CODE, pub.code).putInt(KEY_TRIES, tries + 1).apply()
 
         return try {
-            val apk = SelfUpdate.download(ctx, "${SelfUpdate.baseUrl(ctx)}/apk", pub.sha256, pub.size)
             // The download takes a while; they may have opened the app meanwhile.
-            if (visible) { SelfUpdate.clearDownload(ctx); return Result.success() }
-            SelfUpdate.install(ctx, apk, pub.name)
+            SelfUpdate.fetchAndInstall(ctx, "${SelfUpdate.baseUrl(ctx)}/apk", pub.sha256, pub.size,
+                                       pub.name, stillWanted = { !visible })
             Result.success()
         } catch (e: Exception) {
             SelfUpdate.recordError(ctx, "background update failed: ${e.message ?: "unknown"}")
@@ -69,8 +68,10 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
     }
 
     companion object {
-        /** Whether MainActivity is on screen. Set from onResume/onPause; a fresh
-         *  process starts false, which is right, since nothing is on screen then. */
+        /** Whether MainActivity is on screen. Set from onStart/onStop, not
+         *  onResume/onPause: a paused activity can still be visible, e.g. under a
+         *  translucent one (pre-push gate, 2026-11-21). A fresh process starts
+         *  false, which is right, since nothing is on screen then. */
         @Volatile var visible = false
 
         const val MAX_TRIES = 3
@@ -82,7 +83,9 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
         private fun constraints() =
             Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
-        /** Idempotent: KEEP leaves an existing schedule alone. */
+        /** Idempotent: KEEP leaves an existing schedule alone. Called from every
+         *  entry point (app open, package replaced, boot, morning push), so an
+         *  update to v1.60 that is never opened still gets scheduled. */
         fun schedule(context: Context) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 PERIODIC, ExistingPeriodicWorkPolicy.KEEP,

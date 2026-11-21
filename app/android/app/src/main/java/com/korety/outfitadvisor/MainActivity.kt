@@ -35,17 +35,14 @@ class MainActivity : BridgeActivity() {
     // Self-updates install only while the app is off screen (UpdateWorker): one
     // stops this process, and doing that under the wearer's thumb is the one thing
     // a silent update must never do.
-    override fun onResume() {
-        super.onResume()
+    // onStart/onStop, not onResume/onPause: paused can still mean visible.
+    override fun onStart() {
+        super.onStart()
         UpdateWorker.visible = true
     }
 
-    override fun onPause() {
-        UpdateWorker.visible = false
-        super.onPause()
-    }
-
     override fun onStop() {
+        UpdateWorker.visible = false
         super.onStop()
         UpdateWorker.soon(this)
     }

@@ -46,6 +46,8 @@ object SelfUpdate {
     const val KEY_INSTALLING = "oa.updInstalling"   // the versionName a session was committed for
     const val KEY_LAST_ERROR = "oa.updLastError"    // what went wrong, shown in Settings
     private const val KEY_INSTALLING_AT = "oa.updInstallingAt"
+    // A session Android declined to install silently, waiting on the wearer's tap.
+    private const val KEY_PENDING_SESSION = "oa.updPendingSession"
     // How long a committed session counts as in flight: long enough to cover the
     // wearer reading the fallback confirm prompt, short enough that a session
     // that died without reporting never blocks updates for long.
@@ -90,7 +92,7 @@ object SelfUpdate {
         try {
             val apk = download(context, url, sha, size)
             try {
-                if (stillWanted()) install(context, apk, versionName)
+                install(context, apk, versionName, stillWanted)
             } finally {
                 // The session holds its own copy once written, so the file is done
                 // with either way. Deleted HERE, under the lock, so no other caller's
@@ -188,8 +190,13 @@ object SelfUpdate {
      * UpdateResultReceiver. On success Android stops this process to replace it, so
      * a caller must not count on anything running after this.
      */
-    private fun install(context: Context, apk: File, versionName: String) {
+    private fun install(context: Context, apk: File, versionName: String, stillWanted: () -> Boolean) {
         val installer = context.packageManager.packageInstaller
+        // A tap supersedes a session still waiting on a confirmation. Its prompt may
+        // only be reachable from a notification, and a fresh session started with the
+        // app on screen opens its own (pre-push gate, 2026-11-21).
+        abandonPending(context)
+        if (!stillWanted()) return
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
             setSize(apk.length())
@@ -204,6 +211,10 @@ object SelfUpdate {
                         session.fsync(sink)
                     }
                 }
+                // Asked again HERE, after the copy and fsync: the wearer may have
+                // opened the app while the APK was being staged, and committing now
+                // would close it under them (pre-push gate, 2026-11-21).
+                if (!stillWanted()) { session.abandon(); return }
                 // Before commit: success kills this process, and the "Updated" notice
                 // after the restart is how the wearer learns it happened.
                 prefs(context).edit()
@@ -226,6 +237,30 @@ object SelfUpdate {
             prefs(context).edit().remove(KEY_INSTALLING).apply()
             throw e
         }
+    }
+
+    /** Android wants a tap for this session (UpdateResultReceiver). It stops counting
+     *  as in flight, so an Install tap isn't told one is already happening. */
+    fun awaitConfirm(context: Context, sessionId: Int) {
+        prefs(context).edit()
+            .putInt(KEY_PENDING_SESSION, sessionId)
+            .putLong(KEY_INSTALLING_AT, 0L)
+            .apply()
+    }
+
+    /** A session is still waiting on the wearer's confirmation. The background job
+     *  leaves it alone, so it neither re-downloads nor re-notifies every run. */
+    fun awaitingConfirm(context: Context): Boolean {
+        val id = prefs(context).getInt(KEY_PENDING_SESSION, -1)
+        return id >= 0 && context.packageManager.packageInstaller.getSessionInfo(id) != null
+    }
+
+    private fun abandonPending(context: Context) {
+        val p = prefs(context)
+        val id = p.getInt(KEY_PENDING_SESSION, -1)
+        if (id < 0) return
+        try { context.packageManager.packageInstaller.abandonSession(id) } catch (e: Exception) {}
+        p.edit().remove(KEY_PENDING_SESSION).apply()
     }
 
     /** A session was committed moments ago and hasn't reported back yet. */

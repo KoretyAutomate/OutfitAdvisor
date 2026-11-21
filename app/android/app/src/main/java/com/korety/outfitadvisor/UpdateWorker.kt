@@ -32,7 +32,8 @@ class UpdateWorker(context: Context, params: WorkerParameters) : Worker(context,
         val ctx = applicationContext
         // On screen, or a session from a moment ago is still deciding (e.g. its
         // confirm prompt is open): try again next time.
-        if (visible || SelfUpdate.inFlight(ctx)) return Result.success()
+        // Or Android is waiting on the wearer to confirm one: its notification is up.
+        if (visible || SelfUpdate.inFlight(ctx) || SelfUpdate.awaitingConfirm(ctx)) return Result.success()
         val pub = SelfUpdate.published(SelfUpdate.baseUrl(ctx)) ?: return Result.success()
         if (pub.code <= SelfUpdate.runningCode(ctx)) return Result.success()
 

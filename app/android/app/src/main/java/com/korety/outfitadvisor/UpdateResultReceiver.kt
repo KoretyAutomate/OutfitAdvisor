@@ -28,6 +28,7 @@ class UpdateResultReceiver : BroadcastReceiver() {
                 @Suppress("DEPRECATION")
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                SelfUpdate.awaitConfirm(context, intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1))
                 if (UpdateWorker.visible) {
                     try { context.startActivity(confirm); return } catch (e: Exception) {}
                 }

@@ -45,7 +45,10 @@ const page = () => {
 
 const HOME = { label: "Princeton", postal: "08540", lat: 40.3, lon: -74.6 };
 const COLD = 0.4, AVG = 12.6, HOT = 24.3;
-const CACHE = { lat: HOME.lat, lon: HOME.lon, cold: COLD, avg: AVG, hot: HOT, months: [], at: Date.now() };
+// With the seasonal closet's monthly normals (2026-11-18): a cache without them is
+// measured again once (season_closet.test.js), so "measured" here means complete.
+const NORMALS = Array.from({ length: 12 }, () => [COLD, HOT]);
+const CACHE = { lat: HOME.lat, lon: HOME.lon, cold: COLD, avg: AVG, hot: HOT, months: [], normals: NORMALS, at: Date.now() };
 
 (async () => {
   const w = page();

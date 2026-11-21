@@ -343,7 +343,7 @@ async def packing(req: PackingRequest):
             # a shortfall is a fact about the closet. (First cut gated this on
             # `have <= got` and stayed silent whenever the model under-packed —
             # exactly the case the check exists to catch. Caught by T1 test 4.)
-            for cat in ("inner", "base", "bottoms"):
+            for cat in ("inner", "base", "bottoms", "footwear"):
                 want = _needed(cat, trip_days)
                 # What suits THIS trip's weather, not everything owned: five pairs of
                 # shorts are no answer to a January week.

@@ -130,6 +130,22 @@ def test_sandals_the_model_packed_stay_home_from_a_winter_trip_and_go_to_a_summe
     assert [p["id"] for p in summer if p["category"] == "footwear"] == ["itm-00000060"]
 
 
+def test_sandals_dropped_from_a_winter_list_are_replaced_by_shoes_they_own():
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    out = packing.top_up(pack, [sandals, sneakers], 5, ["casual"], lo=-2, hi=6)
+    assert [p["id"] for p in out if p["category"] == "footwear"] == ["itm-00000062"]
+
+
+def test_sandals_dropped_with_no_other_shoes_leave_the_slot_to_the_gap_report():
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    out = packing.top_up(pack, [sandals], 5, ["casual"], lo=-2, hi=6)
+    assert not [p for p in out if p["category"] == "footwear"]
+    assert packing.owned_for([sandals], "footwear", -2, 6) == [], "what /packing counts: no shoes for the trip"
+
+
 def test_a_wide_range_keeps_both_the_warm_trousers_and_the_shorts():
     """5–25C: each pair has its own days. Requiring one garment to cover both ends
     rejected both and reported a false shortfall (the reviewer's case)."""

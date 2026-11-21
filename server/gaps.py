@@ -35,6 +35,6 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
     for slot in ("bottoms", "footwear"):
         it = day.wd.by_item.get(picks.get(slot)) or {}
         if it and scale.too_cold_for_legs(it, day.plan) and slot not in gaps and not layers.underdressed(
-                it, slot, day.wd, day.plan, day.peak, day.rules):
+                it, slot, day):
             gaps.append(slot)
     return gaps

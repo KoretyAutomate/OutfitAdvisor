@@ -179,7 +179,7 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
         return "rules"
     if layers.overdressed(it, slot, ctx.wd, day.plan, day.peak, day.rules):
         return "heat"
-    if not ctx.cold_ok and layers.underdressed(it, slot, ctx.wd, day.plan, day.peak, day.rules):
+    if not ctx.cold_ok and layers.underdressed(it, slot, day):
         return "cold"
     if day.plan >= check.HOT_DAY_C and slot in ("mid", "outer"):
         return "heat"

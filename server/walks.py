@@ -15,6 +15,7 @@ at the 600-line ceiling; it reads funnel's names at call time, so a test that
 monkeypatches funnel.WIDTHS reaches it too.
 """
 import time
+from dataclasses import replace
 
 import check
 import fit
@@ -150,7 +151,9 @@ def exact(ctx: "funnel.Ctx", priority, bound: tuple | None = None, cold_too: boo
     that the walk goes on only where something strictly better could be.
     finished=False only when the deadline cut it (Codex review, 2026-10-23).
     `cold_too`: the outfits no garment makes warm as well, for search's last resort."""
-    ctx = funnel.Ctx(ctx.day, ctx.target, ctx.relaxed, ctx.exclude, len(funnel.WIDTHS), ctx.deadline)
+    # replace(), not a fresh Ctx: a rebuilt one dropped cold_ok and the last resort
+    # never let summer legs back (pre-push gate, 2026-11-21).
+    ctx = replace(ctx, width=len(funnel.WIDTHS))
     cands, _ = funnel.candidates(ctx, priority)
     today = frozenset(s for s, ids in cands.items() if ids)
     ok: list = []

@@ -56,25 +56,31 @@ def _wd(*items):
     return pk._index(list(items))
 
 
+def _ud(item, slot, closet, plan, peak, user_rules=()):
+    """layers.underdressed on a day of these temperatures, closet and rules."""
+    return layers.underdressed(item, slot, Day.of(weather(plan, peak), _wd(*closet),
+                                                    pk.Prefs.of(list(user_rules))))
+
+
 def test_underdressed_only_when_a_warmer_wearable_alternative_is_owned():
-    assert layers.underdressed(SUMMER_TR, "bottoms", _wd(SUMMER_TR, CHINOS), 8, 12, [])
-    assert not layers.underdressed(SUMMER_TR, "bottoms", _wd(SUMMER_TR, SHORTS), 8, 12, []), \
+    assert _ud(SUMMER_TR, "bottoms", [SUMMER_TR, CHINOS], 8, 12)
+    assert not _ud(SUMMER_TR, "bottoms", [SUMMER_TR, SHORTS], 8, 12), \
         "owning nothing warmer makes them the trousers"
-    assert not layers.underdressed(CHINOS, "bottoms", _wd(SUMMER_TR, CHINOS), 8, 12, [])
+    assert not _ud(CHINOS, "bottoms", [SUMMER_TR, CHINOS], 8, 12)
 
 
 def test_an_alternative_they_banned_is_no_alternative():
     ban = [{"kind": "avoid_item", "a": {"type": "trousers", "color": "navy"}}]
-    assert not layers.underdressed(SUMMER_TR, "bottoms", _wd(SUMMER_TR, CHINOS), 8, 12, ban)
+    assert not _ud(SUMMER_TR, "bottoms", [SUMMER_TR, CHINOS], 8, 12, ban)
 
 
 def test_an_alternative_too_warm_for_the_afternoon_is_no_alternative():
     # 11C morning, 30C afternoon: chinos are too warm by three, so the linen stays.
-    assert not layers.underdressed(SUMMER_TR, "bottoms", _wd(SUMMER_TR, CHINOS), 11, 30, [])
+    assert not _ud(SUMMER_TR, "bottoms", [SUMMER_TR, CHINOS], 11, 30)
 
 
 def test_the_torso_is_never_judged_by_the_leg_floor():
-    assert not layers.underdressed(TEE, "base", _wd(TEE, OXFORD), 2, 6, [])
+    assert not _ud(TEE, "base", [TEE, OXFORD], 2, 6)
 
 
 # ── the normal day: unit ───────────────────────────────────────────────────────────
@@ -176,12 +182,12 @@ def api(monkeypatch):
     return TestClient(srv.app)
 
 
-def advise(api, monkeypatch, wx, closet, normals=None, recent=None, occasion="off"):
+def advise(api, monkeypatch, wx, closet, normals=None, recent=None):
     async def fetch(lat, lon, day):
         return wx
     monkeypatch.setattr(srv.weather, "fetch_weather", fetch)
     fake_model.install(monkeypatch, [], choices=[fake_model.choice(1)] * 4)
-    body = {"lat": 1, "lon": 1, "occasion": occasion, "gender": "man", "closet": closet,
+    body = {"lat": 1, "lon": 1, "occasion": "off", "gender": "man", "closet": closet,
             **({"normals": normals} if normals else {}), **({"recent": recent} if recent else {})}
     r = api.post("/advice", json=body)
     assert r.status_code == 200, r.text
@@ -247,7 +253,7 @@ def test_a_dress_worn_as_the_base_covers_the_legs_and_a_top_does_not():
     assert not layers.covers_legs("base", TEE)
     assert not layers.covers_legs("mid", summer_dress)
     winter_dress = g("knitdrs01", "knit dress", "onepiece", "dress", ["base"], 3)
-    assert layers.underdressed(summer_dress, "base", _wd(summer_dress, winter_dress), 8, 12, [])
+    assert _ud(summer_dress, "base", [summer_dress, winter_dress], 8, 12)
 
 
 def test_dates_between_two_month_middles_read_off_the_line_exactly():
@@ -271,3 +277,34 @@ def test_mismatches_count_each_out_of_season_garment():
     assert season.mismatches(d, {"base": TEE["id"], "mid": SWEATER["id"], "outer": JACKET["id"],
                                  "bottoms": CHINOS["id"]}) == 3
     assert season.mismatches(d, {"base": TEE["id"], "bottoms": SHORTS["id"]}) == 0
+
+
+def test_the_last_resort_brings_summer_legs_back_when_the_warm_pair_cannot_be_worn(api, monkeypatch):
+    # Codex's reproduction (pre-push gate, 2026-11-21): jeans are banned with the only
+    # top, so the warm pair is owned but unwearable. The linen goes out, not nothing.
+    jeans = g("jeans0001", "blue jeans", "bottoms", "jeans", ["bottoms"], 3, colors=["blue"])
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "t_shirt"}}]
+    async def fetch(lat, lon, day):
+        return weather(8, 12, date="2026-11-18")
+    monkeypatch.setattr(srv.weather, "fetch_weather", fetch)
+    fake_model.install(monkeypatch, [], choices=[fake_model.choice(1)] * 4)
+    r = api.post("/advice", json={"lat": 1, "lon": 1, "occasion": "off", "gender": "man", "rules": ban,
+                                  "closet": [TEE, SUMMER_TR, jeans, SNEAK]})
+    assert r.status_code == 200, r.text
+    assert r.json()["picks"]["bottoms"] == SUMMER_TR["id"]
+
+
+def test_an_out_of_season_outfit_is_not_called_cold_to_the_chooser(api, monkeypatch):
+    # 6C in July: the jacket is out of season but warm. Tier 1 is not tier 2, so the
+    # chooser must not be told nothing is warm enough (pre-push gate, 2026-11-21).
+    async def fetch(lat, lon, day):
+        return weather(6, 14, date="2026-07-15")
+    monkeypatch.setattr(srv.weather, "fetch_weather", fetch)
+    seen = fake_model.install(monkeypatch, [], choices=[fake_model.choice(1)] * 4)
+    r = api.post("/advice", json={"lat": 1, "lon": 1, "occasion": "off", "gender": "man", "normals": TOKYO,
+                                  "closet": [TEE, OXFORD, JACKET, CHINOS, SNEAK]})
+    assert r.status_code == 200, r.text
+    assert r.json()["picks"].get("outer") == JACKET["id"]
+    assert seen["chooser"], "the chooser was asked"
+    assert not any("warm enough" in p for p in seen["chooser"]), "out of season is not cold"
+    assert "another season" in r.json()["outfit_text"], "and the note says what it is"

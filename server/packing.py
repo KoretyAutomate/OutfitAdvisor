@@ -99,6 +99,14 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     if dropped:
         pack[:] = [p for p in pack if p not in dropped]
         log.info("packing: %d leg item(s) too thin for the trip left out", len(dropped))
+        # Shoes are not topped up below, so dropped ones are replaced here, by the
+        # best suitable pair owned; owning none is /packing's footwear gap (pre-push
+        # gate, 2026-11-21: sandals dropped from a winter list left no shoes at all).
+        shoes = sorted(owned_for(items, "footwear", lo, hi),
+                       key=lambda i: (not any(s in i["formality"] for s in styles), i["id"]))
+        if shoes and not any(p["category"] == "footwear" for p in pack):
+            pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
+                         "why": "warm enough for the trip"})
     for cat in SCALING:
         owned = owned_for(items, cat, lo, hi)
         ok_ids = {i["id"] for i in owned}

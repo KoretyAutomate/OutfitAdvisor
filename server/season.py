@@ -136,7 +136,7 @@ def _fits(day, slot: str, n: Normal) -> bool:
             slot in (wd.by_roles.get(i) or ()) and not out_of_season(it, slot, n)
             and not rules.violations(outright, {slot: i}, wd.by_item)
             and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
-            and not layers.underdressed(it, slot, wd, day.plan, day.peak, day.rules)
+            and not layers.underdressed(it, slot, day)
             for i, it in wd.by_item.items())
     return memo[slot]
 

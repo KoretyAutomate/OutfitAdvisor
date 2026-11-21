@@ -1925,6 +1925,7 @@ async function saveCloset(){
    `oa.updSkip` remembers a build the user said "Later" to, so the banner asks
    once per version rather than every launch. */
 let updInfo=null, updBusy=false;
+let UPD_WATCH_TRIES=30, UPD_WATCH_MS=2000;   // after a tap: a minute of watching for a failure
 /* The running build, sent on every /advice so the server log says WHICH client and
    WHICH version called. Debugging the morning push repeatedly stalled on not being
    able to tell a native push from the app, or knowing what build the phone ran. */
@@ -2024,6 +2025,14 @@ async function doUpdate(){
       say("Installing — the app will close in a moment. Open it again for v"+esc(updInfo.versionName)
         +". If Android asks you to confirm, tap Install.");
       toast("Installing…");
+      /* Android reports a rejected install (e.g. a different signing key) later, to
+         the native side. Watch for it for a minute, so the card never keeps saying
+         "will close" over a failure (pre-push gate, 2026-11-21). */
+      for(let i=0;i<UPD_WATCH_TRIES;i++){
+        await new Promise(r=>setTimeout(r,UPD_WATCH_MS));
+        let c=null; try{ c=await Plugins.AppUpdate.current(); }catch(e){}
+        if(c&&c.lastError){ say("Update failed: "+esc(c.lastError)); toast("Update failed"); break; }
+      }
     }
   }catch(e){
     // Written into the card, not a toast: the user needs to be able to read this

@@ -22,13 +22,16 @@ class UpdateResultReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
+        val sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+        // A superseded session's late result must not touch the current one's state.
+        if (!SelfUpdate.isActive(context, sessionId)) return
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                SelfUpdate.awaitConfirm(context, intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1))
+                SelfUpdate.awaitConfirm(context, sessionId)
                 if (UpdateWorker.visible) {
                     try { context.startActivity(confirm); return } catch (e: Exception) {}
                 }

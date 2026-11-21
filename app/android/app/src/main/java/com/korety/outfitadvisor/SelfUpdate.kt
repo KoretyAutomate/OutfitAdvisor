@@ -48,6 +48,10 @@ object SelfUpdate {
     private const val KEY_INSTALLING_AT = "oa.updInstallingAt"
     // A session Android declined to install silently, waiting on the wearer's tap.
     private const val KEY_PENDING_SESSION = "oa.updPendingSession"
+    // The one session whose result may change any of this state. A result from any
+    // other session, e.g. the failure Android reports for one a tap superseded, is
+    // ignored (pre-push gate, 2026-11-21).
+    private const val KEY_ACTIVE_SESSION = "oa.updActiveSession"
     // How long a committed session counts as in flight: long enough to cover the
     // wearer reading the fallback confirm prompt, short enough that a session
     // that died without reporting never blocks updates for long.
@@ -88,7 +92,12 @@ object SelfUpdate {
             busy.lock()
             tapWaiting = false
             if (inFlight(context)) { busy.unlock(); return true }
-        } else if (!busy.tryLock()) return false
+        } else {
+            if (!busy.tryLock()) return false
+            // Rechecked under the lock: another background run may have committed, or
+            // been told to wait for a confirmation, since this one's early checks.
+            if (inFlight(context) || awaitingConfirm(context)) { busy.unlock(); return false }
+        }
         try {
             val apk = download(context, url, sha, size)
             try {
@@ -218,6 +227,7 @@ object SelfUpdate {
                 // Before commit: success kills this process, and the "Updated" notice
                 // after the restart is how the wearer learns it happened.
                 prefs(context).edit()
+                    .putInt(KEY_ACTIVE_SESSION, id)
                     .putString(KEY_INSTALLING, versionName)
                     .putLong(KEY_INSTALLING_AT, System.currentTimeMillis())
                     .remove(KEY_LAST_ERROR)
@@ -238,6 +248,10 @@ object SelfUpdate {
             throw e
         }
     }
+
+    /** Whether a status broadcast is about the session this state belongs to. */
+    fun isActive(context: Context, sessionId: Int): Boolean =
+        sessionId >= 0 && prefs(context).getInt(KEY_ACTIVE_SESSION, -1) == sessionId
 
     /** Android wants a tap for this session (UpdateResultReceiver). It stops counting
      *  as in flight, so an Install tap isn't told one is already happening. */

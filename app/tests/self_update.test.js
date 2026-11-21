@@ -99,6 +99,20 @@ const NEXT = { versionCode: 61, versionName: "1.61", sha256: "ab".repeat(32), si
     check("failed install is written into the card", /Update failed: checksum mismatch/.test(msg), msg);
   }
 
+  // Android rejects the install after "installing" was reported: the open card
+  // finds out and says so (the receiver records lastError; current() carries it).
+  {
+    let calls = 0;
+    const { w } = page({ cur: CUR, published: NEXT });
+    w.Capacitor.Plugins.AppUpdate.current = async () =>
+      (++calls > 3 ? { ...CUR, lastError: "install failed (4): signatures do not match" } : CUR);
+    w.eval("UPD_WATCH_MS=1; UPD_WATCH_TRIES=10;");
+    await drain(); await w.renderVersion(); await w.doUpdate(); await drain();
+    const msg = w.document.getElementById("verMsg").textContent;
+    check("a later install rejection replaces 'will close'",
+      /Update failed: install failed \(4\): signatures do not match/.test(msg), msg);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

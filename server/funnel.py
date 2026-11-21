@@ -472,7 +472,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (season.mismatches(c.day, r[2]), cost(needed(c, _full(r[2]))),
+                    key=lambda r: (fit.layering(c, r[2]), season.mismatches(c.day, r[2]), cost(needed(c, _full(r[2]))),
                                    _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
@@ -500,8 +500,10 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         gave = needed(c, full)
         # Tier: 0 fine, 1 out of season, 2 cold, 3 both. Anything above 0 is held
         # aside while the ladder looks for a 0 (season.py: comfort, then season).
+        # The layers the weather needs (fit.layering: knit and coat below 5C) are
+        # comfort, so they rank ahead of the season count (pre-push gate, 2026-11-21).
         n = season.mismatches(c.day, full)
-        rank = (2 * bool(hard) + bool(n), n, *_rank(c, (shape, full), issues, gave, today))
+        rank = (2 * bool(hard) + bool(n), fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break

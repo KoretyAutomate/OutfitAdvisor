@@ -295,16 +295,55 @@ def test_the_last_resort_brings_summer_legs_back_when_the_warm_pair_cannot_be_wo
 
 
 def test_an_out_of_season_outfit_is_not_called_cold_to_the_chooser(api, monkeypatch):
-    # 6C in July: the jacket is out of season but warm. Tier 1 is not tier 2, so the
-    # chooser must not be told nothing is warm enough (pre-push gate, 2026-11-21).
+    # A mild November day: the in-season trousers are banned with the only top, so the
+    # shorts are the comfortable answer, out of season (tier 1). Tier 1 is not tier 2:
+    # the chooser must not hear nothing is warm enough (pre-push gate, 2026-11-21).
+    ban = [{"kind": "avoid_pair", "a": {"type": "trousers"}, "b": {"type": "t_shirt"}}]
     async def fetch(lat, lon, day):
-        return weather(6, 14, date="2026-07-15")
+        return weather(19, 24, date="2026-11-20")
     monkeypatch.setattr(srv.weather, "fetch_weather", fetch)
     seen = fake_model.install(monkeypatch, [], choices=[fake_model.choice(1)] * 4)
     r = api.post("/advice", json={"lat": 1, "lon": 1, "occasion": "off", "gender": "man", "normals": TOKYO,
-                                  "closet": [TEE, OXFORD, JACKET, CHINOS, SNEAK]})
+                                  "rules": ban, "closet": [TEE, SHORTS, LIGHT_TR, SNEAK]})
     assert r.status_code == 200, r.text
-    assert r.json()["picks"].get("outer") == JACKET["id"]
+    assert r.json()["picks"]["bottoms"] == SHORTS["id"]
     assert seen["chooser"], "the chooser was asked"
     assert not any("warm enough" in p for p in seen["chooser"]), "out of season is not cold"
     assert "another season" in r.json()["outfit_text"], "and the note says what it is"
+
+
+def test_a_garment_the_actual_morning_needs_is_never_out_of_season_for_warmth():
+    # A 2C morning in July: the coat and the knit are what today calls for.
+    cold_july = season.Normal(2, 10)
+    coat = g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4)
+    assert season.out_of_season(coat, "outer", JUL), "by the normal alone, out"
+    assert not season.out_of_season(coat, "outer", JUL, cold_july)
+    assert not season.out_of_season(SWEATER, "mid", JUL, cold_july)
+    assert not season.out_of_season({**coat, "season": "cold"}, "outer", JUL, cold_july)
+    assert season.out_of_season({**coat, "season": "cold"}, "outer", JUL, season.Normal(20, 28))
+
+
+def test_a_warm_actual_day_does_not_bring_summer_legs_back_into_season():
+    assert season.out_of_season(SHORTS, "bottoms", NOV, season.Normal(19, 24))
+
+
+def test_a_cold_july_morning_keeps_the_knit_under_the_coat(api, monkeypatch):
+    # Codex's reproduction (pre-push gate, 2026-11-21): 2-10C on July normals.
+    coat = g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4)
+    closet = [TEE, SWEATER, coat, g("jeans0001", "blue jeans", "bottoms", "jeans", ["bottoms"], 3), SNEAK]
+    wx = weather(2, 10, date="2026-07-15")
+    plain = advise(api, monkeypatch, wx, closet)
+    seasonal = advise(api, monkeypatch, wx, closet, TOKYO)
+    assert SWEATER["id"] in plain["picks"].values(), "the knit goes under the coat below 5C"
+    assert seasonal["picks"] == plain["picks"], "and the season changes nothing on a day like this"
+
+
+def test_the_season_note_admits_a_search_that_ran_out_of_time():
+    import relaxnotes
+    assert "time ran out" in relaxnotes.SEASON_UNSURE and "another season" in relaxnotes.SEASON_UNSURE
+
+
+def test_a_cold_months_garment_is_in_season_from_an_actual_morning_under_12c():
+    coat = {**g("coat00001", "navy wool coat", "outerwear", "coat", ["outer"], 4), "season": "cold"}
+    assert not season.out_of_season(coat, "outer", JUL, season.Normal(11.9, 20))
+    assert season.out_of_season(coat, "outer", JUL, season.Normal(12.0, 20))

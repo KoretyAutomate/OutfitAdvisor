@@ -421,3 +421,72 @@ def test_a_planned_morning_never_wears_a_banned_pair():
     plan = [{"date": "2026-10-20", "travel": False, "picks": {"inner": "itm-under001", "base": "itm-tee00001"}}]
     kept = packing.keep_rules(plan, [pair], items)
     assert kept[0]["picks"]["base"] == "itm-tee00001" and kept[0]["picks"]["inner"] is None
+
+
+# ── a planned morning keeps its trousers when summer legs leave the list (2026-11-21) ──
+
+def _winter_plan(pack_items, rules_=(), raw=None):
+    shorts = dict(item(50, "bottoms", "shorts", typ="shorts"), warmth=1)
+    closet = [shorts, *pack_items, *TOPS[:3], *SHOES]
+    pack = [{"id": shorts["id"], "category": "bottoms", "label": "shorts", "qty": 1, "why": "x"},
+            {"id": TOPS[0]["id"], "category": "base", "label": "tee 0", "qty": 3, "why": "x"},
+            {"id": SHOES[0]["id"], "category": "footwear", "label": "white sneakers", "qty": 1, "why": "x"}]
+    # Six days: two pairs of trousers packed (ceil(6/3)); the plan covers the first three.
+    pack = packing.top_up(pack, closet, 6, ["casual"], lo=-2, hi=6)
+    raw = raw or [{"base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": SHOES[0]["id"]}] * 3
+    plan = packing.validate_plan(raw, days(3), pack, travel=False)
+    return packing.keep_rules(plan, list(rules_), closet, pack), pack
+
+
+def test_a_planned_morning_gets_the_packed_trousers_in_place_of_the_dropped_shorts():
+    warm = [dict(item(41, "bottoms", "wool trousers", typ="trousers"), warmth=4)]
+    plan, pack = _winter_plan(warm)
+    assert all(d["picks"]["bottoms"] == warm[0]["id"] for d in plan), plan
+    assert all("_refill" not in d for d in plan), "the marker never leaves the server"
+
+
+def test_the_refill_rotates_through_the_packed_pairs():
+    warm = [dict(item(41 + k, "bottoms", f"wool trousers {k}", typ="trousers"), warmth=4) for k in range(2)]
+    plan, pack = _winter_plan(warm)
+    assert len({d["picks"]["bottoms"] for d in plan}) == 2, plan
+
+
+def test_the_refill_keeps_their_rules():
+    navy = dict(item(41, "bottoms", "navy wool trousers", typ="trousers"), warmth=4)
+    grey = dict(item(42, "bottoms", "grey wool trousers", typ="trousers"), warmth=4, colors=["grey"])
+    ban = {"kind": "avoid_pair", "a": {"type": "trousers", "color": "navy"}, "b": {"type": "t_shirt"}}
+    plan, pack = _winter_plan([navy, grey], [ban])
+    assert all(d["picks"]["bottoms"] == grey["id"] for d in plan), plan
+
+
+def test_a_dress_morning_is_not_given_trousers():
+    dress = dict(item(70, "base", "knit dress", typ="dress"), group="onepiece", warmth=3)
+    warm = [dict(item(41, "bottoms", "wool trousers", typ="trousers"), warmth=4), dress]
+    raw = [{"base": dress["id"], "bottoms": "itm-00000050", "footwear": SHOES[0]["id"]}]
+    shorts = dict(item(50, "bottoms", "shorts", typ="shorts"), warmth=1)
+    pack = [{"id": dress["id"], "category": "base", "label": "knit dress", "qty": 1, "why": "x"},
+            {"id": shorts["id"], "category": "bottoms", "label": "shorts", "qty": 1, "why": "x"},
+            {"id": SHOES[0]["id"], "category": "footwear", "label": "white sneakers", "qty": 1, "why": "x"}]
+    closet = [shorts, *warm, *SHOES]
+    pack = packing.top_up(pack, closet, 1, ["casual"], lo=-2, hi=6)
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack)
+    assert plan[0]["picks"]["bottoms"] is None and plan[0]["picks"]["base"] == dress["id"]
+
+
+def test_replacement_shoes_match_the_trip_and_come_as_one_pair():
+    sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
+    sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers", count=3), warmth=2)
+    derbies = dict(item(63, "footwear", "derbies", formality=("smart",), typ="derbies", count=3), warmth=2)
+    pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    out = packing.top_up(pack, [sandals, sneakers, derbies], 5, ["smart"], lo=-2, hi=6)
+    shoes = [p for p in out if p["category"] == "footwear"]
+    assert [p["id"] for p in shoes] == ["itm-00000063"] and shoes[0]["qty"] == 1
+
+
+def test_only_trousers_and_shoes_that_named_something_are_refilled():
+    pack = packed("itm-00000001", "itm-00000030")
+    raw = [{"base": "itm-00000099", "bottoms": "itm-00000098", "footwear": "itm-00000030"},
+           {"base": "itm-00000010", "footwear": "itm-00000030"}]
+    plan = packing.validate_plan(raw, days(3), pack, travel=False)
+    assert plan[0]["_refill"] == ["bottoms"], "a missing top is not invented"
+    assert "_refill" not in plan[1], "trousers nobody named are not added"

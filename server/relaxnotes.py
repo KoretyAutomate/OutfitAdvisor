@@ -23,6 +23,7 @@ COLD_UNSURE = ("time ran out before a warm enough outfit was found — this one 
 # Served only when nothing in season fits with the rest (season.py): an outfit holding
 # a garment from another season, ranked below every in-season one.
 SEASON = "something here is from another season — nothing in season goes with the rest today"
+SEASON_UNSURE = "something here is from another season — time ran out before an in-season outfit was found"
 TRIED_ALL = "every combination of what you can wear today was tried, and none keeps every rule"
 
 

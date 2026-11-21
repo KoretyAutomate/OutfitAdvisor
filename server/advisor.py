@@ -323,7 +323,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
         # combination was tried (pre-push gate, 2026-10-24).
         notes.append(f"Note: {relaxnotes.COLD if result.complete else relaxnotes.COLD_UNSURE}.")
     if pick.rank and pick.rank[0] % 2:      # tier 1 or 3: out of season (funnel._evaluate)
-        notes.append(f"Note: {relaxnotes.SEASON}.")
+        notes.append(f"Note: {relaxnotes.SEASON if result.complete else relaxnotes.SEASON_UNSURE}.")
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,
         # 2026-10-24 — the chooser picked the least bad and called it good).

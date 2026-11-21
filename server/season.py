@@ -92,17 +92,30 @@ def normal_for(normals: list | None, date: object) -> Normal | None:
     return Normal(round(a[0] + (b[0] - a[0]) * f, 1), round(a[1] + (b[1] - a[1]) * f, 1))
 
 
-def out_of_season(item: dict, slot: str, n: Normal) -> bool:
-    """Would this garment, worn as `slot`, be wrong on the normal day?"""
+def out_of_season(item: dict, slot: str, n: Normal, actual: Normal | None = None) -> bool:
+    """Would this garment, worn as `slot`, be wrong on the normal day?
+
+    `actual` is today's real plan and peak, when there is one. A garment the actual
+    morning calls for is never out of season for being WARM: the too-warm side is
+    judged at the colder of the two days, and a cold-months garment is in season on
+    an actually cold day. Otherwise a cold morning in July lost the knit under the
+    coat to the season count (pre-push gate, 2026-11-21). The cold side stays on the
+    normal: an odd warm November day still keeps the shorts away while comfortable
+    trousers exist (_fits)."""
     mode = item.get("season") if item.get("season") in MODES else "auto"
     if mode == "all":
         return False
+    sc = scale.graded_on(item)
+    actual_cold = actual is not None and scale.min_outer_warmth(actual.lo, sc) >= COLD_MONTH_NEED
     if mode in ("warm", "cold"):
-        cold_month = scale.min_outer_warmth(n.lo, scale.graded_on(item)) >= COLD_MONTH_NEED
-        return cold_month if mode == "warm" else not cold_month
+        cold_month = scale.min_outer_warmth(n.lo, sc) >= COLD_MONTH_NEED
+        return cold_month if mode == "warm" else not (cold_month or actual_cold)
     if layers.covers_legs(slot, item) and scale.too_cold_for_legs(item, n.lo):
         return True
-    return scale.too_warm(item, pk._heat_temp(slot, n.lo, n.hi))
+    hot = pk._heat_temp(slot, n.lo, n.hi)
+    if actual is not None:
+        hot = min(hot, pk._heat_temp(slot, actual.lo, actual.hi))
+    return scale.too_warm(item, hot)
 
 
 def normal(day) -> Normal | None:
@@ -132,8 +145,9 @@ def _fits(day, slot: str, n: Normal) -> bool:
     if slot not in memo:
         wd = day.wd
         outright = [r for r in day.rules if not rules.is_combination(r)]
+        today = Normal(day.plan, day.peak)
         memo[slot] = any(
-            slot in (wd.by_roles.get(i) or ()) and not out_of_season(it, slot, n)
+            slot in (wd.by_roles.get(i) or ()) and not out_of_season(it, slot, n, today)
             and not rules.violations(outright, {slot: i}, wd.by_item)
             and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
             and not layers.underdressed(it, slot, day)
@@ -146,7 +160,7 @@ def counts(day, slot: str, iid: str) -> bool:
     have taken the slot instead."""
     n = normal(day)
     it = day.wd.by_item.get(iid)
-    return bool(n and it and out_of_season(it, slot, n) and _fits(day, slot, n))
+    return bool(n and it and out_of_season(it, slot, n, Normal(day.plan, day.peak)) and _fits(day, slot, n))
 
 
 def mismatches(day, picks: dict) -> int:

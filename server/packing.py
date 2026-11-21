@@ -198,27 +198,47 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
     for i in range(k):
         entry = entries[i] if i < len(entries) and isinstance(entries[i], dict) else {}
         picks: dict[str, str | None] = {}
+        refill = []
         for slot in CATEGORIES:
             iid = entry.get(slot)
             ok = isinstance(iid, str) and iid in packed and packed[iid]["category"] == slot
             picks[slot] = iid if ok else None
+            # Trousers or shoes the list no longer holds (top_up drops summer legs from
+            # a winter trip): keep_rules refills the slot from what IS packed, within
+            # their rules, so a planned morning never goes out without them (pre-push
+            # gate, 2026-11-21).
+            if slot in LEGS and isinstance(iid, str) and not ok:
+                refill.append(slot)
         if not any(picks.values()):
             continue
-        out.append({"date": days[i]["date"], "travel": bool(travel and i == 0), "picks": picks})
+        day = {"date": days[i]["date"], "travel": bool(travel and i == 0), "picks": picks}
+        out.append({**day, "_refill": refill} if refill else day)
     if len(out) < k:
         log.info("packing plan: %s of %s days usable", len(out), k)
     return out
 
 
-def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict]) -> list[dict]:
+def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
+               pack: list[dict] | None = None) -> list[dict]:
     """The planned mornings held to the wearer's rules (pre-push reviewer, 2026-10-11):
     packing both halves of a banned pair is fine, wearing them together on a planned
     morning is not — the blamed garment comes off that morning; a morning with
-    nothing left is dropped."""
+    nothing left is dropped. A slot validate_plan marked for refilling gets the first
+    packed garment of its kind that keeps every rule with the rest of the morning,
+    rotated by day so three mornings don't all wear the same pair."""
     by_item = {i["id"]: i for i in items}
     out = []
-    for day in plan:
+    for n, day in enumerate(plan):
         picks = dict(day["picks"])
+        onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
+        for slot in day.get("_refill", ()):
+            kind = [p["id"] for p in pack or () if p["category"] == slot and p["id"] in by_item]
+            kind = kind[n % len(kind):] + kind[:n % len(kind)] if kind else kind
+            if slot == "bottoms" and onepiece:
+                continue
+            picks[slot] = next((i for i in kind if not rules.violations(user_rules, {**picks, slot: i}, by_item)),
+                               None)
+        day = {k: v for k, v in day.items() if k != "_refill"}
         for _ in CATEGORIES:
             broken = rules.violations(user_rules, picks, by_item)
             if not broken:

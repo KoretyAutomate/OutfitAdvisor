@@ -29,6 +29,22 @@ class MainActivity : BridgeActivity() {
         // Idempotent: no-op when the schedule is off, and otherwise the same
         // PendingIntent, so the set replaces what is armed rather than adding.
         AlarmScheduler.rearm(this)
+        UpdateWorker.schedule(this)
+    }
+
+    // Self-updates install only while the app is off screen (UpdateWorker): one
+    // stops this process, and doing that under the wearer's thumb is the one thing
+    // a silent update must never do.
+    // onStart/onStop, not onResume/onPause: paused can still mean visible.
+    override fun onStart() {
+        super.onStart()
+        UpdateWorker.visible = true
+    }
+
+    override fun onStop() {
+        UpdateWorker.visible = false
+        super.onStop()
+        UpdateWorker.soon(this)
     }
 
     /**

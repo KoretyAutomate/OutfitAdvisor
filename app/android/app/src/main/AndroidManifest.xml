@@ -47,6 +47,12 @@
             android:turnScreenOn="true"
             android:theme="@style/Theme.OutfitWake" />
 
+        <!-- Where a self-update session reports back (UpdateResultReceiver). Only
+             reached through our own PendingIntent, so not exported. -->
+        <receiver
+            android:name=".UpdateResultReceiver"
+            android:exported="false" />
+
         <!-- Daily exact-alarm fire -> re-arm + FSI wake. -->
         <receiver
             android:name=".AlarmReceiver"
@@ -125,6 +131,11 @@
          refuse any APK not signed with this app's key — which is precisely what
          guarantees an update keeps settings and closet photos. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Silent self-updates (2026-11-21, SelfUpdate.kt). A normal permission: it lets
+         a PackageInstaller session that UPDATES THIS APP ask to skip the confirm
+         tap. It can't install anything else, and Android still refuses any APK not
+         signed with this app's key. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Trips: read the device calendar to spot upcoming trips. MUST be declared
          HERE — @ebarooni/capacitor-calendar ships an EMPTY manifest and injects

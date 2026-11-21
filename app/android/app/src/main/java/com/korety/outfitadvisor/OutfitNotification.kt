@@ -101,11 +101,10 @@ object OutfitNotification {
      * "A new build is waiting." Its OWN channel and id so it can be muted without
      * muting the morning outfit, and so it never replaces the outfit notification.
      *
-     * Tapping opens the app, where the version card offers the install. It does not
-     * install directly: Android requires the per-app "install unknown apps" grant,
-     * and a notification is the wrong place to walk someone through that.
+     * Tapping opens the app by default. `tap` replaces that, for the installer's own
+     * confirm prompt when a silent self-update was declined (UpdateResultReceiver).
      */
-    fun postUpdate(context: Context, title: String, text: String) {
+    fun postUpdate(context: Context, title: String, text: String, tap: PendingIntent? = null) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(CHANNEL_UPDATE) == null) {
             nm.createNotificationChannel(
@@ -117,7 +116,7 @@ object OutfitNotification {
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             ?: Intent(context, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(
+        val pi = tap ?: PendingIntent.getActivity(
             context, UPDATE_REQUEST, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

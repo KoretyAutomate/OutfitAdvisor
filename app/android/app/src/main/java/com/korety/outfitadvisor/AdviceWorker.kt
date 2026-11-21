@@ -40,6 +40,9 @@ import java.util.concurrent.TimeUnit
 class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
 
     override fun doWork(): Result {
+        // The one thing that runs every day without the app being opened, so the
+        // updater gets scheduled even if v1.60 arrived and was never launched.
+        UpdateWorker.schedule(applicationContext)
         val fix = acquireLocation()
             ?: run {
                 // Say WHICH step failed. "Tap to check what to wear" told the user
@@ -131,7 +134,6 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
                 ?.optJSONObject("picks"),
             wearContext = advice.raw?.let { OutfitLog.context(it, occasion) }
         )
-        maybeNotifyUpdate(base)
         return Result.success()
     }
 
@@ -159,54 +161,6 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         // WakeActivity is our remaining hope; give it a chance to hand one over.
         // Not on a retry: the wake screen ran minutes ago and nothing is coming.
         return LocationHandoff.await(if (runAttemptCount == 0) HANDOFF_GRACE_MS else 0L)
-    }
-
-    /**
-     * Tell the user a new build is waiting, from the one thing that runs every day
-     * without them opening the app.
-     *
-     * The pull-only updater assumed the app gets opened while an update happens to
-     * be published. It does not: v1.4 and v1.5 sat unread for a week while the very
-     * fixes they contained were being debugged (2026-08-11). This is the closest
-     * thing to a push notification available without FCM, which the all-local
-     * design rules out.
-     *
-     * Notifies ONCE per published version — `oa.updNotified` — so it never becomes
-     * a daily nag the user learns to swipe away.
-     */
-    private fun maybeNotifyUpdate(base: String) {
-        var conn: HttpURLConnection? = null
-        try {
-            conn = (URL("$base/version").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8_000
-                readTimeout = 8_000
-            }
-            if (conn.responseCode != 200) return
-            val v = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            val latest = v.optInt("versionCode", 0)
-            val name = v.optString("versionName", "?")
-            val pm = applicationContext.packageManager
-            val info = pm.getPackageInfo(applicationContext.packageName, 0)
-            @Suppress("DEPRECATION")
-            val running = if (android.os.Build.VERSION.SDK_INT >= 28)
-                info.longVersionCode.toInt() else info.versionCode
-            if (latest <= running) return
-
-            val prefs = applicationContext
-                .getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
-            if (prefs.getString(KEY_UPD_NOTIFIED, "")?.toIntOrNull() == latest) return
-            prefs.edit().putString(KEY_UPD_NOTIFIED, latest.toString()).apply()
-
-            OutfitNotification.postUpdate(
-                applicationContext,
-                "Outfit Advisor v$name is ready",
-                "You're on v${info.versionName}. Tap to install — your closet and settings are kept."
-            )
-        } catch (e: Exception) {
-            // An update check must never cost the user their outfit.
-        } finally {
-            conn?.disconnect()
-        }
     }
 
     private fun postFallback(reason: String) {

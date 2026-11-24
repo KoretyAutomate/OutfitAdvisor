@@ -354,9 +354,15 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     # The trip's snow and rain too (weather.summarize), or a repair could swap the
     # waterproof pair for loafers on a snowy trip (pre-push gate, 2026-11-24).
     wet = {"isSnow": bool((summary or {}).get("isSnow")), "isRain": bool((summary or {}).get("isRain"))}
-    judge = check.Day.of({"lo": band[0], "hi": band[1], "planLo": band[0], "planHi": band[1], **wet},
-                         pk._index(items), pk.Prefs(rules=tuple(user_rules))) \
-        if band and None not in band else None
+    judge = None
+    if band and None not in band:
+        w = {"lo": band[0], "hi": band[1], "planLo": band[0], "planHi": band[1], **wet}
+        prefs = pk.Prefs(rules=tuple(user_rules))
+        # Two wardrobes: the whole closet for the morning as planned (its dropped sandals
+        # in it), and what the trip can wear for a repair, so the dropped sandals are no
+        # "cooler alternative" that refuses the boots (pre-push gate, 2026-11-24).
+        trip = [i for i in items if i["id"] in packed or suits(i, i["category"], *band)]
+        judge = (check.Day.of(w, pk._index(items), prefs), check.Day.of(w, pk._index(trip), prefs))
     # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
     # waterproof sandals on a rainy cold trip while waterproof boots stayed home). Tops
     # and layers too: an owned oxford for boots banned with every packed tee.
@@ -454,8 +460,9 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
     nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
     fixed, n_kept, planned, (band, judge) = base
-    # The judge's hard issues the plan already has may stay; a repair adds none.
-    allowed = check.hard(check.issues(planned, judge)) if judge else set()
+    # The judge's hard issues the plan already has may stay; a repair adds none, save a
+    # slot left empty for want of anything that goes (a partial refill beats none).
+    allowed = (check.hard(check.issues(planned, judge[0])) | {f"no-{s}" for s in names[n_kept:]}) if judge else set()
     # Layering and warmth judged only where the planned morning itself, whole, passes
     # them: a plan that already breaks one must still get its shoes (pre-push gate,
     # 2026-11-24: judged on `fixed` alone it saw an empty torso).
@@ -484,7 +491,7 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             whole = {**fixed, **partial}
             if warmest(whole) > floor and not (cold is not None and layers._still_warm(whole, by_item, cold)):
                 return False
-            if judge and check.hard(check.issues(whole, judge)) - allowed:
+            if judge and check.hard(check.issues(whole, judge[1])) - allowed:
                 return False
             best[0], best[1] = filled, dict(partial)
             return filled == len(names) - n_kept

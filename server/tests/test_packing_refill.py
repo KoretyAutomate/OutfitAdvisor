@@ -456,3 +456,37 @@ def test_a_snowy_trip_repair_keeps_the_feet_dry():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8),
                               {"isSnow": True})
     assert plan[0]["picks"]["footwear"] == boots["id"], plan
+
+
+def test_dropped_sandals_are_no_cooler_alternative_to_the_boots():
+    """3-8C: warmth-5 boots replace warmth-1 sandals; the dropped sandals do not make the
+    boots 'too warm' (pre-push gate, 2026-11-24)."""
+    absolute = {"warmthScale": "absolute", "warmthAnchors": None}
+    sandals = dict(item(480, "footwear", "sandals", typ="sandals"), warmth=1, **absolute)
+    boots = dict(item(481, "footwear", "fur boots", typ="boots"), warmth=5, **absolute)
+    jeans = dict(item(482, "bottoms", "jeans", typ="jeans"), warmth=3)
+    tee = dict(item(483, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [sandals, boots, jeans, tee]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (boots, jeans, tee)]
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8), {})
+    assert plan[0]["picks"]["footwear"] == boots["id"], plan
+
+
+def test_one_of_two_refilled_slots_is_better_than_none():
+    """Shorts and sandals dropped; the only warm trousers and boots are banned together:
+    one of them is worn rather than neither (pre-push gate, 2026-11-24)."""
+    shorts = dict(item(490, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(491, "footwear", "sandals", typ="sandals"), warmth=1)
+    jeans = dict(item(492, "bottoms", "jeans", typ="jeans"), warmth=3)
+    boots = dict(item(493, "footwear", "boots", typ="boots"), warmth=3)
+    tee = dict(item(494, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [shorts, sandals, jeans, boots, tee]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "boots"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (jeans, boots, tee)]
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
+    p = plan[0]["picks"]
+    assert bool(p.get("bottoms")) != bool(p.get("footwear")), p

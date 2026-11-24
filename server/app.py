@@ -349,7 +349,7 @@ async def packing(req: PackingRequest):
                 want = _needed(cat, trip_days)
                 # What suits THIS trip's weather, not everything owned: five pairs of
                 # shorts are no answer to a January week.
-                have = sum(i["availableCount"] for i in trippack.owned_for(items, cat, lo, hi))
+                have = sum(i["availableCount"] for i in trippack.wearable_for(items, cat, lo, hi))
                 if have < want:
                     # Says how often to wash, not just that a wash is needed; the
                     # phone shows these under "Short for the trip", not "You don't own".

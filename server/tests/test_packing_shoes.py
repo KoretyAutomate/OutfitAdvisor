@@ -294,3 +294,21 @@ def test_a_morning_of_only_summer_legs_is_refilled_not_dropped():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8))
     assert len(plan) == 1 and plan[0]["picks"]["bottoms"] == jeans["id"] \
         and plan[0]["picks"]["footwear"] == sneakers["id"], plan
+
+
+def test_socks_never_replace_the_shoes():
+    """Sandals dropped from a cold trip: the boots replace them, never the socks filed
+    under footwear, though the socks stay packable (pre-push gate, 2026-11-24)."""
+    socks = dict(item(220, "footwear", "wool socks", typ="socks"), warmth=3)
+    sandals = dict(item(221, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(222, "footwear", "boots", typ="boots"), warmth=3)
+    jeans = dict(item(223, "bottoms", "jeans", typ="jeans"), warmth=3)
+    closet = [socks, sandals, boots, jeans]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (socks, sandals, jeans)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
+    assert boots["id"] in {p["id"] for p in pack} and socks["id"] in {p["id"] for p in pack}, pack
+    raw = [{"bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"], plan
+    assert [i["id"] for i in packing.wearable_for(closet, "footwear", 3, 8)] == [boots["id"]]

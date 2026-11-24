@@ -256,6 +256,18 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await drain();
   check("adding a warm dress clears it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
+  // An 8-30C day: warm jeans are too hot for the afternoon, so they answer no bottoms gap.
+  const WJEANS = {...CHINOS, id: "wjeans-0001", label: "warm jeans", type: "jeans", warmth: 3};
+  await ev(`closet=${JSON.stringify([SHORTS, TEE, WJEANS])}; saveCloset()`);
+  check("warm jeans too hot for the afternoon excuse no bottoms gap",
+    JSON.stringify(ev(`ownershipGaps(["bottoms"],8,[${JSON.stringify(SHORTS.id)},${JSON.stringify(TEE.id)}],30)`)) === JSON.stringify(["bottoms"]));
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:30,at:8,pk:30}]; clearGapsFilledBy(${JSON.stringify(WJEANS)})`);
+  await drain();
+  check("nor clear it", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WJEANS)})`);
+  await drain();
+  check("on a cool day they do", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
   // A "legs" gap saved by an older app is read back as a base gap remembered as legs.
   {
     const w2 = new JSDOM(fs.readFileSync(HTML, "utf8"), {runScripts: "dangerously", url: "https://localhost/",

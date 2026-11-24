@@ -5479,7 +5479,9 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
       // Summer legs on a cold morning excuse no leg gap either, a summer dress
       // included (gaps.py; pre-push gate, 2026-11-24: shorts in the wash hid the want
       // of warm trousers).
-      if(coversLegs(r,i)&&planTemp!=null&&tooColdForLegs(i,planTemp)) continue;
+      // Nor ones too warm for the afternoon they would be worn through (picks._heat_temp).
+      if(coversLegs(r,i)&&planTemp!=null&&(tooColdForLegs(i,planTemp)
+         ||!notTooWarm(i,peak!=null?Math.max(planTemp,peak):planTemp))) continue;
       withheld.add(r);
       // A warm dress is an alternative to cold shorts as well (layers.underdressed).
       if(planTemp!=null&&warmLegs(i,planTemp,peak,"dress")) withheld.add("bottoms");
@@ -5689,7 +5691,10 @@ async function clearGapsFilledBy(item){
     // `lo` is the fallback for records written before planTemp was sent.
     if(g.slot==="outer"&&!warmEnough(item,g.at!=null?g.at:g.lo)) return true;
     // Nor does another pair of summer trousers or sandals answer a cold leg gap.
-    if(coversLegs(g.slot,item)&&tooColdForLegs(item,g.at!=null?g.at:g.lo)) return true;
+    if(coversLegs(g.slot,item)){
+      const t=g.at!=null?g.at:g.lo, pk=g.pk!=null?g.pk:g.hi;
+      if(tooColdForLegs(item,t)||!notTooWarm(item,pk!=null?Math.max(t,pk):t)) return true;
+    }
     return false;
   });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }

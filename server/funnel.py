@@ -513,8 +513,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # then the weather, the rules, the layering (user, 2026-11-24: "dry feet first").
         n = season.mismatches(c.day, full)
         wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
-        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
-                *_rank(c, (shape, full), issues, gave, today))
+        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), sum(i.hard for i in issues), wet, *cost(gave),
+                fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))   # fewer cold slots
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break

@@ -371,3 +371,17 @@ def test_a_dress_with_trailing_words_is_still_a_dress():
     import shopping
     assert shopping._one_piece("Wool dress with long sleeves") and shopping._one_piece("knit dress, midi length")
     assert not shopping._one_piece("dress shirt with a spread collar")
+
+
+def test_the_last_resort_prefers_fewer_cold_slots():
+    """8-12C: warm jeans banned with the only tee, so the shorts come back; the warm
+    sneakers beat the sandals rather than tying with them (pre-push gate, 2026-11-24)."""
+    from test_funnel import run
+    from wardrobe_fixtures import JEANS
+    sandals = g("csandal01", "sandals", "footwear", "sandals", ["footwear"], 1)
+    ban = ({"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "t_shirt"}},)
+    from test_funnel import prefs
+    _, r = run(8, TEE, SHORTS, JEANS, sandals, SNEAK, hi=12, p=prefs(rules=ban))
+    assert r.outfits[0].picks["footwear"] == SNEAK["id"], [(o.picks.get("footwear"), o.rank[:3]) for o in r.outfits]
+    assert all(o.picks["footwear"] == SNEAK["id"] for o in r.outfits if o.rank[0] == r.outfits[0].rank[0]
+               and o.rank[1] == r.outfits[0].rank[1])

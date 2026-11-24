@@ -479,3 +479,15 @@ def test_the_rain_outranks_any_number_of_styling_steps(monkeypatch):
                  key=lambda o: o.rank)
     assert all(o.rank[0] == 1 for o in got), [o.rank for o in got]
     assert got[0].picks["footwear"] == LOAFERS["id"], [(o.picks["footwear"], o.rank) for o in got]
+
+
+def test_a_summer_dress_on_a_cold_morning_is_a_leg_gap():
+    """The only dress is warmth 1 on an 8-12C day: no warmer one exists, so the check
+    lets it through, and the shopping list hears of it (pre-push gate, 2026-11-24)."""
+    import gaps
+    from wardrobe_fixtures import day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    coat = g("wcoat0001", "wool coat", "outerwear", "coat", ["outer"], 4)
+    d = day(8, dress, coat, SNEAK, hi=12)
+    picks = {"base": dress["id"], "outer": coat["id"], "footwear": SNEAK["id"]}
+    assert "base" in gaps.missing(picks, d, [])

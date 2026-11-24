@@ -32,9 +32,11 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
         gaps.append(COLD_GAP)
     # Summer legs worn on a cold morning because nothing warmer is owned: the slot is
     # the gap (user, 2026-11-18). Owning warmer ones is check.py's cold-legs instead.
-    for slot in ("bottoms", "footwear"):
+    # A one-piece worn as the base covers the legs too (layers.covers_legs; pre-push
+    # gate, 2026-11-24: a summer dress on an 8C morning recorded nothing).
+    for slot in ("bottoms", "footwear", "base"):
         it = day.wd.by_item.get(picks.get(slot)) or {}
-        if it and scale.too_cold_for_legs(it, day.plan) and slot not in gaps and not layers.underdressed(
-                it, slot, day):
+        if it and layers.covers_legs(slot, it) and scale.too_cold_for_legs(it, day.plan) and slot not in gaps \
+                and not layers.underdressed(it, slot, day):
             gaps.append(slot)
     return gaps

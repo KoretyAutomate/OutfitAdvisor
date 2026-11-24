@@ -134,6 +134,8 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
             got += qty
         # Category and counts only — never labels (privacy invariant of the journal).
         log.info("packing top-up: %s %s -> %s of %s needed", cat, before, got, needed(cat, n_days))
+    if dropped:     # the mornings the added tops and trousers make get shoes too
+        _replace_shoes(pack, items, styles, band, user_rules or [])
     return pack
 
 
@@ -164,17 +166,33 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
     # (pre-push gate, 2026-11-24: boots kept, banned with the jeans, left that morning
     # barefoot while loafers stayed home).
     chosen = list(kept) or [shoes[0]]
-    # A packed top or pair of trousers no chosen pair may be worn with gets a pair of
-    # its own: sneakers banned with the jeans and boots with the chinos are both packed
-    # (pre-push gate, 2026-11-24). Added trousers follow the shoes already (_fit).
-    for p in [p for p in pack if p["category"] in ("base", "bottoms") and p["id"] in by_id]:
-        def ok(shoe: dict, p: dict = p) -> bool:
-            return not rules.violations(user_rules, {p["category"]: p["id"], "footwear": shoe["id"]}, by_id)
+    # Every morning the list can make gets shoes it may wear: each packed top with each
+    # packed pair of trousers (a one-piece alone), checked WHOLE. Checked one garment at
+    # a time, boots banned with the tee and sneakers with the jeans each passed, and the
+    # tee-and-jeans morning went barefoot while loafers stayed home (pre-push gate,
+    # 2026-11-24).
+    for look in _mornings(pack, by_id, user_rules):
+        def ok(shoe: dict, look: dict = look) -> bool:
+            return not rules.violations(user_rules, {**look, "footwear": shoe["id"]}, by_id)
         if not any(ok(c) for c in chosen) and (fits := [s for s in shoes if s not in chosen and ok(s)]):
             chosen.append(fits[0])
     for c in chosen[len(kept):]:
         pack.append({"id": c["id"], "category": "footwear", "label": c["label"], "qty": 1,
                      "why": "warm enough for the trip"})
+
+
+def _mornings(pack: list[dict], by_id: dict, user_rules: list[dict]) -> list[dict]:
+    """The legal top-and-trousers mornings the packed list can make; a one-piece is a
+    morning alone."""
+    tops = [p["id"] for p in pack if p["category"] == "base" and p["id"] in by_id] or [None]
+    legs = [p["id"] for p in pack if p["category"] == "bottoms" and p["id"] in by_id] or [None]
+    out = []
+    for t, b in itertools.product(tops, legs):
+        one = t and by_id[t].get("group") == "onepiece"
+        look = {k: v for k, v in (("base", t), ("bottoms", None if one else b)) if v}
+        if look and look not in out and not rules.violations(user_rules, look, by_id):
+            out.append(look)
+    return out
 
 
 def _fit(item: dict, slot: str, pack: list[dict], user_rules: list[dict], by_id: dict) -> tuple:

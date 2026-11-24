@@ -14,9 +14,11 @@ import itertools
 import logging
 import math
 
+import check
 import garment
 import rules
 import scale
+import sleeves
 from vocab import CATEGORIES, NON_SLOT_TYPES
 
 log = logging.getLogger("outfit.llm")
@@ -388,8 +390,9 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # banned with the tee, an oxford packed beside it (pre-push gate, 2026-11-24).
     # An accessory is optional: it may come off for the shoes (a brown belt banned with
     # the only boots; pre-push gate, 2026-11-24).
+    # The undershirt likewise, as it may be left off any day (picks._SHEDDABLE).
     extra = [s for s, i in picks.items() if i and s not in slots
-             and (by_item.get(i) or {}).get("group") == "accessories"]
+             and ((by_item.get(i) or {}).get("group") == "accessories" or s == "inner")]
     kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots and picks.get(s)
             and not (s == "bottoms" and onepiece)] + extra   # a dress may swap for a dress
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
@@ -401,6 +404,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))
                 and (not band or suits(by_item[p["id"]], slot, *band))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
+        if slot == "footwear":   # dry pairs first, packed or not (pre-push gate, 2026-11-24)
+            turn = sorted(turn, key=lambda i: garment.wets_through(by_item[i]))
         more = list(spare.get(slot, ()))
         if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
             turn, more = ([i for i in ids if (by_item[i].get("group") == "onepiece") == onepiece]
@@ -423,6 +428,9 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
     nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
     fixed, n_kept = base
+    # Layering judged only where the planned morning itself passes it: a plan that
+    # already breaks it must still get its shoes.
+    layered = not (sleeves.sleeve_clashes(fixed, by_item) or check.stacked(fixed, by_item))
     best: list = [-1, {}]
     nodes = [0]
 
@@ -437,7 +445,11 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             if nodes[0] > REFILL_NODES:
                 return True
             trial = {**partial, names[k]: choice}
-            if rules.violations(user_rules, {**fixed, **trial}, by_item):
+            whole = {**fixed, **trial}
+            # Their rules, and the layering the daily advice refuses: no long sleeves
+            # under a short-sleeved knit, no layer stacked wrong (pre-push gate, 2026-11-24).
+            if rules.violations(user_rules, whole, by_item) or (layered and (
+                    sleeves.sleeve_clashes(whole, by_item) or check.stacked(whole, by_item))):
                 continue
             if go(k + 1, trial, filled + (k >= n_kept and choice is not None)):
                 return True

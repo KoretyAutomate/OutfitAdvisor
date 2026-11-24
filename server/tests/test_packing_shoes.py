@@ -539,3 +539,49 @@ def test_a_packed_sundress_never_swaps_in_on_a_cold_trip():
     raw = [{"base": wool["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["base"] != sun["id"], plan
+
+
+def test_the_undershirt_may_come_off_for_the_boots():
+    """Boots banned with the only undershirt; shirt, coat and jeans are warm enough:
+    the undershirt comes off rather than the morning going barefoot (pre-push gate,
+    2026-11-24)."""
+    under = dict(item(350, "inner", "undershirt", typ="undershirt"), group="underwear")
+    shirt = dict(item(351, "base", "oxford", typ="shirt"), warmth=2)
+    coat = dict(item(352, "outer", "wool coat", typ="coat"), group="outerwear", warmth=4)
+    jeans = dict(item(353, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(354, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(355, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [under, shirt, coat, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "undershirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (under, shirt, coat, jeans, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"inner": under["id"], "base": shirt["id"], "outer": coat["id"], "bottoms": jeans["id"],
+            "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"] and not plan[0]["picks"].get("inner"), plan
+
+
+def test_packed_dry_shoes_come_before_packed_mesh():
+    names, by = ["footwear"], {"m": {"group": "footwear", "material": "mesh"}, "b": {"group": "footwear"}}
+    pack = [{"id": "m", "category": "footwear"}, {"id": "b", "category": "footwear"}]
+    got = packing._refill({"_refill": ["footwear"]}, {}, (pack, {}, None), [], by, 0)
+    assert got == {"footwear": "b"}, got
+
+
+def test_a_swapped_top_never_clashes_its_sleeves():
+    """Boots banned with the tee; the only other top is long-sleeved and the planned knit
+    short-sleeved: no long sleeves under the short knit, so no swap (pre-push gate,
+    2026-11-24)."""
+    tee = dict(item(360, "base", "tee", typ="t_shirt"), warmth=2, sleeve="short")
+    longs = dict(item(361, "base", "long shirt", typ="shirt"), warmth=2, sleeve="long")
+    knit = dict(item(362, "mid", "short knit", typ="sweater"), warmth=3, sleeve="short")
+    jeans = dict(item(363, "bottoms", "jeans", typ="jeans"), warmth=3)
+    boots = dict(item(364, "footwear", "boots", typ="boots"), warmth=3)
+    by = {i["id"]: i for i in (tee, longs, knit, jeans, boots)}
+    assert packing.sleeves.sleeve_clashes({"base": longs["id"], "mid": knit["id"]}, by), "the fixture clashes"
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"]} for i in (tee, longs, knit, jeans, boots)]
+    picks = {"base": tee["id"], "mid": knit["id"], "bottoms": jeans["id"], "footwear": None}
+    got = packing._refill({"_refill": ["footwear"]}, picks, (pack, {}, None), ban, by, 0)
+    assert got.get("base") != longs["id"] or got.get("mid") != knit["id"], got

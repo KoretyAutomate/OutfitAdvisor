@@ -177,9 +177,18 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
 
   // The server's "legs" gap: a tee neither suppresses nor clears it; warm trousers do.
   const TEE2 = {...TEE, id: "tee000-0002"};
+  // No warm trousers anywhere: a tee in the wash completes nothing.
+  await ev(`closet=${JSON.stringify([DRESS1, TEE2])}; saveCloset()`);
+  check("a withheld tee with no warm trousers excuses no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)}])`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(TEE2)})`);
+  await drain();
+  check("a tee with no warm trousers leaves the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  // Warm chinos sent, the only tee in the wash: a laundry shortage, not legwear to buy
+  // (pre-push gate, 2026-11-24).
   await ev(`closet=${JSON.stringify([DRESS1, TEE2, CHINOS])}; saveCloset()`);
-  check("a withheld tee excuses no legs gap",
-    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CHINOS.id)}])`)) === JSON.stringify(["legs"]));
+  check("a withheld tee that completes the sent chinos excuses the legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CHINOS.id)}])`)) === "[]");
   check("withheld warm trousers do",
     JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(TEE2.id)}])`)) === "[]");
   await ev(`closetComplete=true; gaps=[]; recordGaps(["legs"],{lo:8,hi:12},8,"${today}",
@@ -189,8 +198,9 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
     rec.length === 1 && rec[0].slot === "base" && rec[0].legs === true, rec);
   await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(TEE2)})`);
   await drain();
-  check("a tee leaves the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
-  await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
+  check("adding a tee that completes owned chinos answers it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(CHINOS)})`);
+  await drain();
   check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
   // No top to wear warm trousers under: they answer nothing.

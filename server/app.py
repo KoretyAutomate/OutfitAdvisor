@@ -49,6 +49,7 @@ import advisor
 import cutout
 import export
 import engine
+import limits
 import llm
 import local_llm
 import packing as trippack  # the route below is itself named `packing`
@@ -82,6 +83,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = FastAPI(title="Outfit Advisor", version="0.1")
+app.add_middleware(limits.BodyLimit)  # added before CORS, so CORS wraps its 413 (limits.py)
 
 # The Capacitor WebView serves the app from https://localhost (Android) /
 # capacitor://localhost (iOS); its POST preflight needs these CORS headers or the

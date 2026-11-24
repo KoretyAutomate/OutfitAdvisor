@@ -465,7 +465,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # The rank's own order before any cut (pre-push gate, 2026-10-20): a cap reached by
     # well-rotated outfits without the knit or the undershirt must not hide the ones
     # with them.
-    found = [(shape, accessories.dress(c, p, priority, _keeps, clash, _widen(c))) for shape, p in found]
+    found = [(shape, accessories.dress(c, p, priority)) for shape, p in found]
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
                     key=lambda r: (cost(needed(c, _full(r[2]))), fit.layering(c, r[2]), season.mismatches(c.day, r[2]),

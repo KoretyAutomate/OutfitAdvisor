@@ -216,5 +216,28 @@ def test_accessories_already_chosen_are_kept():
     d, _ = run(3, *CLOTHES, BELT, SCARF, hi=8)
     ctx = funnel.Ctx(d, funnel.target_level(d.look))
     mine = {"bottoms": CHINOS["id"], "footwear": LOAFERS["id"], "neck": SCARF["id"]}
-    out = accessories.dress(ctx, mine, lambda i, s: 0.0, funnel._keeps, funnel.clash, 0)
+    out = accessories.dress(ctx, mine, lambda i, s: 0.0)
     assert out == mine, "a model's or a re-roll's own accessory is not re-dressed"
+
+
+def test_a_relaxed_day_never_brings_in_an_avoidable_belt_mismatch():
+    """Drawstring trousers on an office day need a later step of the ladder, which
+    also relaxes the belt rule; a black belt beside brown loafers is still left home
+    (pre-push gate, 2026-11-24)."""
+    from test_funnel import DRAWSTR, MERINO, RAINJKT, WHITE_OX
+    from test_funnel import prefs as office_prefs
+    d, r = run(10, UNDER, WHITE_OX, MERINO, RAINJKT, DRAWSTR, LOAFERS, BLACK_BELT, hi=19, p=office_prefs("office"))
+    o = r.outfits[0]
+    assert o.picks["bottoms"] == DRAWSTR["id"] and o.relaxed, o
+    assert o.picks["belt"] is None and "belt" not in o.relaxed, (o.picks, o.relaxed)
+
+
+def test_an_out_of_season_accessory_is_left_home():
+    """A belt they keep for summer is not worn on a mild winter day: it would make the
+    outfit out of season for nothing (pre-push gate, 2026-11-24)."""
+    import season
+    summer = {**BELT, "season": "warm"}
+    _, p = best(14, UNDER, OXFORD, CHINOS, SNEAK, summer, hi=20, p=prefs(normal=season.Normal(1, 10)))
+    assert p["belt"] is None
+    _, p = best(14, UNDER, OXFORD, CHINOS, SNEAK, summer, hi=20, p=prefs(normal=season.Normal(20, 28)))
+    assert p["belt"] == BELT["id"]

@@ -16,7 +16,11 @@ let equal scarf variants crowd different trousers out of the beam (Codex plan re
 gets its accessories here: per slot, the best candidate the day has a reason for that
 breaks no rule and no pairing (a brown belt with black shoes) with what is worn.
 """
+# funnel imports this module; the cycle is safe because funnel's names are only
+# read when dress() runs, long after both modules have loaded.
+import funnel
 import layers
+import season
 from vocab import ACCESSORY_SLOTS
 
 COLD_HANDS_C = 5.0        # a hat and gloves below this (engine.py's generic advice)
@@ -77,16 +81,22 @@ def _candidates(ctx, priority, keeps, widen: int) -> dict:
     return hit[1]
 
 
-def dress(ctx, picks: dict, priority, keeps, clash, widen: int) -> dict:
+def dress(ctx, picks: dict, priority) -> dict:
     """The outfit with its accessories: per slot, the best candidate worn for a reason
-    that `clash` (funnel.clash) lets through. Accessories already in it are kept."""
+    that breaks nothing (funnel.clash), gives up no rule the clothes did not already
+    (funnel.needed), and is in season. Optional, so never worth a rule or the season:
+    a relaxed pass let a black belt in beside brown shoes (pre-push gate, 2026-11-24).
+    Accessories already in the outfit are kept."""
     if any(picks.get(s) for s in ACCESSORY_SLOTS):
         return picks
     out = dict(picks)
-    for slot, ids in _candidates(ctx, priority, keeps, widen).items():
+    gave = funnel.cost(funnel.needed(ctx, funnel._full(out)))
+    for slot, ids in _candidates(ctx, priority, funnel._keeps, funnel._widen(ctx)).items():
         for iid in ids:
             trial = {**out, slot: iid}
-            if reason(slot, ctx.wd.by_item[iid], ctx.day, out) and not clash(ctx, trial):
+            if (reason(slot, ctx.wd.by_item[iid], ctx.day, out) and not funnel.clash(ctx, trial)
+                    and not season.counts(ctx.day, slot, iid)
+                    and funnel.cost(funnel.needed(ctx, funnel._full(trial))) <= gave):
                 out = trial
                 break
     return out

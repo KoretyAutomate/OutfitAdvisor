@@ -241,7 +241,8 @@ def too_thin(pack: list[dict], items: list[dict], lo: float | None, hi: float | 
     # as before; only summer legs on a cold trip are left home (pre-push gate,
     # 2026-11-21: warmth-3 jeans dropped from a 24-30C trip and called "too light").
     by_id = {i["id"]: i for i in items}
-    return [p for p in pack if p["category"] in LEGS and p["id"] in by_id
+    # Socks are worn inside shoes, never alone: the leg floor is not theirs (2026-11-24).
+    return [p for p in pack if p["category"] in LEGS and wearable(by_id.get(p["id"]))
             and hi is not None and scale.too_cold_for_legs(by_id[p["id"]], hi)]
 
 

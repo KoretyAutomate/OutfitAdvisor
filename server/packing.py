@@ -17,6 +17,7 @@ import math
 import check
 import garment
 import layers
+import picks as pk
 import rules
 import scale
 import sleeves
@@ -345,6 +346,12 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     by_item = {i["id"]: i for i in items}
     pack = pack if pack is not None else []
     packed = {p["id"] for p in pack}
+    # The daily advice's own judge for a repaired morning (check.issues on the trip's
+    # coldest and warmest day): warmth, layering, legs, a dress over trousers, all at
+    # once (pre-push gate, 2026-11-24: one rule at a time kept missing the next).
+    judge = check.Day.of({"lo": band[0], "hi": band[1], "planLo": band[0], "planHi": band[1]},
+                         pk._index(items), pk.Prefs(rules=tuple(user_rules))) \
+        if band and None not in band else None
     # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
     # waterproof sandals on a rainy cold trip while waterproof boots stayed home). Tops
     # and layers too: an owned oxford for boots banned with every packed tee.
@@ -360,7 +367,7 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             if not broken:
                 break
             picks[broken[0]["slot"]] = None
-        got = _refill(day, picks, (pack, spare, band), user_rules, by_item, n)
+        got = _refill(day, picks, (pack, spare, band, judge), user_rules, by_item, n)
         before = dict(picks)
         picks.update(got)
         for slot, iid in got.items():   # only a garment brought in, never one kept as planned
@@ -383,7 +390,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     one filling most; each slot's packed garments rotated by day `n`. Never trousers
     under a one-piece. `pool`: (the packed list, {slot: suitable unpacked ids}, the
     trip's (lo, hi) or None), the unpacked tried only after every packed garment."""
-    pack, spare, band = pool
+    pack, spare, band, judge = pool
     onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
     slots = [s for s in day.get("_refill", ()) if not (s == "bottoms" and onepiece)]
     # The rest of the morning may change too, to a packed garment of its kind: trousers
@@ -393,7 +400,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # the only boots; pre-push gate, 2026-11-24).
     # The undershirt likewise, as it may be left off any day (picks._SHEDDABLE).
     extra = [s for s, i in picks.items() if i and s not in slots
-             and ((by_item.get(i) or {}).get("group") == "accessories" or s == "inner")]
+             and ((by_item.get(i) or {}).get("group") == "accessories" or s in ("inner", "mid", "outer"))]
     # An empty mid or outer layer may take a packed one, to make up the warmth of an
     # undershirt that had to come off (pre-push gate, 2026-11-24).
     kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots
@@ -413,14 +420,16 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
             both = sorted([*turn, *more_ids], key=lambda i: garment.wets_through(by_item[i]))
             turn, more_ids = both, []
         more = more_ids
-        if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
+        # A top for a top, a dress for a dress; a dress for a top only where the trousers
+        # are being refilled, and the judge then wants them empty (pre-push gate, 2026-11-24).
+        if slot == "base" and not ("bottoms" in slots and judge):
             turn, more = ([i for i in ids if (by_item[i].get("group") == "onepiece") == onepiece]
                           for ids in (turn, more))
         options.append([*turn, *more, None] if slot in slots
                        else [picks.get(slot), *(i for i in [*turn, *more] if i != picks.get(slot)),
                              *([None] if slot in extra else [])])
     fixed = {k: v for k, v in picks.items() if k not in names}
-    got = _search(names, options, (fixed, len(kept), picks, band), user_rules, by_item)
+    got = _search(names, options, (fixed, len(kept), picks, (band, judge)), user_rules, by_item)
     # Only what is decided: an empty layer left empty is no change to report.
     return {k: v for k, v in got.items() if k in slots or v or picks.get(k)}
 
@@ -435,7 +444,9 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     slots than the best in hand is cut. The first full fill wins; bounded by
     REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
     nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
-    fixed, n_kept, planned, band = base
+    fixed, n_kept, planned, (band, judge) = base
+    # The judge's hard issues the plan already has may stay; a repair adds none.
+    allowed = check.hard(check.issues(planned, judge)) if judge else set()
     # Layering and warmth judged only where the planned morning itself, whole, passes
     # them: a plan that already breaks one must still get its shoes (pre-push gate,
     # 2026-11-24: judged on `fixed` alone it saw an empty torso).
@@ -464,6 +475,8 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             whole = {**fixed, **partial}
             if warmest(whole) > floor and not (cold is not None and layers._still_warm(whole, by_item, cold)):
                 return False
+            if judge and check.hard(check.issues(whole, judge)) - allowed:
+                return False
             best[0], best[1] = filled, dict(partial)
             return filled == len(names) - n_kept
         for choice in options[k]:
@@ -477,7 +490,9 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             # Nor an undershirt under a tee (check's hard inner-tee; it may come off).
             if rules.violations(user_rules, whole, by_item) or (layered and mislayered(whole)):
                 continue
-            if go(k + 1, trial, filled + (k >= n_kept and choice is not None)):
+            # Trousers left empty under a dress are as good as filled: the dress is the legs.
+            under_dress = names[k] == "bottoms" and (by_item.get(whole.get("base")) or {}).get("group") == "onepiece"
+            if go(k + 1, trial, filled + (k >= n_kept and (choice is not None or under_dress))):
                 return True
         return False
     go(0, {}, 0)

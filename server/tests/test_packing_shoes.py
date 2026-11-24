@@ -488,7 +488,7 @@ def test_a_cut_branch_never_ends_the_search():
     by = {"tee": {"type": "t_shirt"}, "ox": {"type": "shirt"}, "j": {"type": "jeans"}, "b": {"type": "boots"}}
     ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
     options = [["tee", "ox"], ["j", None], ["b", None]]
-    got = packing._search(names, options, ({}, 1, {}, None), ban, by)
+    got = packing._search(names, options, ({}, 1, {}, (None, None)), ban, by)
     assert got == {"base": "ox", "bottoms": "j", "footwear": "b"}, got
 
 
@@ -565,7 +565,7 @@ def test_the_undershirt_may_come_off_for_the_boots():
 def test_packed_dry_shoes_come_before_packed_mesh():
     by = {"m": {"group": "footwear", "material": "mesh"}, "b": {"group": "footwear"}}
     pack = [{"id": "m", "category": "footwear"}, {"id": "b", "category": "footwear"}]
-    got = packing._refill({"_refill": ["footwear"]}, {}, (pack, {}, None), [], by, 0)
+    got = packing._refill({"_refill": ["footwear"]}, {}, (pack, {}, None, None), [], by, 0)
     assert got == {"footwear": "b"}, got
 
 
@@ -583,7 +583,7 @@ def test_a_swapped_top_never_clashes_its_sleeves():
     ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
     pack = [{"id": i["id"], "category": i["category"]} for i in (tee, longs, knit, jeans, boots)]
     picks = {"base": tee["id"], "mid": knit["id"], "bottoms": jeans["id"], "footwear": None}
-    got = packing._refill({"_refill": ["footwear"]}, picks, (pack, {}, None), ban, by, 0)
+    got = packing._refill({"_refill": ["footwear"]}, picks, (pack, {}, None, None), ban, by, 0)
     assert got.get("base") != longs["id"] or got.get("mid") != knit["id"], got
 
 
@@ -630,7 +630,7 @@ def test_a_swapped_coat_is_judged_on_its_own_scale():
     home = {"warmth": 4, "group": "outerwear", "warmthScale": "home", "warmthAnchors": [0.7, 12.9, 25.6]}
     by = {"c": coat, "h": home, "t": {"warmth": 2}}
     names, options = ["outer"], [["h", "c"]]
-    got = packing._search(names, options, ({"base": "t"}, 1, {"base": "t", "outer": "c"}, (3, 8)), [], by)
+    got = packing._search(names, options, ({"base": "t"}, 1, {"base": "t", "outer": "c"}, ((3, 8), None)), [], by)
     assert packing.scale.garment_temp(home) > packing.scale.garment_temp(coat), "the fixture: the jacket is milder"
     assert got == {"outer": "c"}, got
 
@@ -639,7 +639,7 @@ def test_dry_shoes_from_home_come_before_packed_mesh():
     """Packed mesh and dry loafers at home: the loafers fill a refilled slot first."""
     by = {"m": {"group": "footwear", "material": "mesh"}, "l": {"group": "footwear"}}
     got = packing._refill({"_refill": ["footwear"]}, {}, ([{"id": "m", "category": "footwear"}], {"footwear": ["l"]},
-                                                          None), [], by, 0)
+                                                          None, None), [], by, 0)
     assert got == {"footwear": "l"}, got
 
 
@@ -650,7 +650,7 @@ def test_a_swap_to_a_tee_never_keeps_the_undershirt_under_it():
     by = {"u": under, "s": {"type": "shirt"}, "t": {"type": "t_shirt"}, "b": {"type": "boots"}}
     ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "shirt"}}]
     names, options = ["base", "inner", "footwear"], [["s", "t"], ["u", None], ["b", None]]
-    got = packing._search(names, options, ({}, 2, {"inner": "u", "base": "s"}, None), ban, by)
+    got = packing._search(names, options, ({}, 2, {"inner": "u", "base": "s"}, (None, None)), ban, by)
     assert got == {"base": "t", "inner": None, "footwear": "b"}, got
 
 
@@ -671,3 +671,73 @@ def test_a_thermal_that_comes_off_is_made_up_with_a_packed_sweater():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 10))
     p = plan[0]["picks"]
     assert p["footwear"] == boots["id"] and not p.get("inner") and p.get("mid") == sweater["id"], p
+
+
+def test_a_warm_dress_may_stand_in_for_dropped_shorts():
+    """8-11C: tee, shorts, sneakers planned; the shorts leave and only a wool dress can
+    dress the legs: the morning becomes the dress, trousers left empty (pre-push gate,
+    2026-11-24)."""
+    tee = dict(item(410, "base", "tee", typ="t_shirt"), warmth=2)
+    shorts = dict(item(411, "bottoms", "shorts", typ="shorts"), warmth=1)
+    dress = dict(item(412, "base", "wool dress", typ="dress"), group="onepiece", warmth=3)
+    sneakers = dict(item(413, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    closet = [tee, shorts, dress, sneakers]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (tee, dress, sneakers)]
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sneakers["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (8, 11))
+    p = plan[0]["picks"]
+    assert p["base"] == dress["id"] and not p.get("bottoms") and p["footwear"] == sneakers["id"], p
+
+
+def test_a_jacket_may_come_off_for_the_boots_when_the_sweater_is_enough():
+    """8-11C: boots banned with the planned jacket; the sweater under it is warm enough:
+    the jacket comes off (pre-push gate, 2026-11-24)."""
+    sweater = dict(item(420, "base", "sweater", typ="sweater"), warmth=3)
+    jacket = dict(item(421, "outer", "jacket", typ="jacket"), group="outerwear", warmth=2)
+    jeans = dict(item(422, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(423, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(424, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [sweater, jacket, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "jacket"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (sweater, jacket, jeans, boots)]
+    raw = [{"base": sweater["id"], "outer": jacket["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11))
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and not p.get("outer"), p
+
+
+def test_a_needed_jacket_never_comes_off_for_the_boots():
+    """2-5C with a thin shirt under the jacket: taking the jacket off would be too cold,
+    so the boots banned with it are not worn (the daily advice's judge decides)."""
+    shirt = dict(item(430, "base", "thin shirt", typ="shirt"), warmth=1)
+    jacket = dict(item(431, "outer", "puffer", typ="puffer"), group="outerwear", warmth=5)
+    jeans = dict(item(432, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(433, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(434, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [shirt, jacket, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "puffer"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (shirt, jacket, jeans, boots)]
+    raw = [{"base": shirt["id"], "outer": jacket["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (2, 5))
+    assert plan[0]["picks"].get("outer") == jacket["id"], plan
+
+
+def test_the_judge_never_lets_a_dress_go_over_trousers():
+    """Shorts dropped; the packed jeans are banned with the planned tee and a wool dress
+    is packed: the dress may come, but never over the jeans (check's one-piece rule)."""
+    tee = dict(item(440, "base", "tee", typ="t_shirt"), warmth=2)
+    shorts = dict(item(441, "bottoms", "shorts", typ="shorts"), warmth=1)
+    dress = dict(item(442, "base", "wool dress", typ="dress"), group="onepiece", warmth=3)
+    jeans = dict(item(443, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sneakers = dict(item(444, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    closet = [tee, shorts, dress, jeans, sneakers]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (tee, dress, jeans, sneakers)]
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sneakers["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11))
+    p = plan[0]["picks"]
+    assert not (p["base"] == dress["id"] and p.get("bottoms")), p

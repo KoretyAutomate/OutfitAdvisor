@@ -95,6 +95,14 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev("refreshClimate()"); await drain();
   check("a cache without normals is measured again", climateCalls === 1, climateCalls);
   check("and keeps them", ev("climateNormals()") !== null);
+  // The closet drawn before they arrived is filed again once they do.
+  const SUMMER = {...CHINOS, id: "summer-0001", label: "summer-only trousers", season: "warm"};
+  const WINTER = {...CHINOS, id: "winter-0001", label: "winter-only trousers", season: "cold"};
+  ev(`climate={...climate}; delete climate.normals`);
+  await ev(`closet=${JSON.stringify([SUMMER, WINTER])}; closetFolded=new Set(); renderCloset()`); await drain(); await drain();
+  check("no normals yet: no 'Other seasons'", !/Other seasons/.test(w.document.getElementById("closetGrid").textContent));
+  await ev("refreshClimate()"); await drain(); await drain();
+  check("once they arrive the closet is filed by season", /Other seasons/.test(w.document.getElementById("closetGrid").textContent));
 
   console.log("\n--- requests carry the normals ------------------------------------");
   const sent = [];

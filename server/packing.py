@@ -81,7 +81,7 @@ def trip_range(summary: dict) -> tuple[float, float]:
 
 
 def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
-           lo: float | None = None, hi: float | None = None) -> list[dict]:
+           band: tuple = (None, None), user_rules: list[dict] | None = None) -> list[dict]:
     """Bring each scaling category up to what the trip needs, from what is owned.
 
     Target is the smaller of the need and what the wardrobe has available AND
@@ -89,8 +89,10 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     winter trip never gains shorts. Packed items go up to their own count first
     (a second pair of the same chinos); then unpacked suitable items join, those
     fitting the trip's registers first. Returns the same list, repaired in
-    place, so ids the plan already references stay valid.
+    place, so ids the plan already references stay valid. `band`: the trip's
+    (lo, hi); `user_rules`: what replacement shoes must keep with the trousers.
     """
+    lo, hi = band
     by_id = {i["id"]: i for i in items}
     # Summer legs on a winter list come off, whatever the model's reason (user,
     # 2026-11-18: "I don't need shorts nor summer pants ... during winter"). This
@@ -99,14 +101,6 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     if dropped:
         pack[:] = [p for p in pack if p not in dropped]
         log.info("packing: %d leg item(s) too thin for the trip left out", len(dropped))
-        # Shoes are not topped up below, so dropped ones are replaced here, by the
-        # best suitable pair owned; owning none is /packing's footwear gap (pre-push
-        # gate, 2026-11-21: sandals dropped from a winter list left no shoes at all).
-        shoes = sorted(owned_for(items, "footwear", lo, hi),
-                       key=lambda i: (not any(s in i["formality"] for s in styles), i["id"]))
-        if shoes and not any(p["category"] == "footwear" for p in pack):
-            pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
-                         "why": "warm enough for the trip"})
     for cat in SCALING:
         owned = owned_for(items, cat, lo, hi)
         ok_ids = {i["id"] for i in owned}
@@ -138,7 +132,29 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
             got += qty
         # Category and counts only — never labels (privacy invariant of the journal).
         log.info("packing top-up: %s %s -> %s of %s needed", cat, before, got, needed(cat, n_days))
+    if dropped and not any(p["category"] == "footwear" for p in pack):
+        _replace_shoes(pack, items, styles, band, user_rules or [])
     return pack
+
+
+def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band: tuple,
+                   user_rules: list[dict]) -> None:
+    """Shoes are not topped up, so dropped ones are replaced by the best suitable pair
+    owned; owning none is /packing's footwear gap (pre-push gate, 2026-11-21: sandals
+    dropped from a winter list left no shoes at all). After the trousers, and a pair
+    that some packed trousers may be worn with first: sneakers banned with jeans left
+    the planned mornings barefoot while loafers stayed home (pre-push gate, 2026-11-24)."""
+    by_id = {i["id"]: i for i in items}
+    legs = [p["id"] for p in pack if p["category"] == "bottoms"]
+
+    def banned(shoe: dict) -> bool:
+        return bool(legs) and all(rules.violations(user_rules, {"bottoms": b, "footwear": shoe["id"]}, by_id)
+                                  for b in legs)
+    shoes = sorted(owned_for(items, "footwear", *band),
+                   key=lambda i: (banned(i), not any(s in i["formality"] for s in styles), i["id"]))
+    if shoes:
+        pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
+                     "why": "warm enough for the trip"})
 
 
 def counts(pack: list[dict]) -> dict[str, int]:

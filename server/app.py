@@ -328,7 +328,7 @@ async def packing(req: PackingRequest):
             # wardrobe (user, 2026-09-07: "cannot be survived with 2 pants").
             lo, hi = trippack.trip_range(felt[1])
             before, gone = trippack.counts(pack), trippack.too_thin(pack, items, lo, hi)
-            pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
+            pack = trippack.top_up(pack, items, trip_days, list(req.styles), (lo, hi), rules.clean_rules(req.rules))
             # The bullets were written before the repair; say what changed, or the
             # text and the list disagree and the reader trusts neither.
             added = trippack.topup_line(before, trippack.counts(pack), trip_days, gone)

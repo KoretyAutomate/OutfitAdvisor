@@ -3474,6 +3474,9 @@ async function refreshClimate(){
     if(!climateAnchors()){ climate=null; return; }
     await saveClimate();
     await savePushPayload();   // the morning push measures by the same scale
+    // The closet was drawn before the normals arrived: file its out-of-season
+    // garments now, not at the next unrelated redraw (pre-push gate, 2026-11-24).
+    if(climateNormals()) await renderCloset();
   }catch(e){}
   finally{
     climateBusy=false;

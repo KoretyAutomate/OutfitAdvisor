@@ -5968,6 +5968,15 @@ function accPicks(p){
   if(!slot||p[slot]) return p;
   const {accessories,...rest}=p; return {...rest,[slot]:accessories};
 }
+/* Saved advice: the line moves with the id, or the card draws an owned scarf as a
+   generic tile and closet-only clears it (pre-push gate, 2026-11-24). */
+function accAdvice(outfit,picks){
+  const moved=accPicks(picks);
+  if(!outfit||moved===picks||!picks) return {outfit,picks:moved};
+  const slot=Object.keys(moved).find(k=>ACC_SLOTS.includes(k)&&moved[k]===picks.accessories&&!(picks&&picks[k]));
+  if(!slot||!("accessories" in outfit)) return {outfit,picks:moved};
+  const {accessories,...rest}=outfit; return {outfit:{...rest,[slot]:accessories},picks:moved};
+}
 function accSide(d){
   if(!d||d.role!=="accessories") return d;
   const kind=(d.type&&Object.keys(TYPES).find(g=>TYPES[g].includes(d.type)))||d.group||"accessories";
@@ -6252,7 +6261,8 @@ async function savedToday(){
   try{
     const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
     if(!d||d.day!==todayISO()||!d.outfit) return null;
-    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:accPicks(d.picks)||null,
+    const a=accAdvice(d.outfit,d.picks);
+    return {at:d.at||null,outfit:a.outfit,text:d.outfit_text||"",picks:a.picks||null,
             closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
             place:d.place||null,occasion:d.occasion||"",style:d.style||null,
             rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
@@ -6266,11 +6276,12 @@ async function loadToday(){
   // launch and on resume as offline (pre-push reviewer, 2026-10-12).
   if(!fitsKind(d,dayKind())) return false;
   adviceWanted=true;
-  lastWeather=d.weather; lastOutfit=d.outfit||null;
+  const a=accAdvice(d.outfit,d.picks);
+  lastWeather=d.weather; lastOutfit=a.outfit||null;
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
-  lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
+  lastRes={weather:d.weather,outfit:a.outfit,text:d.outfit_text,source:d.source,
            at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
-           picks:accPicks(d.picks)||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
+           picks:a.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
            rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and

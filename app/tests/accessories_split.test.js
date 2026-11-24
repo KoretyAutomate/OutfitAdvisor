@@ -92,7 +92,12 @@ const SCARF = {...BELT, id: "scarf0-0001", label: "grey scarf", type: "scarf", c
   check("and the served baseline too", JSON.parse(ev("JSON.stringify(woreServed)")).neck === SCARF.id);
   check("a garment that is gone is left where it was",
     J(JSON.parse(ev(`JSON.stringify(accPicks({accessories:"gone00-0001"}))`))) === J({accessories: "gone00-0001"}));
+  const adv = JSON.parse(ev(`JSON.stringify(accAdvice({base:"oxford",accessories:"grey scarf"},{base:"x",accessories:${J(SCARF.id)}}))`));
+  check("saved advice moves the scarf's line with its id",
+    adv.picks.neck === SCARF.id && adv.outfit.neck === "grey scarf" && !("accessories" in adv.outfit), adv);
   ev("closetComplete=true");
+  const kept = JSON.parse(ev(`JSON.stringify(closetOnlyView({outfit:${J(adv.outfit)},picks:${J(adv.picks)},text:""}))`));
+  check("and closet-only keeps the owned scarf", kept.outfit.neck === "grey scarf", kept.outfit);
   const legacy = JSON.parse(ev(`JSON.stringify(closetOnlyView({outfit:{base:"oxford",accessories:"grey scarf (not in your closet yet)"},
     picks:{base:"x"},text:""}))`));
   check("closet-only empties a legacy generic accessory line", /^None/.test(legacy.outfit.accessories), legacy.outfit);

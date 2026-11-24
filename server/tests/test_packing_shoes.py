@@ -330,3 +330,21 @@ def test_underwear_still_counts_for_the_trip():
     """Briefs never fill an outfit slot, but they pack, and count, as underwear."""
     briefs = dict(item(240, "inner", "briefs", count=8, typ="briefs"), group="underwear")
     assert [i["id"] for i in packing.wearable_for([briefs], "inner", 3, 8)] == [briefs["id"]]
+
+
+def test_a_planned_morning_may_change_its_top_to_wear_the_replacement_shoes():
+    """Tee, oxford, jeans and sandals packed; boots replace the sandals but are banned
+    with tees: the morning wears the oxford with the boots (pre-push gate, 2026-11-24)."""
+    tee = dict(item(250, "base", "tee", typ="t_shirt"), warmth=2)
+    oxford = dict(item(251, "base", "oxford", typ="shirt"), warmth=2)
+    jeans = dict(item(252, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(253, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(254, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [tee, oxford, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (tee, oxford, jeans, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"] and plan[0]["picks"]["base"] == oxford["id"], plan

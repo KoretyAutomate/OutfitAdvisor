@@ -345,9 +345,10 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
                 break
             picks[broken[0]["slot"]] = None
         got = _refill(day, picks, (pack, spare), user_rules, by_item, n)
+        before = dict(picks)
         picks.update(got)
-        for slot, iid in got.items():
-            if iid and iid not in {p["id"] for p in pack}:
+        for slot, iid in got.items():   # only a garment brought in, never one kept as planned
+            if iid and iid != before.get(slot) and iid not in {p["id"] for p in pack}:
                 pack.append({"id": iid, "category": slot, "label": by_item[iid]["label"], "qty": 1,
                              "why": "to complete a planned morning"})
         day = {k: v for k, v in day.items() if k != "_refill"}
@@ -369,7 +370,11 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     pack, spare = pool
     onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
     slots = [s for s in day.get("_refill", ()) if not (s == "bottoms" and onepiece)]
-    kept = [s for s in LEGS if s not in slots and picks.get(s) and not (s == "bottoms" and onepiece)]
+    # The rest of the morning may change too, to a packed garment of its kind: trousers
+    # and shoes (2026-11-24), and a top or layer a replacement is banned with — boots
+    # banned with the tee, an oxford packed beside it (pre-push gate, 2026-11-24).
+    kept = [s for s in (*LEGS, "base", "mid", "outer") if s not in slots and picks.get(s)
+            and not (s == "bottoms" and onepiece) and not (s == "base" and onepiece)]
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
     options = []

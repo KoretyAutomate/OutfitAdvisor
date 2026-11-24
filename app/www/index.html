@@ -5481,6 +5481,8 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
       // of warm trousers).
       if(coversLegs(r,i)&&planTemp!=null&&tooColdForLegs(i,planTemp)) continue;
       withheld.add(r);
+      // A warm dress is an alternative to cold shorts as well (layers.underdressed).
+      if(planTemp!=null&&warmLegs(i,planTemp,peak,"dress")) withheld.add("bottoms");
     }
   }
   // "warmth": nothing the server was sent was warm enough for the morning. A warm
@@ -5672,6 +5674,8 @@ async function clearGapsFilledBy(item){
       const t=g.at!=null?g.at:g.lo, pk=g.pk!=null?g.pk:g.hi;
       return !(legsPart(item,t,pk)&&legsCovered(t,pk));
     }
+    // A warm dress answers a cold bottoms gap too (layers.underdressed; 2026-11-24).
+    if(g.slot==="bottoms"&&warmLegs(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi,"dress")) return false;
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as

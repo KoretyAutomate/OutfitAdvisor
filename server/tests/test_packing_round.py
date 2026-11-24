@@ -350,7 +350,11 @@ def test_the_plan_is_validated_against_the_final_pack():
     owned — the plan may only reference what is being packed."""
     pack = packed("itm-00000001")
     plan = packing.validate_plan([{"bottoms": "itm-00000002"}], days(3), pack, travel=False)
-    assert plan == []
+    # The unpacked trousers are dropped; the morning is kept only to be refilled from
+    # the pack (2026-11-24), and the finished plan names packed ids alone.
+    assert all(v is None for d in plan for v in d["picks"].values()) and plan[0]["_refill"] == ["bottoms"]
+    final = packing.keep_rules(plan, [], BOTTOMS, pack)
+    assert final and all(v in {p["id"] for p in pack} for d in final for v in d["picks"].values() if v)
 
 
 def test_tip_carries_no_emoji():

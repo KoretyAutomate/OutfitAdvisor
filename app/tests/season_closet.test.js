@@ -241,6 +241,16 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   check("the summary sends leg cover as legs, apart from a plain base gap",
     sum.some(x => x.slot === "legs") && sum.some(x => x.slot === "base"), sum);
 
+  // A warm dress is an alternative to cold shorts: in the wash it excuses the bottoms
+  // gap, and adding one clears it (pre-push gate, 2026-11-24).
+  const WARMD = {...DRESS1, id: "dress0-0010", label: "wool dress", warmth: 3};
+  await ev(`closet=${JSON.stringify([SHORTS, TEE, WARMD])}; saveCloset()`);
+  check("a warm dress in the wash excuses a cold bottoms gap",
+    JSON.stringify(ev(`ownershipGaps(["bottoms"],8,[${JSON.stringify(SHORTS.id)},${JSON.stringify(TEE.id)}],12)`)) === "[]");
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WARMD)})`);
+  await drain();
+  check("adding a warm dress clears it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

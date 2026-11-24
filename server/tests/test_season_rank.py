@@ -271,3 +271,16 @@ def test_a_tee_alone_is_no_alternative_to_an_out_of_season_dress():
     _, r = run(19, dress, TEE, SNEAK, hi=24, p=prefs(normal=season.Normal(9, 17)))
     o = r.outfits[0]
     assert o.picks["base"] == dress["id"] and o.rank[0] == 0 and r.exact == 0, (o.picks, o.rank, r.exact)
+
+
+def test_snow_boots_outrank_the_season():
+    """Snowy 2-8C, winter normals: waterproof boots banned with the jeans but fine with
+    summer-only chinos beat sneakers with the jeans (pre-push gate, 2026-11-24)."""
+    from test_funnel import PARKA, prefs, run
+    from wardrobe_fixtures import BOOTS, JEANS, UNDER
+    summer = {**CHINOS, "season": "warm"}
+    ban = ({"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "jeans"}},)
+    _, r = run(2, UNDER, TEE, PARKA, JEANS, summer, SNEAK, BOOTS, hi=8, isSnow=True,
+               p=prefs(normal=season.Normal(1, 10), rules=ban))
+    o = r.outfits[0]
+    assert o.picks["footwear"] == BOOTS["id"] and o.picks["bottoms"] == CHINOS["id"], (o.picks, o.relaxed, o.rank)

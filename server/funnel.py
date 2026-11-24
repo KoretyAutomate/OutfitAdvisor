@@ -118,8 +118,7 @@ class Ctx:
 
     @functools.cached_property
     def dry(self) -> bool:
-        """A wet day and a dry pair they could wear: only then does the rank hold mesh
-        aside (pre-push gate, 2026-11-24: else every combination is walked, 2.8s -> 21.7s)."""
+        """A wet day and a dry pair they could wear: only then is mesh held aside (2026-11-24)."""
         return self.wet and any(_keeps(replace(self, relaxed=frozenset(RELAX) - {"wet"}), "footwear", i, 4) is None
                                 for i in self.wd.ids if "footwear" in (self.wd.by_roles.get(i) or ()))
 
@@ -352,6 +351,10 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if strict.wet and garment.wets_through(shoes):
         out.append("wet")
+    # Snow gear or a coat left off a decided slot where one could be worn (2026-11-24).
+    by = {s: ctx.wd.by_item.get(picks[s]) or {} for s in ("footwear", "outer") if s in picks}
+    out += ["snow"] * any(_snow_gear(strict, s) and not it.get("waterproof") for s, it in by.items())
+    out += ["coat"] * bool(_coat_day(strict) and "outer" in by and not check.is_coat(by["outer"]))
     worst = max(_steps_off(strict, picks), default=0)
     out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
@@ -505,14 +508,11 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        # Tier: 0 fine, 1 out of season (season_held) or a weather rule given up, 2 cold,
-        # 3 both. Above 0 is held aside while the ladder looks for a 0. Within a tier the
-        # weather first, before any rule given up: dry feet in summer loafers beat in-season
-        # mesh on a wet day, however many styling steps the loafers take (user,
-        # 2026-11-24: "dry feet first"); then the rules, then the layering, which never
-        # buys a broken one (pre-push gate, 2026-11-24).
+        # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both; above 0 is
+        # held aside. Within it the weather, the rules, then the layering (user, 2026-11-24:
+        # "dry feet first", however many styling steps the dry pair takes).
         n = season.mismatches(c.day, full)
-        wet = "wet" in gave and c.dry     # ahead of the rules given up: dry beats on-style
+        wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
         rank = (2 * bool(hard) + (season.held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
                 *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))

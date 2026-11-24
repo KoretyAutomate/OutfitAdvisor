@@ -28,7 +28,7 @@ PARKA = g("hparka001", "olive hooded parka", "outerwear", "coat", ["outer"], 4, 
 TROUSERS = g("dgtrous01", "dark grey trousers", "bottoms", "trousers", ["bottoms"], 3, colors=["dark grey"])
 MESH_SNK = g("greysnk01", "grey sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["grey"],
              material="mesh")
-RED_BELT = g("redbelt01", "Red leather belt", "accessories", "belt", ["accessories"], 1, colors=["red"])
+RED_BELT = g("redbelt01", "Red leather belt", "accessories", "belt", ["belt"], 1, colors=["red"])
 PRINT_SHIRT = g("prshirt01", "navy patterned button-up shirt", "tops", "shirt", ["base", "mid", "outer"], 2)
 MARL = g("marlswt01", "grey marl crew-neck sweater", "tops", "sweater", ["base", "mid", "outer"], 4,
          colors=["grey"], pattern="solid")
@@ -50,7 +50,7 @@ def test_2026_10_23_1509_no_knit_polo_under_a_cardigan_and_no_knit_under_the_coa
         assert not (o.picks["base"] == LB_POLO["id"] and o.picks["mid"] == WAFFLE["id"]), o.picks
         # The parka is warm enough over the polo by itself at 5C: no knit between.
         assert o.picks["mid"] is None and o.picks["outer"] == PARKA["id"], o.picks
-        assert o.picks["accessories"] != RED_BELT["id"], "a red belt with grey mesh sneakers"
+        assert o.picks["belt"] != RED_BELT["id"], "a red belt with grey mesh sneakers"
         assert o.relaxed == ()
 
 
@@ -136,8 +136,8 @@ def test_a_sporty_coat_never_goes_over_a_blazer():
 def test_an_accent_belt_matches_the_shoes():
     red_shoes = g("redsnk001", "red leather sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["red"])
     ctx = strict(14, RED_BELT, MESH_SNK, red_shoes, hi=20)
-    assert funnel.clash(ctx, _picks(footwear=MESH_SNK, accessories=RED_BELT)) == "belt"
-    assert funnel.clash(ctx, _picks(footwear=red_shoes, accessories=RED_BELT)) is None
+    assert funnel.clash(ctx, _picks(footwear=MESH_SNK, belt=RED_BELT)) == "belt"
+    assert funnel.clash(ctx, _picks(footwear=red_shoes, belt=RED_BELT)) is None
 
 
 # ── the chooser sees the whole and may turn every outfit down ────────────────────

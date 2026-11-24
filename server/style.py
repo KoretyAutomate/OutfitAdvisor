@@ -32,12 +32,13 @@ import time
 from dataclasses import dataclass, field, replace
 
 import picks as pk
+from vocab import ACCESSORY_SLOTS
 
 # The garments other people see, in the order a swap is tried: the mid layer is the
 # easiest to change and the base the hardest, since everything else is chosen around
 # it. Inner is underwear; footwear and accessories are judged only by formality.
 VISIBLE = ("base", "mid", "outer", "bottoms")
-_SWAP_ORDER = ("accessories", "mid", "footwear", "outer", "bottoms", "base")
+_SWAP_ORDER = (*ACCESSORY_SLOTS, "mid", "footwear", "outer", "bottoms", "base")
 
 PATTERNS = ("solid", "striped", "checked", "print", "graphic")
 _PAT = (

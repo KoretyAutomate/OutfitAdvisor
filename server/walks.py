@@ -22,6 +22,7 @@ import fit
 import funnel
 import layers
 import taste
+from vocab import ACCESSORY_SLOTS
 
 
 def _partial(ctx: "funnel.Ctx", picks: dict, priority) -> float:
@@ -30,7 +31,7 @@ def _partial(ctx: "funnel.Ctx", picks: dict, priority) -> float:
     favourite pair's first member is not cut before its partner is chosen), plus the
     pairs it already holds."""
     tst = taste.get(ctx.day)
-    worn = [(sl, i) for sl, i in picks.items() if i and sl != "accessories"]
+    worn = [(sl, i) for sl, i in picks.items() if i and sl not in ACCESSORY_SLOTS]
     mean = sum(priority(i, sl) + tst.potential(i, sl) for sl, i in worn) / max(1, len(worn))
     return mean + funnel._accessory(ctx, picks) + tst.pair(picks)
 

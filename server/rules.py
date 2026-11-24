@@ -93,6 +93,16 @@ def clean_descriptor(d: object) -> dict | None:
     r = _norm(d.get("role"))
     if r in vocab.CATEGORIES:
         out["role"] = r
+    elif r == vocab.LEGACY_CATEGORY:
+        # A rule saved when every accessory shared one slot (before v1.62) meant
+        # "worn as an accessory": that is now the folder. Dropping the role instead
+        # would widen "no red accessories" to "nothing red" (2026-11-24). Said of a
+        # garment that is no accessory, it never matched, and still must not.
+        kind = vocab.GROUP_FROM_TYPE.get(out.get("type", ""), out.get("group", "accessories"))
+        if out.get("group", kind) == kind == "accessories":
+            out["group"] = "accessories"
+        else:
+            out["role"] = r
     c = _norm_color(d.get("color"))
     if c:
         out["color"] = c
@@ -105,6 +115,11 @@ def clean_rule(r: object) -> dict | None:
         return None
     kind = _norm(r.get("kind"))
     if kind not in RULE_KINDS:
+        return None
+    # Both sides "worn as an accessory" when that was one slot: dead then (dead_pair),
+    # and kept dead, not turned into "no two accessories together" (2026-11-24).
+    if kind in ("avoid_pair", "avoid_same_color") and all(
+            isinstance(d := r.get(k), dict) and _norm(d.get("role")) == vocab.LEGACY_CATEGORY for k in "ab"):
         return None
     a = clean_descriptor(r.get("a"))
     if not a:
@@ -281,7 +296,7 @@ def _matches(desc: dict, slot: str, item: dict) -> bool:
 #: `inner`, so there is no foundational top here to lose. The pre-push reviewer
 #: read it the other way on 2026-09-05; test_only_underwear_can_occupy_inner is
 #: what makes the rejection checkable, and will fail the day that stops being true.
-_LOSES_A_PAIR = ("base", "mid", "outer", "bottoms", "footwear", "accessories", "inner")
+_LOSES_A_PAIR = ("base", "mid", "outer", "bottoms", "footwear", *vocab.ACCESSORY_SLOTS, "inner")
 
 
 def _slot_order(slot: str) -> int:

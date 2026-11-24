@@ -27,9 +27,9 @@ DRAWSTR = g("drawstr01", "beige drawstring pants", "bottoms", "trousers", ["bott
 CHINOS = g("chinos001", "navy chinos", "bottoms", "trousers", ["bottoms"], 3, formality=["casual", "smart"])
 MESH = g("meshsnk01", "grey mesh sneakers", "footwear", "sneakers", ["footwear"], 2, colors=["grey"])
 LOAFERS = g("loafers01", "brown leather loafers", "footwear", "loafers", ["footwear"], 2, colors=["brown"])
-BROWN_BELT = g("bbelt0001", "brown leather belt", "accessories", "belt", ["accessories"], 1, colors=["brown"])
-BLACK_BELT = g("kbelt0001", "black leather belt", "accessories", "belt", ["accessories"], 1, colors=["black"])
-SCARF = g("scarf0001", "grey wool scarf", "accessories", "scarf", ["accessories"], 4, colors=["grey"])
+BROWN_BELT = g("bbelt0001", "brown leather belt", "accessories", "belt", ["belt"], 1, colors=["brown"])
+BLACK_BELT = g("kbelt0001", "black leather belt", "accessories", "belt", ["belt"], 1, colors=["black"])
+SCARF = g("scarf0001", "grey wool scarf", "accessories", "scarf", ["neck"], 4, colors=["grey"])
 
 
 def prefs(occasion="", style_="casual", **kw):
@@ -60,7 +60,7 @@ def test_2026_10_20_office_wet_morning_drawstring_and_mesh_never_survive():
     for o in r.outfits:
         assert o.picks["bottoms"] == CHINOS["id"], "drawstring is below an office day"
         assert o.picks["footwear"] == LOAFERS["id"], "mesh soaks through on a wet commute"
-        assert o.picks["accessories"] in (None, BROWN_BELT["id"]), "a belt matches the shoes"
+        assert o.picks["belt"] in (None, BROWN_BELT["id"]), "a belt matches the shoes"
         assert not o.relaxed
 
 
@@ -116,9 +116,9 @@ def test_a_hot_day_has_no_layer_and_a_cold_one_has_knit_and_coat():
 
 def test_accessories_only_for_a_reason():
     _, warm = run(18, UNDER, OXFORD, CHINOS, SNEAK, SCARF, hi=24)
-    assert warm.outfits[0].picks["accessories"] is None, "no scarf on a mild day"
+    assert warm.outfits[0].picks["neck"] is None, "no scarf on a mild day"
     _, belt = run(18, UNDER, OXFORD, CHINOS, SNEAK, BROWN_BELT, hi=24)
-    assert belt.outfits[0].picks["accessories"] == BROWN_BELT["id"]
+    assert belt.outfits[0].picks["belt"] == BROWN_BELT["id"]
 
 
 def test_a_dress_clears_the_trousers_and_a_lone_cardigan_still_dresses_them():
@@ -281,9 +281,9 @@ def test_the_pairing_check_refuses_a_long_sleeve_under_a_tee_by_itself():
 
 
 def test_no_tie_on_a_casual_day():
-    tie = g("tie000001", "navy tie", "accessories", "tie", ["accessories"], 1)
+    tie = g("tie000001", "navy tie", "accessories", "tie", ["neck"], 1)
     _, r = run(16, UNDER, OXFORD, CHINOS, SNEAK, tie, hi=22)
-    assert r.outfits[0].picks["accessories"] is None
+    assert r.outfits[0].picks["neck"] is None
 
 
 def test_a_reroll_moves_even_to_something_worn_yesterday():
@@ -353,8 +353,8 @@ def test_every_option_differs_in_something_you_would_see():
 
 def test_a_black_belt_never_goes_with_brown_shoes():
     ctx = strict(14, LOAFERS, BLACK_BELT, BROWN_BELT, hi=20)
-    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "accessories": BLACK_BELT["id"]}) == "belt"
-    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "accessories": BROWN_BELT["id"]}) is None
+    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "belt": BLACK_BELT["id"]}) == "belt"
+    assert funnel.clash(ctx, {"footwear": LOAFERS["id"], "belt": BROWN_BELT["id"]}) is None
 
 
 def test_an_outfit_without_the_undershirt_is_not_offered_when_one_fits():

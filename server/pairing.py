@@ -111,7 +111,7 @@ def _belt(ctx: "Ctx", picks: dict) -> bool:
     """A leather belt matches leather shoes: brown with brown, black with black. A
     belt in an accent colour shares it with the shoes, whatever they are made of
     (user, 2026-10-24: a red leather belt with grey mesh sneakers)."""
-    belt = ctx.wd.by_item.get(picks.get("accessories")) or {}
+    belt = ctx.wd.by_item.get(picks.get("belt")) or {}
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if belt.get("type") == "belt" and shoes and (a := style.accent_of(belt)) and style.accent_of(shoes) != a:
         return False

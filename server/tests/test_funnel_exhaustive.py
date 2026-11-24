@@ -150,7 +150,7 @@ def test_turning_down_a_belt_mismatch_never_brings_back_a_colour_clash(monkeypat
     out, seen = dress(monkeypatch, [*closet, BROWN_BELT], weather(14, 20), prefs(),
                       [{"choice": 0, "reason": "no"}, {"choice": 1, "look": "", "lines": {}, "tip": ""}])
     assert len(seen["chooser"]) == 1, "the colour clash is never offered"
-    assert out["picks"]["accessories"] != BROWN_BELT["id"]
+    assert out["picks"]["belt"] != BROWN_BELT["id"]
 
 
 def test_a_reroll_shows_the_same_tee_again_rather_than_break_a_rule():

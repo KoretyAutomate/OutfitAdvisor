@@ -38,7 +38,7 @@ import taste
 from llm import _chat, _fenced, _parse_json, log
 from schemas import _ID_OK, ClosetItem, Prefer, StyleVotes, _clean
 from pairing import VISIBLE
-from vocab import CATEGORIES, TYPE_LABEL
+from vocab import ACCESSORY_SLOTS, CATEGORIES, TYPE_LABEL
 
 router = APIRouter()
 # Calendar titles and the model's sentences keep their colons and dashes ("Gym —
@@ -52,7 +52,8 @@ ROUTINE_TIMEOUT_S = 60
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SLOT_TITLE = {"inner": "Undershirts", "base": "Tops", "mid": "Knitwear and mid layers",
                "outer": "Jackets and coats", "bottoms": "Trousers and skirts", "footwear": "Shoes",
-               "accessories": "Accessories"}
+               "belt": "Belts", "neck": "Scarves and ties", "head": "Hats", "hands": "Gloves",
+               "umbrella": "Umbrellas"}
 _LEVELS = "1 sport, 2 weekend casual, 3 smart casual, 4 business casual, 5 formal"
 
 
@@ -483,7 +484,7 @@ def _garment(i: dict, laundry: set, recent: dict) -> str:
              str(i.get("fabric") or ""),
              f"{s} sleeves" if s in ("short", "long") else "",
              f"{m} upper" if i["category"] == "footwear" and (m := garment.material(i)) else "",
-             (scale.warmth_phrase(i) or f"warmth {i.get('warmth')}/5") if i["category"] != "accessories" else "",
+             (scale.warmth_phrase(i) or f"warmth {i.get('warmth')}/5") if i["category"] not in ACCESSORY_SLOTS else "",
              # A level is what is SEEN: an undershirt or a belt has none worth saying.
              f"dress level {garment.level(i)}" if i["category"] in VISIBLE else "",
              "waterproof" if i.get("waterproof") else "",

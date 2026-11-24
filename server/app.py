@@ -202,6 +202,7 @@ async def advice(req: AdviceRequest, x_oa_client: str = Header(default="?")):
         text = (f"• Nothing to suggest — {why}.\n"
                 "• Your closet is set to 'complete', so nothing outside it is offered.")
         log.info("advice closet-only fallback: emptied slots and prose")
+    vocab.fold_accessories(outfit)
 
     # Who actually wrote the text. This used to be set to "llm" before the check
     # below, so the closet-only refusal above — which no model wrote — went out as

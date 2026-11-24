@@ -99,7 +99,8 @@ def _pack_prompt(
     plan_spec = (
         f'"plan": [one object per day for the FIRST {k} days, in date order: '
         '{"inner": id or null, "base": id or null, "mid": id or null, "outer": id or null, '
-        '"bottoms": id or null, "footwear": id or null, "accessories": id or null} — '
+        '"bottoms": id or null, "footwear": id or null, "belt": id or null, "neck": id or null, '
+        '"head": id or null, "hands": id or null, "umbrella": id or null} — '
         "ids ONLY from pack, each in the slot of its own category], "
     ) if k else ""
     return (
@@ -160,8 +161,9 @@ async def packing_list(days: list[dict], summary: dict, trip: Trip, closet: list
                 ],
                 # Open-ended schema (see _pack_prompt) — closet_outfit's 560 is not
                 # enough here. Measured ceiling, keep headroom for a long trip; the
-                # first-days plan adds ~7 ids × 3 days on top (2026-09-07).
-                max_tokens=1400,
+                # first-days plan adds ~11 ids × 3 days on top (2026-09-07; five
+                # accessory slots since 2026-11-24, hence 1400 -> 1600).
+                max_tokens=1600,
                 timeout=90,
             )
         )

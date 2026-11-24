@@ -621,3 +621,34 @@ def test_a_plan_that_already_clashes_its_sleeves_still_gets_its_shoes():
     raw = [{"base": longs["id"], "mid": knit["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8))
     assert plan[0]["picks"]["footwear"] == boots["id"], plan
+
+
+def test_a_swapped_coat_is_judged_on_its_own_scale():
+    """An absolute warmth-4 coat is never swapped for a home-scale warmth-4 jacket that
+    answers to a milder day (pre-push gate, 2026-11-24)."""
+    coat = {"warmth": 4, "group": "outerwear"}
+    home = {"warmth": 4, "group": "outerwear", "warmthScale": "home", "warmthAnchors": [0.7, 12.9, 25.6]}
+    by = {"c": coat, "h": home, "t": {"warmth": 2}}
+    names, options = ["outer"], [["h", "c"]]
+    got = packing._search(names, options, ({"base": "t"}, 1, {"base": "t", "outer": "c"}, (3, 8)), [], by)
+    assert packing.scale.garment_temp(home) > packing.scale.garment_temp(coat), "the fixture: the jacket is milder"
+    assert got == {"outer": "c"}, got
+
+
+def test_dry_shoes_from_home_come_before_packed_mesh():
+    """Packed mesh and dry loafers at home: the loafers fill a refilled slot first."""
+    by = {"m": {"group": "footwear", "material": "mesh"}, "l": {"group": "footwear"}}
+    got = packing._refill({"_refill": ["footwear"]}, {}, ([{"id": "m", "category": "footwear"}], {"footwear": ["l"]},
+                                                          None), [], by, 0)
+    assert got == {"footwear": "l"}, got
+
+
+def test_a_swap_to_a_tee_never_keeps_the_undershirt_under_it():
+    """Boots banned with the planned shirt; a packed tee is the other top: the undershirt
+    comes off rather than going under the tee (pre-push gate, 2026-11-24)."""
+    under = {"group": "underwear", "type": "undershirt"}
+    by = {"u": under, "s": {"type": "shirt"}, "t": {"type": "t_shirt"}, "b": {"type": "boots"}}
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "shirt"}}]
+    names, options = ["base", "inner", "footwear"], [["s", "t"], ["u", None], ["b", None]]
+    got = packing._search(names, options, ({}, 2, {"inner": "u", "base": "s"}, None), ban, by)
+    assert got == {"base": "t", "inner": None, "footwear": "b"}, got

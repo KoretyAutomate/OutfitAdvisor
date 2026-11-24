@@ -405,9 +405,11 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))
                 and (not band or suits(by_item[p["id"]], slot, *band))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
-        if slot == "footwear":   # dry pairs first, packed or not (pre-push gate, 2026-11-24)
-            turn = sorted(turn, key=lambda i: garment.wets_through(by_item[i]))
-        more = list(spare.get(slot, ()))
+        more_ids = list(spare.get(slot, ()))
+        if slot == "footwear":   # dry pairs first, packed or not, then packed before home
+            both = sorted([*turn, *more_ids], key=lambda i: garment.wets_through(by_item[i]))
+            turn, more_ids = both, []
+        more = more_ids
         if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
             turn, more = ([i for i in ids if (by_item[i].get("group") == "onepiece") == onepiece]
                           for ids in (turn, more))
@@ -432,12 +434,17 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     # Layering and warmth judged only where the planned morning itself, whole, passes
     # them: a plan that already breaks one must still get its shoes (pre-push gate,
     # 2026-11-24: judged on `fixed` alone it saw an empty torso).
-    layered = not (sleeves.sleeve_clashes(planned, by_item) or check.stacked(planned, by_item))
+    def mislayered(p: dict) -> bool:   # sleeves, stacking, or an undershirt under a tee
+        return bool(sleeves.sleeve_clashes(p, by_item) or check.stacked(p, by_item)
+                    or (p.get("inner") and p.get("base") and check.tee_base(p, by_item)))
+    layered = not mislayered(planned)
     cold = band[0] if band and band[0] is not None else None
 
-    def warmest(p: dict) -> int:
-        return max((int((by_item.get(p[t]) or {}).get("warmth") or 0) for t in ("base", "mid", "outer")
-                    if p.get(t)), default=0)
+    def warmest(p: dict) -> float:
+        """The coldest day the torso's warmest garment answers to, on that garment's own
+        scale (scale.garment_temp: raw grades differ across scales). Lower is warmer."""
+        return min((scale.garment_temp(by_item.get(p[t]) or {}) for t in ("base", "mid", "outer")
+                    if p.get(t)), default=99.0)
     floor = warmest(planned)
     best: list = [-1, {}]
     nodes = [0]
@@ -450,7 +457,7 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             # trip's coldest day anyway (a warmth-1 jacket for a warm coat banned with the
             # boots; pre-push gate, 2026-11-24).
             whole = {**fixed, **partial}
-            if warmest(whole) < floor and not (cold is not None and layers._still_warm(whole, by_item, cold)):
+            if warmest(whole) > floor and not (cold is not None and layers._still_warm(whole, by_item, cold)):
                 return False
             best[0], best[1] = filled, dict(partial)
             return filled == len(names) - n_kept
@@ -462,8 +469,8 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             whole = {**fixed, **trial}
             # Their rules, and the layering the daily advice refuses: no long sleeves
             # under a short-sleeved knit, no layer stacked wrong (pre-push gate, 2026-11-24).
-            if rules.violations(user_rules, whole, by_item) or (layered and (
-                    sleeves.sleeve_clashes(whole, by_item) or check.stacked(whole, by_item))):
+            # Nor an undershirt under a tee (check's hard inner-tee; it may come off).
+            if rules.violations(user_rules, whole, by_item) or (layered and mislayered(whole)):
                 continue
             if go(k + 1, trial, filled + (k >= n_kept and choice is not None)):
                 return True

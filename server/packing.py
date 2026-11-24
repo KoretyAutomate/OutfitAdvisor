@@ -293,7 +293,9 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
             # gate, 2026-11-21).
             if slot in LEGS and isinstance(iid, str) and not ok:
                 refill.append(slot)
-        if not any(picks.values()):
+        # A morning of only summer legs is empty until its refill: kept for keep_rules
+        # to dress, which drops it if nothing can (pre-push gate, 2026-11-24).
+        if not any(picks.values()) and not refill:
             continue
         day = {"date": days[i]["date"], "travel": bool(travel and i == 0), "picks": picks}
         out.append({**day, "_refill": refill} if refill else day)

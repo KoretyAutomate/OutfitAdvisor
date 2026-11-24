@@ -124,7 +124,7 @@ def normal(day) -> Normal | None:
     return n if isinstance(n, Normal) else None
 
 
-def _fits(day, slot: str, n: Normal) -> bool:
+def _fits(day, slot: str, n: Normal, dress: bool = False) -> bool:
     """They own something in season for this slot that they could wear today. A slot
     that can be left empty always has an in-season answer, which is leaving it
     off: a jacket in July counts as out of season even if it's the only jacket. If
@@ -132,11 +132,14 @@ def _fits(day, slot: str, n: Normal) -> bool:
     the out-of-season jacket then ranks above being cold (funnel). Comfortable
     includes dry feet: in-season mesh sneakers are no answer on a wet day, so leather
     loafers kept for summer are not out of season then (pre-push gate, 2026-11-24:
-    the season had outranked the rain)."""
+    the season had outranked the rain). `dress`: the garment is a one-piece, whose
+    alternative must cover the legs too — another dress, or trousers with a top, never
+    a tee alone (pre-push gate, 2026-11-24)."""
     if slot in pk._SHEDDABLE:
         return True
     memo: dict[str, bool] = day.memo.setdefault("season.fits", {})
-    if slot not in memo:
+    key = "dress" if dress else slot
+    if key not in memo:
         wd = day.wd
         outright = [r for r in day.rules if not rules.is_combination(r)]
         today = Normal(day.plan, day.peak)
@@ -147,15 +150,21 @@ def _fits(day, slot: str, n: Normal) -> bool:
                 and not layers.overdressed(it, s, wd, day.plan, day.peak, day.rules) \
                 and not layers.underdressed(it, s, day) \
                 and not (s == "footwear" and garment.wet(day.w) and garment.wets_through(it))
-        # Trousers have an in-season dress as their alternative too, as in
-        # layers.underdressed (pre-push gate, 2026-11-24: shorts beside an in-season dress).
-        # And a dress has in-season trousers with a top, a knit worn as the top included.
-        legs = slot == "base" and any(fits("bottoms", i, it) for i, it in wd.by_item.items())
-        memo[slot] = any(fits(slot, i, it) or (slot == "bottoms" and it.get("group") == "onepiece"
-                                               and fits("base", i, it))
-                         or (legs and it.get("group") != "onepiece" and fits("mid", i, it))
-                         for i, it in wd.by_item.items())
-    return memo[slot]
+        def one(it: dict) -> bool:
+            return it.get("group") == "onepiece"
+        items = wd.by_item.items()
+        if dress:
+            # Another dress, or in-season trousers with a top, a knit worn as the top included.
+            legs = any(fits("bottoms", i, it) for i, it in items)
+            memo[key] = any((one(it) and fits("base", i, it))
+                            or (legs and not one(it) and (fits("base", i, it) or fits("mid", i, it)))
+                            for i, it in items)
+        else:
+            # Trousers have an in-season dress as their alternative too, as in
+            # layers.underdressed (pre-push gate, 2026-11-24: shorts beside an in-season dress).
+            memo[key] = any(fits(slot, i, it) or (slot == "bottoms" and one(it) and fits("base", i, it))
+                            for i, it in items)
+    return memo[key]
 
 
 def counts(day, slot: str, iid: str) -> bool:
@@ -163,7 +172,8 @@ def counts(day, slot: str, iid: str) -> bool:
     have taken the slot instead."""
     n = normal(day)
     it = day.wd.by_item.get(iid)
-    return bool(n and it and out_of_season(it, slot, n, Normal(day.plan, day.peak)) and _fits(day, slot, n))
+    return bool(n and it and out_of_season(it, slot, n, Normal(day.plan, day.peak))
+                and _fits(day, slot, n, slot == "base" and it.get("group") == "onepiece"))
 
 
 def mismatches(day, picks: dict, legs_only: bool = False) -> int:

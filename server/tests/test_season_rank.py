@@ -258,3 +258,16 @@ def test_trousers_and_a_cardigan_hold_an_out_of_season_dress_aside():
     assert season.counts(d, "base", dress["id"])
     d = day(19, dress, cardi, SNEAK, hi=24, prefs=p)
     assert not season.counts(d, "base", dress["id"]), "no trousers: the dress is what they have"
+
+
+def test_a_tee_alone_is_no_alternative_to_an_out_of_season_dress():
+    """Sundress, tee, sneakers and no trousers: only the dress covers the legs, so it
+    is not counted out of season, nor searched past (pre-push gate, 2026-11-24)."""
+    from test_funnel import prefs, run
+    from wardrobe_fixtures import day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    d = day(19, dress, TEE, SNEAK, hi=24, prefs=pk.Prefs(normal=season.Normal(9, 17)))
+    assert not season.counts(d, "base", dress["id"])
+    _, r = run(19, dress, TEE, SNEAK, hi=24, p=prefs(normal=season.Normal(9, 17)))
+    o = r.outfits[0]
+    assert o.picks["base"] == dress["id"] and o.rank[0] == 0 and r.exact == 0, (o.picks, o.rank, r.exact)

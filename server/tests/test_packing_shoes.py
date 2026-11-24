@@ -276,3 +276,21 @@ def test_a_kept_pair_may_give_way_to_shoes_still_at_home():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["footwear"] == loafers["id"], plan
     assert loafers["id"] in {p["id"] for p in pack}
+
+
+def test_a_morning_of_only_summer_legs_is_refilled_not_dropped():
+    """A planned morning of shorts and sandals alone: both leave the list, the
+    replacements are packed, and the morning is kept and dressed (pre-push gate,
+    2026-11-24)."""
+    shorts = dict(item(210, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(211, "footwear", "sandals", typ="sandals"), warmth=1)
+    jeans = dict(item(212, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sneakers = dict(item(213, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    closet = [shorts, sandals, jeans, sneakers]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (shorts, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
+    raw = [{"bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8))
+    assert len(plan) == 1 and plan[0]["picks"]["bottoms"] == jeans["id"] \
+        and plan[0]["picks"]["footwear"] == sneakers["id"], plan

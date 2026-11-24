@@ -256,6 +256,16 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await drain();
   check("adding a warm dress clears it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
+  // A "legs" gap saved by an older app is read back as a base gap remembered as legs.
+  {
+    const w2 = new JSDOM(fs.readFileSync(HTML, "utf8"), {runScripts: "dangerously", url: "https://localhost/",
+      pretendToBeVisual: true, beforeParse(win) {
+        win.localStorage.setItem("oa.gaps", JSON.stringify([{slot: "legs", day: today, lo: 8, hi: 12}])); }}).window;
+    await w2.eval("appReady");
+    const g2 = JSON.parse(w2.eval("JSON.stringify(gaps)"));
+    check("an old 'legs' gap is migrated on load", g2.length === 1 && g2[0].slot === "base" && g2[0].legs === true, g2);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

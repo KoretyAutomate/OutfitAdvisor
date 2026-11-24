@@ -490,3 +490,20 @@ def test_one_of_two_refilled_slots_is_better_than_none():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
     p = plan[0]["picks"]
     assert bool(p.get("bottoms")) != bool(p.get("footwear")), p
+
+
+def test_packed_socks_are_no_cooler_shoes_for_the_judge():
+    """Cotton socks packed beside warmth-5 boots: the socks do not make the boots 'too
+    warm' (pre-push gate, 2026-11-24)."""
+    absolute = {"warmthScale": "absolute", "warmthAnchors": None}
+    sandals = dict(item(500, "footwear", "sandals", typ="sandals"), warmth=1, **absolute)
+    boots = dict(item(501, "footwear", "fur boots", typ="boots"), warmth=5, **absolute)
+    socks = dict(item(502, "footwear", "cotton socks", typ="socks"), warmth=1, **absolute)
+    jeans = dict(item(503, "bottoms", "jeans", typ="jeans"), warmth=3)
+    tee = dict(item(504, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [sandals, boots, socks, jeans, tee]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (boots, socks, jeans, tee)]
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8), {})
+    assert plan[0]["picks"]["footwear"] == boots["id"], plan

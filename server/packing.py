@@ -361,8 +361,11 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
         # Two wardrobes: the whole closet for the morning as planned (its dropped sandals
         # in it), and what the trip can wear for a repair, so the dropped sandals are no
         # "cooler alternative" that refuses the boots (pre-push gate, 2026-11-24).
-        trip = [i for i in items if i["id"] in packed or suits(i, i["category"], *band)]
-        judge = (check.Day.of(w, pk._index(items), prefs), check.Day.of(w, pk._index(trip), prefs))
+        # Never socks, pyjamas or briefs: they fill no outfit slot, so they are no "cooler
+        # shoes" either (vocab.NON_SLOT_TYPES, as the daily advice leaves them out).
+        dressable = [i for i in items if wearable(i)]
+        trip = [i for i in dressable if i["id"] in packed or suits(i, i["category"], *band)]
+        judge = (check.Day.of(w, pk._index(dressable), prefs), check.Day.of(w, pk._index(trip), prefs))
     # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
     # waterproof sandals on a rainy cold trip while waterproof boots stayed home). Tops
     # and layers too: an owned oxford for boots banned with every packed tee.

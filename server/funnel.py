@@ -118,9 +118,8 @@ class Ctx:
 
     @functools.cached_property
     def dry(self) -> bool:
-        """A wet day and a dry pair they could wear: only then is mesh a concession the
-        rank holds aside. With none, every outfit ranked so and the ladder walked every
-        combination for one that cannot exist (pre-push gate, 2026-11-24: 2.8s -> 21.7s)."""
+        """A wet day and a dry pair they could wear: only then does the rank hold mesh
+        aside (pre-push gate, 2026-11-24: else every combination is walked, 2.8s -> 21.7s)."""
         return self.wet and any(_keeps(replace(self, relaxed=frozenset(RELAX) - {"wet"}), "footwear", i, 4) is None
                                 for i in self.wd.ids if "footwear" in (self.wd.by_roles.get(i) or ()))
 

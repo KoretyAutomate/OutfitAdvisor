@@ -494,4 +494,12 @@ def test_a_summer_dress_on_a_cold_morning_is_a_leg_gap():
     coat = g("wcoat0001", "wool coat", "outerwear", "coat", ["outer"], 4)
     d = day(8, dress, coat, SNEAK, hi=12)
     picks = {"base": dress["id"], "outer": coat["id"], "footwear": SNEAK["id"]}
-    assert "base" in gaps.missing(picks, d, [])
+    assert gaps.LEGS_GAP in gaps.missing(picks, d, []) and "base" not in gaps.missing(picks, d, [])
+
+
+def test_a_legs_gap_reaches_shopping_as_the_base():
+    """A phone that predates LEGS_GAP stores "legs" as a slot; /shopping takes it as the
+    base rather than refusing the whole request."""
+    import schemas
+    assert schemas.Gap(slot="legs").slot == "base"
+    assert schemas.Gap(slot="warmth").slot == "outer"

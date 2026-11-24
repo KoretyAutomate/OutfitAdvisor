@@ -303,14 +303,21 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
 
 
 def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
-               pack: list[dict] | None = None) -> list[dict]:
+               pack: list[dict] | None = None, band: tuple | None = None) -> list[dict]:
     """The planned mornings held to the wearer's rules (pre-push reviewer, 2026-10-11):
     packing both halves of a banned pair is fine, wearing them together on a planned
     morning is not — the blamed garment comes off that morning; a morning with
     nothing left is dropped. A slot validate_plan marked for refilling gets the first
     packed garment of its kind that keeps every rule with the rest of the morning,
-    rotated by day so three mornings don't all wear the same pair."""
+    rotated by day so three mornings don't all wear the same pair. Where nothing
+    packed completes the morning, a suitable garment they own (`band`, the trip's
+    lo/hi) joins the list for it: checked against the WHOLE planned morning, coat and
+    all, which the list-level heuristics in top_up could only approximate (pre-push
+    gate, 2026-11-24: boots banned with the planned coat left the morning barefoot)."""
     by_item = {i["id"]: i for i in items}
+    pack = pack if pack is not None else []
+    packed = {p["id"] for p in pack}
+    spare = {s: [i["id"] for i in owned_for(items, s, *band) if i["id"] not in packed] for s in LEGS} if band else {}
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
@@ -321,14 +328,19 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             if not broken:
                 break
             picks[broken[0]["slot"]] = None
-        picks.update(_refill(day, picks, pack or [], user_rules, by_item, n))
+        got = _refill(day, picks, (pack, spare), user_rules, by_item, n)
+        picks.update(got)
+        for slot, iid in got.items():
+            if iid and iid not in {p["id"] for p in pack}:
+                pack.append({"id": iid, "category": slot, "label": by_item[iid]["label"], "qty": 1,
+                             "why": "to complete a planned morning"})
         day = {k: v for k, v in day.items() if k != "_refill"}
         if any(picks.values()):
             out.append({**day, "picks": picks})
     return out
 
 
-def _refill(day: dict, picks: dict, pack: list[dict], user_rules: list[dict], by_item: dict, n: int) -> dict:
+def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item: dict, n: int) -> dict:
     """The replacements for a morning's marked slots, chosen TOGETHER: trousers picked
     first could rule out the only shoes another pair goes with (pre-push gate,
     2026-11-21). The other leg slot may change too, to a packed pair that goes: boots
@@ -336,7 +348,9 @@ def _refill(day: dict, picks: dict, pack: list[dict], user_rules: list[dict], by
     any (pre-push gate, 2026-11-24); kept where it goes, since it is what was planned.
     The first combination keeping every rule with every marked slot filled, else the
     one filling most; each slot's packed garments rotated by day `n`. Never trousers
-    under a one-piece."""
+    under a one-piece. `pool`: (the packed list, {slot: suitable unpacked ids}), the
+    unpacked tried only after every packed garment."""
+    pack, spare = pool
     onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
     slots = [s for s in day.get("_refill", ()) if not (s == "bottoms" and onepiece)]
     kept = [s for s in LEGS if s not in slots and picks.get(s) and not (s == "bottoms" and onepiece)]
@@ -346,7 +360,8 @@ def _refill(day: dict, picks: dict, pack: list[dict], user_rules: list[dict], by
     for slot in names:
         kind = [p["id"] for p in pack if p["category"] == slot and p["id"] in by_item]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
-        options.append([*turn, None] if slot in slots else [picks[slot], *(i for i in turn if i != picks[slot])])
+        options.append([*turn, *spare.get(slot, ()), None] if slot in slots
+                       else [picks[slot], *(i for i in turn if i != picks[slot])])
     best: tuple = (-1, ())
     for combo in itertools.product(*options):
         filled = sum(c is not None for c in combo[len(kept):])

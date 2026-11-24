@@ -175,6 +175,24 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await drain();
   check("another summer dress leaves the base gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
 
+  // The server's "legs" gap: a tee neither suppresses nor clears it; warm trousers do.
+  const TEE2 = {...TEE, id: "tee000-0002"};
+  await ev(`closet=${JSON.stringify([DRESS1, TEE2, CHINOS])}; saveCloset()`);
+  check("a withheld tee excuses no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CHINOS.id)}])`)) === JSON.stringify(["legs"]));
+  check("withheld warm trousers do",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(TEE2.id)}])`)) === "[]");
+  await ev(`closetComplete=true; gaps=[]; recordGaps(["legs"],{lo:8,hi:12},8,"${today}",
+    [${JSON.stringify(DRESS1.id)},${JSON.stringify(TEE2.id)},${JSON.stringify(CHINOS.id)}])`); await drain();
+  const rec = JSON.parse(ev("JSON.stringify(gaps)"));
+  check("a legs gap is recorded as the base, remembered as legs",
+    rec.length === 1 && rec[0].slot === "base" && rec[0].legs === true, rec);
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(TEE2)})`);
+  await drain();
+  check("a tee leaves the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
+  check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

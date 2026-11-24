@@ -474,8 +474,9 @@ class Gap(BaseModel):
     @classmethod
     def _cold_gap_is_outer(cls, v: object) -> object:
         """An app that predates the cold-morning gap files the server's "warmth" word
-        as a slot of its own; for shopping it is evidence for `outer`."""
-        return "outer" if v == "warmth" else v
+        as a slot of its own; for shopping it is evidence for `outer`. Likewise "legs"
+        (gaps.LEGS_GAP, a summer dress on a cold morning) for `base`."""
+        return {"warmth": "outer", "legs": "base"}.get(v, v) if isinstance(v, str) else v
 
 
 class ShoppingRequest(BaseModel):

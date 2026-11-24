@@ -741,3 +741,26 @@ def test_the_judge_never_lets_a_dress_go_over_trousers():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11))
     p = plan[0]["picks"]
     assert not (p["base"] == dress["id"] and p.get("bottoms")), p
+
+
+def test_each_slot_is_searched_once():
+    """A planned undershirt, knit and coat are kept slots that may also come off: each
+    is searched once, so the budget reaches the chinos that go with the boots
+    (pre-push gate, 2026-11-24: duplicated slots ran the search out first)."""
+    under = dict(item(450, "inner", "undershirt", typ="undershirt"), group="underwear")
+    tees = [dict(item(451 + k, "base", f"shirt {k}", typ="shirt"), warmth=2) for k in range(3)]
+    knits = [dict(item(455 + k, "mid", f"knit {k}", typ="sweater"), warmth=3) for k in range(3)]
+    coats = [dict(item(460 + k, "outer", f"coat {k}", typ="coat"), group="outerwear", warmth=4) for k in range(3)]
+    jeans = dict(item(465, "bottoms", "jeans", typ="jeans"), warmth=3)
+    chinos = dict(item(466, "bottoms", "chinos", typ="trousers"), warmth=3)
+    sandals = dict(item(467, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(468, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [under, *tees, *knits, *coats, jeans, chinos, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "jeans"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in closet if i is not sandals]
+    raw = [{"inner": under["id"], "base": tees[0]["id"], "mid": knits[0]["id"], "outer": coats[0]["id"],
+            "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and p["bottoms"] == chinos["id"], p

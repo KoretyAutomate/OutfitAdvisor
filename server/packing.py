@@ -405,7 +405,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # undershirt that had to come off (pre-push gate, 2026-11-24).
     kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots
             and (picks.get(s) or s in ("mid", "outer"))
-            and not (s == "bottoms" and onepiece)] + extra   # a dress may swap for a dress
+            and not (s == "bottoms" and onepiece)]   # a dress may swap for a dress
+    kept += [s for s in extra if s not in kept]   # each slot searched once (pre-push gate, 2026-11-24)
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
     options = []

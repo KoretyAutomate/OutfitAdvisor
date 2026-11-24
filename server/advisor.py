@@ -373,7 +373,8 @@ def _holes(picks: dict, day: check.Day) -> set[str]:
     layers a warmer garment would go in, so a coat suggestion survives (pre-push gate,
     2026-10-21)."""
     found = gaps.missing(picks, day, [])
-    holes = {s for s in found if s in CATEGORIES}
+    # A worn slot is no hole, though a cold-leg gap names it (pre-push gate, 2026-11-24).
+    holes = {s for s in found if s in CATEGORIES and not picks.get(s)}
     if gaps.COLD_GAP in found:
         holes |= {s for s in ("outer", "mid") if not picks.get(s)}
     return holes

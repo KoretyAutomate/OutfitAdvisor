@@ -123,6 +123,13 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev("run()"); await drain();
   check("no normals after moving house", sent.length >= 2 && !("normals" in sent[sent.length - 1]), sent[sent.length - 1]);
   ev(`home=${JSON.stringify(HOME)}`);
+  // A new home whose climate is not measured yet: the push snapshot drops the old normals.
+  await ev("run()"); await drain();
+  check("the snapshot has normals before the move", !!(await disk("oa.pushPayload")).normals);
+  await ev(`home={...home, lat:51.5, lon:-0.1}; saveHome()`); await drain();
+  const moved = await disk("oa.pushPayload");
+  check("saving a new home drops them from the push snapshot", moved && !moved.normals, moved && moved.normals);
+  ev(`home=${JSON.stringify(HOME)}`);
 
   console.log("\n--- the override: stored, sent ------------------------------------");
   check("itemMeta sends a non-auto season", ev(`itemMeta(${JSON.stringify({...SHORTS, season: "warm"})}).season`) === "warm");

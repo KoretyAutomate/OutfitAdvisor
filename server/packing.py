@@ -414,7 +414,9 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # the only boots; pre-push gate, 2026-11-24).
     # The undershirt likewise, as it may be left off any day (picks._SHEDDABLE).
     extra = [s for s, i in picks.items() if i and s not in slots
-             and ((by_item.get(i) or {}).get("group") == "accessories" or s in ("inner", "mid", "outer"))]
+             and ((by_item.get(i) or {}).get("group") == "accessories" or s in ("inner", "mid", "outer")
+                  # the top too, where the judge can tell a cardigan worn as the top suffices
+                  or (s == "base" and judge is not None))]
     # An empty mid or outer layer may take a packed one, to make up the warmth of an
     # undershirt that had to come off (pre-push gate, 2026-11-24).
     kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots

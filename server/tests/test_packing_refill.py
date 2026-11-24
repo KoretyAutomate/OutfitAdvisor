@@ -552,3 +552,21 @@ def test_a_wider_search_out_of_budget_never_loses_the_first_answer(monkeypatch):
     raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
     assert len(calls) == 2 and plan[0]["picks"]["bottoms"] == jeans["id"], (calls, plan)
+
+
+def test_a_cardigan_may_take_the_place_of_a_tee_banned_with_the_boots():
+    """8-11C: tee, cardigan and jeans packed, boots banned with tees: the morning wears the
+    cardigan as its top with the boots (pre-push gate, 2026-11-24)."""
+    tee = dict(item(690, "base", "tee", typ="t_shirt"), warmth=2)
+    cardi = dict(item(691, "mid", "cardigan", typ="cardigan"), warmth=3)
+    jeans = dict(item(692, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(693, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(694, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [tee, cardi, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (tee, cardi, jeans, boots)]
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11), {})
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and not p.get("base") and cardi["id"] in (p.get("mid"), p.get("outer")), p

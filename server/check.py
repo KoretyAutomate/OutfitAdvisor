@@ -194,7 +194,10 @@ def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
             if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in ids
             and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
             and not voted_down(day, i, {**worn, slot: i})
-            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
+            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
+            # Nor summer legs on a cold morning: waterproof sandals are no snow gear the
+            # funnel would let them wear (pre-push gate, 2026-11-24).
+            and not layers.underdressed(it, slot, day)]
 
 
 def is_coat(item: dict) -> bool:

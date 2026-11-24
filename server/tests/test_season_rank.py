@@ -350,3 +350,18 @@ def test_a_coat_worn_in_the_mid_slot_gives_up_no_coat():
     assert "coat" not in funnel.needed(c, picks)
     assert "coat" in funnel.needed(c, {**picks, "mid": None}), "no coat at all is given up"
     assert "coat" not in funnel.needed(c, {"base": TEE["id"], "outer": None}), "the torso is not decided yet"
+
+
+def test_waterproof_summer_sandals_are_no_snow_gear():
+    """Snowy 6-10C, waterproof warmth-1 sandals and plain warmth-3 boots: the sandals
+    are too cold, so the boots are not refused for want of snow gear (pre-push gate,
+    2026-11-24)."""
+    import check
+    from test_funnel import run
+    from wardrobe_fixtures import JACKET, UNDER
+    sandals = g("wpsandal1", "waterproof sandals", "footwear", "sandals", ["footwear"], 1, waterproof=True)
+    boots = g("plboots01", "leather boots", "footwear", "boots", ["footwear"], 3)
+    d, r = run(6, UNDER, TEE, JACKET, CHINOS, sandals, boots, hi=10, isSnow=True)
+    o = r.outfits[0]
+    assert o.picks["footwear"] == boots["id"], (o.picks, o.relaxed)
+    assert not check.hard(check.issues(o.picks, d))

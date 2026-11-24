@@ -564,7 +564,9 @@ def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
     given = best.out.get("lines")
     said = given if isinstance(given, dict) else {}
     out = {s: str(day.wd.by_item[i]["label"]) for s in CATEGORIES if (i := picks.get(s))}
-    for s in (s for s in missing if s in CATEGORIES):
+    # A slot still worn keeps its garment: a cold-leg gap (gaps.py) names the summer
+    # trousers being worn, not an empty slot (pre-push gate, 2026-11-24).
+    for s in (s for s in missing if s in CATEGORIES and not picks.get(s)):
         # Only a slot the MODEL left empty carries a generic suggestion; a slot the
         # fallback emptied holds a line about the garment it took off. Raised by
         # the pre-push reviewer, 2026-10-11.

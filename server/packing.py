@@ -158,8 +158,19 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
     shoes = sorted(owned_for(items, "footwear", *band),
                    key=lambda i: (alone(i), *_fit(i, "footwear", pack, user_rules, by_id),
                                   not any(s in i["formality"] for s in styles), i["id"]))
-    if shoes:
-        pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
+    if not shoes:
+        return
+    chosen = [shoes[0]]
+    # A packed top or pair of trousers no chosen pair may be worn with gets a pair of
+    # its own: sneakers banned with the jeans and boots with the chinos are both packed
+    # (pre-push gate, 2026-11-24). Added trousers follow the shoes already (_fit).
+    for p in [p for p in pack if p["category"] in ("base", "bottoms") and p["id"] in by_id]:
+        def ok(shoe: dict, p: dict = p) -> bool:
+            return not rules.violations(user_rules, {p["category"]: p["id"], "footwear": shoe["id"]}, by_id)
+        if not any(ok(c) for c in chosen) and (fits := [s for s in shoes if s not in chosen and ok(s)]):
+            chosen.append(fits[0])
+    for c in chosen:
+        pack.append({"id": c["id"], "category": "footwear", "label": c["label"], "qty": 1,
                      "why": "warm enough for the trip"})
 
 

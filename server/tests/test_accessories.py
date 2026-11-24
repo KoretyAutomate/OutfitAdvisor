@@ -2,6 +2,7 @@
 split. Belt and scarf can go together"). accessories.py; vocab.ACCESSORY_SLOTS."""
 import accessories
 import funnel
+import garment
 import gaps
 import rules
 import schemas
@@ -95,7 +96,7 @@ def test_a_cap_is_no_cold_weather_hat():
 
 
 def test_an_umbrella_on_a_wet_day_only():
-    for rain, want in ((accessories.WET_RAIN_PCT, True), (accessories.WET_RAIN_PCT - 1, False)):
+    for rain, want in ((garment.WET_RAIN_PCT, True), (garment.WET_RAIN_PCT - 1, False)):
         assert accessories.reason("umbrella", UMBRELLA, day(14, UMBRELLA, rain=rain), {}) is want
     assert accessories.reason("umbrella", UMBRELLA, day(14, UMBRELLA, rain=0, isRain=True), {})
     _, p = best(14, UNDER, OXFORD, CHINOS, SNEAK, UMBRELLA, hi=20)
@@ -241,3 +242,11 @@ def test_an_out_of_season_accessory_is_left_home():
     assert p["belt"] is None
     _, p = best(14, UNDER, OXFORD, CHINOS, SNEAK, summer, hi=20, p=prefs(normal=season.Normal(20, 28)))
     assert p["belt"] == BELT["id"]
+
+
+def test_no_wardrobe_outlives_its_request():
+    """The accessory candidates are cached on the request's Day, never in the module
+    (README: the server stores nothing; pre-push gate, 2026-11-24)."""
+    assert not hasattr(accessories, "_CANDS")
+    d, _ = run(3, *CLOTHES, BELT, SCARF, hi=8)
+    assert "accessories.candidates" in d.memo

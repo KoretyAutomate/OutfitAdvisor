@@ -14,6 +14,7 @@ from check import TORSO, Day
 from vocab import ACCESSORY_SLOTS, CATEGORIES
 
 COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
+LEGS_GAP = "legs"       # not a slot: a one-piece too thin for the morning's legs
 
 
 def missing(picks: dict, day: Day, claimed: object) -> list[str]:
@@ -36,9 +37,13 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
         gaps.append(COLD_GAP)
     # Summer legs worn on a cold morning because nothing warmer is owned: the slot is
     # the gap (user, 2026-11-18). Owning warmer ones is check.py's cold-legs instead.
-    for slot in ("bottoms", "footwear"):
+    # A one-piece worn as the base covers the legs too (layers.covers_legs), and its gap
+    # says so: LEGS_GAP, which a tee cannot answer the way it answers "base" (pre-push
+    # gate, 2026-11-24).
+    for slot in ("bottoms", "footwear", "base"):
         it = day.wd.by_item.get(picks.get(slot)) or {}
-        if it and scale.too_cold_for_legs(it, day.plan) and slot not in gaps and not layers.underdressed(
-                it, slot, day):
-            gaps.append(slot)
+        word = LEGS_GAP if slot == "base" else slot
+        if it and layers.covers_legs(slot, it) and scale.too_cold_for_legs(it, day.plan) and word not in gaps \
+                and not layers.underdressed(it, slot, day):
+            gaps.append(word)
     return gaps

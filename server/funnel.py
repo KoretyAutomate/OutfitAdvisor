@@ -21,9 +21,10 @@ afterwards — a 2/5 and a 3/5 were served (2026-10-18 10:29 / 10:35, 2026-10-20
 check.py stays the one fact check: every outfit this returns has passed it, so a
 funnel answer can never carry a hard issue the old path would have caught.
 """
+import functools
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import accessories
 import check
@@ -114,8 +115,13 @@ class Ctx:
 
     @property
     def wet(self) -> bool:
-        w = self.day.w
-        return (w.get("rain") or 0) >= 50 or bool(w.get("isRain"))
+        return garment.wet(self.day.w)
+
+    @functools.cached_property
+    def dry(self) -> bool:
+        """A wet day and a dry pair they could wear: only then is mesh held aside (2026-11-24)."""
+        return self.wet and any(_keeps(replace(self, relaxed=frozenset(RELAX) - {"wet"}), "footwear", i, 4) is None
+                                for i in self.wd.ids if "footwear" in (self.wd.by_roles.get(i) or ()))
 
 
 @dataclass
@@ -347,6 +353,10 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if strict.wet and garment.wets_through(shoes):
         out.append("wet")
+    # Snow gear or a coat left off a decided slot where one could be worn (2026-11-24).
+    by = {s: ctx.wd.by_item.get(picks[s]) or {} for s in ("footwear", "outer") if s in picks}
+    out += ["snow"] * any(_snow_gear(strict, s) and not it.get("waterproof") for s, it in by.items())
+    out += ["coat"] * bool(_coat_day(strict) and "outer" in by and not check.is_coat(by["outer"]))
     worst = max(_steps_off(strict, picks), default=0)
     out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
@@ -494,16 +504,12 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        # Tier: 0 fine, 1 out of season, 2 cold, 3 both. Anything above 0 is held
-        # aside while the ladder looks for a 0 (season.py: comfort, then season).
-        # The torso's only off a coat morning: there the layers the weather needs
-        # (fit.layering) are comfort, and its season only breaks ties after them; the
-        # legs, which no layering rule touches, always (pre-push gate, 2026-11-21).
-        # Within a tier a rule given up still comes first: the layering is a soft
-        # preference and never buys a broken one (pre-push gate, 2026-11-24).
+        # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both; above 0 is
+        # held aside. Within it the weather, the rules, then the layering (user, 2026-11-24:
+        # "dry feet first", however many styling steps the dry pair takes).
         n = season.mismatches(c.day, full)
-        held = bool(season.mismatches(c.day, full, legs_only=True)) or (bool(n) and c.day.plan >= layers.COAT_BELOW_C)
-        rank = (2 * bool(hard) + held, *cost(gave), fit.layering(c, full), n,
+        wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
+        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
                 *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:

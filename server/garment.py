@@ -177,3 +177,11 @@ def wets_through(item: dict) -> bool:
     """Shoes that soak through on a wet commute. Unknown material never does, and a
     pair marked waterproof never does whatever its upper (a waterproof mesh trainer)."""
     return item.get("group") == "footwear" and not item.get("waterproof") and material(item) in WET_THROUGH
+
+
+WET_RAIN_PCT = 50   # a wet commute: this chance of rain, or rain falling
+
+
+def wet(w: dict) -> bool:
+    """A wet day, by one bar for every reader (funnel's filter, season, accessories)."""
+    return (w.get("rain") or 0) >= WET_RAIN_PCT or bool(w.get("isRain"))

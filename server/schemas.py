@@ -40,8 +40,7 @@ def _clean(s: str, max_len: int) -> str:
     return _TEXT_OK.sub("", s)[:max_len].strip()
 
 
-# The eleven slots, plus `accessories`, which phones before v1.62 still send: accepted,
-# never a 422 (vocab.LEGACY_CATEGORY; reconcile files it by type).
+# The eleven slots, plus `accessories` from phones before v1.62 (vocab.LEGACY_CATEGORY).
 Slot = Literal["inner", "base", "mid", "outer", "bottoms", "footwear",
                "belt", "neck", "head", "hands", "umbrella", "accessories"]
 
@@ -467,10 +466,10 @@ class KnownPlace(BaseModel):
 class Gap(BaseModel):
     """One slot the wardrobe could not fill, and the weather it happened in.
 
-    Counted on the PHONE across the period, so this server still stores nothing.
+    Counted on the PHONE, so this server stores nothing. "legs": warm leg cover (gaps.LEGS_GAP).
     """
 
-    slot: Slot
+    slot: Slot | Literal["legs"]
     n: int = Field(1, ge=1, le=400)
     loC: int = Field(0, ge=-60, le=60)
     hiC: int = Field(0, ge=-60, le=60)

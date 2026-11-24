@@ -19,19 +19,15 @@ breaks no rule and no pairing (a brown belt with black shoes) with what is worn.
 # funnel imports this module; the cycle is safe because funnel's names are only
 # read when dress() runs, long after both modules have loaded.
 import funnel
+import garment
 import layers
 import season
 from vocab import ACCESSORY_SLOTS
 
 COLD_HANDS_C = 5.0        # a hat and gloves below this (engine.py's generic advice)
-WET_RAIN_PCT = 50         # funnel.Ctx.wet's bar, so a wet day means one thing
 WARM_HAT = 3              # a cap or sun hat (warmth 1-2) is no cold-weather hat
 _KIND = {"belt": "belt", "neck": "scarf", "head": "hat", "hands": "gloves", "umbrella": "umbrella"}
 _BELTED = ("trousers", "jeans")
-
-
-def wet(w: dict) -> bool:
-    return (w.get("rain") or 0) >= WET_RAIN_PCT or bool(w.get("isRain"))
 
 
 def wanted(slot: str, day, picks: dict) -> bool:
@@ -42,7 +38,7 @@ def wanted(slot: str, day, picks: dict) -> bool:
         return day.plan < layers.COAT_BELOW_C
     if slot in ("head", "hands"):
         return day.plan < COLD_HANDS_C
-    return slot == "umbrella" and wet(day.w)
+    return slot == "umbrella" and garment.wet(day.w)
 
 
 def reason(slot: str, item: dict, day, picks: dict) -> bool:
@@ -60,25 +56,20 @@ def score(day, picks: dict) -> float:
                for s in ACCESSORY_SLOTS if (i := picks.get(s)) and i in by)
 
 
-# (id(day), target, relaxed, width, cold_ok) -> (day, {slot: [ids, best first]}): what
-# funnel._keeps and the priority depend on. The day is kept so its id cannot be reused
-# while cached; a few requests' worth at most.
-_CANDS: dict = {}
-
-
 def _candidates(ctx, priority, keeps, widen: int) -> dict:
-    k = (id(ctx.day), ctx.target, ctx.relaxed, ctx.width, ctx.cold_ok)
-    hit = _CANDS.get(k)
-    if hit is None or hit[0] is not ctx.day:
-        while len(_CANDS) >= 32:
-            _CANDS.pop(next(iter(_CANDS)))
+    """{slot: [ids, best first]} for this pass: what funnel._keeps and the priority
+    depend on. Kept on the request's Day (Day.memo), never in the module: a module
+    cache kept a wardrobe past its request (pre-push gate, 2026-11-24)."""
+    memo = ctx.day.memo.setdefault("accessories.candidates", {})
+    k = (ctx.target, ctx.relaxed, ctx.width, ctx.cold_ok)
+    if k not in memo:
         wd = ctx.wd
 
         def ranked(s: str) -> list:
             ids = [i for i in wd.ids if s in (wd.by_roles.get(i) or ()) and keeps(ctx, s, i, widen) is None]
             return sorted(ids, key=lambda i: (-priority(i, s), i))
-        hit = _CANDS[k] = (ctx.day, {s: ranked(s) for s in ACCESSORY_SLOTS})
-    return hit[1]
+        memo[k] = {s: ranked(s) for s in ACCESSORY_SLOTS}
+    return memo[k]
 
 
 def dress(ctx, picks: dict, priority) -> dict:

@@ -95,6 +95,14 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev("refreshClimate()"); await drain();
   check("a cache without normals is measured again", climateCalls === 1, climateCalls);
   check("and keeps them", ev("climateNormals()") !== null);
+  // The closet drawn before they arrived is filed again once they do.
+  const SUMMER = {...CHINOS, id: "summer-0001", label: "summer-only trousers", season: "warm"};
+  const WINTER = {...CHINOS, id: "winter-0001", label: "winter-only trousers", season: "cold"};
+  ev(`climate={...climate}; delete climate.normals`);
+  await ev(`closet=${JSON.stringify([SUMMER, WINTER])}; closetFolded=new Set(); renderCloset()`); await drain(); await drain();
+  check("no normals yet: no 'Other seasons'", !/Other seasons/.test(w.document.getElementById("closetGrid").textContent));
+  await ev("refreshClimate()"); await drain(); await drain();
+  check("once they arrive the closet is filed by season", /Other seasons/.test(w.document.getElementById("closetGrid").textContent));
 
   console.log("\n--- requests carry the normals ------------------------------------");
   const sent = [];
@@ -155,6 +163,120 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   check("another pair of shorts leaves the gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
   await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
   check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
+  // A summer dress is legs too: another one neither suppresses nor clears the base gap.
+  const DRESS1 = {id: "dress0-0001", label: "sundress", category: "base", group: "onepiece", type: "dress",
+    roles: ["base"], colors: ["red"], warmth: 1, formality: ["casual"], waterproof: false, count: 1};
+  const DRESS2 = {...DRESS1, id: "dress0-0002", label: "second sundress"};
+  await ev(`closet=${JSON.stringify([DRESS1, DRESS2])}; saveCloset()`);
+  check("a withheld summer dress excuses no base gap at 3C",
+    JSON.stringify(ev(`ownershipGaps(["base"],3,[${JSON.stringify(DRESS1.id)}])`)) === JSON.stringify(["base"]));
+  await ev(`gaps=[{slot:"base",day:"${today}",lo:3,hi:8,at:3}]; clearGapsFilledBy(${JSON.stringify(DRESS2)})`);
+  await drain();
+  check("another summer dress leaves the base gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+
+  // The server's "legs" gap: a tee neither suppresses nor clears it; warm trousers do.
+  const TEE2 = {...TEE, id: "tee000-0002"};
+  // No warm trousers anywhere: a tee in the wash completes nothing.
+  await ev(`closet=${JSON.stringify([DRESS1, TEE2])}; saveCloset()`);
+  check("a withheld tee with no warm trousers excuses no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)}])`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(TEE2)})`);
+  await drain();
+  check("a tee with no warm trousers leaves the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  // Warm chinos sent, the only tee in the wash: a laundry shortage, not legwear to buy
+  // (pre-push gate, 2026-11-24).
+  await ev(`closet=${JSON.stringify([DRESS1, TEE2, CHINOS])}; saveCloset()`);
+  check("a withheld tee that completes the sent chinos excuses the legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CHINOS.id)}])`)) === "[]");
+  check("withheld warm trousers do",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(TEE2.id)}])`)) === "[]");
+  await ev(`closetComplete=true; gaps=[]; recordGaps(["legs"],{lo:8,hi:12},8,"${today}",
+    [${JSON.stringify(DRESS1.id)},${JSON.stringify(TEE2.id)},${JSON.stringify(CHINOS.id)}])`); await drain();
+  const rec = JSON.parse(ev("JSON.stringify(gaps)"));
+  check("a legs gap is recorded as the base, remembered as legs",
+    rec.length === 1 && rec[0].slot === "base" && rec[0].legs === true, rec);
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(TEE2)})`);
+  await drain();
+  check("adding a tee that completes owned chinos answers it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(CHINOS)})`);
+  await drain();
+  check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
+  // No top to wear warm trousers under: they answer nothing.
+  await ev(`closet=${JSON.stringify([DRESS1, DRESS2, CHINOS])}; saveCloset()`);
+  check("no top: withheld trousers excuse no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(DRESS2.id)}])`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(CHINOS)})`);
+  await drain();
+  check("no top: added trousers leave the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  // An 8-30C day: a wool dress is too warm for the afternoon, so it answers nothing.
+  const WOOL = {...DRESS1, id: "dress0-0003", label: "wool dress", warmth: 3};
+  await ev(`closet=${JSON.stringify([DRESS1, WOOL])}; saveCloset()`);
+  check("a wool dress too warm for the afternoon excuses no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)}],30)`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:30,at:8,pk:30}]; clearGapsFilledBy(${JSON.stringify(WOOL)})`);
+  await drain();
+  check("nor clears it", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WOOL)})`);
+  await drain();
+  check("on a cool day it does", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+  // A cardigan worn as the top makes warm trousers an answer.
+  const CARD = {...TEE, id: "cardi0-0001", label: "cardigan", type: "cardigan", roles: ["mid", "outer"], category: "mid"};
+  await ev(`closet=${JSON.stringify([DRESS1, CARD, CHINOS])}; saveCloset()`);
+  check("a cardigan as the top: withheld trousers excuse the legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CARD.id)}],12)`)) === "[]");
+  // The only top is a warmth-5 sweater on an 8-20C day: too warm, so the jeans are no answer.
+  const HOT = {...TEE, id: "sweatr-0009", label: "chunky sweater", type: "sweater", roles: ["base"], warmth: 5};
+  const LJEANS = {...CHINOS, id: "ljeans-0001", label: "light jeans", type: "jeans", warmth: 2};
+  await ev(`closet=${JSON.stringify([DRESS1, HOT, LJEANS])}; saveCloset()`);
+  check("the jeans alone would do", ev(`notTooWarm(${JSON.stringify(LJEANS)},20)&&!tooColdForLegs(${JSON.stringify(LJEANS)},8)`));
+  check("a top too warm for the day makes no trousers an answer",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(HOT.id)}],20)`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:20,at:8,pk:20}]; clearGapsFilledBy(${JSON.stringify(LJEANS)})`);
+  await drain();
+  check("nor clears the gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8},{slot:"base",day:"${today}",lo:8,hi:12}]`);
+  const sum = JSON.parse(ev("JSON.stringify(gapSummary())"));
+  check("the summary sends leg cover as legs, apart from a plain base gap",
+    sum.some(x => x.slot === "legs") && sum.some(x => x.slot === "base"), sum);
+
+  // A cardigan filed only as outer is still a top for warm trousers.
+  const OCARD = {...TEE, id: "ocardi-0001", label: "outer cardigan", type: "cardigan", roles: ["outer"], category: "outer"};
+  await ev(`closet=${JSON.stringify([DRESS1, OCARD, CHINOS])}; saveCloset()`);
+  check("an outer-only cardigan makes warm trousers an answer",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(OCARD.id)}],12)`)) === "[]");
+  // A warm dress is an alternative to cold shorts: in the wash it excuses the bottoms
+  // gap, and adding one clears it (pre-push gate, 2026-11-24).
+  const WARMD = {...DRESS1, id: "dress0-0010", label: "wool dress", warmth: 3};
+  await ev(`closet=${JSON.stringify([SHORTS, TEE, WARMD])}; saveCloset()`);
+  check("a warm dress in the wash excuses a cold bottoms gap",
+    JSON.stringify(ev(`ownershipGaps(["bottoms"],8,[${JSON.stringify(SHORTS.id)},${JSON.stringify(TEE.id)}],12)`)) === "[]");
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WARMD)})`);
+  await drain();
+  check("adding a warm dress clears it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
+  // An 8-30C day: warm jeans are too hot for the afternoon, so they answer no bottoms gap.
+  const WJEANS = {...CHINOS, id: "wjeans-0001", label: "warm jeans", type: "jeans", warmth: 3};
+  await ev(`closet=${JSON.stringify([SHORTS, TEE, WJEANS])}; saveCloset()`);
+  check("warm jeans too hot for the afternoon excuse no bottoms gap",
+    JSON.stringify(ev(`ownershipGaps(["bottoms"],8,[${JSON.stringify(SHORTS.id)},${JSON.stringify(TEE.id)}],30)`)) === JSON.stringify(["bottoms"]));
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:30,at:8,pk:30}]; clearGapsFilledBy(${JSON.stringify(WJEANS)})`);
+  await drain();
+  check("nor clear it", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WJEANS)})`);
+  await drain();
+  check("on a cool day they do", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
+  // A "legs" gap saved by an older app is read back as a base gap remembered as legs.
+  {
+    const w2 = new JSDOM(fs.readFileSync(HTML, "utf8"), {runScripts: "dangerously", url: "https://localhost/",
+      pretendToBeVisual: true, beforeParse(win) {
+        win.localStorage.setItem("oa.gaps", JSON.stringify([{slot: "legs", day: today, lo: 8, hi: 12}])); }}).window;
+    await w2.eval("appReady");
+    const g2 = JSON.parse(w2.eval("JSON.stringify(gaps)"));
+    check("an old 'legs' gap is migrated on load", g2.length === 1 && g2[0].slot === "base" && g2[0].legs === true, g2);
+  }
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

@@ -98,7 +98,7 @@ def test_a_winter_trip_is_not_topped_up_with_shorts():
             dict(item(42, "bottoms", "flannel trousers"), warmth=4)]
     shorts = [dict(item(50 + k, "bottoms", f"shorts {k}", typ="shorts"), warmth=1) for k in range(3)]
     pack = [{"id": w["id"], "category": "bottoms", "label": w["label"], "qty": 1, "why": "x"} for w in warm]
-    out = packing.top_up(pack, warm + shorts + SHOES, 15, ["casual"], lo=-2, hi=6)
+    out = packing.top_up(pack, warm + shorts + SHOES, 15, ["casual"], band=(-2, 6))
     assert sum(p["qty"] for p in out if p["category"] == "bottoms") == 2
     assert not any("shorts" in p["label"] for p in out)
     assert [i["id"] for i in packing.owned_for(warm + shorts, "bottoms", -2, 6)] == [w["id"] for w in warm]
@@ -113,7 +113,7 @@ def test_shorts_the_model_packed_do_not_count_as_winter_trousers():
     shorts = dict(item(50, "bottoms", "shorts"), warmth=1)
     pack = [{"id": "itm-00000050", "category": "bottoms", "label": "shorts", "qty": 1, "why": "x"},
             {"id": "itm-00000041", "category": "bottoms", "label": "wool trousers", "qty": 1, "why": "x"}]
-    out = packing.top_up(pack, warm + [shorts] + SHOES, 15, ["casual"], lo=-2, hi=6)
+    out = packing.top_up(pack, warm + [shorts] + SHOES, 15, ["casual"], band=(-2, 6))
     ids = {p["id"] for p in out if p["category"] == "bottoms"}
     assert {"itm-00000041", "itm-00000042"} <= ids, "both warm pairs go"
     assert "itm-00000050" not in ids, "the shorts stay home"
@@ -124,9 +124,9 @@ def test_sandals_the_model_packed_stay_home_from_a_winter_trip_and_go_to_a_summe
     boots = dict(item(61, "footwear", "boots", typ="boots"), warmth=4)
     pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"},
             {"id": "itm-00000061", "category": "footwear", "label": "boots", "qty": 1, "why": "x"}]
-    winter = packing.top_up([dict(p) for p in pack], [sandals, boots], 5, ["casual"], lo=-2, hi=6)
+    winter = packing.top_up([dict(p) for p in pack], [sandals, boots], 5, ["casual"], band=(-2, 6))
     assert [p["id"] for p in winter if p["category"] == "footwear"] == ["itm-00000061"]
-    summer = packing.top_up([dict(p) for p in pack[:1]], [sandals, boots], 5, ["casual"], lo=20, hi=30)
+    summer = packing.top_up([dict(p) for p in pack[:1]], [sandals, boots], 5, ["casual"], band=(20, 30))
     assert [p["id"] for p in summer if p["category"] == "footwear"] == ["itm-00000060"]
 
 
@@ -134,14 +134,14 @@ def test_sandals_dropped_from_a_winter_list_are_replaced_by_shoes_they_own():
     sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
     sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers"), warmth=2)
     pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
-    out = packing.top_up(pack, [sandals, sneakers], 5, ["casual"], lo=-2, hi=6)
+    out = packing.top_up(pack, [sandals, sneakers], 5, ["casual"], band=(-2, 6))
     assert [p["id"] for p in out if p["category"] == "footwear"] == ["itm-00000062"]
 
 
 def test_sandals_dropped_with_no_other_shoes_leave_the_slot_to_the_gap_report():
     sandals = dict(item(60, "footwear", "sandals", typ="sandals"), warmth=1)
     pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
-    out = packing.top_up(pack, [sandals], 5, ["casual"], lo=-2, hi=6)
+    out = packing.top_up(pack, [sandals], 5, ["casual"], band=(-2, 6))
     assert not [p for p in out if p["category"] == "footwear"]
     assert packing.owned_for([sandals], "footwear", -2, 6) == [], "what /packing counts: no shoes for the trip"
 
@@ -169,7 +169,7 @@ def test_normals_trips_repair_against_the_extremes_the_prompt_packed_for():
 def test_a_summer_trip_leaves_the_wool_at_home():
     warm = [dict(item(41, "bottoms", "wool trousers"), warmth=5)]
     light = [item(51, "bottoms", "linen trousers"), dict(item(52, "bottoms", "shorts", typ="shorts"), warmth=1)]
-    out = packing.top_up([], warm + light, 6, ["casual"], lo=24, hi=33)
+    out = packing.top_up([], warm + light, 6, ["casual"], band=(24, 33))
     assert {p["id"] for p in out if p["category"] == "bottoms"} == {"itm-00000051", "itm-00000052"}
 
 
@@ -350,7 +350,11 @@ def test_the_plan_is_validated_against_the_final_pack():
     owned — the plan may only reference what is being packed."""
     pack = packed("itm-00000001")
     plan = packing.validate_plan([{"bottoms": "itm-00000002"}], days(3), pack, travel=False)
-    assert plan == []
+    # The unpacked trousers are dropped; the morning is kept only to be refilled from
+    # the pack (2026-11-24), and the finished plan names packed ids alone.
+    assert all(v is None for d in plan for v in d["picks"].values()) and plan[0]["_refill"] == ["bottoms"]
+    final = packing.keep_rules(plan, [], BOTTOMS, pack)
+    assert final and all(v in {p["id"] for p in pack} for d in final for v in d["picks"].values() if v)
 
 
 def test_tip_carries_no_emoji():
@@ -432,7 +436,7 @@ def _winter_plan(pack_items, rules_=(), raw=None):
             {"id": TOPS[0]["id"], "category": "base", "label": "tee 0", "qty": 3, "why": "x"},
             {"id": SHOES[0]["id"], "category": "footwear", "label": "white sneakers", "qty": 1, "why": "x"}]
     # Six days: two pairs of trousers packed (ceil(6/3)); the plan covers the first three.
-    pack = packing.top_up(pack, closet, 6, ["casual"], lo=-2, hi=6)
+    pack = packing.top_up(pack, closet, 6, ["casual"], band=(-2, 6))
     raw = raw or [{"base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": SHOES[0]["id"]}] * 3
     plan = packing.validate_plan(raw, days(3), pack, travel=False)
     return packing.keep_rules(plan, list(rules_), closet, pack), pack
@@ -468,7 +472,7 @@ def test_a_dress_morning_is_not_given_trousers():
             {"id": shorts["id"], "category": "bottoms", "label": "shorts", "qty": 1, "why": "x"},
             {"id": SHOES[0]["id"], "category": "footwear", "label": "white sneakers", "qty": 1, "why": "x"}]
     closet = [shorts, *warm, *SHOES]
-    pack = packing.top_up(pack, closet, 1, ["casual"], lo=-2, hi=6)
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(-2, 6))
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack)
     assert plan[0]["picks"]["bottoms"] is None and plan[0]["picks"]["base"] == dress["id"]
 
@@ -478,7 +482,7 @@ def test_replacement_shoes_match_the_trip_and_come_as_one_pair():
     sneakers = dict(item(62, "footwear", "sneakers", typ="sneakers", count=3), warmth=2)
     derbies = dict(item(63, "footwear", "derbies", formality=("smart",), typ="derbies", count=3), warmth=2)
     pack = [{"id": "itm-00000060", "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
-    out = packing.top_up(pack, [sandals, sneakers, derbies], 5, ["smart"], lo=-2, hi=6)
+    out = packing.top_up(pack, [sandals, sneakers, derbies], 5, ["smart"], band=(-2, 6))
     shoes = [p for p in out if p["category"] == "footwear"]
     assert [p["id"] for p in shoes] == ["itm-00000063"] and shoes[0]["qty"] == 1
 
@@ -502,7 +506,7 @@ def test_an_unrelated_banned_pair_does_not_veto_the_refill():
     closet = [under, jeans, shorts, TOPS[0], *SHOES]
     pack = [{"id": p["id"], "category": p["category"], "label": p["label"], "qty": 1, "why": "x"}
             for p in (under, shorts, TOPS[0], SHOES[0])]
-    pack = packing.top_up(pack, closet, 3, ["casual"], lo=-2, hi=6)
+    pack = packing.top_up(pack, closet, 3, ["casual"], band=(-2, 6))
     raw = [{"inner": under["id"], "base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": SHOES[0]["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [ban], closet, pack)
     assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["inner"] is None, plan
@@ -520,7 +524,7 @@ def test_replacement_trousers_and_shoes_are_chosen_together():
     closet = [jeans, chinos, sneakers, shorts, sandals, TOPS[0]]
     pack = [{"id": p["id"], "category": p["category"], "label": p["label"], "qty": 1, "why": "x"}
             for p in (jeans, chinos, sneakers, shorts, sandals, TOPS[0])]
-    pack = packing.top_up(pack, closet, 3, ["casual"], lo=-2, hi=6)
+    pack = packing.top_up(pack, closet, 3, ["casual"], band=(-2, 6))
     raw = [{"base": TOPS[0]["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [ban], closet, pack)
     assert plan[0]["picks"]["bottoms"] == chinos["id"] and plan[0]["picks"]["footwear"] == sneakers["id"], plan
@@ -532,7 +536,7 @@ def test_with_no_combination_keeping_every_rule_the_most_slots_are_filled():
     ban = {"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}
     day = {"_refill": ["bottoms", "footwear"]}
     pack = [{"id": jeans["id"], "category": "bottoms"}, {"id": sneakers["id"], "category": "footwear"}]
-    got = packing._refill(day, {"base": None}, pack, [ban], {jeans["id"]: jeans, sneakers["id"]: sneakers}, 0)
+    got = packing._refill(day, {"base": None}, (pack, {}), [ban], {jeans["id"]: jeans, sneakers["id"]: sneakers}, 0)
     assert sum(v is not None for v in got.values()) == 1, got
 
 
@@ -582,5 +586,5 @@ def test_warm_trousers_on_a_hot_trip_are_not_too_thin_and_stay():
     jeans = dict(item(41, "bottoms", "dark jeans", typ="jeans"), warmth=3)
     pack = [{"id": jeans["id"], "category": "bottoms", "label": "dark jeans", "qty": 1, "why": "x"}]
     assert packing.too_thin(pack, [jeans], 24, 30) == []
-    out = packing.top_up([dict(p) for p in pack], [jeans], 3, ["casual"], lo=24, hi=30)
+    out = packing.top_up([dict(p) for p in pack], [jeans], 3, ["casual"], band=(24, 30))
     assert [p["id"] for p in out if p["category"] == "bottoms"] == [jeans["id"]]

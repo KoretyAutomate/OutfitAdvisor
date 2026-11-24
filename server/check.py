@@ -16,7 +16,7 @@ a rule they made), or it leaves them undressed, cold, overheated or wearing two 
 A revision may never add a hard issue the first answer did not have (see
 advisor._better). SOFT issues are worth one more try but never block an answer.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import layers
 import picks as pk
@@ -57,6 +57,9 @@ class Day:
     prefs: "pk.Prefs"
     plan: float     # the coldest felt hour: warm enough for this
     peak: float     # the warmest: not overdressed for this
+    # Answers worked out once per request (season._fits), gone with it: a module-level
+    # cache kept a wardrobe past its request (pre-push gate, 2026-11-24).
+    memo: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
     def of(cls, w: dict, wd: "pk.Wardrobe", prefs: "pk.Prefs") -> "Day":

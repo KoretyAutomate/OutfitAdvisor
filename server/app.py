@@ -102,9 +102,8 @@ app.add_middleware(
 )
 
 
-# The in-app update channel (/version, /apk) lives in updates.py.
+# The in-app update channel (/version, /apk); garment cutouts on white (2026-09-07).
 app.include_router(updates.router)
-# Garment cutouts (background removed, on white) — cutout.py, 2026-09-07.
 app.include_router(cutout.router)
 app.include_router(export.router)
 
@@ -329,14 +328,14 @@ async def packing(req: PackingRequest):
             # wardrobe (user, 2026-09-07: "cannot be survived with 2 pants").
             lo, hi = trippack.trip_range(felt[1])
             before, gone = trippack.counts(pack), trippack.too_thin(pack, items, lo, hi)
-            pack = trippack.top_up(pack, items, trip_days, list(req.styles), lo, hi)
+            pack = trippack.top_up(pack, items, trip_days, list(req.styles), (lo, hi), rules.clean_rules(req.rules))
             # The bullets were written before the repair; say what changed, or the
             # text and the list disagree and the reader trusts neither.
             added = trippack.topup_line(before, trippack.counts(pack), trip_days, gone)
             if added and text:
                 text = f"• {added}\n{text}"
             plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)
-            plan = trippack.keep_rules(plan, rules.clean_rules(req.rules), items, pack)
+            plan = trippack.keep_rules(plan, rules.clean_rules(req.rules), items, pack, (lo, hi))
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day

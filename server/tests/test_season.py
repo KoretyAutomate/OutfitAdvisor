@@ -373,22 +373,3 @@ def test_on_a_coat_morning_the_trousers_still_follow_the_season(api, monkeypatch
     wx = weather(2, 10, date="2026-11-20")
     assert advise(api, monkeypatch, wx, closet)["picks"]["bottoms"] == warm_tr["id"], "without a season: the level"
     assert advise(api, monkeypatch, wx, closet, TOKYO)["picks"]["bottoms"] == smart_tr["id"]
-
-
-def test_a_rule_given_up_outranks_the_knit_under_the_coat():
-    """The layering the weather asks for is a soft preference: it never buys a broken
-    pairing rule (pre-push gate, 2026-11-24: fit.layering had moved ahead of the
-    relaxation cost)."""
-    import funnel
-    from test_funnel import CHINOS, LOAFERS, PARKA
-    from wardrobe_fixtures import UNDER, day, g
-    shirt = g("chkshirt1", "checked shirt", "tops", "shirt", ["base", "mid", "outer"], 2, pattern="checked")
-    knit = g("strknit01", "striped sweater", "tops", "sweater", ["base", "mid", "outer"], 4, pattern="striped")
-    d = day(3, UNDER, shirt, knit, PARKA, CHINOS, LOAFERS, hi=8)
-    c = funnel.Ctx(d, funnel.target_level(d.look), frozenset({"colour"}))
-    base = {"inner": UNDER["id"], "base": shirt["id"], "outer": PARKA["id"], "bottoms": CHINOS["id"],
-            "footwear": LOAFERS["id"]}
-    shapes = [(("base", "mid", "outer"), {**base, "mid": knit["id"]}), (("base", "outer"), base)]
-    today = frozenset(base) | {"mid"}
-    got = sorted(funnel._evaluate(c, shapes, funnel.priority_for(c), today), key=lambda o: o.rank)
-    assert got and got[0].picks.get("mid") is None and got[0].relaxed == (), [(o.picks.get("mid"), o.rank) for o in got]

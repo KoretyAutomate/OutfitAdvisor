@@ -65,6 +65,7 @@ RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band
 # gear unwearable with everything else — check.py then asks for nothing either.
 # The hard issues an outfit may still carry, ranked below every warm one (_evaluate).
 COLD = frozenset({"cold", "cold-legs"})
+WEATHER = frozenset({"wet", "snow", "coat"})   # the actual weather: never yields to the season
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
 
@@ -463,6 +464,13 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     return (*cost(gave), repeats, cold, under, topless, over, off_level(ctx, picks))
 
 
+def season_held(day: "check.Day", full: dict) -> bool:
+    """Out of season where it counts (season.py): the legs always; the torso only off
+    a coat morning, where the layers the weather needs come first (fit.layering)."""
+    return bool(season.mismatches(day, full, legs_only=True)) or (
+        bool(season.mismatches(day, full)) and day.plan >= layers.COAT_BELOW_C)
+
+
 def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     """Step 11 on the outfits of one pass: re-roll first, then rotation, each checked
     against check.issues until CHECKED_CAP pass."""
@@ -497,15 +505,13 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        # Tier: 0 fine, 1 out of season, 2 cold, 3 both. Anything above 0 is held
-        # aside while the ladder looks for a 0 (season.py: comfort, then season).
-        # The torso's only off a coat morning: there the layers the weather needs
-        # (fit.layering) are comfort, and its season only breaks ties after them; the
-        # legs, which no layering rule touches, always (pre-push gate, 2026-11-21).
-        # Within a tier a rule given up still comes first: the layering is a soft
-        # preference and never buys a broken one (pre-push gate, 2026-11-24).
+        # Tier: 0 fine, 1 out of season (season_held) or a weather rule given up, 2 cold,
+        # 3 both. Above 0 is held aside while the ladder looks for a 0. The weather never
+        # yields to the season: dry feet in summer loafers beat in-season mesh on a wet
+        # day (user, 2026-11-24: "dry feet first"). Within a tier a rule given up comes
+        # first: the layering never buys a broken one (pre-push gate, 2026-11-24).
         n = season.mismatches(c.day, full)
-        held = bool(season.mismatches(c.day, full, legs_only=True)) or (bool(n) and c.day.plan >= layers.COAT_BELOW_C)
+        held = season_held(c.day, full) or bool(WEATHER & set(gave))
         rank = (2 * bool(hard) + held, *cost(gave), fit.layering(c, full), n,
                 *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))

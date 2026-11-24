@@ -407,3 +407,52 @@ def test_the_rain_outranks_the_season():
     assert o.picks["footwear"] == LOAFERS["id"] and "wet" not in o.relaxed, (o.picks, o.relaxed)
     _, r = run(15, UNDER, OXFORD, CHINOS, MESH, summer, hi=20, p=prefs(normal=season.Normal(9, 17)))
     assert r.outfits[0].picks["footwear"] == MESH["id"], "dry: the season decides"
+
+
+def test_the_rain_outranks_the_season_when_the_in_season_pair_cannot_be_worn():
+    """An in-season leather pair banned with the only trousers is no dry option; the
+    summer loafers are (pre-push gate, 2026-11-24)."""
+    from test_funnel import CHINOS, LOAFERS, MESH, prefs, run
+    from wardrobe_fixtures import OXFORD, UNDER, g
+    derbies = g("derbies01", "black derbies", "footwear", "dress_shoes", ["footwear"], 2, colors=["black"])
+    ban = [{"kind": "avoid_pair", "a": {"type": "dress_shoes"}, "b": {"type": "trousers"}}]
+    summer = {**LOAFERS, "season": "warm"}
+    _, r = run(15, UNDER, OXFORD, CHINOS, MESH, summer, derbies, hi=20, rain=80, isRain=True,
+               p=prefs(normal=season.Normal(9, 17), rules=tuple(ban)))
+    o = r.outfits[0]
+    assert o.picks["footwear"] == LOAFERS["id"] and "wet" not in o.relaxed, (o.picks, o.relaxed)
+
+
+def test_dry_feet_before_the_day_s_level():
+    """User, 2026-11-24 ("dry feet first"): on a wet office day, drawstring trousers a
+    level down with leather loafers beat chinos with mesh sneakers."""
+    from test_funnel import CHINOS, DRAWSTR, LOAFERS, MESH, WHITE_OX, prefs, run
+    from wardrobe_fixtures import UNDER
+    ban = [{"kind": "avoid_pair", "a": {"type": "loafers"}, "b": {"type": "trousers", "color": "navy"}}]
+    _, r = run(14, UNDER, WHITE_OX, CHINOS, DRAWSTR, MESH, LOAFERS, hi=19, rain=80, isRain=True,
+               p=prefs("office", rules=tuple(ban)))
+    o = r.outfits[0]
+    assert o.picks["footwear"] == LOAFERS["id"] and o.picks["bottoms"] == DRAWSTR["id"], (o.picks, o.relaxed)
+    assert "wet" not in o.relaxed
+
+
+def test_giving_up_the_rain_alone_is_no_season_note():
+    import funnel
+    from test_funnel import CHINOS, MESH, prefs, run
+    from wardrobe_fixtures import OXFORD, UNDER
+    d, r = run(15, UNDER, OXFORD, CHINOS, MESH, hi=20, rain=80, isRain=True, p=prefs(normal=season.Normal(9, 17)))
+    o = r.outfits[0]
+    assert "wet" in o.relaxed and o.rank[0] == 1 and not funnel.season_held(d, o.picks), (o.relaxed, o.rank)
+
+
+def test_a_rainy_morning_in_mesh_says_so_and_never_blames_the_season(api, monkeypatch):
+    """Mesh the only shoes on a wet November day: the note is the rain's, not "nothing
+    in season" (the weather now shares the season's tier, funnel._evaluate)."""
+    import relaxnotes
+    from test_funnel import MESH
+    clean = {k: v for k, v in MESH.items() if k != "availableCount"}
+    closet = [{k: v for k, v in i.items() if k != "availableCount"} for i in (TEE, OXFORD, CHINOS)] + [clean]
+    out = advise(api, monkeypatch, weather(15, 20, rain=80, isRain=True, date="2026-11-20"), closet, TOKYO)
+    assert out["picks"]["footwear"] == MESH["id"]
+    assert relaxnotes.SEASON not in out["outfit_text"] and relaxnotes.SEASON_UNSURE not in out["outfit_text"], \
+        out["outfit_text"]

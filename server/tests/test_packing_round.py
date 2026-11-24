@@ -601,3 +601,22 @@ def test_warm_trousers_on_a_hot_trip_are_not_too_thin_and_stay():
     assert packing.too_thin(pack, [jeans], 24, 30) == []
     out = packing.top_up([dict(p) for p in pack], [jeans], 3, ["casual"], band=(24, 30))
     assert [p["id"] for p in out if p["category"] == "bottoms"] == [jeans["id"]]
+
+
+def test_replacement_shoes_go_with_the_whole_planned_morning():
+    """Sneakers banned with the only tee: through top_up, validate_plan and keep_rules
+    the planned mornings wear the loafers, never no shoes (pre-push gate, 2026-11-24)."""
+    tee = dict(item(80, "base", "white tee", typ="t_shirt"), warmth=2)
+    jeans = dict(item(81, "bottoms", "blue jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(82, "footwear", "sandals", typ="sandals"), warmth=1)
+    sneakers = dict(item(83, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    loafers = dict(item(84, "footwear", "loafers", typ="loafers"), warmth=2)
+    closet = [tee, jeans, sandals, sneakers, loafers]
+    ban = [{"kind": "avoid_pair", "a": {"type": "sneakers"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": tee["id"], "category": "base", "label": "tee", "qty": 1, "why": "x"},
+            {"id": jeans["id"], "category": "bottoms", "label": "jeans", "qty": 1, "why": "x"},
+            {"id": sandals["id"], "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(-2, 6), user_rules=ban)
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack)
+    assert plan and plan[0]["picks"]["footwear"] == loafers["id"], (plan, pack)

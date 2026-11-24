@@ -142,16 +142,24 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
     """Shoes are not topped up, so dropped ones are replaced by the best suitable pair
     owned; owning none is /packing's footwear gap (pre-push gate, 2026-11-21: sandals
     dropped from a winter list left no shoes at all). After the trousers, and a pair
-    that some packed trousers may be worn with first: sneakers banned with jeans left
-    the planned mornings barefoot while loafers stayed home (pre-push gate, 2026-11-24)."""
+    every planned morning can wear first: not one some rule bans with everything
+    packed of a kind — sneakers banned with the only jeans, or the only tee, left the
+    planned mornings barefoot while loafers stayed home (pre-push gate, 2026-11-24).
+    Then the pair banned with the fewest packed garments."""
     by_id = {i["id"]: i for i in items}
-    legs = [p["id"] for p in pack if p["category"] == "bottoms"]
+    kinds: dict[str, list[str]] = {}
+    for p in pack:
+        if p["category"] != "footwear" and p["id"] in by_id:
+            kinds.setdefault(p["category"], []).append(p["id"])
 
-    def banned(shoe: dict) -> bool:
-        return bool(legs) and all(rules.violations(user_rules, {"bottoms": b, "footwear": shoe["id"]}, by_id)
-                                  for b in legs)
+    def clashes(shoe: dict, iid: str, slot: str) -> bool:
+        return bool(rules.violations(user_rules, {slot: iid, "footwear": shoe["id"]}, by_id))
+
+    def fit(shoe: dict) -> tuple:
+        hits = {slot: sum(clashes(shoe, i, slot) for i in ids) for slot, ids in kinds.items()}
+        return (any(hits[s] == len(ids) for s, ids in kinds.items()), sum(hits.values()))
     shoes = sorted(owned_for(items, "footwear", *band),
-                   key=lambda i: (banned(i), not any(s in i["formality"] for s in styles), i["id"]))
+                   key=lambda i: (*fit(i), not any(s in i["formality"] for s in styles), i["id"]))
     if shoes:
         pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
                      "why": "warm enough for the trip"})

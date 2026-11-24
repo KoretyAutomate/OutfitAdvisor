@@ -175,3 +175,11 @@ def mismatches(day, picks: dict, legs_only: bool = False) -> int:
     by = day.wd.by_item
     return sum(1 for s, i in picks.items()
                if i and (not legs_only or layers.covers_legs(s, by.get(i) or {})) and counts(day, s, i))
+
+
+def held(day, full: dict) -> bool:
+    """Out of season where it counts (funnel ranks it below what is not): the legs
+    always; the torso only off a coat morning, where the layers the weather needs come
+    first (fit.layering, pre-push gate 2026-11-21)."""
+    return bool(mismatches(day, full, legs_only=True)) or (
+        bool(mismatches(day, full)) and day.plan >= layers.COAT_BELOW_C)

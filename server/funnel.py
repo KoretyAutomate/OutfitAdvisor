@@ -21,9 +21,10 @@ afterwards — a 2/5 and a 3/5 were served (2026-10-18 10:29 / 10:35, 2026-10-20
 check.py stays the one fact check: every outfit this returns has passed it, so a
 funnel answer can never carry a hard issue the old path would have caught.
 """
+import functools
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import check
 import fit
@@ -65,7 +66,6 @@ RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band
 # gear unwearable with everything else — check.py then asks for nothing either.
 # The hard issues an outfit may still carry, ranked below every warm one (_evaluate).
 COLD = frozenset({"cold", "cold-legs"})
-WEATHER = frozenset({"wet", "snow", "coat"})   # the actual weather: never yields to the season
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
 
@@ -115,6 +115,14 @@ class Ctx:
     @property
     def wet(self) -> bool:
         return garment.wet(self.day.w)
+
+    @functools.cached_property
+    def dry(self) -> bool:
+        """A wet day and a dry pair they could wear: only then is mesh a concession the
+        rank holds aside. With none, every outfit ranked so and the ladder walked every
+        combination for one that cannot exist (pre-push gate, 2026-11-24: 2.8s -> 21.7s)."""
+        return self.wet and any(_keeps(replace(self, relaxed=frozenset(RELAX) - {"wet"}), "footwear", i, 4) is None
+                                for i in self.wd.ids if "footwear" in (self.wd.by_roles.get(i) or ()))
 
 
 @dataclass
@@ -464,13 +472,6 @@ def _rank(ctx: Ctx, outfit: tuple, issues: list, gave: tuple, today: frozenset) 
     return (*cost(gave), repeats, cold, under, topless, over, off_level(ctx, picks))
 
 
-def season_held(day: "check.Day", full: dict) -> bool:
-    """Out of season where it counts (season.py): the legs always; the torso only off
-    a coat morning, where the layers the weather needs come first (fit.layering)."""
-    return bool(season.mismatches(day, full, legs_only=True)) or (
-        bool(season.mismatches(day, full)) and day.plan >= layers.COAT_BELOW_C)
-
-
 def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     """Step 11 on the outfits of one pass: re-roll first, then rotation, each checked
     against check.issues until CHECKED_CAP pass."""
@@ -512,8 +513,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # 2026-11-24: "dry feet first"); then the rules, then the layering, which never
         # buys a broken one (pre-push gate, 2026-11-24).
         n = season.mismatches(c.day, full)
-        wet = bool(WEATHER & set(gave))   # ahead of the rules given up: dry beats on-style
-        rank = (2 * bool(hard) + (season_held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
+        wet = "wet" in gave and c.dry     # ahead of the rules given up: dry beats on-style
+        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
                 *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:

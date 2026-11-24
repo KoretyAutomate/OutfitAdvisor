@@ -164,6 +164,17 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
   check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
+  // A summer dress is legs too: another one neither suppresses nor clears the base gap.
+  const DRESS1 = {id: "dress0-0001", label: "sundress", category: "base", group: "onepiece", type: "dress",
+    roles: ["base"], colors: ["red"], warmth: 1, formality: ["casual"], waterproof: false, count: 1};
+  const DRESS2 = {...DRESS1, id: "dress0-0002", label: "second sundress"};
+  await ev(`closet=${JSON.stringify([DRESS1, DRESS2])}; saveCloset()`);
+  check("a withheld summer dress excuses no base gap at 3C",
+    JSON.stringify(ev(`ownershipGaps(["base"],3,[${JSON.stringify(DRESS1.id)}])`)) === JSON.stringify(["base"]));
+  await ev(`gaps=[{slot:"base",day:"${today}",lo:3,hi:8,at:3}]; clearGapsFilledBy(${JSON.stringify(DRESS2)})`);
+  await drain();
+  check("another summer dress leaves the base gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

@@ -5476,9 +5476,10 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
     if(bannedOutright(i)) continue;
     for(const r of normRoles(i.roles,i.category)){
       if(r==="outer"&&planTemp!=null&&!warmEnough(i,planTemp)) continue;
-      // Summer legs on a cold morning excuse no leg gap either (gaps.py; pre-push
-      // gate, 2026-11-24: shorts in the wash hid the want of warm trousers).
-      if((r==="bottoms"||r==="footwear")&&planTemp!=null&&tooColdForLegs(i,planTemp)) continue;
+      // Summer legs on a cold morning excuse no leg gap either, a summer dress
+      // included (gaps.py; pre-push gate, 2026-11-24: shorts in the wash hid the want
+      // of warm trousers).
+      if(coversLegs(r,i)&&planTemp!=null&&tooColdForLegs(i,planTemp)) continue;
       withheld.add(r);
     }
   }
@@ -5652,7 +5653,7 @@ async function clearGapsFilledBy(item){
     // `lo` is the fallback for records written before planTemp was sent.
     if(g.slot==="outer"&&!warmEnough(item,g.at!=null?g.at:g.lo)) return true;
     // Nor does another pair of summer trousers or sandals answer a cold leg gap.
-    if((g.slot==="bottoms"||g.slot==="footwear")&&tooColdForLegs(item,g.at!=null?g.at:g.lo)) return true;
+    if(coversLegs(g.slot,item)&&tooColdForLegs(item,g.at!=null?g.at:g.lo)) return true;
     return false;
   });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }

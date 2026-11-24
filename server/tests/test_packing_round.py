@@ -781,3 +781,36 @@ def test_a_banned_morning_gets_no_shoes_of_its_own():
             {"id": jeans["id"], "category": "bottoms", "label": "jeans", "qty": 1, "why": "x"}]
     out = packing.top_up(pack, [sandals, boots, loafers, tee, jeans], 1, ["casual"], band=(3, 8), user_rules=ban)
     assert [p["id"] for p in out if p["category"] == "footwear"] == [boots["id"]], out
+
+
+def test_a_planned_morning_may_change_its_shoes_to_keep_its_trousers():
+    """Planned shorts and boots; the warm jeans packed in their place are banned with the
+    boots: the packed loafers come in too, rather than no trousers (pre-push gate,
+    2026-11-24)."""
+    shorts = dict(item(170, "bottoms", "shorts", typ="shorts"), warmth=1)
+    boots = dict(item(171, "footwear", "boots", typ="boots"), warmth=3)
+    jeans = dict(item(172, "bottoms", "jeans", typ="jeans"), warmth=3)
+    loafers = dict(item(173, "footwear", "loafers", typ="loafers"), warmth=2)
+    closet = [shorts, boots, jeans, loafers]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "boots"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (shorts, boots, loafers)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    assert {jeans["id"], loafers["id"]} <= {p["id"] for p in pack}, pack
+    raw = [{"bottoms": shorts["id"], "footwear": boots["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack)
+    assert plan[0]["picks"] == {**plan[0]["picks"], "bottoms": jeans["id"], "footwear": loafers["id"]}, plan
+
+
+def test_a_planned_pair_that_goes_is_kept():
+    shorts = dict(item(180, "bottoms", "shorts", typ="shorts"), warmth=1)
+    boots = dict(item(181, "footwear", "boots", typ="boots"), warmth=3)
+    jeans = dict(item(182, "bottoms", "jeans", typ="jeans"), warmth=3)
+    loafers = dict(item(183, "footwear", "loafers", typ="loafers"), warmth=2)
+    closet = [shorts, boots, jeans, loafers]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (shorts, loafers, boots)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
+    raw = [{"bottoms": shorts["id"], "footwear": boots["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack)
+    assert plan[0]["picks"]["footwear"] == boots["id"], "the planned boots stay when nothing rules them out"

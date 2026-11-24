@@ -436,13 +436,17 @@ def test_dry_feet_before_the_day_s_level():
     assert "wet" not in o.relaxed
 
 
-def test_giving_up_the_rain_alone_is_no_season_note():
-    import funnel
+def test_unavoidable_mesh_is_noted_never_held_aside():
+    """Mesh the only shoes on a wet day: the rain note says so, but nothing dry exists
+    to hold out for, so the outfit is not held aside (pre-push gate, 2026-11-24: the
+    ladder walked every combination for a dry outfit that cannot exist), and it is no
+    season note."""
     from test_funnel import CHINOS, MESH, prefs, run
     from wardrobe_fixtures import OXFORD, UNDER
     d, r = run(15, UNDER, OXFORD, CHINOS, MESH, hi=20, rain=80, isRain=True, p=prefs(normal=season.Normal(9, 17)))
     o = r.outfits[0]
-    assert "wet" in o.relaxed and o.rank[0] == 1 and not funnel.season_held(d, o.picks), (o.relaxed, o.rank)
+    assert "wet" in o.relaxed and o.rank[0] == 0 and not season.held(d, o.picks), (o.relaxed, o.rank)
+    assert r.exact == 0, "no exhaustive walk"
 
 
 def test_a_rainy_morning_in_mesh_says_so_and_never_blames_the_season(api, monkeypatch):

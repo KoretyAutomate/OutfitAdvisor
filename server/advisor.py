@@ -37,6 +37,7 @@ import prose
 import reroll
 import rules
 import scale
+import season
 import sleeves
 import style
 import stylist
@@ -322,7 +323,7 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
         # Warmth given up: never silent, and "nothing warm goes" only when every
         # combination was tried (pre-push gate, 2026-10-24).
         notes.append(f"Note: {relaxnotes.COLD if result.complete else relaxnotes.COLD_UNSURE}.")
-    if pick.rank and pick.rank[0] % 2 and funnel.season_held(day, pick.picks):   # tier 1/3 (funnel._evaluate)
+    if pick.rank and pick.rank[0] % 2 and season.held(day, pick.picks):   # tier 1/3 (funnel._evaluate)
         notes.append(f"Note: {relaxnotes.SEASON if result.complete else relaxnotes.SEASON_UNSURE}.")
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,

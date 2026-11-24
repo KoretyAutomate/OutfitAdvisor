@@ -452,9 +452,15 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     planned = {**picks, **{k: v for k, v in (day.get("_was") or {}).items() if v in by_item}}
     base = (fixed, len(slots), planned, (band, judge))
     # First every replacement with the plan kept as it is; only then may it change.
+    def done(r: dict) -> int:   # refilled slots filled; empty trousers under a dress count
+        dress = (by_item.get({**picks, **r}.get("base")) or {}).get("group") == "onepiece"
+        return sum(1 for x in slots if r.get(x) or (x == "bottoms" and dress))
     got = _search(names, [o if i < len(slots) else o[:1] for i, o in enumerate(options)], base, user_rules, by_item)
-    if sum(1 for x in slots if got.get(x)) < len(slots):
-        got = _search(names, options, base, user_rules, by_item)
+    if done(got) < len(slots):
+        wider = _search(names, options, base, user_rules, by_item)
+        # The wider walk can run out of budget with less: keep whichever fills more.
+        if done(wider) > done(got):
+            got = wider
     # Only what is decided: an empty layer left empty is no change to report.
     return {k: v for k, v in got.items() if k in slots or v or picks.get(k)}
 

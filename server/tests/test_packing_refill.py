@@ -528,3 +528,27 @@ def test_a_big_closet_still_finds_the_one_top_that_goes():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
     p = plan[0]["picks"]
     assert p["footwear"] in {b["id"] for b in boots} and p["base"] == oxford["id"], p
+
+
+def test_a_wider_search_out_of_budget_never_loses_the_first_answer(monkeypatch):
+    """The first pass fills the trousers; a wider pass that runs out of budget with
+    nothing must not replace it (pre-push gate, 2026-11-24)."""
+    real = packing._search
+    calls = []
+
+    def search(names, options, base, rules_, by):
+        calls.append(1)
+        return real(names, options, base, rules_, by) if len(calls) == 1 else {}
+    monkeypatch.setattr(packing, "_search", search)
+    shorts = dict(item(680, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(681, "footwear", "sandals", typ="sandals"), warmth=1)
+    jeans = dict(item(682, "bottoms", "jeans", typ="jeans"), warmth=3)
+    boots = dict(item(683, "footwear", "boots", typ="boots"), warmth=3)
+    tee = dict(item(684, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [shorts, sandals, jeans, boots, tee]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (jeans, boots, tee)]
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
+    assert len(calls) == 2 and plan[0]["picks"]["bottoms"] == jeans["id"], (calls, plan)

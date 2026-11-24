@@ -61,7 +61,10 @@ def suits(item: dict, cat: str, lo: float | None, hi: float | None) -> bool:
     """
     if lo is not None and scale.too_warm(item, lo):
         return False
-    return not (cat in LEGS and hi is not None and scale.too_cold_for_legs(item, hi))
+    # A one-piece worn as the base is legs too (pre-push gate, 2026-11-24: a sundress
+    # replaced a wool dress on a cold trip).
+    legs = cat in LEGS or (cat == "base" and item.get("group") == "onepiece")
+    return not (legs and hi is not None and scale.too_cold_for_legs(item, hi))
 
 
 LEGS = ("bottoms", "footwear")
@@ -190,6 +193,11 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
             return not rules.violations(user_rules, {**look, "footwear": shoe["id"]}, by_id)
         if not any(ok(c) for c in chosen) and (fits := [s for s in shoes if s not in chosen and ok(s)]):
             chosen.append(fits[0])
+    # Every pair on the list soaks through and a dry pair suits the trip: it joins
+    # (pre-push gate, 2026-11-24: waterproof sandals dropped, only mesh left, boots home).
+    if chosen and all(garment.wets_through(c) for c in chosen) and (dry := [
+            s for s in shoes if s not in chosen and not garment.wets_through(s)]):
+        chosen.append(dry[0])
     for c in chosen[len(kept):]:
         pack.append({"id": c["id"], "category": "footwear", "label": c["label"], "qty": 1,
                      "why": "warm enough for the trip"})

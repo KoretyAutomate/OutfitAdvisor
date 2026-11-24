@@ -490,3 +490,35 @@ def test_a_cut_branch_never_ends_the_search():
     options = [["tee", "ox"], ["j", None], ["b", None]]
     got = packing._search(names, options, ({}, 1), ban, by)
     assert got == {"base": "ox", "bottoms": "j", "footwear": "b"}, got
+
+
+def test_a_sundress_never_replaces_a_wool_dress_on_a_cold_trip():
+    """The wool dress is banned with the replacement boots; a sundress at home is too
+    thin for 3-8C, so it is never brought in (pre-push gate, 2026-11-24)."""
+    wool = dict(item(320, "base", "wool dress", typ="dress"), group="onepiece", warmth=3)
+    sun = dict(item(321, "base", "sundress", typ="dress"), group="onepiece", warmth=1)
+    sandals = dict(item(322, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(323, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [wool, sun, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "dress"}, "b": {"type": "boots"}}]
+    assert not packing.suits(sun, "base", 3, 8) and packing.suits(wool, "base", 3, 8)
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (wool, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": wool["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["base"] != sun["id"], plan
+
+
+def test_a_dry_pair_joins_when_only_mesh_is_left():
+    """Waterproof sandals dropped, mesh sneakers already packed, waterproof boots at
+    home: the boots join too (pre-push gate, 2026-11-24)."""
+    sandals = dict(item(330, "footwear", "sandals", typ="sandals"), warmth=1, waterproof=True)
+    mesh = dict(item(331, "footwear", "mesh sneakers", typ="sneakers"), warmth=2, group="footwear", material="mesh")
+    boots = dict(item(332, "footwear", "rain boots", typ="boots"), warmth=3, group="footwear", waterproof=True)
+    jeans = dict(item(333, "bottoms", "jeans", typ="jeans"), warmth=3)
+    closet = [sandals, mesh, boots, jeans]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (sandals, mesh, jeans)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
+    assert boots["id"] in {p["id"] for p in pack}, pack

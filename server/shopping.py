@@ -212,7 +212,10 @@ def _one_piece(what: str) -> bool:
     """A suggestion whose garment IS a dress, jumpsuit or overalls: the phrase's head,
     its last word, never any "dress" in it — a "flannel dress shirt" is a shirt
     (pre-push gate, 2026-11-24)."""
-    words = re.findall(r"[a-z]+", str(what).lower())
+    # The head is the last word before any "with ...", "for ...", "in ..." or comma:
+    # "wool dress with long sleeves" is a dress (pre-push gate, 2026-11-24).
+    phrase = re.split(r",|\b(?:with|for|in|that|and)\b", str(what).lower())[0]
+    words = re.findall(r"[a-z]+", phrase)
     return bool(words) and words[-1] in _ONE_PIECE_HEADS
 
 

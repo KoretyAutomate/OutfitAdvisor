@@ -337,3 +337,51 @@ def test_an_in_season_knit_worn_as_the_top_holds_a_summer_shirt_aside():
     p = pk.Prefs(normal=season.Normal(9, 17))
     d = day(14, shirt, knit, CHINOS, SNEAK, hi=18, prefs=p)
     assert season.counts(d, "base", shirt["id"])
+
+
+def test_a_coat_worn_in_the_mid_slot_gives_up_no_coat():
+    """An outerwear coat a rule puts in the mid slot is the coat (check._coat looks in
+    every torso slot): no 'coat' given up (pre-push gate, 2026-11-24)."""
+    from wardrobe_fixtures import day
+    coat = g("midcoat01", "wool coat", "outerwear", "coat", ["mid", "outer"], 4)
+    d = day(6, TEE, coat, CHINOS, SNEAK, hi=10)
+    c = funnel.Ctx(d, funnel.target_level(d.look))
+    picks = {"base": TEE["id"], "mid": coat["id"], "outer": None, "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}
+    assert "coat" not in funnel.needed(c, picks)
+    assert "coat" in funnel.needed(c, {**picks, "mid": None}), "no coat at all is given up"
+    assert "coat" not in funnel.needed(c, {"base": TEE["id"], "outer": None}), "the torso is not decided yet"
+
+
+def test_waterproof_summer_sandals_are_no_snow_gear():
+    """Snowy 6-10C, waterproof warmth-1 sandals and plain warmth-3 boots: the sandals
+    are too cold, so the boots are not refused for want of snow gear (pre-push gate,
+    2026-11-24)."""
+    import check
+    from test_funnel import run
+    from wardrobe_fixtures import JACKET, UNDER
+    sandals = g("wpsandal1", "waterproof sandals", "footwear", "sandals", ["footwear"], 1, waterproof=True)
+    boots = g("plboots01", "leather boots", "footwear", "boots", ["footwear"], 3)
+    d, r = run(6, UNDER, TEE, JACKET, CHINOS, sandals, boots, hi=10, isSnow=True)
+    o = r.outfits[0]
+    assert o.picks["footwear"] == boots["id"], (o.picks, o.relaxed)
+    assert not check.hard(check.issues(o.picks, d))
+
+
+def test_a_dress_with_trailing_words_is_still_a_dress():
+    import shopping
+    assert shopping._one_piece("Wool dress with long sleeves") and shopping._one_piece("knit dress, midi length")
+    assert not shopping._one_piece("dress shirt with a spread collar")
+
+
+def test_the_last_resort_prefers_fewer_cold_slots():
+    """8-12C: warm jeans banned with the only tee, so the shorts come back; the warm
+    sneakers beat the sandals rather than tying with them (pre-push gate, 2026-11-24)."""
+    from test_funnel import run
+    from wardrobe_fixtures import JEANS
+    sandals = g("csandal01", "sandals", "footwear", "sandals", ["footwear"], 1)
+    ban = ({"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "t_shirt"}},)
+    from test_funnel import prefs
+    _, r = run(8, TEE, SHORTS, JEANS, sandals, SNEAK, hi=12, p=prefs(rules=ban))
+    assert r.outfits[0].picks["footwear"] == SNEAK["id"], [(o.picks.get("footwear"), o.rank[:3]) for o in r.outfits]
+    assert all(o.picks["footwear"] == SNEAK["id"] for o in r.outfits if o.rank[0] == r.outfits[0].rank[0]
+               and o.rank[1] == r.outfits[0].rank[1])

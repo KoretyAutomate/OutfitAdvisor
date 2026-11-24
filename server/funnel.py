@@ -353,10 +353,11 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if strict.wet and garment.wets_through(shoes):
         out.append("wet")
-    # Snow gear or a coat left off a decided slot where one could be worn (2026-11-24).
-    by = {s: ctx.wd.by_item.get(picks[s]) or {} for s in ("footwear", "outer") if s in picks}
-    out += ["snow"] * any(_snow_gear(strict, s) and not it.get("waterproof") for s, it in by.items())
-    out += ["coat"] * bool(_coat_day(strict) and "outer" in by and not check.is_coat(by["outer"]))
+    # Snow gear or a coat (in any torso slot) left off where one could be worn (2026-11-24).
+    out += ["snow"] * any(s in picks and _snow_gear(strict, s) and not (ctx.wd.by_item.get(picks[s]) or {}).get(
+        "waterproof") for s in ("footwear", "outer"))
+    out += ["coat"] * bool(_coat_day(strict) and all(t in picks for t in check.TORSO) and not any(
+        check.is_coat(ctx.wd.by_item.get(picks[t]) or {}) for t in check.TORSO))
     worst = max(_steps_off(strict, picks), default=0)
     out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
@@ -504,13 +505,12 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both; above 0 is
-        # held aside. Within it the weather, the rules, then the layering (user, 2026-11-24:
-        # "dry feet first", however many styling steps the dry pair takes).
+        # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both (held aside);
+        # then the weather, the rules, the layering (user, 2026-11-24: "dry feet first").
         n = season.mismatches(c.day, full)
         wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
-        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
-                *_rank(c, (shape, full), issues, gave, today))
+        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), sum(i.hard for i in issues), wet, *cost(gave),
+                fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))   # fewer cold slots
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break

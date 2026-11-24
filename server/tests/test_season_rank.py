@@ -337,3 +337,16 @@ def test_an_in_season_knit_worn_as_the_top_holds_a_summer_shirt_aside():
     p = pk.Prefs(normal=season.Normal(9, 17))
     d = day(14, shirt, knit, CHINOS, SNEAK, hi=18, prefs=p)
     assert season.counts(d, "base", shirt["id"])
+
+
+def test_a_coat_worn_in_the_mid_slot_gives_up_no_coat():
+    """An outerwear coat a rule puts in the mid slot is the coat (check._coat looks in
+    every torso slot): no 'coat' given up (pre-push gate, 2026-11-24)."""
+    from wardrobe_fixtures import day
+    coat = g("midcoat01", "wool coat", "outerwear", "coat", ["mid", "outer"], 4)
+    d = day(6, TEE, coat, CHINOS, SNEAK, hi=10)
+    c = funnel.Ctx(d, funnel.target_level(d.look))
+    picks = {"base": TEE["id"], "mid": coat["id"], "outer": None, "bottoms": CHINOS["id"], "footwear": SNEAK["id"]}
+    assert "coat" not in funnel.needed(c, picks)
+    assert "coat" in funnel.needed(c, {**picks, "mid": None}), "no coat at all is given up"
+    assert "coat" not in funnel.needed(c, {"base": TEE["id"], "outer": None}), "the torso is not decided yet"

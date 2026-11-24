@@ -324,3 +324,9 @@ def test_thin_socks_stay_on_a_cold_trip_list():
     assert packing.too_thin(pack, [socks, boots], 3, 8) == []
     out = packing.top_up([dict(p) for p in pack], [socks, boots], 1, ["casual"], band=(3, 8))
     assert socks["id"] in {p["id"] for p in out}
+
+
+def test_underwear_still_counts_for_the_trip():
+    """Briefs never fill an outfit slot, but they pack, and count, as underwear."""
+    briefs = dict(item(240, "inner", "briefs", count=8, typ="briefs"), group="underwear")
+    assert [i["id"] for i in packing.wearable_for([briefs], "inner", 3, 8)] == [briefs["id"]]

@@ -79,8 +79,9 @@ def wearable(item: dict | None) -> bool:
 
 
 def wearable_for(items: list[dict], cat: str, lo: float | None, hi: float | None) -> list[dict]:
-    """owned_for, without what never fills the slot: what shoe counts and swaps use."""
-    return [i for i in owned_for(items, cat, lo, hi) if wearable(i)]
+    """owned_for, without socks among the shoes: what shoe counts and swaps use. Only
+    footwear: briefs and bras pack and count as underwear (pre-push gate, 2026-11-24)."""
+    return [i for i in owned_for(items, cat, lo, hi) if cat != "footwear" or wearable(i)]
 
 
 def trip_range(summary: dict) -> tuple[float, float]:

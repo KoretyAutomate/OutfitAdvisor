@@ -361,7 +361,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         kind = [p["id"] for p in pack if p["category"] == slot and p["id"] in by_item]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
         options.append([*turn, *spare.get(slot, ()), None] if slot in slots
-                       else [picks[slot], *(i for i in turn if i != picks[slot])])
+                       else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot])])
     best: tuple = (-1, ())
     for combo in itertools.product(*options):
         filled = sum(c is not None for c in combo[len(kept):])

@@ -503,3 +503,31 @@ def test_a_legs_gap_reaches_shopping_as_the_base():
     import schemas
     assert schemas.Gap(slot="legs").slot == "base"
     assert schemas.Gap(slot="warmth").slot == "outer"
+
+
+def test_a_summer_dress_gives_way_to_warm_trousers_and_a_top():
+    """8-12C with a sundress, a tee and warm jeans: the jeans and tee are worn, and no
+    leg gap is recorded (pre-push gate, 2026-11-24)."""
+    import gaps
+    from test_funnel import run
+    from wardrobe_fixtures import JEANS, day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    coat = g("wcoat0001", "wool coat", "outerwear", "coat", ["outer"], 4)
+    d, r = run(8, dress, TEE, JEANS, coat, SNEAK, hi=12)
+    p = r.outfits[0].picks
+    assert p["base"] == TEE["id"] and p["bottoms"] == JEANS["id"], p
+    d = day(8, dress, TEE, JEANS, coat, SNEAK, hi=12)
+    assert gaps.LEGS_GAP not in gaps.missing({"base": dress["id"], "outer": coat["id"], "footwear": SNEAK["id"]}, d, [])
+
+
+def test_warm_trousers_with_no_top_to_wear_are_no_alternative_to_the_dress():
+    """Two sundresses and warm jeans, but no top: the jeans cannot be worn, so the dress
+    is what they have, and the leg gap is real."""
+    import gaps
+    from wardrobe_fixtures import JEANS, day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    dress2 = g("sumdress2", "cotton sundress", "onepiece", "dress", ["base"], 1, colors=["white"])
+    coat = g("wcoat0001", "wool coat", "outerwear", "coat", ["outer"], 4)
+    d = day(8, dress, dress2, JEANS, coat, SNEAK, hi=12)
+    assert not layers.underdressed(dress, "base", d)
+    assert gaps.LEGS_GAP in gaps.missing({"base": dress["id"], "outer": coat["id"], "footwear": SNEAK["id"]}, d, [])

@@ -130,12 +130,20 @@ def underdressed(item: dict, slot: str, day: "check.Day") -> bool:
     banned outright, and not too warm for the afternoon either."""
     if not covers_legs(slot, item) or not scale.too_cold_for_legs(item, day.plan):
         return False
-    wd, hot = day.wd, pk._heat_temp(slot, day.plan, day.peak)
+    wd = day.wd
     outright = [r for r in day.rules if not rules.is_combination(r)]
-    return any(slot in (wd.by_roles.get(i) or ()) and covers_legs(slot, it)
-               and not scale.too_cold_for_legs(it, day.plan) and not scale.too_warm(it, hot)
-               and not rules.violations(outright, {slot: i}, wd.by_item)
-               for i, it in wd.by_item.items() if it is not item)
+
+    def wearable(s: str, i: str, it: dict) -> bool:
+        return s in (wd.by_roles.get(i) or ()) and not rules.violations(outright, {s: i}, wd.by_item) \
+            and not scale.too_warm(it, pk._heat_temp(s, day.plan, day.peak))
+
+    def warm_legs(s: str) -> bool:
+        return any(it is not item and covers_legs(s, it) and not scale.too_cold_for_legs(it, day.plan)
+                   and wearable(s, i, it) for i, it in wd.by_item.items())
+    # A summer dress has warm trousers and a top as its alternative too (pre-push gate,
+    # 2026-11-24: a sundress was served, and a leg gap recorded, beside warm jeans).
+    return warm_legs(slot) or (slot == "base" and warm_legs("bottoms") and any(
+        it.get("group") != "onepiece" and wearable("base", i, it) for i, it in wd.by_item.items()))
 
 
 def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:

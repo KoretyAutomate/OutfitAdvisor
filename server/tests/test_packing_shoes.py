@@ -258,3 +258,20 @@ def test_a_planned_morning_brings_its_own_shoes_when_nothing_packed_goes():
     fresh = [dict(p) for p in pack if p["id"] != loafers["id"]]
     unbanded = packing.keep_rules(packing.validate_plan(raw, days(1), fresh, travel=False), ban, closet, fresh)
     assert unbanded[0]["picks"]["footwear"] is None, "without the trip's range nothing unpacked is assumed suitable"
+
+
+def test_a_kept_pair_may_give_way_to_shoes_still_at_home():
+    """Planned shorts and boots; the packed jeans are banned with the boots and no other
+    shoes are packed: suitable loafers at home complete the morning (pre-push gate,
+    2026-11-24)."""
+    shorts = dict(item(200, "bottoms", "shorts", typ="shorts"), warmth=1)
+    boots = dict(item(201, "footwear", "boots", typ="boots"), warmth=3)
+    jeans = dict(item(202, "bottoms", "jeans", typ="jeans"), warmth=3)
+    loafers = dict(item(203, "footwear", "loafers", typ="loafers"), warmth=2)
+    closet = [shorts, boots, jeans, loafers]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "boots"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"} for i in (boots, jeans)]
+    raw = [{"bottoms": shorts["id"], "footwear": boots["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["footwear"] == loafers["id"], plan
+    assert loafers["id"] in {p["id"] for p in pack}

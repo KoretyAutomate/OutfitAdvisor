@@ -439,3 +439,21 @@ def test_a_wet_trip_refill_prefers_dry_shoes_over_the_first_fit():
                               {"isRain": True})
     p = plan[0]["picks"]
     assert p["footwear"] == boots["id"] and p["bottoms"] == chinos["id"], p
+
+
+def test_an_empty_undershirt_slot_may_take_a_packed_thermal():
+    """8-10C: boots banned with the planned cardigan; a packed thermal under the shirt
+    makes up its warmth (pre-push gate, 2026-11-24)."""
+    shirt = dict(item(740, "base", "oxford", typ="shirt"), warmth=2)
+    cardi = dict(item(741, "mid", "cardigan", typ="cardigan"), warmth=3)
+    thermal = dict(item(742, "inner", "thermal", typ="thermal"), group="underwear", warmth=3)
+    jeans = dict(item(743, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(744, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(745, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [shirt, cardi, thermal, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "cardigan"}}]
+    pack = _p(shirt, cardi, thermal, jeans, boots)
+    raw = [{"base": shirt["id"], "mid": cardi["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 10), {})
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and p.get("inner") == thermal["id"] and not p.get("mid"), p

@@ -47,7 +47,7 @@ def test_a_changed_top_is_never_a_dress_over_the_trousers():
 def test_a_planned_belt_comes_off_for_the_only_boots():
     """Sandals dropped; the packed black boots are banned with the planned brown belt:
     the belt comes off rather than the morning going barefoot (pre-push gate, 2026-11-24)."""
-    belt = dict(item(270, "accessories", "brown belt", typ="belt"), group="accessories", colors=["brown"])
+    belt = dict(item(270, "belt", "brown belt", typ="belt"), group="accessories", colors=["brown"])
     sandals = dict(item(271, "footwear", "sandals", typ="sandals"), warmth=1)
     boots = dict(item(272, "footwear", "black boots", typ="boots"), warmth=3, colors=["black"])
     jeans = dict(item(273, "bottoms", "jeans", typ="jeans"), warmth=3)

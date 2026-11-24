@@ -385,3 +385,34 @@ def test_a_planned_belt_comes_off_for_the_only_boots():
     raw = [{"bottoms": jeans["id"], "footwear": sandals["id"], slot: belt["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["footwear"] == boots["id"] and not plan[0]["picks"].get(slot), plan
+
+
+def test_a_dress_may_swap_for_another_dress_to_wear_the_boots():
+    """Red and blue wool dresses, boots banned only with the red one: the planned red
+    dress swaps for the blue rather than going barefoot (pre-push gate, 2026-11-24)."""
+    red = dict(item(280, "base", "red wool dress", typ="dress"), group="onepiece", warmth=3, colors=["red"])
+    blue = dict(item(281, "base", "blue wool dress", typ="dress"), group="onepiece", warmth=3, colors=["blue"])
+    sandals = dict(item(282, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(283, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [red, blue, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "dress", "color": "red"}, "b": {"type": "boots"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (red, blue, sandals, boots)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": red["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["base"] == blue["id"] and plan[0]["picks"]["footwear"] == boots["id"], plan
+
+
+def test_replacement_shoes_keep_the_wet_out():
+    """Sandals dropped: waterproof boots replace them before mesh sneakers (pre-push
+    gate, 2026-11-24: mesh came on a rainy cold trip while the boots stayed home)."""
+    sandals = dict(item(290, "footwear", "sandals", typ="sandals"), warmth=1, waterproof=True)
+    mesh = dict(item(291, "footwear", "mesh sneakers", typ="sneakers"), warmth=2, group="footwear", material="mesh")
+    boots = dict(item(292, "footwear", "rain boots", typ="boots"), warmth=3, group="footwear", waterproof=True)
+    jeans = dict(item(293, "bottoms", "jeans", typ="jeans"), warmth=3)
+    closet = [sandals, mesh, boots, jeans]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (sandals, jeans)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
+    assert [p["id"] for p in pack if p["category"] == "footwear"] == [boots["id"]], pack

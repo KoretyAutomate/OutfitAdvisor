@@ -14,6 +14,7 @@ import itertools
 import logging
 import math
 
+import garment
 import rules
 import scale
 from vocab import CATEGORIES, NON_SLOT_TYPES
@@ -170,7 +171,7 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
             rules.violations(user_rules, {cat: i["id"], "footwear": shoe["id"]}, by_id) for i in kind)
             for cat in ("base", "bottoms"))
     shoes = sorted(wearable_for(items, "footwear", *band),
-                   key=lambda i: (alone(i), *_fit(i, "footwear", pack, user_rules, by_id),
+                   key=lambda i: (alone(i), *_fit(i, "footwear", pack, user_rules, by_id), garment.wets_through(i),
                                   not any(s in i["formality"] for s in styles), i["id"]))
     kept = [by_id[p["id"]] for p in pack if p["category"] == "footwear" and wearable(by_id.get(p["id"]))]
     if not shoes and not kept:
@@ -333,7 +334,10 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     by_item = {i["id"]: i for i in items}
     pack = pack if pack is not None else []
     packed = {p["id"] for p in pack}
-    spare = {s: [i["id"] for i in wearable_for(items, s, *band) if i["id"] not in packed] for s in LEGS} if band else {}
+    # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
+    # waterproof sandals on a rainy cold trip while waterproof boots stayed home).
+    spare = {s: [i["id"] for i in sorted(wearable_for(items, s, *band), key=garment.wets_through)
+                 if i["id"] not in packed] for s in LEGS} if band else {}
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
@@ -378,7 +382,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     extra = [s for s, i in picks.items() if i and s not in slots
              and (by_item.get(i) or {}).get("group") == "accessories"]
     kept = [s for s in (*LEGS, "base", "mid", "outer") if s not in slots and picks.get(s)
-            and not (s == "bottoms" and onepiece) and not (s == "base" and onepiece)] + extra
+            and not (s == "bottoms" and onepiece)] + extra   # a dress may swap for a dress
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
     options = []

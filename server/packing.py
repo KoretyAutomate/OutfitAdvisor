@@ -16,7 +16,7 @@ import math
 
 import rules
 import scale
-from vocab import CATEGORIES
+from vocab import CATEGORIES, NON_SLOT_TYPES
 
 log = logging.getLogger("outfit.llm")
 
@@ -69,6 +69,19 @@ LEGS = ("bottoms", "footwear")
 def owned_for(items: list[dict], cat: str, lo: float | None, hi: float | None) -> list[dict]:
     """What the wardrobe can actually put on for this trip, in this category."""
     return [i for i in items if i["category"] == cat and i["availableCount"] >= 1 and suits(i, cat, lo, hi)]
+
+
+def wearable(item: dict | None) -> bool:
+    """A garment that can fill its slot in an outfit: socks are packed under footwear
+    but are never the shoes (vocab.NON_SLOT_TYPES; pre-push gate, 2026-11-24: socks
+    replaced dropped sandals while boots stayed home)."""
+    return item is not None and item.get("type") not in NON_SLOT_TYPES
+
+
+def wearable_for(items: list[dict], cat: str, lo: float | None, hi: float | None) -> list[dict]:
+    """owned_for, without socks among the shoes: what shoe counts and swaps use. Only
+    footwear: briefs and bras pack and count as underwear (pre-push gate, 2026-11-24)."""
+    return [i for i in owned_for(items, cat, lo, hi) if cat != "footwear" or wearable(i)]
 
 
 def trip_range(summary: dict) -> tuple[float, float]:
@@ -156,10 +169,10 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
         return any((kind := owned_for(items, cat, *band)) and all(
             rules.violations(user_rules, {cat: i["id"], "footwear": shoe["id"]}, by_id) for i in kind)
             for cat in ("base", "bottoms"))
-    shoes = sorted(owned_for(items, "footwear", *band),
+    shoes = sorted(wearable_for(items, "footwear", *band),
                    key=lambda i: (alone(i), *_fit(i, "footwear", pack, user_rules, by_id),
                                   not any(s in i["formality"] for s in styles), i["id"]))
-    kept = [by_id[p["id"]] for p in pack if p["category"] == "footwear" and p["id"] in by_id]
+    kept = [by_id[p["id"]] for p in pack if p["category"] == "footwear" and wearable(by_id.get(p["id"]))]
     if not shoes and not kept:
         return
     # Shoes still on the list stay; a pair is added only for what they cannot cover
@@ -229,7 +242,8 @@ def too_thin(pack: list[dict], items: list[dict], lo: float | None, hi: float | 
     # as before; only summer legs on a cold trip are left home (pre-push gate,
     # 2026-11-21: warmth-3 jeans dropped from a 24-30C trip and called "too light").
     by_id = {i["id"]: i for i in items}
-    return [p for p in pack if p["category"] in LEGS and p["id"] in by_id
+    # Socks are worn inside shoes, never alone: the leg floor is not theirs (2026-11-24).
+    return [p for p in pack if p["category"] in LEGS and wearable(by_id.get(p["id"]))
             and hi is not None and scale.too_cold_for_legs(by_id[p["id"]], hi)]
 
 
@@ -319,7 +333,7 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     by_item = {i["id"]: i for i in items}
     pack = pack if pack is not None else []
     packed = {p["id"] for p in pack}
-    spare = {s: [i["id"] for i in owned_for(items, s, *band) if i["id"] not in packed] for s in LEGS} if band else {}
+    spare = {s: [i["id"] for i in wearable_for(items, s, *band) if i["id"] not in packed] for s in LEGS} if band else {}
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
@@ -360,7 +374,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     names = kept + slots
     options = []
     for slot in names:
-        kind = [p["id"] for p in pack if p["category"] == slot and p["id"] in by_item]
+        kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
         options.append([*turn, *spare.get(slot, ()), None] if slot in slots
                        else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot])])

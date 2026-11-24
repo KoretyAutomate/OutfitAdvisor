@@ -159,11 +159,11 @@ def test_a_cut_branch_never_ends_the_search():
     """With the planned tee only one of two refilled slots can be filled; with the
     oxford, tried later, both can. The cut of a worse branch must not stop the walk
     before the oxford is tried."""
-    names = ["base", "bottoms", "footwear"]
+    names = ["bottoms", "footwear", "base"]   # the refilled slots first
     by = {"tee": {"type": "t_shirt"}, "ox": {"type": "shirt"}, "j": {"type": "jeans"}, "b": {"type": "boots"}}
     ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
-    options = [["tee", "ox"], ["j", None], ["b", None]]
-    got = packing._search(names, options, ({}, 1, {}, (None, None)), ban, by)
+    options = [["j", None], ["b", None], ["tee", "ox"]]
+    got = packing._search(names, options, ({}, 2, {}, (None, None)), ban, by)
     assert got == {"base": "ox", "bottoms": "j", "footwear": "b"}, got
 
 
@@ -305,7 +305,7 @@ def test_a_swapped_coat_is_judged_on_its_own_scale():
     home = {"warmth": 4, "group": "outerwear", "warmthScale": "home", "warmthAnchors": [0.7, 12.9, 25.6]}
     by = {"c": coat, "h": home, "t": {"warmth": 2}}
     names, options = ["outer"], [["h", "c"]]
-    got = packing._search(names, options, ({"base": "t"}, 1, {"base": "t", "outer": "c"}, ((3, 8), None)), [], by)
+    got = packing._search(names, options, ({"base": "t"}, 0, {"base": "t", "outer": "c"}, ((3, 8), None)), [], by)
     assert packing.scale.garment_temp(home) > packing.scale.garment_temp(coat), "the fixture: the jacket is milder"
     assert got == {"outer": "c"}, got
 
@@ -324,8 +324,8 @@ def test_a_swap_to_a_tee_never_keeps_the_undershirt_under_it():
     under = {"group": "underwear", "type": "undershirt"}
     by = {"u": under, "s": {"type": "shirt"}, "t": {"type": "t_shirt"}, "b": {"type": "boots"}}
     ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "shirt"}}]
-    names, options = ["base", "inner", "footwear"], [["s", "t"], ["u", None], ["b", None]]
-    got = packing._search(names, options, ({}, 2, {"inner": "u", "base": "s"}, (None, None)), ban, by)
+    names, options = ["footwear", "base", "inner"], [["b", None], ["s", "t"], ["u", None]]
+    got = packing._search(names, options, ({}, 1, {"inner": "u", "base": "s"}, (None, None)), ban, by)
     assert got == {"base": "t", "inner": None, "footwear": "b"}, got
 
 
@@ -507,3 +507,24 @@ def test_packed_socks_are_no_cooler_shoes_for_the_judge():
     raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8), {})
     assert plan[0]["picks"]["footwear"] == boots["id"], plan
+
+
+def test_a_big_closet_still_finds_the_one_top_that_goes():
+    """20 knits, 15 coats and 10 pairs of boots packed, every boot banned with the planned
+    tee: the packed oxford is found within budget (pre-push gate, 2026-11-24)."""
+    knits = [dict(item(600 + k, "mid", f"knit {k}", typ="sweater"), warmth=3) for k in range(20)]
+    coats = [dict(item(630 + k, "outer", f"coat {k}", typ="coat"), group="outerwear", warmth=4) for k in range(15)]
+    boots = [dict(item(650 + k, "footwear", f"boots {k}", typ="boots"), warmth=3) for k in range(10)]
+    tee = dict(item(670, "base", "tee", typ="t_shirt"), warmth=2)
+    oxford = dict(item(671, "base", "oxford", typ="shirt"), warmth=2)
+    jeans = dict(item(672, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(673, "footwear", "sandals", typ="sandals"), warmth=1)
+    closet = [*knits, *coats, *boots, tee, oxford, jeans, sandals]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in closet if i is not sandals]
+    raw = [{"base": tee["id"], "mid": knits[0]["id"], "outer": coats[0]["id"], "bottoms": jeans["id"],
+            "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8), {})
+    p = plan[0]["picks"]
+    assert p["footwear"] in {b["id"] for b in boots} and p["base"] == oxford["id"], p

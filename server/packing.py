@@ -421,8 +421,11 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
             and (picks.get(s) or s in ("mid", "outer"))
             and not (s == "bottoms" and onepiece)]   # a dress may swap for a dress
     kept += [s for s in extra if s not in kept]   # each slot searched once (pre-push gate, 2026-11-24)
-    # Kept slots outermost: every refill is tried with the planned garment before it changes.
-    names = kept + slots
+    # The refilled slots first, so a replacement that clashes with the plan is cut at once
+    # and the change it needs found within budget (pre-push gate, 2026-11-24: 20 knits
+    # and 15 coats ran it out before a packed oxford was tried); each kept slot then
+    # tries its planned garment first.
+    names = slots + kept
     options = []
     for slot in names:
         # Packed swap-ins meet the trip's weather like the unpacked do (a packed sundress
@@ -447,7 +450,11 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # Judged against the morning as planned, the dropped garments in it: emptied, its
     # slots raise issues (no snow boots) the repair would then be allowed to keep.
     planned = {**picks, **{k: v for k, v in (day.get("_was") or {}).items() if v in by_item}}
-    got = _search(names, options, (fixed, len(kept), planned, (band, judge)), user_rules, by_item)
+    base = (fixed, len(slots), planned, (band, judge))
+    # First every replacement with the plan kept as it is; only then may it change.
+    got = _search(names, [o if i < len(slots) else o[:1] for i, o in enumerate(options)], base, user_rules, by_item)
+    if sum(1 for x in slots if got.get(x)) < len(slots):
+        got = _search(names, options, base, user_rules, by_item)
     # Only what is decided: an empty layer left empty is no change to report.
     return {k: v for k, v in got.items() if k in slots or v or picks.get(k)}
 
@@ -462,10 +469,10 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     slots than the best in hand is cut. The first full fill wins; bounded by
     REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
     nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
-    fixed, n_kept, planned, (band, judge) = base
+    fixed, n_marked, planned, (band, judge) = base   # the first n_marked names are refilled
     # The judge's hard issues the plan already has may stay; a repair adds none, save a
     # slot left empty for want of anything that goes (a partial refill beats none).
-    allowed = (check.hard(check.issues(planned, judge[0])) | {f"no-{s}" for s in names[n_kept:]}) if judge else set()
+    allowed = (check.hard(check.issues(planned, judge[0])) | {f"no-{s}" for s in names[:n_marked]}) if judge else set()
     # Layering and warmth judged only where the planned morning itself, whole, passes
     # them: a plan that already breaks one must still get its shoes (pre-push gate,
     # 2026-11-24: judged on `fixed` alone it saw an empty torso).
@@ -484,8 +491,18 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     best: list = [-1, {}]
     nodes = [0]
 
-    def go(k: int, partial: dict, filled: int) -> bool:
-        if filled + sum(1 for j in range(max(k, n_kept), len(names))) <= best[0]:
+    def onepiece(p: dict) -> bool:
+        return (by_item.get(p.get("base")) or {}).get("group") == "onepiece"
+
+    def filled(p: dict) -> int:
+        """Refilled slots filled; trousers left empty under a dress count, the dress being
+        the legs. Optimistic on a partial morning: an empty slot may still be filled, and
+        empty trousers may still get a dress."""
+        return sum(1 for s in names[:n_marked]
+                   if s not in p or p[s] or (s == "bottoms" and (onepiece({**fixed, **p}) or "base" not in p)))
+
+    def go(k: int, partial: dict) -> bool:
+        if filled(partial) <= best[0]:
             return False
         if k == len(names):
             # A swapped torso is never colder than the plan, unless warm enough for the
@@ -496,8 +513,8 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
                 return False
             if judge and check.hard(check.issues(whole, judge[1])) - allowed:
                 return False
-            best[0], best[1] = filled, dict(partial)
-            return filled == len(names) - n_kept
+            best[0], best[1] = filled(partial), dict(partial)
+            return best[0] == n_marked
         for choice in options[k]:
             nodes[0] += 1
             if nodes[0] > REFILL_NODES:
@@ -509,12 +526,10 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
             # Nor an undershirt under a tee (check's hard inner-tee; it may come off).
             if rules.violations(user_rules, whole, by_item) or (layered and mislayered(whole)):
                 continue
-            # Trousers left empty under a dress are as good as filled: the dress is the legs.
-            under_dress = names[k] == "bottoms" and (by_item.get(whole.get("base")) or {}).get("group") == "onepiece"
-            if go(k + 1, trial, filled + (k >= n_kept and (choice is not None or under_dress))):
+            if go(k + 1, trial):
                 return True
         return False
-    go(0, {}, 0)
+    go(0, {})
     return best[1] if best[0] >= 0 else {}
 
 

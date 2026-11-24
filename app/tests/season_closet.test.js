@@ -139,6 +139,23 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev(`renderCloset()`); await drain(); await drain();
   check("no climate: no 'Other seasons'", !/Other seasons/.test(w.document.getElementById("closetGrid").textContent));
 
+  console.log("\n--- a cold leg gap is not answered by summer legs ------------------");
+  // Pre-push gate, 2026-11-24: shorts in the wash suppressed the bottoms gap, and
+  // adding another pair of shorts erased it, though warm trousers were still wanted.
+  const SHORTS2 = {...SHORTS, id: "shorts-0002", label: "blue shorts"};
+  await ev(`closet=${JSON.stringify([TEE, SHORTS, SHORTS2])}; userRules=[]; saveCloset()`);
+  check("withheld shorts excuse no bottoms gap at 3C",
+    JSON.stringify(ev(`ownershipGaps(["bottoms"],3,[${JSON.stringify(TEE.id)},${JSON.stringify(SHORTS.id)}])`)) === JSON.stringify(["bottoms"]),
+    ev(`ownershipGaps(["bottoms"],3,[${JSON.stringify(TEE.id)},${JSON.stringify(SHORTS.id)}])`));
+  check("withheld chinos still do", JSON.stringify(ev(`(closet.push(${JSON.stringify(CHINOS)}),
+    ownershipGaps(["bottoms"],3,[${JSON.stringify(TEE.id)},${JSON.stringify(SHORTS.id)}]))`)) === "[]");
+  const today = new Date().toISOString().slice(0, 10);
+  await ev(`gaps=[{slot:"bottoms",day:"${today}",lo:3,hi:8,at:3}]; clearGapsFilledBy(${JSON.stringify(SHORTS2)})`);
+  await drain();
+  check("another pair of shorts leaves the gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
+  check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

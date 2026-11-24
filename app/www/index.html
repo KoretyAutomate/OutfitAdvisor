@@ -5493,8 +5493,12 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
   return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:slot===LEGS_GAP?!legsWithheld:!withheld.has(slot));
 }
 const COLD_GAP="warmth", LEGS_GAP="legs";
-// Warm enough legs for this temperature: a dress worn as the base, or trousers.
-const legsWarm=(i,t)=>normRoles(i.roles,i.category).some(r=>r!=="footwear"&&coversLegs(r,i))&&!tooColdForLegs(i,t);
+// Warm enough legs for this temperature: a dress worn as the base, or trousers with
+// a top they own to wear them under, as layers.underdressed asks (pre-push gate,
+// 2026-11-24: trousers cleared a dress's gap in a closet with no top at all).
+const ownsTop=()=>closet.some(x=>x.group!=="onepiece"&&normRoles(x.roles,x.category).includes("base")&&!bannedOutright(x));
+const legsWarm=(i,t)=>!tooColdForLegs(i,t)&&normRoles(i.roles,i.category).some(r=>
+  r==="bottoms"?ownsTop():r!=="footwear"&&coversLegs(r,i));
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —

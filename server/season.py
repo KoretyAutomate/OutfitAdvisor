@@ -150,13 +150,17 @@ def _fits(day, slot: str, n: Normal) -> bool:
         wd = day.wd
         outright = [r for r in day.rules if not rules.is_combination(r)]
         today = Normal(day.plan, day.peak)
-        memo[slot] = any(
-            slot in (wd.by_roles.get(i) or ()) and not out_of_season(it, slot, n, today)
-            and not rules.violations(outright, {slot: i}, wd.by_item)
-            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
-            and not layers.underdressed(it, slot, day)
-            and not (slot == "footwear" and garment.wet(day.w) and garment.wets_through(it))
-            for i, it in wd.by_item.items())
+
+        def fits(s: str, i: str, it: dict) -> bool:
+            return s in (wd.by_roles.get(i) or ()) and not out_of_season(it, s, n, today) \
+                and not rules.violations(outright, {s: i}, wd.by_item) \
+                and not layers.overdressed(it, s, wd, day.plan, day.peak, day.rules) \
+                and not layers.underdressed(it, s, day) \
+                and not (s == "footwear" and garment.wet(day.w) and garment.wets_through(it))
+        # Trousers have an in-season dress as their alternative too, as in
+        # layers.underdressed (pre-push gate, 2026-11-24: shorts beside an in-season dress).
+        memo[slot] = any(fits(slot, i, it) or (slot == "bottoms" and it.get("group") == "onepiece"
+                                               and fits("base", i, it)) for i, it in wd.by_item.items())
     return memo[slot]
 
 

@@ -193,6 +193,13 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
   check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
+  // No top to wear warm trousers under: they answer nothing.
+  await ev(`closet=${JSON.stringify([DRESS1, DRESS2, CHINOS])}; saveCloset()`);
+  check("no top: withheld trousers excuse no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(DRESS2.id)}])`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(CHINOS)})`);
+  await drain();
+  check("no top: added trousers leave the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
   await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8},{slot:"base",day:"${today}",lo:8,hi:12}]`);
   const sum = JSON.parse(ev("JSON.stringify(gapSummary())"));
   check("the summary sends leg cover as legs, apart from a plain base gap",

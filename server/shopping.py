@@ -204,10 +204,16 @@ def _words(s: object) -> set:
     return {w for w in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(w) > 2}
 
 
+_ONE_PIECE_HEADS = {"dress", "dresses", "jumpsuit", "jumpsuits", "overalls", "dungarees", "romper",
+                    "playsuit", "pinafore"}
+
+
 def _one_piece(what: str) -> bool:
-    """A suggestion that names a dress, jumpsuit or overalls."""
-    words = str(what).lower()
-    return any(t.replace("_", " ") in words for t in TYPES["onepiece"])
+    """A suggestion whose garment IS a dress, jumpsuit or overalls: the phrase's head,
+    its last word, never any "dress" in it — a "flannel dress shirt" is a shirt
+    (pre-push gate, 2026-11-24)."""
+    words = re.findall(r"[a-z]+", str(what).lower())
+    return bool(words) and words[-1] in _ONE_PIECE_HEADS
 
 
 def _already_owned(what: str, closet: list[dict]) -> bool:

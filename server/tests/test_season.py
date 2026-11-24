@@ -557,3 +557,22 @@ def test_warm_trousers_with_no_top_to_wear_are_no_alternative_to_the_dress():
     d = day(8, dress, dress2, JEANS, coat, SNEAK, hi=12)
     assert not layers.underdressed(dress, "base", d)
     assert gaps.LEGS_GAP in gaps.missing({"base": dress["id"], "outer": coat["id"], "footwear": SNEAK["id"]}, d, [])
+
+
+def test_a_dress_shirt_is_no_leg_cover():
+    import shopping
+    assert shopping._one_piece("knit sweater dress") and shopping._one_piece("wool jumpsuit")
+    assert not shopping._one_piece("warm flannel dress shirt") and not shopping._one_piece("dress shoes")
+
+
+def test_out_of_season_shorts_give_way_to_an_in_season_dress():
+    """19-24C actual, 9-17C normal: the shorts are out of season while an in-season
+    dress could be worn, so they count and are held aside (pre-push gate, 2026-11-24)."""
+    from test_funnel import run
+    from wardrobe_fixtures import day
+    dress = g("cotdress1", "cotton dress", "onepiece", "dress", ["base"], 2)
+    p = pk.Prefs(normal=season.Normal(9, 17))
+    d = day(19, SHORTS, TEE, dress, SNEAK, hi=24, prefs=p)
+    assert season.counts(d, "bottoms", SHORTS["id"])
+    _, r = run(19, SHORTS, TEE, dress, SNEAK, hi=24, p=__import__("test_funnel").prefs(normal=season.Normal(9, 17)))
+    assert r.outfits[0].picks["base"] == dress["id"] and not r.outfits[0].picks.get("bottoms"), r.outfits[0].picks

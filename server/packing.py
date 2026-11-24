@@ -122,7 +122,8 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
                 got += add
         packed_ids = {p["id"] for p in pack}
         spare = [i for i in owned if i["id"] not in packed_ids]
-        spare.sort(key=lambda i: (not any(s in i["formality"] for s in styles), -i["availableCount"]))
+        spare.sort(key=lambda i: (*_fit(i, cat, pack, user_rules or [], by_id),
+                                  not any(s in i["formality"] for s in styles), -i["availableCount"]))
         for i in spare:
             if got >= target:
                 break
@@ -145,24 +146,29 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
     every planned morning can wear first: not one some rule bans with everything
     packed of a kind — sneakers banned with the only jeans, or the only tee, left the
     planned mornings barefoot while loafers stayed home (pre-push gate, 2026-11-24).
-    Then the pair banned with the fewest packed garments."""
+    Then the pair banned with the fewest packed garments (_fit)."""
     by_id = {i["id"]: i for i in items}
-    kinds: dict[str, list[str]] = {}
-    for p in pack:
-        if p["category"] != "footwear" and p["id"] in by_id:
-            kinds.setdefault(p["category"], []).append(p["id"])
-
-    def clashes(shoe: dict, iid: str, slot: str) -> bool:
-        return bool(rules.violations(user_rules, {slot: iid, "footwear": shoe["id"]}, by_id))
-
-    def fit(shoe: dict) -> tuple:
-        hits = {slot: sum(clashes(shoe, i, slot) for i in ids) for slot, ids in kinds.items()}
-        return (any(hits[s] == len(ids) for s, ids in kinds.items()), sum(hits.values()))
     shoes = sorted(owned_for(items, "footwear", *band),
-                   key=lambda i: (*fit(i), not any(s in i["formality"] for s in styles), i["id"]))
+                   key=lambda i: (*_fit(i, "footwear", pack, user_rules, by_id),
+                                  not any(s in i["formality"] for s in styles), i["id"]))
     if shoes:
         pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,
                      "why": "warm enough for the trip"})
+
+
+def _fit(item: dict, slot: str, pack: list[dict], user_rules: list[dict], by_id: dict) -> tuple:
+    """How well a garment joining the list goes with what is packed: (banned by some
+    rule with everything packed of another kind, how many packed garments it is
+    banned with). Lower is better. Trousers banned with the only shoes, or shoes with
+    the only tee, would leave the planned mornings short while a pair that goes stays
+    home (pre-push gate, 2026-11-24)."""
+    kinds: dict[str, list[str]] = {}
+    for p in pack:
+        if p["category"] != slot and p["id"] in by_id:
+            kinds.setdefault(p["category"], []).append(p["id"])
+    hits = {k: sum(bool(rules.violations(user_rules, {k: i, slot: item["id"]}, by_id)) for i in ids)
+            for k, ids in kinds.items()}
+    return any(hits[k] == len(ids) for k, ids in kinds.items()), sum(hits.values())
 
 
 def counts(pack: list[dict]) -> dict[str, int]:

@@ -193,6 +193,11 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev(`clearGapsFilledBy(${JSON.stringify(CHINOS)})`); await drain();
   check("warm trousers answer it", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
 
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8},{slot:"base",day:"${today}",lo:8,hi:12}]`);
+  const sum = JSON.parse(ev("JSON.stringify(gapSummary())"));
+  check("the summary sends leg cover as legs, apart from a plain base gap",
+    sum.some(x => x.slot === "legs") && sum.some(x => x.slot === "base"), sum);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

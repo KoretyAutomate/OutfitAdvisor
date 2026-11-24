@@ -5672,12 +5672,15 @@ function gapSummary(){
   const by=new Map();
   const days=new Set();
   for(const g of liveGaps()){
-    const e=by.get(g.slot);
+    // A summer dress's gap is warm leg cover, sent as "legs" so the shopping list
+    // offers trousers or a warm dress, never a tee (gaps.LEGS_GAP).
+    const slot=g.legs?LEGS_GAP:g.slot;
+    const e=by.get(slot);
     // A morning counts once per slot: a cold-morning gap and a plain outer gap on
     // the same day are one short morning, not two.
-    const k=g.slot+"|"+g.day;
+    const k=slot+"|"+g.day;
     if(e){ if(!days.has(k)) e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
-    else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
+    else by.set(slot,{slot,n:1,loC:g.lo,hiC:g.hi});
     days.add(k);
   }
   return [...by.values()].sort((a,b)=>b.n-a.n).slice(0,20);

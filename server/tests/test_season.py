@@ -497,12 +497,38 @@ def test_a_summer_dress_on_a_cold_morning_is_a_leg_gap():
     assert gaps.LEGS_GAP in gaps.missing(picks, d, []) and "base" not in gaps.missing(picks, d, [])
 
 
-def test_a_legs_gap_reaches_shopping_as_the_base():
-    """A phone that predates LEGS_GAP stores "legs" as a slot; /shopping takes it as the
-    base rather than refusing the whole request."""
+def test_a_legs_gap_reaches_shopping_as_leg_cover():
+    """"legs" stays itself at /shopping (a phone of any age may send it), never a 422."""
     import schemas
-    assert schemas.Gap(slot="legs").slot == "base"
+    assert schemas.Gap(slot="legs").slot == "legs"
     assert schemas.Gap(slot="warmth").slot == "outer"
+
+
+def test_shorts_give_way_to_a_warm_dress():
+    """Shorts and a wearable warm dress at 8-12C: the shorts are underdressed, so no
+    false bottoms gap (pre-push gate, 2026-11-24)."""
+    from wardrobe_fixtures import day
+    dress = g("wooldress", "wool dress", "onepiece", "dress", ["base"], 3)
+    d = day(8, SHORTS, dress, TEE, SNEAK, hi=12)
+    assert layers.underdressed(SHORTS, "bottoms", d)
+
+
+def test_leg_cover_evidence_buys_trousers_or_a_dress_never_a_tee(monkeypatch):
+    import asyncio
+
+    import shopping
+    gaps_ = [{"slot": "legs", "n": 5, "loC": 6, "hiC": 12}]
+    reply = {"suggestions": [{"what": "warm wool trousers", "slot": "bottoms", "why": "x", "priority": 1},
+                             {"what": "knit sweater dress", "slot": "base", "why": "x", "priority": 1},
+                             {"what": "white crew tee", "slot": "base", "why": "x", "priority": 2}],
+             "verdict": "v"}
+
+    async def chat(*a, **k):
+        import json
+        return json.dumps(reply)
+    monkeypatch.setattr(shopping, "_chat", chat)
+    out = asyncio.run(shopping.shopping_list([], gaps_, [], {"tempOffset": 0}))
+    assert [s["what"] for s in out["suggestions"]] == ["warm wool trousers", "knit sweater dress"], out
 
 
 def test_a_summer_dress_gives_way_to_warm_trousers_and_a_top():

@@ -270,7 +270,8 @@ def test_a_kept_pair_may_give_way_to_shoes_still_at_home():
     loafers = dict(item(203, "footwear", "loafers", typ="loafers"), warmth=2)
     closet = [shorts, boots, jeans, loafers]
     ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "boots"}}]
-    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"} for i in (boots, jeans)]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (boots, jeans)]
     raw = [{"bottoms": shorts["id"], "footwear": boots["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["bottoms"] == jeans["id"] and plan[0]["picks"]["footwear"] == loafers["id"], plan

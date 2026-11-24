@@ -142,8 +142,10 @@ def underdressed(item: dict, slot: str, day: "check.Day") -> bool:
                    and wearable(s, i, it) for i, it in wd.by_item.items())
     # A summer dress has warm trousers and a top as its alternative too (pre-push gate,
     # 2026-11-24: a sundress was served, and a leg gap recorded, beside warm jeans).
-    return warm_legs(slot) or (slot == "base" and warm_legs("bottoms") and any(
-        it.get("group") != "onepiece" and wearable("base", i, it) for i, it in wd.by_item.items()))
+    # And summer trousers have a warm dress (pre-push gate, 2026-11-24).
+    return warm_legs(slot) or (slot == "bottoms" and warm_legs("base")) or (
+        slot == "base" and warm_legs("bottoms") and any(
+            it.get("group") != "onepiece" and wearable("base", i, it) for i, it in wd.by_item.items()))
 
 
 def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:

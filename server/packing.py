@@ -370,7 +370,7 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     # waterproof sandals on a rainy cold trip while waterproof boots stayed home). Tops
     # and layers too: an owned oxford for boots banned with every packed tee.
     spare = {s: [i["id"] for i in sorted(wearable_for(items, s, *band), key=garment.wets_through)
-                 if i["id"] not in packed] for s in (*LEGS, "base", "mid", "outer")} if band else {}
+                 if i["id"] not in packed] for s in (*LEGS, "base", "mid", "outer", "inner")} if band else {}
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
@@ -416,7 +416,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     extra = [s for s, i in picks.items() if i and s not in slots
              and ((by_item.get(i) or {}).get("group") == "accessories" or s in ("inner", "mid", "outer")
                   # the top too, where the judge can tell a cardigan worn as the top suffices
-                  or (s == "base" and judge is not None))]
+                  # (never a dress: its legs would go with it; fallback._rank keeps them)
+                  or (s == "base" and judge is not None and not onepiece))]
     # An empty mid or outer layer may take a packed one, to make up the warmth of an
     # undershirt that had to come off (pre-push gate, 2026-11-24).
     kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots
@@ -454,13 +455,19 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     planned = {**picks, **{k: v for k, v in (day.get("_was") or {}).items() if v in by_item}}
     base = (fixed, len(slots), planned, (band, judge))
     # First every replacement with the plan kept as it is; only then may it change.
-    def done(r: dict) -> int:   # refilled slots filled; empty trousers under a dress count
+    wet = bool(judge and judge[1].w.get("isRain"))
+
+    def done(r: dict) -> tuple:
+        """Refilled slots filled (empty trousers under a dress count), then, on a wet
+        trip, shoes that keep the rain out (pre-push gate, 2026-11-24: mesh that went
+        with the planned tee stopped the search for boots with a packed oxford)."""
         dress = (by_item.get({**picks, **r}.get("base")) or {}).get("group") == "onepiece"
-        return sum(1 for x in slots if r.get(x) or (x == "bottoms" and dress))
+        dry = not (wet and r.get("footwear") and garment.wets_through(by_item[r["footwear"]]))
+        return sum(1 for x in slots if r.get(x) or (x == "bottoms" and dress)), dry
     got = _search(names, [o if i < len(slots) else o[:1] for i, o in enumerate(options)], base, user_rules, by_item)
-    if done(got) < len(slots):
+    if done(got) < (len(slots), True):
         wider = _search(names, options, base, user_rules, by_item)
-        # The wider walk can run out of budget with less: keep whichever fills more.
+        # The wider walk can run out of budget with less: keep whichever does better.
         if done(wider) > done(got):
             got = wider
     # Only what is decided: an empty layer left empty is no change to report.

@@ -570,3 +570,61 @@ def test_a_cardigan_may_take_the_place_of_a_tee_banned_with_the_boots():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11), {})
     p = plan[0]["picks"]
     assert p["footwear"] == boots["id"] and not p.get("base") and cardi["id"] in (p.get("mid"), p.get("outer")), p
+
+
+def _p(*items_):
+    return [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"} for i in items_]
+
+
+def test_a_planned_dress_never_simply_comes_off():
+    """Boots banned with the dress and no trousers owned: the dress never vanishes for a
+    cardigan alone, which would leave the legs bare (pre-push gate, 2026-11-24)."""
+    dress = dict(item(700, "base", "wool dress", typ="dress"), group="onepiece", warmth=3)
+    cardi = dict(item(701, "mid", "cardigan", typ="cardigan"), warmth=3)
+    sandals = dict(item(702, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(703, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [dress, cardi, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "dress"}}]
+    pack = _p(dress, cardi, boots)
+    raw = [{"base": dress["id"], "mid": cardi["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 11), {})
+    assert plan[0]["picks"]["base"] == dress["id"], plan
+
+
+def test_a_thermal_from_home_may_replace_one_banned_with_the_boots():
+    """2-5C: the packed white thermal is banned with the boots, a grey one is at home:
+    the grey joins (pre-push gate, 2026-11-24)."""
+    white = dict(item(710, "inner", "white thermal", typ="thermal"), group="underwear", warmth=3, colors=["white"])
+    grey = dict(item(711, "inner", "grey thermal", typ="thermal"), group="underwear", warmth=3, colors=["grey"])
+    shirt = dict(item(712, "base", "flannel", typ="shirt"), warmth=3)
+    coat = dict(item(713, "outer", "parka", typ="coat"), group="outerwear", warmth=5)
+    jeans = dict(item(714, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(715, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(716, "footwear", "boots", typ="boots"), warmth=4)
+    closet = [white, grey, shirt, coat, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "thermal", "color": "white"}}]
+    pack = _p(white, shirt, coat, jeans, boots)
+    raw = [{"inner": white["id"], "base": shirt["id"], "outer": coat["id"], "bottoms": jeans["id"],
+            "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (2, 5), {})
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and p.get("inner") == grey["id"], "a replacement before going without"
+
+
+def test_a_wet_trip_looks_past_mesh_that_fits_for_a_dry_pair():
+    """Rain: mesh goes with the planned tee, waterproof boots only with the packed oxford:
+    the oxford and boots win (pre-push gate, 2026-11-24)."""
+    tee = dict(item(720, "base", "tee", typ="t_shirt"), warmth=2)
+    oxford = dict(item(721, "base", "oxford", typ="shirt"), warmth=2)
+    jeans = dict(item(722, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(723, "footwear", "sandals", typ="sandals"), warmth=1, waterproof=True)
+    mesh = dict(item(724, "footwear", "mesh sneakers", typ="sneakers"), warmth=2, group="footwear", material="mesh")
+    boots = dict(item(725, "footwear", "rain boots", typ="boots"), warmth=3, group="footwear", waterproof=True)
+    closet = [tee, oxford, jeans, sandals, mesh, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = _p(tee, oxford, jeans, mesh, boots)
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8),
+                              {"isRain": True})
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and p["base"] == oxford["id"], p

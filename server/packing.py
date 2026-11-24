@@ -382,7 +382,7 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # the only boots; pre-push gate, 2026-11-24).
     extra = [s for s, i in picks.items() if i and s not in slots
              and (by_item.get(i) or {}).get("group") == "accessories"]
-    kept = [s for s in (*LEGS, "base", "mid", "outer") if s not in slots and picks.get(s)
+    kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots and picks.get(s)
             and not (s == "bottoms" and onepiece)] + extra   # a dress may swap for a dress
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
@@ -397,17 +397,42 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         options.append([*turn, *more, None] if slot in slots
                        else [picks[slot], *(i for i in [*turn, *more] if i != picks[slot]),
                              *([None] if slot in extra else [])])
-    best: tuple = (-1, ())
-    for combo in itertools.product(*options):
-        filled = sum(c is not None for c in combo[len(kept):])
-        if filled > best[0] and not rules.violations(
-                user_rules, {**picks, **dict(zip(names, combo, strict=True))}, by_item):
-            best = (filled, combo)
-            if filled == len(slots):
-                break
-    # Nothing passed at all only if the morning still broke a rule on its own: refill
-    # nothing rather than raise.
-    return dict(zip(names, best[1], strict=True)) if best[0] >= 0 else {}
+    return _search(names, options, ({k: v for k, v in picks.items() if k not in names}, len(kept)),
+                   user_rules, by_item)
+
+
+REFILL_NODES = 4000   # partial mornings tried at most, so one morning never stalls a request
+
+
+def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_item: dict) -> dict:
+    """Depth first over the slots in order, each slot's options in order: a partial
+    morning that already breaks a rule is cut (the fixed garments and those chosen so
+    far only gain rules as more are added), and a branch that cannot fill more marked
+    slots than the best in hand is cut. The first full fill wins; bounded by
+    REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
+    nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
+    fixed, n_kept = base
+    best: list = [-1, {}]
+    nodes = [0]
+
+    def go(k: int, partial: dict, filled: int) -> bool:
+        if filled + sum(1 for j in range(max(k, n_kept), len(names))) <= best[0]:
+            return False
+        if k == len(names):
+            best[0], best[1] = filled, dict(partial)
+            return filled == len(names) - n_kept
+        for choice in options[k]:
+            nodes[0] += 1
+            if nodes[0] > REFILL_NODES:
+                return True
+            trial = {**partial, names[k]: choice}
+            if rules.violations(user_rules, {**fixed, **trial}, by_item):
+                continue
+            if go(k + 1, trial, filled + (k >= n_kept and choice is not None)):
+                return True
+        return False
+    go(0, {}, 0)
+    return best[1] if best[0] >= 0 else {}
 
 
 def wash_days(n_days: int, have: int, want: int) -> int:

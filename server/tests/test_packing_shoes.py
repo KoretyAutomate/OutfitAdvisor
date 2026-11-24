@@ -436,3 +436,57 @@ def test_a_top_from_home_lets_the_morning_wear_the_boots():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["footwear"] == boots["id"] and plan[0]["picks"]["base"] == oxford["id"], plan
     assert oxford["id"] in {p["id"] for p in pack}
+
+
+def test_a_planned_undershirt_may_change_for_the_boots():
+    """Boots banned with the planned white undershirt; a grey one is packed: the morning
+    swaps undershirts rather than going barefoot (pre-push gate, 2026-11-24)."""
+    white = dict(item(310, "inner", "white undershirt", typ="undershirt"), group="underwear", colors=["white"])
+    grey = dict(item(311, "inner", "grey undershirt", typ="undershirt"), group="underwear", colors=["grey"])
+    tee = dict(item(312, "base", "tee", typ="t_shirt"), warmth=2)
+    jeans = dict(item(313, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(314, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(315, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [white, grey, tee, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "undershirt", "color": "white"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (white, grey, tee, jeans, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"inner": white["id"], "base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"] and plan[0]["picks"]["inner"] == grey["id"], plan
+
+
+def test_the_refill_stays_fast_when_nothing_can_fill_it():
+    """A big wardrobe where every pair of boots is banned with every pair of trousers:
+    the repair gives up quickly rather than walking every top and layer (pre-push
+    gate, 2026-11-24: nine seconds, blocking the server)."""
+    import time
+    tops = [dict(item(400 + k, "base", f"top {k}", typ="shirt"), warmth=2) for k in range(30)]
+    mids = [dict(item(450 + k, "mid", f"knit {k}", typ="sweater"), warmth=3) for k in range(20)]
+    outers = [dict(item(480 + k, "outer", f"coat {k}", typ="coat"), warmth=4) for k in range(15)]
+    legs = [dict(item(500 + k, "bottoms", f"trousers {k}", typ="trousers"), warmth=3) for k in range(15)]
+    boots = [dict(item(520 + k, "footwear", f"boots {k}", typ="boots"), warmth=3) for k in range(14)]
+    sandals = dict(item(540, "footwear", "sandals", typ="sandals"), warmth=1)
+    closet = [*tops, *mids, *outers, *legs, *boots, sandals]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "trousers"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"} for i in closet]
+    raw = [{"base": tops[0]["id"], "mid": mids[0]["id"], "outer": outers[0]["id"], "bottoms": legs[0]["id"],
+            "footwear": sandals["id"]}]
+    plan = packing.validate_plan(raw, days(1), [p for p in pack if p["id"] != sandals["id"]], travel=False)
+    t0 = time.monotonic()
+    out = packing.keep_rules(plan, ban, closet, [p for p in pack if p["id"] != sandals["id"]], (3, 8))
+    assert time.monotonic() - t0 < 1.0
+    assert out and out[0]["picks"]["footwear"] is None and out[0]["picks"]["bottoms"] == legs[0]["id"]
+
+
+def test_a_cut_branch_never_ends_the_search():
+    """With the planned tee only one of two refilled slots can be filled; with the
+    oxford, tried later, both can. The cut of a worse branch must not stop the walk
+    before the oxford is tried."""
+    names = ["base", "bottoms", "footwear"]
+    by = {"tee": {"type": "t_shirt"}, "ox": {"type": "shirt"}, "j": {"type": "jeans"}, "b": {"type": "boots"}}
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    options = [["tee", "ox"], ["j", None], ["b", None]]
+    got = packing._search(names, options, ({}, 1), ban, by)
+    assert got == {"base": "ox", "bottoms": "j", "footwear": "b"}, got

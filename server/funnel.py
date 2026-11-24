@@ -506,13 +506,14 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
         # Tier: 0 fine, 1 out of season (season_held) or a weather rule given up, 2 cold,
-        # 3 both. Above 0 is held aside while the ladder looks for a 0. The weather never
-        # yields to the season: dry feet in summer loafers beat in-season mesh on a wet
-        # day (user, 2026-11-24: "dry feet first"). Within a tier a rule given up comes
-        # first: the layering never buys a broken one (pre-push gate, 2026-11-24).
+        # 3 both. Above 0 is held aside while the ladder looks for a 0. Within a tier the
+        # weather first, before any rule given up: dry feet in summer loafers beat in-season
+        # mesh on a wet day, however many styling steps the loafers take (user,
+        # 2026-11-24: "dry feet first"); then the rules, then the layering, which never
+        # buys a broken one (pre-push gate, 2026-11-24).
         n = season.mismatches(c.day, full)
-        held = season_held(c.day, full) or bool(WEATHER & set(gave))
-        rank = (2 * bool(hard) + held, *cost(gave), fit.layering(c, full), n,
+        wet = bool(WEATHER & set(gave))   # ahead of the rules given up: dry beats on-style
+        rank = (2 * bool(hard) + (season_held(c.day, full) or wet), wet, *cost(gave), fit.layering(c, full), n,
                 *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:

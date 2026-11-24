@@ -699,3 +699,24 @@ def test_two_pairs_of_trousers_each_get_shoes_they_go_with():
            {"base": tee["id"], "bottoms": chinos["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(2), pack, travel=False), ban, closet, pack)
     assert [d["picks"]["footwear"] for d in plan] == [boots["id"], sneakers["id"]], plan
+
+
+def test_shoes_kept_on_the_list_are_checked_for_every_packed_garment():
+    """Sandals dropped, boots kept but banned with the jeans: loafers join for the jeans
+    morning (pre-push gate, 2026-11-24)."""
+    sandals = dict(item(130, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(131, "footwear", "boots", typ="boots"), warmth=3)
+    loafers = dict(item(132, "footwear", "loafers", typ="loafers"), warmth=2)
+    jeans = dict(item(133, "bottoms", "jeans", typ="jeans"), warmth=3)
+    chinos = dict(item(134, "bottoms", "chinos", typ="trousers"), warmth=3)
+    closet = [sandals, boots, loafers, jeans, chinos]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "boots"}}]
+    pack = [{"id": sandals["id"], "category": "footwear", "label": "sandals", "qty": 1, "why": "x"},
+            {"id": boots["id"], "category": "footwear", "label": "boots", "qty": 1, "why": "x"},
+            {"id": jeans["id"], "category": "bottoms", "label": "jeans", "qty": 1, "why": "x"},
+            {"id": chinos["id"], "category": "bottoms", "label": "chinos", "qty": 1, "why": "x"}]
+    pack = packing.top_up(pack, closet, 2, ["casual"], band=(3, 8), user_rules=ban)
+    assert {p["id"] for p in pack if p["category"] == "footwear"} == {boots["id"], loafers["id"]}, pack
+    raw = [{"bottoms": jeans["id"], "footwear": sandals["id"]}, {"bottoms": chinos["id"], "footwear": boots["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(2), pack, travel=False), ban, closet, pack)
+    assert plan[0]["picks"]["footwear"] == loafers["id"], plan

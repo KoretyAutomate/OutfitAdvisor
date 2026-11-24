@@ -456,3 +456,26 @@ def test_a_rainy_morning_in_mesh_says_so_and_never_blames_the_season(api, monkey
     assert out["picks"]["footwear"] == MESH["id"]
     assert relaxnotes.SEASON not in out["outfit_text"] and relaxnotes.SEASON_UNSURE not in out["outfit_text"], \
         out["outfit_text"]
+
+
+def test_the_rain_outranks_any_number_of_styling_steps(monkeypatch):
+    """Summer loafers that cost two styling steps still beat mesh that costs only the
+    wet rule (pre-push gate, 2026-11-24): the weather is ahead of the rules given up."""
+    from test_funnel import CHINOS, LOAFERS, MESH, prefs
+    from wardrobe_fixtures import OXFORD, UNDER, day, g
+    summer = {**LOAFERS, "season": "warm"}
+    # An in-season leather pair banned with the trousers: the loafers really count as
+    # out of season (season._fits), so both outfits share the tier.
+    derbies = g("derbies01", "black derbies", "footwear", "dress_shoes", ["footwear"], 2, colors=["black"])
+    ban = ({"kind": "avoid_pair", "a": {"type": "dress_shoes"}, "b": {"type": "trousers"}},)
+    d = day(14, UNDER, OXFORD, CHINOS, MESH, summer, derbies, hi=19, rain=80, isRain=True,
+            prefs=prefs(normal=season.Normal(9, 17), rules=ban))
+    c = funnel.Ctx(d, funnel.target_level(d.look), frozenset(funnel.RELAX))
+    monkeypatch.setattr(funnel, "needed",
+                        lambda ctx, p: ("colour", "texture") if p.get("footwear") == LOAFERS["id"] else ("wet",))
+    base = {"inner": UNDER["id"], "base": OXFORD["id"], "bottoms": CHINOS["id"]}
+    found = [(("base",), {**base, "footwear": MESH["id"]}), (("base",), {**base, "footwear": LOAFERS["id"]})]
+    got = sorted(funnel._evaluate(c, found, funnel.priority_for(c), frozenset(base) | {"footwear"}),
+                 key=lambda o: o.rank)
+    assert all(o.rank[0] == 1 for o in got), [o.rank for o in got]
+    assert got[0].picks["footwear"] == LOAFERS["id"], [(o.picks["footwear"], o.rank) for o in got]

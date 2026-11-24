@@ -357,7 +357,7 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             if not broken:
                 break
             picks[broken[0]["slot"]] = None
-        got = _refill(day, picks, (pack, spare), user_rules, by_item, n)
+        got = _refill(day, picks, (pack, spare, band), user_rules, by_item, n)
         before = dict(picks)
         picks.update(got)
         for slot, iid in got.items():   # only a garment brought in, never one kept as planned
@@ -378,9 +378,9 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     any (pre-push gate, 2026-11-24); kept where it goes, since it is what was planned.
     The first combination keeping every rule with every marked slot filled, else the
     one filling most; each slot's packed garments rotated by day `n`. Never trousers
-    under a one-piece. `pool`: (the packed list, {slot: suitable unpacked ids}), the
-    unpacked tried only after every packed garment."""
-    pack, spare = pool
+    under a one-piece. `pool`: (the packed list, {slot: suitable unpacked ids}, the
+    trip's (lo, hi) or None), the unpacked tried only after every packed garment."""
+    pack, spare, band = pool
     onepiece = (by_item.get(picks.get("base")) or {}).get("group") == "onepiece"
     slots = [s for s in day.get("_refill", ()) if not (s == "bottoms" and onepiece)]
     # The rest of the morning may change too, to a packed garment of its kind: trousers
@@ -396,7 +396,10 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     names = kept + slots
     options = []
     for slot in names:
-        kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))]
+        # Packed swap-ins meet the trip's weather like the unpacked do (a packed sundress
+        # for a wool dress on a cold trip; pre-push gate, 2026-11-24).
+        kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))
+                and (not band or suits(by_item[p["id"]], slot, *band))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
         more = list(spare.get(slot, ()))
         if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers

@@ -536,7 +536,8 @@ def test_with_no_combination_keeping_every_rule_the_most_slots_are_filled():
     ban = {"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}
     day = {"_refill": ["bottoms", "footwear"]}
     pack = [{"id": jeans["id"], "category": "bottoms"}, {"id": sneakers["id"], "category": "footwear"}]
-    got = packing._refill(day, {"base": None}, (pack, {}), [ban], {jeans["id"]: jeans, sneakers["id"]: sneakers}, 0)
+    by = {jeans["id"]: jeans, sneakers["id"]: sneakers}
+    got = packing._refill(day, {"base": None}, (pack, {}, None), [ban], by, 0)
     assert sum(v is not None for v in got.values()) == 1, got
 
 

@@ -522,3 +522,20 @@ def test_a_dry_pair_joins_when_only_mesh_is_left():
             for i in (sandals, mesh, jeans)]
     pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
     assert boots["id"] in {p["id"] for p in pack}, pack
+
+
+def test_a_packed_sundress_never_swaps_in_on_a_cold_trip():
+    """Wool dress and sundress both packed; the wool one is banned with the boots: the
+    packed sundress is too thin for 3-8C and never swaps in (pre-push gate, 2026-11-24)."""
+    wool = dict(item(340, "base", "wool dress", typ="dress"), group="onepiece", warmth=3, colors=["grey"])
+    sun = dict(item(341, "base", "sundress", typ="dress"), group="onepiece", warmth=1, colors=["yellow"])
+    sandals = dict(item(342, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(343, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [wool, sun, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "dress", "color": "grey"}, "b": {"type": "boots"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (wool, sun, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": wool["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["base"] != sun["id"], plan

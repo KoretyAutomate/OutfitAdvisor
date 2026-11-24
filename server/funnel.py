@@ -113,8 +113,7 @@ class Ctx:
 
     @property
     def wet(self) -> bool:
-        w = self.day.w
-        return (w.get("rain") or 0) >= 50 or bool(w.get("isRain"))
+        return garment.wet(self.day.w)
 
 
 @dataclass

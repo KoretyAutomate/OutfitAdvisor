@@ -35,6 +35,7 @@ import datetime as dt
 import math
 from dataclasses import dataclass
 
+import garment
 import layers
 import picks as pk
 import rules
@@ -133,7 +134,10 @@ def _fits(day, slot: str, n: Normal) -> bool:
     that can be left empty always has an in-season answer, which is leaving it
     off: a jacket in July counts as out of season even if it's the only jacket. If
     the actual morning needs it, the outfit without it fails the cold check, and
-    the out-of-season jacket then ranks above being cold (funnel)."""
+    the out-of-season jacket then ranks above being cold (funnel). Comfortable
+    includes dry feet: in-season mesh sneakers are no answer on a wet day, so leather
+    loafers kept for summer are not out of season then (pre-push gate, 2026-11-24:
+    the season had outranked the rain)."""
     if slot in pk._SHEDDABLE:
         return True
     hit = _FITS.get(id(day))
@@ -151,6 +155,7 @@ def _fits(day, slot: str, n: Normal) -> bool:
             and not rules.violations(outright, {slot: i}, wd.by_item)
             and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
             and not layers.underdressed(it, slot, day)
+            and not (slot == "footwear" and garment.wet(day.w) and garment.wets_through(it))
             for i, it in wd.by_item.items())
     return memo[slot]
 

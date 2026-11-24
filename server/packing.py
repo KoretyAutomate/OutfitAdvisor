@@ -101,6 +101,8 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
     if dropped:
         pack[:] = [p for p in pack if p not in dropped]
         log.info("packing: %d leg item(s) too thin for the trip left out", len(dropped))
+        if not any(p["category"] == "footwear" for p in pack):
+            _replace_shoes(pack, items, styles, band, user_rules or [])
     for cat in SCALING:
         owned = owned_for(items, cat, lo, hi)
         ok_ids = {i["id"] for i in owned}
@@ -133,8 +135,6 @@ def top_up(pack: list[dict], items: list[dict], n_days: int, styles: list[str],
             got += qty
         # Category and counts only — never labels (privacy invariant of the journal).
         log.info("packing top-up: %s %s -> %s of %s needed", cat, before, got, needed(cat, n_days))
-    if dropped and not any(p["category"] == "footwear" for p in pack):
-        _replace_shoes(pack, items, styles, band, user_rules or [])
     return pack
 
 
@@ -142,14 +142,21 @@ def _replace_shoes(pack: list[dict], items: list[dict], styles: list[str], band:
                    user_rules: list[dict]) -> None:
     """Shoes are not topped up, so dropped ones are replaced by the best suitable pair
     owned; owning none is /packing's footwear gap (pre-push gate, 2026-11-21: sandals
-    dropped from a winter list left no shoes at all). After the trousers, and a pair
-    every planned morning can wear first: not one some rule bans with everything
-    packed of a kind — sneakers banned with the only jeans, or the only tee, left the
-    planned mornings barefoot while loafers stayed home (pre-push gate, 2026-11-24).
-    Then the pair banned with the fewest packed garments (_fit)."""
+    dropped from a winter list left no shoes at all). BEFORE the trousers and tops are
+    topped up, which then go with them (_fit), and chosen with them in mind: first a
+    pair some suitable top and trousers they own may be worn with, then one no rule
+    bans with everything packed of a kind — sneakers banned with the only jeans or the
+    only tee left the planned mornings barefoot while loafers or chinos stayed home
+    (pre-push gate, 2026-11-24). Then the pair banned with the fewest packed garments."""
     by_id = {i["id"]: i for i in items}
+
+    def alone(shoe: dict) -> bool:
+        """Some kind of garment the trip needs has nothing suitable to wear with it."""
+        return any((kind := owned_for(items, cat, *band)) and all(
+            rules.violations(user_rules, {cat: i["id"], "footwear": shoe["id"]}, by_id) for i in kind)
+            for cat in ("base", "bottoms"))
     shoes = sorted(owned_for(items, "footwear", *band),
-                   key=lambda i: (*_fit(i, "footwear", pack, user_rules, by_id),
+                   key=lambda i: (alone(i), *_fit(i, "footwear", pack, user_rules, by_id),
                                   not any(s in i["formality"] for s in styles), i["id"]))
     if shoes:
         pack.append({"id": shoes[0]["id"], "category": "footwear", "label": shoes[0]["label"], "qty": 1,

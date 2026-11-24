@@ -641,3 +641,37 @@ def test_replacement_trousers_go_with_the_packed_shoes():
     raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sneakers["id"]}] * 3
     plan = packing.keep_rules(packing.validate_plan(raw, days(3), pack, travel=False), ban, closet, pack)
     assert plan and all(d["picks"]["bottoms"] == chinos["id"] for d in plan), plan
+
+
+def test_shorts_and_sandals_both_dropped_are_replaced_together():
+    """Both summer legs off a one-day cold trip, jeans banned with the only sneakers:
+    the sneakers and the chinos go, and the morning is dressed (pre-push gate,
+    2026-11-24: jeans were picked first, and no shoes could follow)."""
+    shorts = dict(item(100, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(101, "footwear", "sandals", typ="sandals"), warmth=1)
+    jeans = dict(item(102, "bottoms", "jeans", typ="jeans"), warmth=3)
+    chinos = dict(item(103, "bottoms", "chinos", typ="trousers"), warmth=3)
+    sneakers = dict(item(104, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    tee = dict(item(105, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [shorts, sandals, jeans, chinos, sneakers, tee]
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}]
+    pack = [{"id": shorts["id"], "category": "bottoms", "label": "shorts", "qty": 1, "why": "x"},
+            {"id": sandals["id"], "category": "footwear", "label": "sandals", "qty": 1, "why": "x"},
+            {"id": tee["id"], "category": "base", "label": "tee", "qty": 1, "why": "x"}]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    assert {p["id"] for p in pack if p["category"] in ("bottoms", "footwear")} == {chinos["id"], sneakers["id"]}, pack
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack)
+    assert plan and plan[0]["picks"]["bottoms"] == chinos["id"] and plan[0]["picks"]["footwear"] == sneakers["id"], plan
+
+
+def test_shoes_are_chosen_for_trousers_they_own():
+    """Two pairs of shoes, one banned with every pair of trousers they own: the other."""
+    sandals = dict(item(110, "footwear", "sandals", typ="sandals"), warmth=1)
+    sneakers = dict(item(111, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    boots = dict(item(112, "footwear", "boots", typ="boots"), warmth=3)
+    jeans = dict(item(113, "bottoms", "jeans", typ="jeans"), warmth=3)
+    ban = [{"kind": "avoid_pair", "a": {"type": "jeans"}, "b": {"type": "sneakers"}}]
+    pack = [{"id": sandals["id"], "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    out = packing.top_up(pack, [sandals, sneakers, boots, jeans], 1, ["casual"], band=(3, 8), user_rules=ban)
+    assert [p["id"] for p in out if p["category"] == "footwear"] == [boots["id"]], out

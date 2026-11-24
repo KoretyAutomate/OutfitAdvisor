@@ -392,3 +392,18 @@ def test_a_rule_given_up_outranks_the_knit_under_the_coat():
     today = frozenset(base) | {"mid"}
     got = sorted(funnel._evaluate(c, shapes, funnel.priority_for(c), today), key=lambda o: o.rank)
     assert got and got[0].picks.get("mid") is None and got[0].relaxed == (), [(o.picks.get("mid"), o.rank) for o in got]
+
+
+def test_the_rain_outranks_the_season():
+    """Rainy 15-20C on a normal 9-17C day: leather loafers kept for warm months beat
+    in-season mesh sneakers, which would give up the wet rule (pre-push gate,
+    2026-11-24)."""
+    from test_funnel import CHINOS, LOAFERS, MESH, prefs, run
+    from wardrobe_fixtures import OXFORD, UNDER
+    summer = {**LOAFERS, "season": "warm"}
+    _, r = run(15, UNDER, OXFORD, CHINOS, MESH, summer, hi=20, rain=80, isRain=True,
+               p=prefs(normal=season.Normal(9, 17)))
+    o = r.outfits[0]
+    assert o.picks["footwear"] == LOAFERS["id"] and "wet" not in o.relaxed, (o.picks, o.relaxed)
+    _, r = run(15, UNDER, OXFORD, CHINOS, MESH, summer, hi=20, p=prefs(normal=season.Normal(9, 17)))
+    assert r.outfits[0].picks["footwear"] == MESH["id"], "dry: the season decides"

@@ -303,3 +303,14 @@ def test_an_outer_only_cardigan_is_a_top_beside_a_dress():
     p = pk.Prefs(normal=season.Normal(9, 17))
     lchinos = g("lchinos01", "light chinos", "bottoms", "trousers", ["bottoms"], 2)
     assert season.counts(day(19, dress, lchinos, light, SNEAK, hi=24, prefs=p), "base", dress["id"])
+
+
+def test_a_worn_garment_keeps_its_line_when_its_slot_is_a_gap():
+    """Summer trousers worn on a cold morning are a 'bottoms' gap; the fallback's plain
+    lines still name them, never 'nothing in your closet' (pre-push gate, 2026-11-24)."""
+    import advisor
+    from wardrobe_fixtures import day
+    d = day(8, SHORTS, TEE, SNEAK, hi=12)
+    picks = {"base": TEE["id"], "bottoms": SHORTS["id"], "footwear": SNEAK["id"]}
+    lines = advisor._plain_lines(advisor.Answer({"lines": {}}, picks, []), picks, d, ["bottoms"])
+    assert lines["bottoms"] == SHORTS["label"], lines

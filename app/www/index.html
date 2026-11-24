@@ -5498,11 +5498,14 @@ const COLD_GAP="warmth", LEGS_GAP="legs";
 // 2026-11-24: trousers cleared a dress's gap in a closet with no top at all).
 // A knit or cardigan worn as the top counts. Not too warm for the afternoon either:
 // legs are worn all day (picks._heat_temp; pre-push gate, 2026-11-24).
-const ownsTop=()=>closet.some(x=>x.group!=="onepiece"&&!bannedOutright(x)
-  &&normRoles(x.roles,x.category).some(r=>r==="base"||r==="mid"));
-const legsWarm=(i,t,pk)=>!tooColdForLegs(i,t)
-  &&(i.warmth||3)<=minOuterWarmth(pk!=null?Math.max(t,pk):t,gradedOn(i))+WARM_TOLERANCE
-  &&normRoles(i.roles,i.category).some(r=>r==="bottoms"?ownsTop():r!=="footwear"&&coversLegs(r,i));
+// The top must suit the day too: a base worn all afternoon, a knit judged by the
+// morning, as layers.underdressed judges them (pre-push gate, 2026-11-24).
+const notTooWarm=(x,at)=>(x.warmth||3)<=minOuterWarmth(at,gradedOn(x))+WARM_TOLERANCE;
+const ownsTop=(t,pk)=>closet.some(x=>x.group!=="onepiece"&&!bannedOutright(x)
+  &&normRoles(x.roles,x.category).some(r=>(r==="base"&&notTooWarm(x,pk!=null?Math.max(t,pk):t))
+    ||(r==="mid"&&notTooWarm(x,t))));
+const legsWarm=(i,t,pk)=>!tooColdForLegs(i,t)&&notTooWarm(i,pk!=null?Math.max(t,pk):t)
+  &&normRoles(i.roles,i.category).some(r=>r==="bottoms"?ownsTop(t,pk):r!=="footwear"&&coversLegs(r,i));
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —

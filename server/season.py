@@ -149,8 +149,12 @@ def _fits(day, slot: str, n: Normal) -> bool:
                 and not (s == "footwear" and garment.wet(day.w) and garment.wets_through(it))
         # Trousers have an in-season dress as their alternative too, as in
         # layers.underdressed (pre-push gate, 2026-11-24: shorts beside an in-season dress).
+        # And a dress has in-season trousers with a top, a knit worn as the top included.
+        legs = slot == "base" and any(fits("bottoms", i, it) for i, it in wd.by_item.items())
         memo[slot] = any(fits(slot, i, it) or (slot == "bottoms" and it.get("group") == "onepiece"
-                                               and fits("base", i, it)) for i, it in wd.by_item.items())
+                                               and fits("base", i, it))
+                         or (legs and it.get("group") != "onepiece" and fits("mid", i, it))
+                         for i, it in wd.by_item.items())
     return memo[slot]
 
 

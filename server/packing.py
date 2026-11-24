@@ -381,6 +381,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     for slot in names:
         kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
+        if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
+            turn = [i for i in turn if (by_item[i].get("group") == "onepiece") == onepiece]
         options.append([*turn, *spare.get(slot, ()), None] if slot in slots
                        else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot])])
     best: tuple = (-1, ())

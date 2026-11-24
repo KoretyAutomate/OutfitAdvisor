@@ -348,3 +348,22 @@ def test_a_planned_morning_may_change_its_top_to_wear_the_replacement_shoes():
     raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     assert plan[0]["picks"]["footwear"] == boots["id"] and plan[0]["picks"]["base"] == oxford["id"], plan
+
+
+def test_a_changed_top_is_never_a_dress_over_the_trousers():
+    """Sneakers replace sandals but are banned with the planned tee; a dress is packed:
+    the morning never becomes the dress with the jeans (pre-push gate, 2026-11-24)."""
+    tee = dict(item(260, "base", "tee", typ="t_shirt"), warmth=2)
+    dress = dict(item(261, "base", "wool dress", typ="dress"), group="onepiece", warmth=3)
+    jeans = dict(item(262, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(263, "footwear", "sandals", typ="sandals"), warmth=1)
+    sneakers = dict(item(264, "footwear", "sneakers", typ="sneakers"), warmth=2)
+    closet = [tee, dress, jeans, sandals, sneakers]
+    ban = [{"kind": "avoid_pair", "a": {"type": "sneakers"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (tee, dress, jeans, sandals)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    p = plan[0]["picks"]
+    assert not (p["base"] == dress["id"] and p.get("bottoms")), p

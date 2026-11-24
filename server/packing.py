@@ -373,8 +373,12 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # The rest of the morning may change too, to a packed garment of its kind: trousers
     # and shoes (2026-11-24), and a top or layer a replacement is banned with — boots
     # banned with the tee, an oxford packed beside it (pre-push gate, 2026-11-24).
+    # An accessory is optional: it may come off for the shoes (a brown belt banned with
+    # the only boots; pre-push gate, 2026-11-24).
+    extra = [s for s, i in picks.items() if i and s not in slots
+             and (by_item.get(i) or {}).get("group") == "accessories"]
     kept = [s for s in (*LEGS, "base", "mid", "outer") if s not in slots and picks.get(s)
-            and not (s == "bottoms" and onepiece) and not (s == "base" and onepiece)]
+            and not (s == "bottoms" and onepiece) and not (s == "base" and onepiece)] + extra
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
     options = []
@@ -384,7 +388,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
             turn = [i for i in turn if (by_item[i].get("group") == "onepiece") == onepiece]
         options.append([*turn, *spare.get(slot, ()), None] if slot in slots
-                       else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot])])
+                       else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot]),
+                             *([None] if slot in extra else [])])
     best: tuple = (-1, ())
     for combo in itertools.product(*options):
         filled = sum(c is not None for c in combo[len(kept):])

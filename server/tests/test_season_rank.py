@@ -365,3 +365,9 @@ def test_waterproof_summer_sandals_are_no_snow_gear():
     o = r.outfits[0]
     assert o.picks["footwear"] == boots["id"], (o.picks, o.relaxed)
     assert not check.hard(check.issues(o.picks, d))
+
+
+def test_a_dress_with_trailing_words_is_still_a_dress():
+    import shopping
+    assert shopping._one_piece("Wool dress with long sleeves") and shopping._one_piece("knit dress, midi length")
+    assert not shopping._one_piece("dress shirt with a spread collar")

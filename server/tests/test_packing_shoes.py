@@ -367,3 +367,21 @@ def test_a_changed_top_is_never_a_dress_over_the_trousers():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     p = plan[0]["picks"]
     assert not (p["base"] == dress["id"] and p.get("bottoms")), p
+
+
+def test_a_planned_belt_comes_off_for_the_only_boots():
+    """Sandals dropped; the packed black boots are banned with the planned brown belt:
+    the belt comes off rather than the morning going barefoot (pre-push gate, 2026-11-24)."""
+    belt = dict(item(270, "accessories", "brown belt", typ="belt"), group="accessories", colors=["brown"])
+    sandals = dict(item(271, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(272, "footwear", "black boots", typ="boots"), warmth=3, colors=["black"])
+    jeans = dict(item(273, "bottoms", "jeans", typ="jeans"), warmth=3)
+    closet = [belt, sandals, boots, jeans]
+    ban = [{"kind": "avoid_pair", "a": {"type": "belt", "color": "brown"}, "b": {"type": "boots", "color": "black"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (belt, sandals, boots, jeans)]
+    pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8), user_rules=ban)
+    slot = belt["category"]
+    raw = [{"bottoms": jeans["id"], "footwear": sandals["id"], slot: belt["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"] and not plan[0]["picks"].get(slot), plan

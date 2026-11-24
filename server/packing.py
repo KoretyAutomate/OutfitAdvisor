@@ -503,8 +503,15 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
         return min((scale.garment_temp(by_item.get(p[t]) or {}) for t in ("inner", "base", "mid", "outer")
                     if p.get(t)), default=99.0)
     floor = warmest(planned)
-    best: list = [-1, {}]
+    best: list = [(-1, False), {}]
     nodes = [0]
+    # On a wet trip dry shoes are part of the goal: a complete morning in mesh is held
+    # while the walk looks on for a dry one (pre-push gate, 2026-11-24).
+    rainy = bool(judge and judge[1].w.get("isRain"))
+
+    def dry(p: dict) -> bool:
+        f = p.get("footwear")
+        return not (rainy and f and garment.wets_through(by_item.get(f) or {}))
 
     def onepiece(p: dict) -> bool:
         return (by_item.get(p.get("base")) or {}).get("group") == "onepiece"
@@ -517,7 +524,7 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
                    if s not in p or p[s] or (s == "bottoms" and (onepiece({**fixed, **p}) or "base" not in p)))
 
     def go(k: int, partial: dict) -> bool:
-        if filled(partial) <= best[0]:
+        if (filled(partial), "footwear" not in partial or dry(partial)) <= best[0]:
             return False
         if k == len(names):
             # A swapped torso is never colder than the plan, unless warm enough for the
@@ -528,8 +535,8 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
                 return False
             if judge and check.hard(check.issues(whole, judge[1])) - allowed:
                 return False
-            best[0], best[1] = filled(partial), dict(partial)
-            return best[0] == n_marked
+            best[0], best[1] = (filled(partial), dry(partial)), dict(partial)
+            return best[0] == (n_marked, True)
         for choice in options[k]:
             nodes[0] += 1
             if nodes[0] > REFILL_NODES:
@@ -545,7 +552,7 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
                 return True
         return False
     go(0, {})
-    return best[1] if best[0] >= 0 else {}
+    return best[1] if best[0][0] >= 0 else {}
 
 
 def wash_days(n_days: int, have: int, want: int) -> int:

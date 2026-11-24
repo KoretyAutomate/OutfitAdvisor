@@ -628,3 +628,23 @@ def test_a_wet_trip_looks_past_mesh_that_fits_for_a_dry_pair():
                               {"isRain": True})
     p = plan[0]["picks"]
     assert p["footwear"] == boots["id"] and p["base"] == oxford["id"], p
+
+
+def test_a_wet_trip_refill_prefers_dry_shoes_over_the_first_fit():
+    """Rain; shorts and waterproof sandals dropped; boots banned with the jeans: chinos
+    with the boots beat jeans with mesh (pre-push gate, 2026-11-24)."""
+    shorts = dict(item(730, "bottoms", "shorts", typ="shorts"), warmth=1)
+    sandals = dict(item(731, "footwear", "sandals", typ="sandals"), warmth=1, waterproof=True)
+    jeans = dict(item(732, "bottoms", "jeans", typ="jeans"), warmth=3)
+    chinos = dict(item(733, "bottoms", "chinos", typ="trousers"), warmth=3)
+    mesh = dict(item(734, "footwear", "mesh sneakers", typ="sneakers"), warmth=2, group="footwear", material="mesh")
+    boots = dict(item(735, "footwear", "rain boots", typ="boots"), warmth=3, group="footwear", waterproof=True)
+    tee = dict(item(736, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [shorts, sandals, jeans, chinos, mesh, boots, tee]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "jeans"}}]
+    pack = _p(jeans, chinos, mesh, boots, tee)
+    raw = [{"base": tee["id"], "bottoms": shorts["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8),
+                              {"isRain": True})
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and p["bottoms"] == chinos["id"], p

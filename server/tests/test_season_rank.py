@@ -314,3 +314,26 @@ def test_a_worn_garment_keeps_its_line_when_its_slot_is_a_gap():
     picks = {"base": TEE["id"], "bottoms": SHORTS["id"], "footwear": SNEAK["id"]}
     lines = advisor._plain_lines(advisor.Answer({"lines": {}}, picks, []), picks, d, ["bottoms"])
     assert lines["bottoms"] == SHORTS["label"], lines
+
+
+def test_a_worn_cold_leg_slot_is_no_hole_for_the_chooser():
+    """Only shorts at 8-12C: the gap is shopping evidence, but the chooser is not asked
+    to suggest trousers for a slot the shorts fill (pre-push gate, 2026-11-24)."""
+    import advisor
+    import gaps
+    from wardrobe_fixtures import day
+    d = day(8, SHORTS, TEE, SNEAK, hi=12)
+    picks = {"base": TEE["id"], "bottoms": SHORTS["id"], "footwear": SNEAK["id"]}
+    assert "bottoms" in gaps.missing(picks, d, [])
+    assert "bottoms" not in advisor._holes(picks, d)
+
+
+def test_an_in_season_knit_worn_as_the_top_holds_a_summer_shirt_aside():
+    """14-18C on a 9-17C normal: a summer-only shirt counts as out of season beside an
+    in-season sweater filed only as mid (pre-push gate, 2026-11-24)."""
+    from wardrobe_fixtures import day
+    shirt = {**g("sumshirt1", "linen shirt", "tops", "shirt", ["base"], 2), "season": "warm"}
+    knit = g("midknit01", "merino sweater", "tops", "sweater", ["mid"], 3)
+    p = pk.Prefs(normal=season.Normal(9, 17))
+    d = day(14, shirt, knit, CHINOS, SNEAK, hi=18, prefs=p)
+    assert season.counts(d, "base", shirt["id"])

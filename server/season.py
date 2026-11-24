@@ -163,7 +163,10 @@ def _fits(day, slot: str, n: Normal, dress: bool = False) -> bool:
         else:
             # Trousers have an in-season dress as their alternative too, as in
             # layers.underdressed (pre-push gate, 2026-11-24: shorts beside an in-season dress).
+            # A top has a knit or cardigan worn as the top too (layers.is_top_slot).
             memo[key] = any(fits(slot, i, it) or (slot == "bottoms" and one(it) and fits("base", i, it))
+                            or (slot == "base" and not one(it) and any(
+                                fits(s, i, it) for s in ("mid", "outer") if layers.is_top_slot(it, s)))
                             for i, it in items)
     return memo[key]
 

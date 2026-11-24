@@ -3337,7 +3337,9 @@ function haversineKm(a,b,c,d){
   const h=Math.sin(dLat/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
-async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); }
+// The push snapshot goes too: it carries the home's monthly normals, which are now
+// another place's until the new ones are measured (pre-push gate, 2026-11-24).
+async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); await savePushPayload(); }
 
 /* ───────── the warmth scale is measured from HOME (user, 2026-08-30) ─────────
 

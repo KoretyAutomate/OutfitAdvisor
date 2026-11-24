@@ -424,12 +424,16 @@ def reconcile(
     return category, grp, kind, clean
 
 
-def fold_accessories(outfit: dict) -> None:
+def fold_accessories(outfit: dict, picks: dict | None = None) -> None:
     """The five accessory lines as the one `accessories` line a phone before v1.62
-    draws (its card has a fixed slot list). Only on an outfit that has them: the
-    generic engine's own `accessories` line is left alone. Newer cards hide it."""
+    draws (its card has a fixed slot list), and the first worn one's id as its
+    `accessories` pick, which its closet-only view and photos read (pre-push gate,
+    2026-11-24). Only on an outfit that has them: the generic engine's own line is
+    left alone. Newer cards hide the line and file the pick by its garment."""
     if not any(s in outfit for s in ACCESSORY_SLOTS):
         return
+    if picks is not None and (first := next((picks[s] for s in ACCESSORY_SLOTS if picks.get(s)), None)):
+        picks[LEGACY_CATEGORY] = first
     worn = [str(v) for s in ACCESSORY_SLOTS if (v := outfit.get(s)) and not str(v).startswith("None")]
     gone = next((str(outfit[s]) for s in ACCESSORY_SLOTS if str(outfit.get(s, "")).startswith("None — ")), None)
     outfit[LEGACY_CATEGORY] = ", ".join(worn) or gone or "None needed"

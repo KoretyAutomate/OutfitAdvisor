@@ -109,7 +109,7 @@ const SCARF = {...BELT, id: "scarf0-0001", label: "grey scarf", type: "scarf", c
     footwear: "loafers"};
   draw({...clothes, belt: "brown belt", neck: "grey scarf", head: "None needed", hands: "None needed",
     umbrella: "None needed", accessories: "brown belt, grey scarf", tip: ""},
-    {base: "b", bottoms: "c", belt: BELT.id, neck: SCARF.id});
+    {base: "b", bottoms: "c", belt: BELT.id, neck: SCARF.id, accessories: BELT.id});   // the server's pick for older phones
   const tiles = [...w.document.querySelectorAll("#wearGrid .wearIt")].map(e => e.dataset.slot);
   const rows = [...w.document.querySelectorAll("#outfitList li")].map(e => e.dataset.slot);
   check("belt and scarf both get a tile", tiles.includes("belt") && tiles.includes("neck"), tiles);

@@ -175,8 +175,14 @@ def test_the_five_fold_into_one_line_for_an_older_card():
     vocab.fold_accessories(o)
     assert o["accessories"] == "None — the advisor couldn't answer just now"
     generic = {"accessories": "hat, gloves & scarf"}
-    vocab.fold_accessories(generic)
+    vocab.fold_accessories(generic, {})
     assert generic == {"accessories": "hat, gloves & scarf"}
+    picks = {"belt": None, "neck": "s1", "hands": "g1"}
+    vocab.fold_accessories({s: "x" for s in vocab.ACCESSORY_SLOTS}, picks)
+    assert picks["accessories"] == "s1"
+    none = {"belt": None}
+    vocab.fold_accessories({s: "None needed" for s in vocab.ACCESSORY_SLOTS}, none)
+    assert "accessories" not in none
 
 
 def test_advice_end_to_end_from_an_old_phone(monkeypatch):
@@ -200,6 +206,7 @@ def test_advice_end_to_end_from_an_old_phone(monkeypatch):
     body = r.json()
     assert body["picks"]["belt"] == BELT["id"] and body["picks"]["neck"] == SCARF["id"], body["picks"]
     assert body["outfit"]["accessories"] == f"{BELT['label']}, {SCARF['label']}", body["outfit"]
+    assert body["picks"]["accessories"] == BELT["id"], "the old card's closet-only view and photo read it"
 
 
 def test_the_warm_hat_line_both_sides():

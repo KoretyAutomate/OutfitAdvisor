@@ -124,11 +124,6 @@ def normal(day) -> Normal | None:
     return n if isinstance(n, Normal) else None
 
 
-# id(day) -> (day, {slot: something in season fits}). The day is kept in the value so
-# its id cannot be reused while cached; a few requests' worth at most.
-_FITS: dict = {}
-
-
 def _fits(day, slot: str, n: Normal) -> bool:
     """They own something in season for this slot that they could wear today. A slot
     that can be left empty always has an in-season answer, which is leaving it
@@ -140,12 +135,7 @@ def _fits(day, slot: str, n: Normal) -> bool:
     the season had outranked the rain)."""
     if slot in pk._SHEDDABLE:
         return True
-    hit = _FITS.get(id(day))
-    if hit is None or hit[0] is not day:
-        while len(_FITS) >= 8:
-            _FITS.pop(next(iter(_FITS)))
-        hit = _FITS[id(day)] = (day, {})
-    memo: dict[str, bool] = hit[1]
+    memo: dict[str, bool] = day.memo.setdefault("season.fits", {})
     if slot not in memo:
         wd = day.wd
         outright = [r for r in day.rules if not rules.is_combination(r)]

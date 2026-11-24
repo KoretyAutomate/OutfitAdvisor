@@ -576,3 +576,24 @@ def test_out_of_season_shorts_give_way_to_an_in_season_dress():
     assert season.counts(d, "bottoms", SHORTS["id"])
     _, r = run(19, SHORTS, TEE, dress, SNEAK, hi=24, p=__import__("test_funnel").prefs(normal=season.Normal(9, 17)))
     assert r.outfits[0].picks["base"] == dress["id"] and not r.outfits[0].picks.get("bottoms"), r.outfits[0].picks
+
+
+def test_a_cardigan_worn_as_the_top_makes_jeans_an_alternative_to_the_dress():
+    """Sundress, jeans, a mid/outer cardigan: cardigan and jeans dress them, so the dress
+    is underdressed and no leg gap is recorded (pre-push gate, 2026-11-24)."""
+    import gaps
+    from wardrobe_fixtures import CARDI, JEANS, day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    d = day(8, dress, JEANS, CARDI, SNEAK, hi=12)
+    assert layers.underdressed(dress, "base", d)
+    assert gaps.LEGS_GAP not in gaps.missing({"base": dress["id"], "footwear": SNEAK["id"]}, d, [])
+
+
+def test_the_season_memo_lives_on_the_request_not_the_module():
+    """No wardrobe outlives its request (README: the server stores nothing)."""
+    from wardrobe_fixtures import day
+    assert not [k for k, v in vars(season).items() if k.isupper() and isinstance(v, dict)]
+    p = pk.Prefs(normal=season.Normal(1, 10))
+    d1, d2 = day(3, SHORTS, CHINOS, TEE, SNEAK, prefs=p), day(3, SHORTS, TEE, SNEAK, prefs=p)
+    assert season.counts(d1, "bottoms", SHORTS["id"]) and not season.counts(d2, "bottoms", SHORTS["id"])
+    assert d1.memo and d1.memo is not d2.memo

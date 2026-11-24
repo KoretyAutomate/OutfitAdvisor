@@ -200,6 +200,22 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8}]; clearGapsFilledBy(${JSON.stringify(CHINOS)})`);
   await drain();
   check("no top: added trousers leave the legs gap", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  // An 8-30C day: a wool dress is too warm for the afternoon, so it answers nothing.
+  const WOOL = {...DRESS1, id: "dress0-0003", label: "wool dress", warmth: 3};
+  await ev(`closet=${JSON.stringify([DRESS1, WOOL])}; saveCloset()`);
+  check("a wool dress too warm for the afternoon excuses no legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)}],30)`)) === JSON.stringify(["legs"]));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:30,at:8,pk:30}]; clearGapsFilledBy(${JSON.stringify(WOOL)})`);
+  await drain();
+  check("nor clears it", ev("gaps.length") === 1, ev("JSON.stringify(gaps)"));
+  await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8,pk:12}]; clearGapsFilledBy(${JSON.stringify(WOOL)})`);
+  await drain();
+  check("on a cool day it does", ev("gaps.length") === 0, ev("JSON.stringify(gaps)"));
+  // A cardigan worn as the top makes warm trousers an answer.
+  const CARD = {...TEE, id: "cardi0-0001", label: "cardigan", type: "cardigan", roles: ["mid", "outer"], category: "mid"};
+  await ev(`closet=${JSON.stringify([DRESS1, CARD, CHINOS])}; saveCloset()`);
+  check("a cardigan as the top: withheld trousers excuse the legs gap",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(CARD.id)}],12)`)) === "[]");
   await ev(`gaps=[{slot:"base",legs:true,day:"${today}",lo:8,hi:12,at:8},{slot:"base",day:"${today}",lo:8,hi:12}]`);
   const sum = JSON.parse(ev("JSON.stringify(gapSummary())"));
   check("the summary sends leg cover as legs, apart from a plain base gap",

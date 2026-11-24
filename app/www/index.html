@@ -5489,16 +5489,20 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
     &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp,peak));
   // "legs": a summer dress on a cold morning. Only something warm enough that covers
   // the legs answers it, a dress or trousers, never a tee (gaps.LEGS_GAP).
-  const legsWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)&&legsWarm(i,planTemp));
+  const legsWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)&&legsWarm(i,planTemp,peak));
   return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:slot===LEGS_GAP?!legsWithheld:!withheld.has(slot));
 }
 const COLD_GAP="warmth", LEGS_GAP="legs";
 // Warm enough legs for this temperature: a dress worn as the base, or trousers with
 // a top they own to wear them under, as layers.underdressed asks (pre-push gate,
 // 2026-11-24: trousers cleared a dress's gap in a closet with no top at all).
-const ownsTop=()=>closet.some(x=>x.group!=="onepiece"&&normRoles(x.roles,x.category).includes("base")&&!bannedOutright(x));
-const legsWarm=(i,t)=>!tooColdForLegs(i,t)&&normRoles(i.roles,i.category).some(r=>
-  r==="bottoms"?ownsTop():r!=="footwear"&&coversLegs(r,i));
+// A knit or cardigan worn as the top counts. Not too warm for the afternoon either:
+// legs are worn all day (picks._heat_temp; pre-push gate, 2026-11-24).
+const ownsTop=()=>closet.some(x=>x.group!=="onepiece"&&!bannedOutright(x)
+  &&normRoles(x.roles,x.category).some(r=>r==="base"||r==="mid"));
+const legsWarm=(i,t,pk)=>!tooColdForLegs(i,t)
+  &&(i.warmth||3)<=minOuterWarmth(pk!=null?Math.max(t,pk):t,gradedOn(i))+WARM_TOLERANCE
+  &&normRoles(i.roles,i.category).some(r=>r==="bottoms"?ownsTop():r!=="footwear"&&coversLegs(r,i));
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —
@@ -5652,7 +5656,7 @@ async function clearGapsFilledBy(item){
   gaps=gaps.filter(g=>{
     // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
     if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi));
-    if(g.legs) return !legsWarm(item,g.at!=null?g.at:g.lo);   // a warm dress or trousers, never a tee
+    if(g.legs) return !legsWarm(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi);   // a warm dress or trousers, never a tee
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as

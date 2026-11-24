@@ -439,3 +439,20 @@ def test_each_slot_is_searched_once():
     plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
     p = plan[0]["picks"]
     assert p["footwear"] == boots["id"] and p["bottoms"] == chinos["id"], p
+
+
+def test_a_snowy_trip_repair_keeps_the_feet_dry():
+    """Snow on a 3-8C trip: dropped waterproof sandals are replaced by the waterproof
+    boots, never the plain loafers (pre-push gate, 2026-11-24)."""
+    sandals = dict(item(470, "footwear", "sandals", typ="sandals"), warmth=1, waterproof=True)
+    loafers = dict(item(471, "footwear", "loafers", typ="loafers"), warmth=2, group="footwear")
+    boots = dict(item(472, "footwear", "snow boots", typ="boots"), warmth=3, group="footwear", waterproof=True)
+    jeans = dict(item(473, "bottoms", "jeans", typ="jeans"), warmth=3)
+    tee = dict(item(474, "base", "tee", typ="t_shirt"), warmth=2)
+    closet = [sandals, loafers, boots, jeans, tee]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (loafers, jeans, tee)]
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), [], closet, pack, (3, 8),
+                              {"isSnow": True})
+    assert plan[0]["picks"]["footwear"] == boots["id"], plan

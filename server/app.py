@@ -335,7 +335,7 @@ async def packing(req: PackingRequest):
                 text = f"• {added}\n{text}"
             plan = trippack.validate_plan(result.get("plan"), days, pack, travel and not started)
             plan = await asyncio.to_thread(trippack.keep_rules, plan, rules.clean_rules(req.rules),
-                                           items, pack, (lo, hi))
+                                           items, pack, (lo, hi), felt[1])
 
             # Capacity reconciliation. The LLM cannot pack more than the user owns
             # (llm.py clamps qty), so a shortfall shows up as SILENCE — a 14-day

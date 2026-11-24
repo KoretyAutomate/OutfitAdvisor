@@ -310,6 +310,7 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
         entry = entries[i] if i < len(entries) and isinstance(entries[i], dict) else {}
         picks: dict[str, str | None] = {}
         refill = []
+        was: dict[str, str] = {}   # what the plan wore there: the judge's baseline
         for slot in CATEGORIES:
             iid = entry.get(slot)
             ok = isinstance(iid, str) and iid in packed and packed[iid]["category"] == slot
@@ -320,19 +321,20 @@ def validate_plan(raw: object, days: list[dict], pack: list[dict], travel: bool,
             # gate, 2026-11-21).
             if slot in LEGS and isinstance(iid, str) and not ok:
                 refill.append(slot)
+                was[slot] = iid
         # A morning of only summer legs is empty until its refill: kept for keep_rules
         # to dress, which drops it if nothing can (pre-push gate, 2026-11-24).
         if not any(picks.values()) and not refill:
             continue
         day = {"date": days[i]["date"], "travel": bool(travel and i == 0), "picks": picks}
-        out.append({**day, "_refill": refill} if refill else day)
+        out.append({**day, "_refill": refill, "_was": was} if refill else day)
     if len(out) < k:
         log.info("packing plan: %s of %s days usable", len(out), k)
     return out
 
 
 def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
-               pack: list[dict] | None = None, band: tuple | None = None) -> list[dict]:
+               pack: list[dict] | None = None, band: tuple | None = None, summary: dict | None = None) -> list[dict]:
     """The planned mornings held to the wearer's rules (pre-push reviewer, 2026-10-11):
     packing both halves of a banned pair is fine, wearing them together on a planned
     morning is not — the blamed garment comes off that morning; a morning with
@@ -349,7 +351,10 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     # The daily advice's own judge for a repaired morning (check.issues on the trip's
     # coldest and warmest day): warmth, layering, legs, a dress over trousers, all at
     # once (pre-push gate, 2026-11-24: one rule at a time kept missing the next).
-    judge = check.Day.of({"lo": band[0], "hi": band[1], "planLo": band[0], "planHi": band[1]},
+    # The trip's snow and rain too (weather.summarize), or a repair could swap the
+    # waterproof pair for loafers on a snowy trip (pre-push gate, 2026-11-24).
+    wet = {"isSnow": bool((summary or {}).get("isSnow")), "isRain": bool((summary or {}).get("isRain"))}
+    judge = check.Day.of({"lo": band[0], "hi": band[1], "planLo": band[0], "planHi": band[1], **wet},
                          pk._index(items), pk.Prefs(rules=tuple(user_rules))) \
         if band and None not in band else None
     # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
@@ -374,7 +379,7 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
             if iid and iid != before.get(slot) and iid not in {p["id"] for p in pack}:
                 pack.append({"id": iid, "category": slot, "label": by_item[iid]["label"], "qty": 1,
                              "why": "to complete a planned morning"})
-        day = {k: v for k, v in day.items() if k != "_refill"}
+        day = {k: v for k, v in day.items() if k not in ("_refill", "_was")}
         if any(picks.values()):
             out.append({**day, "picks": picks})
     return out
@@ -430,7 +435,10 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
                        else [picks.get(slot), *(i for i in [*turn, *more] if i != picks.get(slot)),
                              *([None] if slot in extra else [])])
     fixed = {k: v for k, v in picks.items() if k not in names}
-    got = _search(names, options, (fixed, len(kept), picks, (band, judge)), user_rules, by_item)
+    # Judged against the morning as planned, the dropped garments in it: emptied, its
+    # slots raise issues (no snow boots) the repair would then be allowed to keep.
+    planned = {**picks, **{k: v for k, v in (day.get("_was") or {}).items() if v in by_item}}
+    got = _search(names, options, (fixed, len(kept), planned, (band, judge)), user_rules, by_item)
     # Only what is decided: an empty layer left empty is no change to report.
     return {k: v for k, v in got.items() if k in slots or v or picks.get(k)}
 

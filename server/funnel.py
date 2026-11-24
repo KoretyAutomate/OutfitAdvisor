@@ -468,7 +468,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     found = [(shape, accessories.dress(c, p, priority, _keeps, clash, _widen(c))) for shape, p in found]
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (fit.layering(c, r[2]), season.mismatches(c.day, r[2]), cost(needed(c, _full(r[2]))),
+                    key=lambda r: (cost(needed(c, _full(r[2]))), fit.layering(c, r[2]), season.mismatches(c.day, r[2]),
                                    _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
@@ -499,9 +499,12 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # The torso's only off a coat morning: there the layers the weather needs
         # (fit.layering) are comfort, and its season only breaks ties after them; the
         # legs, which no layering rule touches, always (pre-push gate, 2026-11-21).
+        # Within a tier a rule given up still comes first: the layering is a soft
+        # preference and never buys a broken one (pre-push gate, 2026-11-24).
         n = season.mismatches(c.day, full)
         held = bool(season.mismatches(c.day, full, legs_only=True)) or (bool(n) and c.day.plan >= layers.COAT_BELOW_C)
-        rank = (2 * bool(hard) + held, fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))
+        rank = (2 * bool(hard) + held, *cost(gave), fit.layering(c, full), n,
+                *_rank(c, (shape, full), issues, gave, today))
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break

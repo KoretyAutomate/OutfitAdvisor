@@ -40,6 +40,8 @@ const SCARF = {...BELT, id: "scarf0-0001", label: "grey scarf", type: "scarf", c
     "oa.swaps": J([{day: new Date().toISOString().slice(0, 10), slot: "accessories", wore: SCARF.id, instead: BELT.id},
                    {day: new Date().toISOString().slice(0, 10), slot: "accessories", wore: "gone00-0001", instead: ""},
                    {day: new Date().toISOString().slice(0, 10), slot: "base", wore: "x", instead: "y"}]),
+    "oa.woreToday": J({day: new Date().toISOString().slice(0, 10), map: {base: "x", accessories: SCARF.id},
+                       served: {base: "x", accessories: SCARF.id}}),
     "oa.gaps": J([{slot: "accessories", day: new Date().toISOString().slice(0, 10), lo: 2, hi: 8},
                   {slot: "umbrella", day: new Date().toISOString().slice(0, 10), lo: 2, hi: 8}]),
   };
@@ -83,6 +85,18 @@ const SCARF = {...BELT, id: "scarf0-0001", label: "grey scarf", type: "scarf", c
   const gp = JSON.parse(ev("JSON.stringify(gaps)"));
   check("an old accessories gap is dropped", !gp.some(g => g.slot === "accessories"), gp);
   check("a body-area gap is kept", gp.some(g => g.slot === "umbrella"), gp);
+
+  console.log("\n--- saved pick maps ------------------------------------------------");
+  const wore = JSON.parse(ev("JSON.stringify(woreLogged)"));
+  check("today's wear record moves the scarf to the neck slot", wore && wore.neck === SCARF.id && !("accessories" in wore), wore);
+  check("and the served baseline too", JSON.parse(ev("JSON.stringify(woreServed)")).neck === SCARF.id);
+  check("a garment that is gone is left where it was",
+    J(JSON.parse(ev(`JSON.stringify(accPicks({accessories:"gone00-0001"}))`))) === J({accessories: "gone00-0001"}));
+  ev("closetComplete=true");
+  const legacy = JSON.parse(ev(`JSON.stringify(closetOnlyView({outfit:{base:"oxford",accessories:"grey scarf (not in your closet yet)"},
+    picks:{base:"x"},text:""}))`));
+  check("closet-only empties a legacy generic accessory line", /^None/.test(legacy.outfit.accessories), legacy.outfit);
+  ev("closetComplete=false; woreLogged=null; woreServed=null; woreEntry=null");   // the card shows the suggestion
 
   console.log("\n--- the outfit card ------------------------------------------------");
   const draw = (outfit, picks) => { ev(`drawOutfit(${J(outfit)},${J({picks, closetUsed: true})})`); };

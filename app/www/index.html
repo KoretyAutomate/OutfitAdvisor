@@ -5222,11 +5222,11 @@ async function readWoreRecord(){
 function applyWoreRaw(raw){
   try{
     const d=raw?JSON.parse(raw):null;
-    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
+    woreLogged=(d&&d.day===todayISO()&&d.map)?accPicks(d.map):null;
     woreDay=woreLogged?d.day:null;
     // A record from an older build has neither: served is then what was logged.
-    woreEntry=woreLogged&&d.entry&&d.entry.day===d.day&&d.entry.picks?d.entry:null;
-    woreServed=woreLogged?(d.served&&typeof d.served==="object"?d.served:d.map):null;
+    woreEntry=woreLogged&&d.entry&&d.entry.day===d.day&&d.entry.picks?{...d.entry,picks:accPicks(d.entry.picks)}:null;
+    woreServed=woreLogged?accPicks(d.served&&typeof d.served==="object"?d.served:d.map):null;
   }catch(e){ woreLogged=null; woreDay=null; woreEntry=null; woreServed=null; }
 }
 
@@ -5958,6 +5958,16 @@ async function saveRules(){
    sides both said so was dead and stays dead (ruleIsDead), never "no two
    accessories together". A side that is no accessory never matched, and still won't. */
 const accSlotOf=id=>{ const c=((closet||[]).find(i=>i.id===id)||{}).category; return ACC_SLOTS.includes(c)?c:null; };
+/* A pick map saved before v1.62 (today's wear record, served advice, the morning's
+   advice) holds its accessory under "accessories": moved to the garment's own slot,
+   or the sheet shows a recorded scarf as nothing and saving drops it (pre-push gate,
+   2026-11-24). Left alone when the garment is gone. */
+function accPicks(p){
+  if(!p||typeof p!=="object"||!p.accessories) return p;
+  const slot=accSlotOf(p.accessories);
+  if(!slot||p[slot]) return p;
+  const {accessories,...rest}=p; return {...rest,[slot]:accessories};
+}
 function accSide(d){
   if(!d||d.role!=="accessories") return d;
   const kind=(d.type&&Object.keys(TYPES).find(g=>TYPES[g].includes(d.type)))||d.group||"accessories";
@@ -6230,7 +6240,8 @@ async function saveToday(res,how){
 function closetOnlyView(rec){
   if(!closetComplete||!rec) return rec;
   const outfit={...rec.outfit};
-  for(const k of CATS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
+  // CARD_SLOTS: an outfit saved before v1.62 shows its one generic accessories line too.
+  for(const k of CARD_SLOTS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
     outfit[k]="None — nothing in your closet for this";
   const text=String(rec.text||"").split("\n").filter(l=>!/not in your closet yet/i.test(l)).join("\n");
   return {...rec,outfit,text};
@@ -6241,7 +6252,7 @@ async function savedToday(){
   try{
     const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
     if(!d||d.day!==todayISO()||!d.outfit) return null;
-    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
+    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:accPicks(d.picks)||null,
             closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
             place:d.place||null,occasion:d.occasion||"",style:d.style||null,
             rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
@@ -6259,7 +6270,7 @@ async function loadToday(){
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
   lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
            at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
-           picks:d.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
+           picks:accPicks(d.picks)||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
            rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and

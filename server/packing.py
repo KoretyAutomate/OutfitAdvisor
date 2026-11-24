@@ -335,9 +335,10 @@ def keep_rules(plan: list[dict], user_rules: list[dict], items: list[dict],
     pack = pack if pack is not None else []
     packed = {p["id"] for p in pack}
     # Shoes that keep the wet out first (pre-push gate, 2026-11-24: mesh replaced
-    # waterproof sandals on a rainy cold trip while waterproof boots stayed home).
+    # waterproof sandals on a rainy cold trip while waterproof boots stayed home). Tops
+    # and layers too: an owned oxford for boots banned with every packed tee.
     spare = {s: [i["id"] for i in sorted(wearable_for(items, s, *band), key=garment.wets_through)
-                 if i["id"] not in packed] for s in LEGS} if band else {}
+                 if i["id"] not in packed] for s in (*LEGS, "base", "mid", "outer")} if band else {}
     out = []
     for n, day in enumerate(plan):
         picks = dict(day["picks"])
@@ -389,10 +390,12 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     for slot in names:
         kind = [p["id"] for p in pack if p["category"] == slot and wearable(by_item.get(p["id"]))]
         turn = kind[n % len(kind):] + kind[:n % len(kind)] if kind else []
+        more = list(spare.get(slot, ()))
         if slot == "base":   # a top for a top, a dress for a dress: never a dress over trousers
-            turn = [i for i in turn if (by_item[i].get("group") == "onepiece") == onepiece]
-        options.append([*turn, *spare.get(slot, ()), None] if slot in slots
-                       else [picks[slot], *(i for i in [*turn, *spare.get(slot, ())] if i != picks[slot]),
+            turn, more = ([i for i in ids if (by_item[i].get("group") == "onepiece") == onepiece]
+                          for ids in (turn, more))
+        options.append([*turn, *more, None] if slot in slots
+                       else [picks[slot], *(i for i in [*turn, *more] if i != picks[slot]),
                              *([None] if slot in extra else [])])
     best: tuple = (-1, ())
     for combo in itertools.product(*options):

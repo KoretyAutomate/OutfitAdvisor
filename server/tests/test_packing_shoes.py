@@ -416,3 +416,23 @@ def test_replacement_shoes_keep_the_wet_out():
             for i in (sandals, jeans)]
     pack = packing.top_up(pack, closet, 1, ["casual"], band=(3, 8))
     assert [p["id"] for p in pack if p["category"] == "footwear"] == [boots["id"]], pack
+
+
+def test_a_top_from_home_lets_the_morning_wear_the_boots():
+    """Three tees packed, boots banned with tees, an oxford at home: the oxford joins the
+    list for the morning rather than it going barefoot (pre-push gate, 2026-11-24)."""
+    tee = dict(item(300, "base", "tee", count=3, typ="t_shirt"), warmth=2)
+    oxford = dict(item(301, "base", "oxford", typ="shirt"), warmth=2)
+    jeans = dict(item(302, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(303, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(304, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [tee, oxford, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "t_shirt"}}]
+    pack = [{"id": tee["id"], "category": "base", "label": "tee", "qty": 3, "why": "x"},
+            {"id": jeans["id"], "category": "bottoms", "label": "jeans", "qty": 1, "why": "x"},
+            {"id": sandals["id"], "category": "footwear", "label": "sandals", "qty": 1, "why": "x"}]
+    pack = packing.top_up(pack, closet, 2, ["casual"], band=(3, 8), user_rules=ban)
+    raw = [{"base": tee["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (3, 8))
+    assert plan[0]["picks"]["footwear"] == boots["id"] and plan[0]["picks"]["base"] == oxford["id"], plan
+    assert oxford["id"] in {p["id"] for p in pack}

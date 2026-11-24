@@ -284,3 +284,22 @@ def test_snow_boots_outrank_the_season():
                p=prefs(normal=season.Normal(1, 10), rules=ban))
     o = r.outfits[0]
     assert o.picks["footwear"] == BOOTS["id"] and o.picks["bottoms"] == CHINOS["id"], (o.picks, o.relaxed, o.rank)
+
+
+def test_an_outer_only_cardigan_is_a_top_beside_a_dress():
+    """A cardigan filed only as outer is still the top: with warm chinos it is an
+    alternative to a summer dress, for the cold check and for the season (pre-push
+    gate, 2026-11-24). A coat alone is not."""
+    import gaps
+    from test_funnel import PARKA
+    from wardrobe_fixtures import day
+    dress = g("sumdress1", "linen sundress", "onepiece", "dress", ["base"], 1)
+    cardi = g("ocardi001", "outer cardigan", "tops", "cardigan", ["outer"], 3)
+    d = day(8, dress, CHINOS, cardi, SNEAK, hi=12)
+    assert layers.underdressed(dress, "base", d)
+    assert gaps.LEGS_GAP not in gaps.missing({"base": dress["id"], "footwear": SNEAK["id"]}, d, [])
+    assert not layers.underdressed(dress, "base", day(8, dress, CHINOS, PARKA, SNEAK, hi=12)), "a coat is no top"
+    light = g("lcardi002", "light outer cardigan", "tops", "cardigan", ["outer"], 2)
+    p = pk.Prefs(normal=season.Normal(9, 17))
+    lchinos = g("lchinos01", "light chinos", "bottoms", "trousers", ["bottoms"], 2)
+    assert season.counts(day(19, dress, lchinos, light, SNEAK, hi=24, prefs=p), "base", dress["id"])

@@ -146,8 +146,15 @@ def underdressed(item: dict, slot: str, day: "check.Day") -> bool:
     # And summer trousers have a warm dress (pre-push gate, 2026-11-24).
     return warm_legs(slot) or (slot == "bottoms" and warm_legs("base")) or (
         slot == "base" and warm_legs("bottoms") and any(
-            it.get("group") != "onepiece" and any(wearable(s, i, it) for s in ("base", "mid"))
+            it.get("group") != "onepiece" and any(
+                wearable(s, i, it) for s in ("base", "mid", "outer") if is_top_slot(it, s))
             for i, it in wd.by_item.items()))
+
+
+def is_top_slot(item: dict, slot: str) -> bool:
+    """Can a garment worn as `slot` be the top: any torso slot but a coat's — a cardigan
+    filed only as outer is still the top (as _top_for_an_undershirt has it)."""
+    return slot in ("base", "mid") or (slot == "outer" and item.get("group") != "outerwear")
 
 
 def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:
@@ -157,8 +164,7 @@ def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: fl
     (pre-push gate, 2026-10-24: a warmth-5 sweater on a 7-12C day, a shirt banned
     with the undershirt — neither is a top to change into)."""
     return any(it.get("type") != "t_shirt" and any(
-        # Any torso slot but a coat's: a cardigan filed only as outer is still the top.
-        (r in ("base", "mid") or (r == "outer" and it.get("group") != "outerwear"))
+        is_top_slot(it, r)
         and not rules.violations(user_rules or [], {r: i, "inner": under}, wd.by_item)
         and not sleeves.sleeve_clashes({r: i, "inner": under}, wd.by_item)
         and not overdressed(it, r, wd, plan_temp, peak_temp, user_rules) for r in wd.by_roles.get(i) or ())

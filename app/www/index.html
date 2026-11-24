@@ -5504,9 +5504,11 @@ const COLD_GAP="warmth", LEGS_GAP="legs";
 // The top must suit the day too: a base worn all afternoon, a knit judged by the
 // morning, as layers.underdressed judges them (pre-push gate, 2026-11-24).
 const notTooWarm=(x,at)=>(x.warmth||3)<=minOuterWarmth(at,gradedOn(x))+WARM_TOLERANCE;
+// Any torso slot but a coat's: a cardigan filed only as outer is still the top
+// (layers.is_top_slot).
 const isTop=(x,t,pk)=>x.group!=="onepiece"&&!bannedOutright(x)
   &&normRoles(x.roles,x.category).some(r=>(r==="base"&&notTooWarm(x,pk!=null?Math.max(t,pk):t))
-    ||(r==="mid"&&notTooWarm(x,t)));
+    ||((r==="mid"||(r==="outer"&&x.group!=="outerwear"))&&notTooWarm(x,t)));
 // Warm leg cover worn all day: a dress as the base, or trousers.
 const warmLegs=(x,t,pk,kind)=>!bannedOutright(x)&&!tooColdForLegs(x,t)&&notTooWarm(x,pk!=null?Math.max(t,pk):t)
   &&normRoles(x.roles,x.category).some(r=>kind==="dress"?r==="base"&&coversLegs(r,x):r==="bottoms");

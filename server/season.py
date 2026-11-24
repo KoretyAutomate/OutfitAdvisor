@@ -157,7 +157,8 @@ def _fits(day, slot: str, n: Normal, dress: bool = False) -> bool:
             # Another dress, or in-season trousers with a top, a knit worn as the top included.
             legs = any(fits("bottoms", i, it) for i, it in items)
             memo[key] = any((one(it) and fits("base", i, it))
-                            or (legs and not one(it) and (fits("base", i, it) or fits("mid", i, it)))
+                            or (legs and not one(it) and any(fits(s, i, it) for s in ("base", "mid", "outer")
+                                                             if layers.is_top_slot(it, s)))
                             for i, it in items)
         else:
             # Trousers have an in-season dress as their alternative too, as in

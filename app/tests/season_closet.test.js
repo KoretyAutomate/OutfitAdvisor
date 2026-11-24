@@ -241,6 +241,11 @@ const JAN = N(1, 10), JUL = N(23, 30), NOV = N(9, 17);
   check("the summary sends leg cover as legs, apart from a plain base gap",
     sum.some(x => x.slot === "legs") && sum.some(x => x.slot === "base"), sum);
 
+  // A cardigan filed only as outer is still a top for warm trousers.
+  const OCARD = {...TEE, id: "ocardi-0001", label: "outer cardigan", type: "cardigan", roles: ["outer"], category: "outer"};
+  await ev(`closet=${JSON.stringify([DRESS1, OCARD, CHINOS])}; saveCloset()`);
+  check("an outer-only cardigan makes warm trousers an answer",
+    JSON.stringify(ev(`ownershipGaps(["legs"],8,[${JSON.stringify(DRESS1.id)},${JSON.stringify(OCARD.id)}],12)`)) === "[]");
   // A warm dress is an alternative to cold shorts: in the wash it excuses the bottoms
   // gap, and adding one clears it (pre-push gate, 2026-11-24).
   const WARMD = {...DRESS1, id: "dress0-0010", label: "wool dress", warmth: 3};

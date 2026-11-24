@@ -16,6 +16,7 @@ import math
 
 import check
 import garment
+import layers
 import rules
 import scale
 import sleeves
@@ -413,8 +414,8 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
         options.append([*turn, *more, None] if slot in slots
                        else [picks[slot], *(i for i in [*turn, *more] if i != picks[slot]),
                              *([None] if slot in extra else [])])
-    return _search(names, options, ({k: v for k, v in picks.items() if k not in names}, len(kept)),
-                   user_rules, by_item)
+    fixed = {k: v for k, v in picks.items() if k not in names}
+    return _search(names, options, (fixed, len(kept), picks, band), user_rules, by_item)
 
 
 REFILL_NODES = 4000   # partial mornings tried at most, so one morning never stalls a request
@@ -427,10 +428,17 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     slots than the best in hand is cut. The first full fill wins; bounded by
     REFILL_NODES (pre-push gate, 2026-11-24: the full product of tops and layers took
     nine seconds on a 95-garment closet). Nothing legal at all: refill nothing."""
-    fixed, n_kept = base
-    # Layering judged only where the planned morning itself passes it: a plan that
-    # already breaks it must still get its shoes.
-    layered = not (sleeves.sleeve_clashes(fixed, by_item) or check.stacked(fixed, by_item))
+    fixed, n_kept, planned, band = base
+    # Layering and warmth judged only where the planned morning itself, whole, passes
+    # them: a plan that already breaks one must still get its shoes (pre-push gate,
+    # 2026-11-24: judged on `fixed` alone it saw an empty torso).
+    layered = not (sleeves.sleeve_clashes(planned, by_item) or check.stacked(planned, by_item))
+    cold = band[0] if band and band[0] is not None else None
+
+    def warmest(p: dict) -> int:
+        return max((int((by_item.get(p[t]) or {}).get("warmth") or 0) for t in ("base", "mid", "outer")
+                    if p.get(t)), default=0)
+    floor = warmest(planned)
     best: list = [-1, {}]
     nodes = [0]
 
@@ -438,6 +446,12 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
         if filled + sum(1 for j in range(max(k, n_kept), len(names))) <= best[0]:
             return False
         if k == len(names):
+            # A swapped torso is never colder than the plan, unless warm enough for the
+            # trip's coldest day anyway (a warmth-1 jacket for a warm coat banned with the
+            # boots; pre-push gate, 2026-11-24).
+            whole = {**fixed, **partial}
+            if warmest(whole) < floor and not (cold is not None and layers._still_warm(whole, by_item, cold)):
+                return False
             best[0], best[1] = filled, dict(partial)
             return filled == len(names) - n_kept
         for choice in options[k]:

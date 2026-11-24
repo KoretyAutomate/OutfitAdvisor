@@ -394,7 +394,10 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
     # The undershirt likewise, as it may be left off any day (picks._SHEDDABLE).
     extra = [s for s, i in picks.items() if i and s not in slots
              and ((by_item.get(i) or {}).get("group") == "accessories" or s == "inner")]
-    kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots and picks.get(s)
+    # An empty mid or outer layer may take a packed one, to make up the warmth of an
+    # undershirt that had to come off (pre-push gate, 2026-11-24).
+    kept = [s for s in (*LEGS, "base", "mid", "outer", "inner") if s not in slots
+            and (picks.get(s) or s in ("mid", "outer"))
             and not (s == "bottoms" and onepiece)] + extra   # a dress may swap for a dress
     # Kept slots outermost: every refill is tried with the planned garment before it changes.
     names = kept + slots
@@ -414,10 +417,12 @@ def _refill(day: dict, picks: dict, pool: tuple, user_rules: list[dict], by_item
             turn, more = ([i for i in ids if (by_item[i].get("group") == "onepiece") == onepiece]
                           for ids in (turn, more))
         options.append([*turn, *more, None] if slot in slots
-                       else [picks[slot], *(i for i in [*turn, *more] if i != picks[slot]),
+                       else [picks.get(slot), *(i for i in [*turn, *more] if i != picks.get(slot)),
                              *([None] if slot in extra else [])])
     fixed = {k: v for k, v in picks.items() if k not in names}
-    return _search(names, options, (fixed, len(kept), picks, band), user_rules, by_item)
+    got = _search(names, options, (fixed, len(kept), picks, band), user_rules, by_item)
+    # Only what is decided: an empty layer left empty is no change to report.
+    return {k: v for k, v in got.items() if k in slots or v or picks.get(k)}
 
 
 REFILL_NODES = 4000   # partial mornings tried at most, so one morning never stalls a request
@@ -443,7 +448,7 @@ def _search(names: list, options: list, base: tuple, user_rules: list[dict], by_
     def warmest(p: dict) -> float:
         """The coldest day the torso's warmest garment answers to, on that garment's own
         scale (scale.garment_temp: raw grades differ across scales). Lower is warmer."""
-        return min((scale.garment_temp(by_item.get(p[t]) or {}) for t in ("base", "mid", "outer")
+        return min((scale.garment_temp(by_item.get(p[t]) or {}) for t in ("inner", "base", "mid", "outer")
                     if p.get(t)), default=99.0)
     floor = warmest(planned)
     best: list = [-1, {}]

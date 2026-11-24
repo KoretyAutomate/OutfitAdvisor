@@ -652,3 +652,22 @@ def test_a_swap_to_a_tee_never_keeps_the_undershirt_under_it():
     names, options = ["base", "inner", "footwear"], [["s", "t"], ["u", None], ["b", None]]
     got = packing._search(names, options, ({}, 2, {"inner": "u", "base": "s"}, None), ban, by)
     assert got == {"base": "t", "inner": None, "footwear": "b"}, got
+
+
+def test_a_thermal_that_comes_off_is_made_up_with_a_packed_sweater():
+    """8-10C: boots banned with the thermal; the shirt alone is colder than the plan, so
+    the packed sweater goes on (pre-push gate, 2026-11-24)."""
+    thermal = dict(item(390, "inner", "thermal", typ="thermal"), group="underwear", warmth=3)
+    shirt = dict(item(391, "base", "oxford", typ="shirt"), warmth=2)
+    sweater = dict(item(392, "mid", "sweater", typ="sweater"), warmth=3)
+    jeans = dict(item(393, "bottoms", "jeans", typ="jeans"), warmth=3)
+    sandals = dict(item(394, "footwear", "sandals", typ="sandals"), warmth=1)
+    boots = dict(item(395, "footwear", "boots", typ="boots"), warmth=3)
+    closet = [thermal, shirt, sweater, jeans, sandals, boots]
+    ban = [{"kind": "avoid_pair", "a": {"type": "boots"}, "b": {"type": "thermal"}}]
+    pack = [{"id": i["id"], "category": i["category"], "label": i["label"], "qty": 1, "why": "x"}
+            for i in (thermal, shirt, sweater, jeans, boots)]
+    raw = [{"inner": thermal["id"], "base": shirt["id"], "bottoms": jeans["id"], "footwear": sandals["id"]}]
+    plan = packing.keep_rules(packing.validate_plan(raw, days(1), pack, travel=False), ban, closet, pack, (8, 10))
+    p = plan[0]["picks"]
+    assert p["footwear"] == boots["id"] and not p.get("inner") and p.get("mid") == sweater["id"], p

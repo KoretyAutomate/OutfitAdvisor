@@ -479,7 +479,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     found = [(shape, accessories.dress(c, p, priority)) for shape, p in found]
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (cost(needed(c, _full(r[2]))), fit.layering(c, r[2]), season.mismatches(c.day, r[2]),
+                    key=lambda r: (fit.underlayered(c, r[2]), cost(needed(c, _full(r[2]))), fit.layering(c, r[2]),
+                                   season.mismatches(c.day, r[2]),
                                    _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
@@ -508,7 +509,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both (held aside);
         # then the weather, the rules, the layering (user, 2026-11-24: "dry feet first").
         n = season.mismatches(c.day, full)
-        wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
+        # The weather first: dry feet, and below 5C felt a knit under the coat (user, 2026-11-26).
+        wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave)) or fit.underlayered(c, full)
         rank = (2 * bool(hard) + (season.held(c.day, full) or wet), sum(i.hard for i in issues), wet, *cost(gave),
                 fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))   # fewer cold slots
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))

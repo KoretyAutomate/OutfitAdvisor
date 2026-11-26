@@ -37,6 +37,20 @@ def layering(ctx: "funnel.Ctx", picks: dict) -> int:
     return int(bool(mid and outer) and (scale.warm_enough(mid, plan) or scale.warm_enough(outer, plan)))
 
 
+def underlayered(ctx: "funnel.Ctx", picks: dict) -> bool:
+    """Below layers.KNIT_AND_COAT_BELOW_C, a coat with no knitwear under it (in mid, or
+    as the top). The weather, not a preference: ranked with wet feet, ahead of every
+    rule the search may give up (user, 2026-11-26: a tee under the duffle coat at 2C,
+    "How can it recommend an outfit without a sweater"). Served only when no outfit
+    in the closet has the knit."""
+    wd = ctx.wd
+    outer = wd.by_item.get(picks.get("outer"))
+    if ctx.day.plan >= layers.KNIT_AND_COAT_BELOW_C or not outer:
+        return False
+    mid, base = (wd.by_item.get(picks.get(s)) or {} for s in ("mid", "base"))
+    return mid.get("type") not in pairing.KNITWEAR and base.get("type") not in pairing.KNITWEAR
+
+
 def bare(ctx: "funnel.Ctx", picks: dict, cands: dict) -> int:
     """The undershirt's slot is decided, empty, something could fill it, and the top
     takes one — never a T-shirt (check.tee_base)."""

@@ -4190,7 +4190,6 @@ async function getAdvice(lat,lon){
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
   const cl=closetPayload();
   const outUntil=await eveningOut();
-  await refreshDayOff(); paintDay();
   // Taken with the closet: the kind of day this request is FOR (and its saved copy).
   const kind=dayKind(), kindStyle=styleFor(kind);
   try{
@@ -4930,6 +4929,9 @@ async function run(){
       state.city=""; state.useGps=true; await persist();
     }
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
+    // The calendar's day off is read BEFORE the run says what it is for: the request
+    // and runPendingFor come from one reading (pre-push gate, 2026-11-26).
+    await refreshDayOff(); paintDay();
     const myRun=++runSeq;
     runPending=myRun; runPendingFor=dayPair(); adviceWanted=true;
     let res;
@@ -6505,8 +6507,10 @@ async function reloadShared(){
 // …and the day's advice is re-checked only AFTER reloadShared: the morning push
 // may already have saved advice for today's kind of day, which is then kept
 // rather than asked for again (pre-push reviewer, 2026-10-12).
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ paintDay(); refreshDayOff().then(paintDay); refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion();
-  (async()=>{ try{ await reloadShared(); }catch(e){} refreshForDay(false); })(); } });
+// The calendar's day off is read before the advice is re-checked against the day:
+// read after, an office outfit stayed on screen under "day off" (pre-push gate, 2026-11-26).
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ paintDay(); refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion();
+  (async()=>{ try{ await refreshDayOff(); paintDay(); await reloadShared(); }catch(e){} refreshForDay(false); })(); } });
 
 /* ───────── the three sheets (2026-08-20) ─────────
    Everything used to live on one scrolling page in an order nobody chose. These
@@ -7754,7 +7758,8 @@ $("pkPacked").onclick=async()=>{
 const appReady=(async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
-  paintSeg($("genderSeg"),"g"); paintDay(); refreshDayOff().then(paintDay);
+  // The calendar's day off before today's saved advice is restored and judged by it.
+  await refreshDayOff(); paintSeg($("genderSeg"),"g"); paintDay();
   showTab(tab,false);   // false: restoring where you were is not a new choice
   // renderCloset is async — it reads a photo per item off disk. Awaiting it is what
   // makes appReady mean "the page is painted": without it the promise resolves with

@@ -49,7 +49,8 @@ function kotlinRegex(src, name) {
       state.officeDays=[${dow}]; dayKindOverride=null;
       fetchWeatherLocal = async () => (${JSON.stringify(WX)});
       fetch = async (u, o) => { if (o && o.body) window.__b = JSON.parse(o.body); throw new Error("stop"); };`);
-  const ask = async () => { ev("window.__b=null"); try { await ev("getAdvice(40.3,-74.6)"); } catch (e) {} return ev("window.__b"); };
+  // As run() does: the calendar first, then the request.
+  const ask = async () => { ev("window.__b=null"); try { await ev("refreshDayOff().then(()=>{paintDay(); return getAdvice(40.3,-74.6);})"); } catch (e) {} return ev("window.__b"); };
   const plugin = js => ev(`Plugins.OutfitAlarm = Object.assign(Plugins.OutfitAlarm||{}, {dayOff: ${js}})`);
 
   console.log("\n--- 1. no calendar signal ------------------------------------------");
@@ -84,6 +85,25 @@ function kotlinRegex(src, name) {
   b = await ask();
   check("the Today screen's tap still wins over the calendar", b.occasion === "office" && b.style === "smart", b);
   ev(`dayKindOverride=null`);
+
+  console.log("\n--- 3b. the calendar is read before anything is judged by it ---------");
+  const html = fs.readFileSync(HTML, "utf8");
+  const runFn = html.slice(html.indexOf("async function run(){"));
+  check("run() reads the calendar before it records what the request is for",
+    runFn.indexOf("await refreshDayOff()") > 0 && runFn.indexOf("await refreshDayOff()") < runFn.indexOf("runPendingFor=dayPair()"));
+  const vis = html.slice(html.indexOf('document.addEventListener("visibilitychange"'));
+  check("on resume, before the advice is re-checked",
+    vis.indexOf("await refreshDayOff()") > 0 && vis.indexOf("await refreshDayOff()") < vis.indexOf("refreshForDay(false)"));
+  const boot = html.slice(html.indexOf("const appReady=(async()=>{"));
+  check("at start-up, before today's saved advice is restored",
+    boot.indexOf("await refreshDayOff()") > 0 && boot.indexOf("await refreshDayOff()") < boot.indexOf("await loadToday()"));
+  // Behaviour: a morning-push record saved as a day off is restored on a holiday.
+  ev(`dayKindOverride=null; calendarOff=null;`);
+  plugin(`async () => ({off: true, source: "holiday", label: "Thanksgiving Day"})`);
+  w.localStorage.setItem("oa.today", JSON.stringify({day: ev("todayISO()"), outfit: {base: "grey tee"}, outfit_text: "• Grey tee",
+    picks: {base: "i1"}, closetUsed: true, weather: WX, occasion: "off", style: "casual"}));
+  check("holiday advice from the morning push is restored once the calendar is read",
+    await ev("refreshDayOff().then(()=>loadToday())") === true);
 
   console.log("\n--- 4. the morning push (Kotlin twin) --------------------------------");
   const worker = fs.readFileSync(path.join(SRC, "AdviceWorker.kt"), "utf8");

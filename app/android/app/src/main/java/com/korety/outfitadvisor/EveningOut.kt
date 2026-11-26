@@ -143,10 +143,12 @@ object EveningOut {
         }
     }
 
-    /** The wearer's own calendars narrowed to the ones ticked, and the shared ones ticked by name. */
-    private fun allowedCalendars(ctx: Context): Set<Long> {
-        val (mode, ticked, shared) = selection(ctx)
-        if (mode == "none" && shared.isEmpty()) return emptySet()
+    /** The wearer's own calendars narrowed to the ones ticked, and — unless `shared` is
+     *  false (DayOff: a partner's "Day off" is not theirs) — the shared ones ticked by name. */
+    internal fun allowedCalendars(ctx: Context, shared: Boolean = true): Set<Long> {
+        val (mode, ticked, sharedTicked) = selection(ctx)
+        val sharedIds = if (shared) sharedTicked else emptySet()
+        if (mode == "none" && sharedIds.isEmpty()) return emptySet()
         val out = mutableSetOf<Long>()
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
@@ -159,7 +161,7 @@ object EveningOut {
                 val id = c.getLong(0)
                 val access = if (c.isNull(3)) CalendarContract.Calendars.CAL_ACCESS_OWNER else c.getInt(3)
                 if (isShared(c.getString(2).orEmpty().trim(), c.getString(1).orEmpty().trim(), access)) {
-                    if (id.toString() in shared) out.add(id)
+                    if (id.toString() in sharedIds) out.add(id)
                     continue
                 }
                 if (mode == "none" || (mode == "some" && id.toString() !in ticked)) continue

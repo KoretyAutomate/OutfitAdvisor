@@ -191,17 +191,17 @@ def test_the_evening_check_reads_only_what_the_picker_allows():
     """The evening-event reader (2026-10-10) is a second reader of event rows. It
     must skip shared calendars by the same rule and honour the picker's ticks."""
     src = EVENING.read_text()
-    reader = src[src.index("private fun allowedCalendars"):]
+    reader = src[src.index("internal fun allowedCalendars"):]
     assert "isShared(" in reader, "shared calendars are not excluded"
     assert '"none"' in reader and '"some"' in reader, "the picker's selection is not honoured"
-    sel = src[src.index("private fun selection"):src.index("private fun allowedCalendars")]
+    sel = src[src.index("private fun selection"):src.index("internal fun allowedCalendars")]
     assert '"oa.calendars"' in sel
     # Builds before the mode stored a bare array of ids; the app reads it as "some".
     assert "is JSONArray ->" in sel and '"some"' in sel, "a legacy selection would widen to every calendar"
     assert "Manifest.permission.READ_CALENDAR" in src
     # A shared calendar counts only when ticked by name — the picker's `shared` list.
     assert 'optJSONArray("shared")' in sel
-    only_ticked = r"isShared\(.*?\)\) \{\s*if \(id\.toString\(\) in shared\) out\.add\(id\)\s*continue"
+    only_ticked = r"isShared\(.*?\)\) \{\s*if \(id\.toString\(\) in sharedIds\) out\.add\(id\)\s*continue"
     assert re.search(only_ticked, reader, re.S), "a shared calendar must be read only when it was ticked"
 
 
@@ -219,3 +219,29 @@ def test_only_the_hour_leaves_the_phone():
     assert "TITLE" not in src and "DESCRIPTION" not in src, "event text is read for no reason"
     worker = WORKER.read_text()
     assert re.search(r'EveningOut\.until\(applicationContext\)\?\.let \{ b\.put\("outUntil", it\) \}', worker)
+
+
+def test_the_day_off_check_reads_own_ticked_calendars_and_public_holiday_feeds_only():
+    """DayOff.kt (user, 2026-11-26) is a third reader of event rows. Time-off entries
+    come only from the wearer's OWN ticked calendars — never a shared one, ticked or
+    not: a partner's "Day off" is not theirs. The one other source is a Google
+    public-holiday feed, by its owner address; and only "off" is ever sent."""
+    day = (EVENING.parent / "DayOff.kt").read_text()
+    assert "EveningOut.allowedCalendars(ctx, shared = false)" in day
+    evening = EVENING.read_text()
+    reader = evening[evening.index("internal fun allowedCalendars"):]
+    assert "val sharedIds = if (shared) sharedTicked else emptySet()" in reader
+    assert '"#holiday@group.v.calendar.google.com"' in day and "endsWith(HOLIDAY_OWNER)" in day
+    # The query names its calendars, as CalendarInstances.list does: no other row is read.
+    assert re.search(r'val ids = \(holidays \+ own\)\.toList\(\)\s*val selection = "\$\{CalendarContract\.Instances'
+                     r'\.CALENDAR_ID\} IN', day)
+    assert "query(uri, projection, selection, args," in day
+    # Every row is classified by its calendar: a holiday feed, or one of the own set.
+    assert re.search(r"if \(cal in holidays\) \{.*?\} else if \(cal in own ", day, re.S)
+    worker = (EVENING.parent / "AdviceWorker.kt").read_text()
+    assert "DayOff.today(applicationContext) != null" in worker, "the worker takes only whether, not why"
+    src = INDEX.read_text()
+    run = src[src.index("async function getAdvice("):]
+    run = run[:run.index("\n}\n")]
+    assert "calendarOff" not in run and "label" not in run.split("const body=")[1][:400], \
+        "the request carries the kind of day, never the calendar's title"

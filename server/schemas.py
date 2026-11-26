@@ -16,6 +16,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import garment
+import season
 import taste
 import vocab
 
@@ -135,6 +136,15 @@ class ClosetItem(BaseModel):
     level: int | None = None
     material: str | None = None
     gauge: str | None = None
+    # The seasonal closet (user, 2026-11-18; season.py): "auto" judges by warmth,
+    # "all" is never out of season, "warm"/"cold" are warm or cold months only.
+    # Unknown values read as "auto", never a 422.
+    season: str = "auto"
+
+    @field_validator("season", mode="before")
+    @classmethod
+    def _season(cls, v):
+        return v if v in season.MODES else "auto"
 
     @field_validator("level", mode="before")
     @classmethod
@@ -383,11 +393,19 @@ class AdviceRequest(BaseModel):
     # 2026-11-14): the phone's oa.outfitlog. Shape-checked by taste.clean_worn, every
     # malformed entry DROPPED, never a 422; dated against the forecast later, in taste.
     worn: list[dict] = Field(default_factory=list)
+    # The home climate's twelve monthly normal [low, high]s, January first (season.py).
+    # Malformed is DROPPED (no season, actual weather only), never a 422.
+    normals: list | None = None
 
     @field_validator("worn", mode="before")
     @classmethod
     def _worn(cls, v: object) -> list:
         return taste.clean_worn(v)
+
+    @field_validator("normals", mode="before")
+    @classmethod
+    def _normals(cls, v: object) -> list | None:
+        return season.clean_normals(v)
 
     @field_validator("recent", mode="before")
     @classmethod
@@ -445,9 +463,11 @@ class Gap(BaseModel):
     """One slot the wardrobe could not fill, and the weather it happened in.
 
     Counted on the PHONE across the period, so this server still stores nothing.
+    "legs" (gaps.LEGS_GAP) is warm leg cover: answered by trousers or a warm dress,
+    never a top (shopping.py).
     """
 
-    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories", "legs"]
     n: int = Field(1, ge=1, le=400)
     loC: int = Field(0, ge=-60, le=60)
     hiC: int = Field(0, ge=-60, le=60)

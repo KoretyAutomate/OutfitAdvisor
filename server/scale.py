@@ -238,6 +238,25 @@ def too_warm(item: dict, plan_temp: float) -> bool:
     return (item.get("warmth") or 3) > min_outer_warmth(plan_temp, graded_on(item)) + WARM_TOLERANCE
 
 
+# The most a leg garment's floor ever asks (user, 2026-11-18: "summer pants ... in
+# winter ... completely off"). Legs are not the torso: chinos and sneakers (warmth 2)
+# are worn through winter, so the outer layer's ladder would ban them by 5C. What is
+# never right in the cold is a SUMMER leg garment, warmth 1 on its own scale.
+LEG_FLOOR_MAX = 2
+
+
+def too_cold_for_legs(item: dict, plan_temp: float) -> bool:
+    """A summer leg garment on a day that asks for more (user, 2026-11-18).
+
+    Until v1.61 the cold side was checked for the outer layer only, so warmth-1
+    summer trousers were legal on an 8C morning. The floor is one level under what
+    the day asks of an outer layer, capped at LEG_FLOOR_MAX: on the absolute scale
+    warmth 1 is too cold below 12C and nothing warmer ever is. Measured on the
+    garment's own scale, like too_warm."""
+    need = min(LEG_FLOOR_MAX, min_outer_warmth(plan_temp, graded_on(item)) - 1)
+    return (item.get("warmth") or 3) < need
+
+
 # The day each ABSOLUTE grade answers to, from ABSOLUTE_TABLE (5 -> 4, 12 -> 3,
 # 18 -> 2): the middle of the band a grade is the minimum for. Only used to put two
 # garments in order of warmth; nothing is judged against it.

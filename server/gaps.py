@@ -8,10 +8,12 @@ already have. The phone reads `missing` (index.html recordGaps), and COLD_GAP
 ("warmth") when nothing they own is warm enough for the morning.
 """
 import layers
+import scale
 from check import TORSO, Day
 from vocab import CATEGORIES
 
 COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
+LEGS_GAP = "legs"       # not a slot: a one-piece too thin for the morning's legs
 
 
 def missing(picks: dict, day: Day, claimed: object) -> list[str]:
@@ -29,4 +31,15 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
     gaps = sorted((c for c in candidates if not day.owns_for(c, picks)), key=CATEGORIES.index)
     if layers.too_cold_for_outfit(picks, day.wd, day.plan, day.rules, day.peak):
         gaps.append(COLD_GAP)
+    # Summer legs worn on a cold morning because nothing warmer is owned: the slot is
+    # the gap (user, 2026-11-18). Owning warmer ones is check.py's cold-legs instead.
+    # A one-piece worn as the base covers the legs too (layers.covers_legs), and its gap
+    # says so: LEGS_GAP, which a tee cannot answer the way it answers "base" (pre-push
+    # gate, 2026-11-24).
+    for slot in ("bottoms", "footwear", "base"):
+        it = day.wd.by_item.get(picks.get(slot)) or {}
+        word = LEGS_GAP if slot == "base" else slot
+        if it and layers.covers_legs(slot, it) and scale.too_cold_for_legs(it, day.plan) and word not in gaps \
+                and not layers.underdressed(it, slot, day):
+            gaps.append(word)
     return gaps

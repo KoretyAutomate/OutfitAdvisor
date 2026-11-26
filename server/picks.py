@@ -63,6 +63,9 @@ class Prefs:
     #: taste.Taste — what they wore on days like today; left out of equality and the
     #: hash, which stay about what they SAID
     taste: object = field(default=None, compare=False)
+    #: season.Normal — the home climate's normal for the day (season.py); likewise
+    #: left out of equality
+    normal: object = field(default=None, compare=False)
 
     @classmethod
     def of(cls, rules_list: list[dict] | None, closet_only: bool = False,

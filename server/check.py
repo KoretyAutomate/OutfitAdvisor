@@ -16,7 +16,7 @@ a rule they made), or it leaves them undressed, cold, overheated or wearing two 
 A revision may never add a hard issue the first answer did not have (see
 advisor._better). SOFT issues are worth one more try but never block an answer.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import layers
 import picks as pk
@@ -57,6 +57,9 @@ class Day:
     prefs: "pk.Prefs"
     plan: float     # the coldest felt hour: warm enough for this
     peak: float     # the warmest: not overdressed for this
+    # Answers worked out once per request (season._fits), gone with it: a module-level
+    # cache kept a wardrobe past its request (pre-push gate, 2026-11-24).
+    memo: dict = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
     def of(cls, w: dict, wd: "pk.Wardrobe", prefs: "pk.Prefs") -> "Day":
@@ -166,6 +169,12 @@ def _comfortable(worn: dict, day: Day) -> list[Issue]:
     if day.plan >= HOT_DAY_C:
         out += [Issue(f"hot-{slot}", f"{_name(day, worn[slot])} as {slot}: no layer is needed on a hot day", True)
                 for slot in ("mid", "outer") if worn.get(slot)]
+    # Summer trousers, shorts or sandals on a cold morning, when they own warmer ones
+    # (user, 2026-11-18). Ranked like "cold": served only when nothing warm fits.
+    out += [Issue("cold-legs", f"{_name(day, iid)} is summer wear for the coldest hour ({day.plan:.0f}C felt) "
+                  f"— wear warmer {slot} they own", True)
+            for slot, iid in worn.items()
+            if layers.underdressed(wd.by_item[iid], slot, day)]
     out += _coat(worn, day)
     if day.w.get("isSnow"):
         out += [Issue(f"snow-{slot}", f"snow today: wear their waterproof {slot}", True)
@@ -185,7 +194,10 @@ def snow_gear(slot: str, worn: dict, day: Day) -> list[str]:
             if it.get("waterproof") and slot in (wd.by_roles.get(i) or ()) and i not in ids
             and not rules.violations(day.rules, {**worn, slot: i}, wd.by_item)
             and not voted_down(day, i, {**worn, slot: i})
-            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)]
+            and not layers.overdressed(it, slot, wd, day.plan, day.peak, day.rules)
+            # Nor summer legs on a cold morning: waterproof sandals are no snow gear the
+            # funnel would let them wear (pre-push gate, 2026-11-24).
+            and not layers.underdressed(it, slot, day)]
 
 
 def is_coat(item: dict) -> bool:

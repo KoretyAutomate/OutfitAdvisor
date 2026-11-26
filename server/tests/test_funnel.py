@@ -445,8 +445,10 @@ def test_a_day_off_shirt_turned_down_as_the_top_is_no_freer_as_the_layer_over_no
     assert funnel.needed(ctx, {**as_layer, "base": TEE["id"]}) == (), "over a tee it is a layer"
     assert funnel.needed(ctx, {k: v for k, v in as_layer.items() if k != "base"}) == (), "top not decided yet"
     alone = {"inner": UNDER["id"], "base": None, "mid": None, "outer": BUTTON_UP["id"]}
-    assert funnel.needed(ctx, alone) == ("band1",), "nor as the outer layer over nothing (pre-push gate)"
-    assert funnel.needed(ctx, {**alone, "mid": None, "base": TEE["id"]}) == ()
+    # At 6C with a rain jacket owned, the shirt as the outer layer also gives up the coat
+    # (needed reports the weather steps since 2026-11-24).
+    assert funnel.needed(ctx, alone) == ("band1", "coat"), "nor as the outer layer over nothing (pre-push gate)"
+    assert funnel.needed(ctx, {**alone, "mid": None, "base": TEE["id"]}) == ("coat",)
 
 
 def test_a_day_off_shirt_alone_in_the_outer_slot_is_still_a_step_off():

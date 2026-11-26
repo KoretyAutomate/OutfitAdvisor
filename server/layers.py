@@ -117,6 +117,46 @@ def overdressed(item: dict, slot: str, wd, plan_temp: float, peak_temp: float,
                for i, it in wd.by_item.items() if it is not item)
 
 
+def covers_legs(slot: str, item: dict) -> bool:
+    """Trousers, shoes, or a one-piece worn as the base: the legs and feet."""
+    return slot in ("bottoms", "footwear") or (slot == "base" and item.get("group") == "onepiece")
+
+
+def underdressed(item: dict, slot: str, day: "check.Day") -> bool:
+    """A summer leg garment on a cold morning, when they own a warmer one that can be
+    worn (user, 2026-11-18: summer trousers served on a cold morning). overdressed's
+    twin: owning nothing warmer makes it the trousers, and a gap (gaps.py), not
+    something to refuse. The alternative is judged as overdressed judges one: not
+    banned outright, and not too warm for the afternoon either."""
+    if not covers_legs(slot, item) or not scale.too_cold_for_legs(item, day.plan):
+        return False
+    wd = day.wd
+    outright = [r for r in day.rules if not rules.is_combination(r)]
+
+    def wearable(s: str, i: str, it: dict) -> bool:
+        return s in (wd.by_roles.get(i) or ()) and not rules.violations(outright, {s: i}, wd.by_item) \
+            and not scale.too_warm(it, pk._heat_temp(s, day.plan, day.peak))
+
+    def warm_legs(s: str) -> bool:
+        return any(it is not item and covers_legs(s, it) and not scale.too_cold_for_legs(it, day.plan)
+                   and wearable(s, i, it) for i, it in wd.by_item.items())
+    # A summer dress has warm trousers and a top as its alternative too, a knit or a
+    # cardigan worn as the top included (pre-push gate, 2026-11-24: a sundress was
+    # served, and a leg gap recorded, beside warm jeans).
+    # And summer trousers have a warm dress (pre-push gate, 2026-11-24).
+    return warm_legs(slot) or (slot == "bottoms" and warm_legs("base")) or (
+        slot == "base" and warm_legs("bottoms") and any(
+            it.get("group") != "onepiece" and any(
+                wearable(s, i, it) for s in ("base", "mid", "outer") if is_top_slot(it, s))
+            for i, it in wd.by_item.items()))
+
+
+def is_top_slot(item: dict, slot: str) -> bool:
+    """Can a garment worn as `slot` be the top: any torso slot but a coat's — a cardigan
+    filed only as outer is still the top (as _top_for_an_undershirt has it)."""
+    return slot in ("base", "mid") or (slot == "outer" and item.get("group") != "outerwear")
+
+
 def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: float, peak_temp: float) -> bool:
     """They own a top other than a tee — a shirt, a knit, a cardigan worn as the top —
     that THIS undershirt can go under: within every rule of theirs, sleeves that fit,
@@ -124,8 +164,7 @@ def _top_for_an_undershirt(wd, under: str, user_rules: list[dict], plan_temp: fl
     (pre-push gate, 2026-10-24: a warmth-5 sweater on a 7-12C day, a shirt banned
     with the undershirt — neither is a top to change into)."""
     return any(it.get("type") != "t_shirt" and any(
-        # Any torso slot but a coat's: a cardigan filed only as outer is still the top.
-        (r in ("base", "mid") or (r == "outer" and it.get("group") != "outerwear"))
+        is_top_slot(it, r)
         and not rules.violations(user_rules or [], {r: i, "inner": under}, wd.by_item)
         and not sleeves.sleeve_clashes({r: i, "inner": under}, wd.by_item)
         and not overdressed(it, r, wd, plan_temp, peak_temp, user_rules) for r in wd.by_roles.get(i) or ())

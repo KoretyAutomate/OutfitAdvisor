@@ -75,7 +75,8 @@ def prompt(day, result: "funnel.Result", gaps_owned_none: list[str]) -> str:
              "(1 sport, 2 weekend, 3 smart casual, 4 business casual, 5 formal).")
     if occ := style.occasion_line(look.occasion):
         today += f" {occ}"
-    if result.outfits and result.outfits[0].rank and result.outfits[0].rank[0]:
+    # Tier 2 or 3 is cold; tier 1 is only out of season (funnel._evaluate).
+    if result.outfits and result.outfits[0].rank and result.outfits[0].rank[0] >= 2:
         today += (" None of these is warm enough for the coldest hour"
                   + (" — nothing warmer goes with the rest" if result.complete else "")
                   + " — so the tip says it will feel cold early on.")

@@ -21,9 +21,10 @@ afterwards — a 2/5 and a 3/5 were served (2026-10-18 10:29 / 10:35, 2026-10-20
 check.py stays the one fact check: every outfit this returns has passed it, so a
 funnel answer can never carry a hard issue the old path would have caught.
 """
+import functools
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import check
 import fit
@@ -32,6 +33,7 @@ import layers
 import pairing
 import rules
 import scale
+import season
 import sleeves
 import style
 import taste
@@ -62,6 +64,8 @@ _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 RELAX = ("colour", "belt", "texture", "wet", "band1", "band2", "register", "band3", "snow", "coat")
 # "snow" and "coat" last: they only give way where a pairing rule of theirs makes the
 # gear unwearable with everything else — check.py then asks for nothing either.
+# The hard issues an outfit may still carry, ranked below every warm one (_evaluate).
+COLD = frozenset({"cold", "cold-legs"})
 SHAPES = (("base",), ("base", "mid"), ("base", "outer"), ("base", "mid", "outer"))
 
 
@@ -98,6 +102,7 @@ class Ctx:
     # time.monotonic() by which the search stops, whatever it has (pre-push gate,
     # 2026-10-21: a 92-garment closet with 24 rules searched past the phone's 90 s).
     deadline: float = math.inf
+    cold_ok: bool = False                # search's last resort: summer legs come back (layers.underdressed)
 
     @property
     def wd(self):
@@ -109,8 +114,13 @@ class Ctx:
 
     @property
     def wet(self) -> bool:
-        w = self.day.w
-        return (w.get("rain") or 0) >= 50 or bool(w.get("isRain"))
+        return garment.wet(self.day.w)
+
+    @functools.cached_property
+    def dry(self) -> bool:
+        """A wet day and a dry pair they could wear: only then is mesh held aside (2026-11-24)."""
+        return self.wet and any(_keeps(replace(self, relaxed=frozenset(RELAX) - {"wet"}), "footwear", i, 4) is None
+                                for i in self.wd.ids if "footwear" in (self.wd.by_roles.get(i) or ()))
 
 
 @dataclass
@@ -175,6 +185,8 @@ def _keeps(ctx: Ctx, slot: str, iid: str, widen: int) -> str | None:
         return "rules"
     if layers.overdressed(it, slot, ctx.wd, day.plan, day.peak, day.rules):
         return "heat"
+    if not ctx.cold_ok and layers.underdressed(it, slot, day):
+        return "cold"
     if day.plan >= check.HOT_DAY_C and slot in ("mid", "outer"):
         return "heat"
     snow = "snow" not in ctx.relaxed and _snow_gear(ctx, slot)
@@ -320,6 +332,7 @@ def priority_for(ctx: Ctx):
             p -= 6 if shown.get(slot) == iid else 0
             p += _level_pull(ctx, slot, it) if slot in VISIBLE else 0
             p += tst.bonus(iid, slot)    # worn on days like today (taste.py)
+            p -= season.PRIORITY_PENALTY if season.counts(ctx.day, slot, iid) else 0
             # A cardigan is knitwear before it is a coat: each garment a little ahead in
             # the slot it is filed under, so a lone layer reads as what it is.
             p += 1 if it.get("category") == slot else 0
@@ -338,6 +351,11 @@ def needed(ctx: Ctx, picks: dict) -> tuple:
     shoes = ctx.wd.by_item.get(picks.get("footwear")) or {}
     if strict.wet and garment.wets_through(shoes):
         out.append("wet")
+    # Snow gear or a coat (in any torso slot) left off where one could be worn (2026-11-24).
+    out += ["snow"] * any(s in picks and _snow_gear(strict, s) and not (ctx.wd.by_item.get(picks[s]) or {}).get(
+        "waterproof") for s in ("footwear", "outer"))
+    out += ["coat"] * bool(_coat_day(strict) and all(t in picks for t in check.TORSO) and not any(
+        check.is_coat(ctx.wd.by_item.get(picks[t]) or {}) for t in check.TORSO))
     worst = max(_steps_off(strict, picks), default=0)
     out += ["band1"] if worst == 1 else ["band2"] if worst == 2 else ["band3"] if worst > 2 else []
     return tuple(k for k in RELAX if k in out)
@@ -465,7 +483,8 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # with them.
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
-                    key=lambda r: (cost(needed(c, _full(r[2]))), _repeats(c, r[2]), fit.layering(c, r[2]),
+                    key=lambda r: (cost(needed(c, _full(r[2]))), fit.layering(c, r[2]), season.mismatches(c.day, r[2]),
+                                   _repeats(c, r[2]), fit.layering(c, r[2]),
                                    int("inner" in today and not r[2].get("inner")
                                        and not check.tee_base(r[2], c.wd.by_item)),
                                    fit.topless(r[2], today), _over(c, r[2]), off_level(c, r[2]), -r[0],
@@ -486,11 +505,16 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
         # banned with the only jeans).
         # A layer worn as the top meets the top's band at the pass's width: judged whole,
         # since a shape without a mid never decides one (pre-push gate, 2026-11-01).
-        if hard - {"cold"} or any(_steps_off(c, full, _widen(c), tops_only=True)):
+        if hard - COLD or any(_steps_off(c, full, _widen(c), tops_only=True)):
             continue
         soft = sum(1 for i in issues if not i.hard)
         gave = needed(c, full)
-        rank = (int(bool(hard)), *_rank(c, (shape, full), issues, gave, today))
+        # Tier: 0 fine, 1 out of season or the weather given up, 2 cold, 3 both (held aside);
+        # then the weather, the rules, the layering (user, 2026-11-24: "dry feet first").
+        n = season.mismatches(c.day, full)
+        wet = ("wet" in gave and c.dry) or bool({"snow", "coat"} & set(gave))   # the weather first
+        rank = (2 * bool(hard) + (season.held(c.day, full) or wet), sum(i.hard for i in issues), wet, *cost(gave),
+                fit.layering(c, full), n, *_rank(c, (shape, full), issues, gave, today))   # fewer cold slots
         ok.append(Outfit(full, pre - 2 * soft, issues, shape, gave, layers.sheds(c.day, full), rank))
         if sum(1 for o in ok if not o.rank[0]) >= CHECKED_CAP:
             break
@@ -563,7 +587,7 @@ def search(ctx: Ctx, priority=None) -> Result:
     if not chilly and complete and time.monotonic() < ctx.deadline:
         # Nothing warm anywhere on the ladder: once, with every rule it may give up,
         # the walk without its cold-torso cut (walks.exact's cold_too).
-        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, len(WIDTHS) - 1, ctx.deadline)
+        c = Ctx(ctx.day, ctx.target, frozenset(relaxed), ctx.exclude, len(WIDTHS) - 1, ctx.deadline, cold_ok=True)
         more_ok, more, complete = walks.exact(c, priority, None, cold_too=True)
         reached += more
         if hot := warm(more_ok):

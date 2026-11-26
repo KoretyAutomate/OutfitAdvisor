@@ -189,6 +189,8 @@
   .folder .grid{margin-top:8px}
   /* Second level inside a folder — "Tops ▸ Polo shirt" (2026-08-20). */
   .subHead{display:flex;align-items:baseline;gap:7px;margin:10px 0 0;padding-left:2px}
+  /* The seasonal closet: still there and tappable, just out of the way. */
+  .offHead{margin-top:16px} .offSeason{opacity:.55}
   .subHead .st{font-size:.8rem;text-transform:none;letter-spacing:0;color:var(--txt);font-weight:500}
   .subHead .sc{font-size:.7rem;color:var(--muted)}
   /* ── sheet tabs (2026-08-20) ──
@@ -621,6 +623,15 @@
       ><button data-w="4"><span class="wn">4</span><span class="wt"></span></button
       ><button data-w="5"><span class="wn">5</span><span class="wt"></span></button>
     </div>
+    <!-- The seasonal closet (user, 2026-11-18). Auto judges by warmth against this
+         area's normal weather for the date; the rest override it. -->
+    <label class="lbl" style="margin-top:10px">Season</label>
+    <select id="shSeason" style="width:100%;margin-bottom:4px">
+      <option value="auto">Auto — by its warmth and the time of year</option>
+      <option value="all">All year</option>
+      <option value="warm">Warm months only</option>
+      <option value="cold">Cold months only</option>
+    </select>
     <!-- The one dress level the outfit funnel reads, in place of the Casual / Smart /
          Active tags (user, 2026-10-22). Not set: guessed from the name and the kind. -->
     <div id="shLevelBox">
@@ -1935,7 +1946,7 @@ let UPD_WATCH_TRIES=30, UPD_WATCH_MS=2000;   // after a tap: a minute of watchin
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.60";
+const WEB_BUILD="1.61";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -2823,6 +2834,7 @@ async function openSheet(item,opts){
   $("shSleeve").value=SLEEVES.includes(sheet.item.sleeve)?sheet.item.sleeve:"";
   sheet.sleeve0=$("shSleeve").value;
   $("shPattern").value=PATTERNS.includes(sheet.item.pattern)?sheet.item.pattern:"";
+  $("shSeason").value=SEASON_MODES.includes(sheet.item.season)?sheet.item.season:"auto";
   sheet.pattern0=$("shPattern").value;
   sheet.levelTouched=false;
   $("shColors").value=(sheet.item.colors||[]).join(", "); $("shWp").checked=!!sheet.item.waterproof;
@@ -2958,7 +2970,10 @@ async function renderCloset(){
     // Only build tiles for an OPEN folder. tile() calls photoLoad(), which reads a
     // file per item — doing that for a folder the user has collapsed is pure waste,
     // and it grows with the wardrobe.
-    const body=open?await subSections(items):"";
+    // In season first; the rest under "Other seasons" (2026-11-18), still tappable.
+    const nrm=seasonNormal(), ons=items.filter(i=>inSeasonNow(i,nrm)), offs=items.filter(i=>!inSeasonNow(i,nrm));
+    const body=open?await subSections(ons)+(offs.length?`<div class="subHead offHead"><span class="st">Other seasons</span>
+        <span class="sc">${offs.length}</span></div><div class="offSeason">${await subSections(offs)}</div>`:""):"";
     out.push(`<div class="folder">
       <button class="folderHead" data-grp="${slot}">
         <span class="tw">${open?"▾":"▸"}</span>
@@ -3322,7 +3337,9 @@ function haversineKm(a,b,c,d){
   const h=Math.sin(dLat/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
-async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); }
+// The push snapshot goes too: it carries the home's monthly normals, which are now
+// another place's until the new ones are measured (pre-push gate, 2026-11-24).
+async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""); renderHome(); await savePushPayload(); }
 
 /* ───────── the warmth scale is measured from HOME (user, 2026-08-30) ─────────
 
@@ -3347,7 +3364,7 @@ async function saveHome(){ await prefSet("oa.home", home?JSON.stringify(home):""
    server makes (ten years of daily archive), and the answer moves on the scale of
    decades. A home that has changed invalidates it by COORDINATE, not by age. */
 const CLIMATE_KEY="oa.climate";
-let climate=null;   // {lat,lon,cold,avg,hot,months[],at} or null
+let climate=null;   // {lat,lon,cold,avg,hot,months[],normals[[lo,hi]x12],at} or null
 /* The anchors, but ONLY when they were measured at the home currently set. A cache
    left over from a previous home would scale the whole wardrobe to a city the
    wearer has moved away from, silently and for ever. */
@@ -3383,12 +3400,58 @@ function renderClimate(){
   if(a) el.textContent=`warmth scale: 5 = ${Math.round(a.cold)}°, 3 = ${Math.round(a.avg)}°, `+
                        `1 = ${Math.round(a.hot)}° — this area's coldest, average and warmest month`;
 }
+/* ───────── the seasonal closet (user, 2026-11-18) ─────────
+   "I don't need shorts nor summer pants to be in a part of choices during winter.
+   In summer, I don't need jacket nor sweater." The server decides (season.py); this
+   is its TWIN, only for which garments the closet files under "Other seasons" and
+   for the twelve monthly normals the requests carry. */
+const SEASON_MODES=["auto","all","warm","cold"], COLD_MONTH_NEED=3, LEG_FLOOR_MAX=2;
+/* Twelve [low, high]s, January first — only when measured at the home currently set. */
+function climateNormals(){
+  if(!climateAnchors()) return null;
+  const n=climate.normals;
+  return Array.isArray(n)&&n.length===12&&n.every(p=>Array.isArray(p)&&p.length===2
+    &&p.every(Number.isFinite)&&-90<=p[0]&&p[0]<=p[1]&&p[1]<=60)?n:null;
+}
+/* The normal day on this date: TWIN of season.normal_for. */
+function seasonNormal(d){
+  const n=climateNormals(); if(!n) return null;
+  d=d||new Date();
+  const dim=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  const pos=d.getMonth()+(d.getDate()-0.5)/dim-0.5, i=Math.floor(pos), f=pos-i;
+  const a=n[(i+12)%12], b=n[(i+1)%12];
+  return {lo:a[0]+(b[0]-a[0])*f, hi:a[1]+(b[1]-a[1])*f};
+}
+function coversLegs(slot,item){ return slot==="bottoms"||slot==="footwear"||(slot==="base"&&item.group==="onepiece"); }
+/* TWIN of scale.too_cold_for_legs: summer wear only, below 12C on the absolute scale. */
+function tooColdForLegs(item,t){
+  return (item.warmth||3) < Math.min(LEG_FLOOR_MAX, minOuterWarmth(t,gradedOn(item))-1);
+}
+/* TWIN of season.out_of_season. */
+function outOfSeason(item,slot,n){
+  const mode=SEASON_MODES.includes(item.season)?item.season:"auto";
+  if(mode==="all") return false;
+  if(mode!=="auto"){
+    const coldMonth=minOuterWarmth(n.lo,gradedOn(item))>=COLD_MONTH_NEED;
+    return mode==="warm"?coldMonth:!coldMonth;
+  }
+  if(coversLegs(slot,item)&&tooColdForLegs(item,n.lo)) return true;
+  const at=["inner","base","bottoms","footwear"].includes(slot)?Math.max(n.lo,n.hi):n.lo;
+  return (item.warmth||3)>minOuterWarmth(at,gradedOn(item))+WARM_TOLERANCE;
+}
+/* In season if ANY slot it can be worn in is: a shirt is a summer outer layer and a
+   winter base. No normals: everything is in season. */
+function inSeasonNow(item,n){
+  return !n||normRoles(item.roles,item.category).some(r=>!outOfSeason(item,r,n));
+}
 /* Fetched once per home. A failure is SILENT and leaves the absolute scale in
    place: nobody should lose a morning to a busy climate archive, and there is
    nothing here the wearer could act on if they were told. */
 let climateBusy=false;
 async function refreshClimate(){
-  if(climateBusy||!home||climateAnchors()) return;
+  // Measured again once when the cache predates the monthly normals the seasonal
+  // closet needs (2026-11-18): the anchors alone are not enough any more.
+  if(climateBusy||!home||(climateAnchors()&&climateNormals())) return;
   climateBusy=true;
   // The home this answer is ABOUT, captured before the wait. Ten years of archive
   // can take a minute, and a wearer can set a new home inside it — stamping the
@@ -3407,11 +3470,15 @@ async function refreshClimate(){
     const d=await r.json();
     if(!home||home.lat!==lat||home.lon!==lon) return;   // about somewhere they left
     climate={lat,lon,cold:d.cold,avg:d.avg,hot:d.hot,
-             months:Array.isArray(d.months)?d.months:[],at:Date.now()};
+             months:Array.isArray(d.months)?d.months:[],
+             normals:Array.isArray(d.normals)?d.normals:null,at:Date.now()};
     // Stored only if it is usable AS a scale — refused rather than kept wrong.
     if(!climateAnchors()){ climate=null; return; }
     await saveClimate();
     await savePushPayload();   // the morning push measures by the same scale
+    // The closet was drawn before the normals arrived: file its out-of-season
+    // garments now, not at the next unrelated redraw (pre-push gate, 2026-11-24).
+    if(climateNormals()) await renderCloset();
   }catch(e){}
   finally{
     climateBusy=false;
@@ -3879,7 +3946,9 @@ const itemMeta=i=>({id:i.id,label:i.label,category:i.category,group:i.group,
     // The advisor and its stylist read it for texture (user, 2026-10-18).
     ...(i.fabric?{fabric:i.fabric}:{}),
     // The outfit funnel's readings (user, 2026-10-20); absent, the server derives them.
-    ...(i.level?{level:i.level}:{}),...(i.material?{material:i.material}:{}),...(i.gauge?{gauge:i.gauge}:{})});
+    ...(i.level?{level:i.level}:{}),...(i.material?{material:i.material}:{}),...(i.gauge?{gauge:i.gauge}:{}),
+    // The seasonal closet's override (season.py); "auto" is the absence.
+    ...(SEASON_MODES.includes(i.season)&&i.season!=="auto"?{season:i.season}:{})});
 function closetPayload(){
   const trip=tripInProgress(), meta=itemMeta;
   if(trip){
@@ -4005,7 +4074,10 @@ async function savePushPayload(){
       nativeSeen:[...nativeSeen],
       // What they wore, day by day (2026-11-14), and which of the notification's
       // queued outfits it already holds: the worker adds the rest at fire time.
-      worn:outfitLog, outfitSeen:[...outfitSeen]}));
+      worn:outfitLog, outfitSeen:[...outfitSeen],
+      // The season's normals: monthly, so the server reads the right month at 06:45
+      // however old this snapshot is (season.py).
+      normals:climateNormals()}));
   }catch(e){}
 }
 
@@ -4147,6 +4219,9 @@ async function getAdvice(lat,lon){
     // What they wore, day by day, with the weather (2026-11-14): the server prefers
     // what was worn on days like today. As stored — the server matches the ids.
     if(cl.length&&outfitLog.length) body.worn=outfitLog;
+    // The home climate's monthly normals (2026-11-18): the server reads the season
+    // off them by date. Only with a closet — there is no garment to judge without.
+    const nm=climateNormals(); if(cl.length&&nm) body.normals=nm;
     const r=await fetch(state.baseUrl.replace(/\/+$/,"")+"/advice",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-OA-Client":"app/"+APP_VERSION+"/w"+WEB_BUILD},
@@ -5403,16 +5478,51 @@ function ownershipGaps(missing,planTemp,sentIds,peak){
     if(bannedOutright(i)) continue;
     for(const r of normRoles(i.roles,i.category)){
       if(r==="outer"&&planTemp!=null&&!warmEnough(i,planTemp)) continue;
+      // Summer legs on a cold morning excuse no leg gap either, a summer dress
+      // included (gaps.py; pre-push gate, 2026-11-24: shorts in the wash hid the want
+      // of warm trousers).
+      // Nor ones too warm for the afternoon they would be worn through (picks._heat_temp).
+      if(coversLegs(r,i)&&planTemp!=null&&(tooColdForLegs(i,planTemp)
+         ||!notTooWarm(i,peak!=null?Math.max(planTemp,peak):planTemp))) continue;
       withheld.add(r);
+      // A warm dress is an alternative to cold shorts as well (layers.underdressed).
+      if(planTemp!=null&&warmLegs(i,planTemp,peak,"dress")) withheld.add("bottoms");
     }
   }
   // "warmth": nothing the server was sent was warm enough for the morning. A warm
   // layer of ANY torso role left in the wash answers that as well as a coat would.
   const warmWithheld=planTemp!=null&&closet.some(i=>!sent.has(i.id)&&!bannedOutright(i)
     &&normRoles(i.roles,i.category).some(r=>["inner","base","mid","outer"].includes(r))&&usableWarm(i,planTemp,peak));
-  return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:!withheld.has(slot));
+  // "legs": a summer dress on a cold morning. Only something warm enough that covers
+  // the legs answers it, a dress or trousers, never a tee (gaps.LEGS_GAP).
+  const legsWithheld=planTemp!=null&&legsCovered(planTemp,peak)
+    &&closet.some(i=>!sent.has(i.id)&&legsPart(i,planTemp,peak));
+  return missing.filter(slot=>slot===COLD_GAP?!warmWithheld:slot===LEGS_GAP?!legsWithheld:!withheld.has(slot));
 }
-const COLD_GAP="warmth";
+const COLD_GAP="warmth", LEGS_GAP="legs";
+// Warm enough legs for this temperature: a dress worn as the base, or trousers with
+// a top they own to wear them under, as layers.underdressed asks (pre-push gate,
+// 2026-11-24: trousers cleared a dress's gap in a closet with no top at all).
+// A knit or cardigan worn as the top counts. Not too warm for the afternoon either:
+// legs are worn all day (picks._heat_temp; pre-push gate, 2026-11-24).
+// The top must suit the day too: a base worn all afternoon, a knit judged by the
+// morning, as layers.underdressed judges them (pre-push gate, 2026-11-24).
+const notTooWarm=(x,at)=>(x.warmth||3)<=minOuterWarmth(at,gradedOn(x))+WARM_TOLERANCE;
+// Any torso slot but a coat's: a cardigan filed only as outer is still the top
+// (layers.is_top_slot).
+const isTop=(x,t,pk)=>x.group!=="onepiece"&&!bannedOutright(x)
+  &&normRoles(x.roles,x.category).some(r=>(r==="base"&&notTooWarm(x,pk!=null?Math.max(t,pk):t))
+    ||((r==="mid"||(r==="outer"&&x.group!=="outerwear"))&&notTooWarm(x,t)));
+// Warm leg cover worn all day: a dress as the base, or trousers.
+const warmLegs=(x,t,pk,kind)=>!bannedOutright(x)&&!tooColdForLegs(x,t)&&notTooWarm(x,pk!=null?Math.max(t,pk):t)
+  &&normRoles(x.roles,x.category).some(r=>kind==="dress"?r==="base"&&coversLegs(r,x):r==="bottoms");
+// The closet can dress the legs warmly: a warm dress, or warm trousers WITH a top,
+// judged as whole outfits (pre-push gate, 2026-11-24: a tee in the wash completes
+// trousers already sent; adding a tee completes trousers already owned).
+const legsCovered=(t,pk)=>closet.some(x=>warmLegs(x,t,pk,"dress"))
+  ||(closet.some(x=>warmLegs(x,t,pk,"trousers"))&&closet.some(x=>isTop(x,t,pk)));
+// This garment could be part of such an outfit.
+const legsPart=(x,t,pk)=>warmLegs(x,t,pk,"dress")||warmLegs(x,t,pk,"trousers")||isTop(x,t,pk);
 /* Mornings the PUSH observed while the app was shut.
    oa.today holds one day and is overwritten by the next push, so somebody who reads
    the notification and never opens the app would lose every morning but the last —
@@ -5452,9 +5562,10 @@ async function recordGaps(missing,w,planTemp,day,sentIds,peak){
   for(const raw of missing){
     // A cold-morning gap is shopping evidence for `outer`, remembered as cold so
     // that a warm layer of any kind can clear it (clearGapsFilledBy).
-    const cold=raw===COLD_GAP, slot=cold?"outer":raw;
-    if(gaps.some(g=>g.day===day&&g.slot===slot&&!!g.cold===cold)) continue;
-    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),
+    // A dress too thin for the legs is evidence for `base`, remembered as legs.
+    const cold=raw===COLD_GAP, legs=raw===LEGS_GAP, slot=cold?"outer":legs?"base":raw;
+    if(gaps.some(g=>g.day===day&&g.slot===slot&&!!g.cold===cold&&!!g.legs===legs)) continue;
+    gaps.push({slot,day,lo:Math.round(w.lo),hi:Math.round(w.hi),...(cold?{cold:true}:{}),...(legs?{legs:true}:{}),
                // `at` is the planning temperature the server used for that morning.
                at:planTemp!=null?Math.round(planTemp):null,
                ...(peak!=null?{pk:peak}:{})});
@@ -5565,6 +5676,12 @@ async function clearGapsFilledBy(item){
   gaps=gaps.filter(g=>{
     // A cold-morning gap is answered by any warm enough torso layer, not only a coat.
     if(g.cold) return !(["inner","base","mid","outer"].some(r=>roles.has(r))&&usableWarm(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi));
+    if(g.legs){   // answered once the closet can dress the legs warmly, and this garment helps
+      const t=g.at!=null?g.at:g.lo, pk=g.pk!=null?g.pk:g.hi;
+      return !(legsPart(item,t,pk)&&legsCovered(t,pk));
+    }
+    // A warm dress answers a cold bottoms gap too (layers.underdressed; 2026-11-24).
+    if(g.slot==="bottoms"&&warmLegs(item,g.at!=null?g.at:g.lo,g.pk!=null?g.pk:g.hi,"dress")) return false;
     if(!roles.has(g.slot)) return true;                  // nothing to do with it
     // Only the gaps it could ACTUALLY have filled. Adding a second warmth-2 shell
     // does not answer an outer gap recorded at 2C — the wardrobe is exactly as
@@ -5575,6 +5692,11 @@ async function clearGapsFilledBy(item){
     // forgets gaps the server would still raise, or keeps ones it would not.
     // `lo` is the fallback for records written before planTemp was sent.
     if(g.slot==="outer"&&!warmEnough(item,g.at!=null?g.at:g.lo)) return true;
+    // Nor does another pair of summer trousers or sandals answer a cold leg gap.
+    if(coversLegs(g.slot,item)){
+      const t=g.at!=null?g.at:g.lo, pk=g.pk!=null?g.pk:g.hi;
+      if(tooColdForLegs(item,t)||!notTooWarm(item,pk!=null?Math.max(t,pk):t)) return true;
+    }
     return false;
   });
   if(gaps.length!==before){ await saveGaps(); refreshShopping(); }
@@ -5586,12 +5708,15 @@ function gapSummary(){
   const by=new Map();
   const days=new Set();
   for(const g of liveGaps()){
-    const e=by.get(g.slot);
+    // A summer dress's gap is warm leg cover, sent as "legs" so the shopping list
+    // offers trousers or a warm dress, never a tee (gaps.LEGS_GAP).
+    const slot=g.legs?LEGS_GAP:g.slot;
+    const e=by.get(slot);
     // A morning counts once per slot: a cold-morning gap and a plain outer gap on
     // the same day are one short morning, not two.
-    const k=g.slot+"|"+g.day;
+    const k=slot+"|"+g.day;
     if(e){ if(!days.has(k)) e.n++; e.loC=Math.min(e.loC,g.lo); e.hiC=Math.max(e.hiC,g.hi); }
-    else by.set(g.slot,{slot:g.slot,n:1,loC:g.lo,hiC:g.hi});
+    else by.set(slot,{slot,n:1,loC:g.lo,hiC:g.hi});
     days.add(k);
   }
   return [...by.values()].sort((a,b)=>b.n-a.n).slice(0,20);
@@ -6399,6 +6524,8 @@ async function load(){
   try{ gaps=JSON.parse(await prefGet("oa.gaps","[]"))||[]; }catch(e){ gaps=[]; }
   // An app older than the cold-morning gap filed the server's "warmth" as a slot.
   gaps=gaps.map(g=>g&&g.slot===COLD_GAP?{...g,slot:"outer",cold:true}:g);
+  // Likewise "legs" (gaps.LEGS_GAP), which an app before v1.61 filed as a slot.
+  gaps=gaps.map(g=>g&&g.slot===LEGS_GAP?{...g,slot:"base",legs:true}:g);
   try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
   try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
@@ -7101,6 +7228,8 @@ $("shSave").onclick=async()=>{
   reconcileItem(it);
   it.colors=$("shColors").value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,3);
   it.waterproof=$("shWp").checked;
+  // "auto" is stored as absence, like every garment saved before the season existed.
+  const ss=$("shSeason").value; if(SEASON_MODES.includes(ss)&&ss!=="auto") it.season=ss; else delete it.season;
   // "" = follow the colours, which is also how every garment saved before loads
   // existed reads — so it is stored as absence, not as a value that would stop
   // following a later colour correction.

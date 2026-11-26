@@ -37,6 +37,7 @@ import prose
 import reroll
 import rules
 import scale
+import season
 import sleeves
 import style
 import stylist
@@ -318,10 +319,12 @@ async def _dress_funnel(day: check.Day, wd: "pk.Wardrobe") -> dict | None:
     log.info("advisor: funnel served outfit %s, gave up %s, %.1fs",
              (said or {}).get("choice", "-"), list(pick.relaxed) or "-", time.monotonic() - t0)
     notes = [f"Note: {n}." for n in relaxnotes.notes(pick.relaxed, result.complete)]
-    if pick.rank and pick.rank[0]:
+    if pick.rank and pick.rank[0] >= 2:
         # Warmth given up: never silent, and "nothing warm goes" only when every
         # combination was tried (pre-push gate, 2026-10-24).
         notes.append(f"Note: {relaxnotes.COLD if result.complete else relaxnotes.COLD_UNSURE}.")
+    if pick.rank and pick.rank[0] % 2 and season.held(day, pick.picks):   # tier 1/3 (funnel._evaluate)
+        notes.append(f"Note: {relaxnotes.SEASON if result.complete else relaxnotes.SEASON_UNSURE}.")
     if said and said["choice"] == 0:
         # Turned down every time: served, since something must be, and said so (user,
         # 2026-10-24 — the chooser picked the least bad and called it good).
@@ -370,7 +373,8 @@ def _holes(picks: dict, day: check.Day) -> set[str]:
     layers a warmer garment would go in, so a coat suggestion survives (pre-push gate,
     2026-10-21)."""
     found = gaps.missing(picks, day, [])
-    holes = {s for s in found if s in CATEGORIES}
+    # A worn slot is no hole, though a cold-leg gap names it (pre-push gate, 2026-11-24).
+    holes = {s for s in found if s in CATEGORIES and not picks.get(s)}
     if gaps.COLD_GAP in found:
         holes |= {s for s in ("outer", "mid") if not picks.get(s)}
     return holes
@@ -561,7 +565,9 @@ def _plain_lines(best: Answer, picks: dict, day: check.Day, missing: list[str]) 
     given = best.out.get("lines")
     said = given if isinstance(given, dict) else {}
     out = {s: str(day.wd.by_item[i]["label"]) for s in CATEGORIES if (i := picks.get(s))}
-    for s in (s for s in missing if s in CATEGORIES):
+    # A slot still worn keeps its garment: a cold-leg gap (gaps.py) names the summer
+    # trousers being worn, not an empty slot (pre-push gate, 2026-11-24).
+    for s in (s for s in missing if s in CATEGORIES and not picks.get(s)):
         # Only a slot the MODEL left empty carries a generic suggestion; a slot the
         # fallback emptied holds a line about the garment it took off. Raised by
         # the pre-push reviewer, 2026-10-11.

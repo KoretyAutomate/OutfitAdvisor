@@ -520,6 +520,9 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
             val now = System.currentTimeMillis()
             val worn = OutfitLog.overlay(p.optJSONArray("worn"), queue, seen, today(), now)
             if (worn.length() > 0) body.put("worn", worn)
+            // The home climate's twelve monthly normals (season.py, 2026-11-18): the
+            // server reads today's off them by date, so this snapshot never goes stale.
+            p.optJSONArray("normals")?.let { if (it.length() == 12) body.put("normals", it) }
         } catch (e: Exception) {
             // A wardrobe we cannot read costs generic advice, never the notification.
         }

@@ -53,3 +53,50 @@ def test_underlayered_is_the_coat_without_knitwear_below_five_only():
     assert not fit.underlayered(funnel.Ctx(d5, funnel.target_level(d5.look)), tee_coat), "5C: the boundary"
     d4 = day(4.9, TEE, SWEATER, DUFFLE, CHINOS, SNEAK, hi=9)
     assert fit.underlayered(funnel.Ctx(d4, funnel.target_level(d4.look)), tee_coat)
+
+
+def test_dry_feet_still_count_below_five_when_no_knit_fits():
+    """Codex review, 2026-11-26: folded into one weather flag, a missing knit erased the
+    wet-feet penalty — chinos with mesh beat drawstrings with dry loafers at 2C."""
+    from test_funnel import CHINOS, DRAWSTR, LOAFERS, MESH
+    from wardrobe_fixtures import OXFORD
+    # The sweater passes on its own (so a knit is "wearable") but no outfit can hold it:
+    # every outfit lacks the knit, and only the separate wet flag tells them apart.
+    ban = [{"kind": "avoid_pair", "a": {"type": "loafers"}, "b": {"type": "trousers", "color": "navy"}},
+           {"kind": "avoid_pair", "a": {"type": "sweater"}, "b": {"type": "trousers"}}]
+    from test_funnel import prefs
+    _, r = run(2, OXFORD, SWEATER, PARKA, CHINOS, DRAWSTR, MESH, LOAFERS, hi=6, rain=90, isRain=True,
+               p=prefs("office", rules=tuple(ban)))   # the drawstrings are a level down
+    assert all(not _knit(o) for o in r.outfits)
+    o = r.outfits[0]
+    assert o.picks["footwear"] == LOAFERS["id"] and "wet" not in o.relaxed, (o.picks, o.relaxed)
+    # The rank itself: both lack the knit; mesh gives up "wet", the drawstrings "band1"
+    # — earlier on the ladder than band1, so one merged flag served the mesh.
+    from wardrobe_fixtures import day
+    d = day(2, OXFORD, SWEATER, PARKA, CHINOS, DRAWSTR, MESH, LOAFERS, hi=6, rain=90, isRain=True,
+            prefs=prefs("office", rules=tuple(ban)))
+    c = funnel.Ctx(d, funnel.target_level(d.look), frozenset({"colour", "belt", "texture", "wet", "band1"}))
+    base = {"base": OXFORD["id"], "outer": PARKA["id"]}  # a shirt: on the office level
+    shapes = [(("base", "outer"), {**base, "bottoms": CHINOS["id"], "footwear": MESH["id"]}),
+              (("base", "outer"), {**base, "bottoms": DRAWSTR["id"], "footwear": LOAFERS["id"]})]
+    got = sorted(funnel._evaluate(c, shapes, funnel.priority_for(c), frozenset(base) | {"mid"}), key=lambda o: o.rank)
+    assert [o.picks["footwear"] for o in got] == [LOAFERS["id"], MESH["id"]], [(o.relaxed, o.rank[:6]) for o in got]
+
+
+def test_no_wearable_knit_holds_nothing_aside():
+    """Codex review, 2026-11-26: with no knit to wear, every coat outfit was held aside
+    and the search walked every combination at every step for one that is not there."""
+    import fit
+    from test_funnel import CHINOS
+    from wardrobe_fixtures import day
+    tee_coat = {"base": TEE["id"], "outer": DUFFLE["id"]}
+    d = day(2, TEE, DUFFLE, CHINOS, SNEAK, hi=6)
+    assert not fit.underlayered(funnel.Ctx(d, funnel.target_level(d.look)), tee_coat), "no knit owned"
+    banned = [{"kind": "avoid_item", "a": {"type": "sweater"}}]
+    from test_funnel import prefs
+    d = day(2, TEE, SWEATER, DUFFLE, CHINOS, SNEAK, hi=6, prefs=prefs(rules=tuple(banned)))
+    assert not fit.underlayered(funnel.Ctx(d, funnel.target_level(d.look)), tee_coat), "the only knit is banned"
+    tees = [g(f"tee{n:06d}", f"tee {n}", "tops", "t_shirt", ["base"], 1, colors=[c])
+            for n, c in enumerate(("white", "black", "grey", "navy", "olive", "beige"))]
+    _, r = run(2, *tees, DUFFLE, CHINOS, CARGO, SNEAK, hi=6)
+    assert r.outfits and r.complete and r.exact == 0, (r.complete, r.exact)

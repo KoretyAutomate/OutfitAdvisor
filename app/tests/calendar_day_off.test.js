@@ -124,6 +124,30 @@ function kotlinRegex(src, name) {
   check("an office outfit does not stay on screen under a new day off", ev("!lastRes||lastRes.occasion!=='office'")
     && ev(`$("outfitCard").style.display`) === "none", {res: ev("JSON.stringify(lastRes)"), disp: ev(`$("outfitCard").style.display`)});
 
+  // An office request is out; they tap Off; the old answer lands during the new run's
+  // calendar read; the new request fails. The office outfit must not be on screen.
+  w.localStorage.removeItem("oa.today");
+  ev(`calendarOff=null; dayKindOverride=null; lastRes=null; window.__release=null;
+      Plugins.OutfitAlarm.dayOff=async()=>({off:false});
+      window.__n=0;
+      getAdvice=async()=>{ const n=++window.__n;
+        if(n===1){ await new Promise(r=>window.__release=r);
+          return {at:Date.now(),occasion:"office",style:"smart",outfit:{base:"oxford"},text:"• Oxford",picks:{base:"i1"},
+                  closetUsed:true,weather:${JSON.stringify(WX)},source:"funnel"}; }
+        throw new Error("offline"); };`);
+  const first = ev("run()");
+  await new Promise(r => setTimeout(r, 20));
+  ev(`dayKindOverride={day:todayISO(),kind:"off"};
+      Plugins.OutfitAlarm.dayOff=async()=>{ window.__release(); await new Promise(r=>setTimeout(r,20)); return {off:false}; };`);
+  const second = ev("run()");
+  try { await first; } catch (e) {} try { await second; } catch (e) {}
+  check("an office answer landing during the next run's calendar read is not shown under Off",
+    !ev("lastRes") || ev("lastRes.occasion") !== "office", ev("JSON.stringify(lastRes)"));
+  const saved = JSON.parse(w.localStorage.getItem("oa.today") || "null");
+  check("…nor saved as today's advice: the superseded run stops before it renders",
+    !saved || saved.occasion !== "office", saved);
+  ev(`dayKindOverride=null`);
+
   console.log("\n--- 4. the morning push (Kotlin twin) --------------------------------");
   const worker = fs.readFileSync(path.join(SRC, "AdviceWorker.kt"), "utf8");
   const fn = worker.slice(worker.indexOf("private fun dayKind("));

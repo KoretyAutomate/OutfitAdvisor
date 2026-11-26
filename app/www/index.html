@@ -4934,13 +4934,16 @@ async function run(){
     if(state.lat==null) throw new Error("Enter a city, or use the location button.");
     // The calendar's day off is read BEFORE the run says what it is for: the request
     // and runPendingFor come from one reading (pre-push gate, 2026-11-26).
-    // A day that turned into a day off (or back) takes the old kind's outfit off the
-    // screen now, not when an answer comes — a failed request left it standing.
-    const before=dayPair(); await refreshDayOff(); paintDay();
-    if(dayPair()!==before&&lastRes&&!fitsKind(lastRes,dayKind())){
+    // The sequence is taken BEFORE the calendar read: an older request answering
+    // during it is superseded, never rendered (pre-push gate, 2026-11-26).
+    const myRun=++runSeq;
+    await refreshDayOff(); paintDay();
+    if(myRun!==runSeq) return;
+    // Advice for another kind of day leaves the screen now, not when an answer comes
+    // — a failed request left an office outfit standing under "day off".
+    if(lastRes&&!fitsKind(lastRes,dayKind())){
       lastRes=null; lastOutfit=null; lastText=""; $("outfitCard").style.display="none";
     }
-    const myRun=++runSeq;
     runPending=myRun; runPendingFor=dayPair(); adviceWanted=true;
     let res;
     try{ res=await getAdvice(state.lat,state.lon); }

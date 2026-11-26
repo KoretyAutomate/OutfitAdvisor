@@ -46,13 +46,14 @@ object DayOff {
     private val TIME_OFF = Regex(
         "\\b(day[\\s-]?off|days[\\s-]?off|off|pto|vacation|vacay|holidays?|annual leave|leave|ooo|" +
             "out of (the )?office|sick( day)?|time off|bank holiday|public holiday)\\b|" +
-            "休み|休暇|有給|有休|代休|振休|年休|休日|オフ(?!ィス|会)",
+            "休み|休暇|有給|有休|代休|振休|年休|休日|オフ(?!ィス|会|サイト)",
         RegexOption.IGNORE_CASE
     )
-    // A meeting about the time off is not the time off: "PTO planning", "Holiday party".
+    // A meeting about the time off is not the time off: "PTO planning", "Holiday party";
+    // nor is an off-site, which is work somewhere else (pre-push gate, 2026-11-26).
     private val NOT_OFF = Regex(
-        "\\b(party|dinner|lunch|meeting|call|request|planning|deadline|sync|review|kick[\\s-]?off|sign[\\s-]?off)\\b|" +
-            "会議|打ち合わせ|申請|飲み会",
+        "\\b(party|dinner|lunch|meeting|call|request|planning|deadline|sync|review|kick[\\s-]?off|sign[\\s-]?off|" +
+            "off[\\s-]?sites?)\\b|会議|打ち合わせ|申請|飲み会|オフサイト",
         RegexOption.IGNORE_CASE
     )
 

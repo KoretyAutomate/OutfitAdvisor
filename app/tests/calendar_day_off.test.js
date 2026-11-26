@@ -115,6 +115,15 @@ function kotlinRegex(src, name) {
     {calls: ev("window.__dayOffCalls"), kind: ev("dayKind()")});
   check("…and re-judges the advice on screen", ev("window.__rfd") >= 1);
 
+  // A PTO entry synced while the page was open; the request then fails.
+  w.localStorage.removeItem("oa.today");
+  ev(`calendarOff=null; dayKindOverride=null; Plugins.OutfitAlarm.dayOff=async()=>({off:true,source:"entry",label:"PTO"});
+      lastRes={occasion:"office",style:"smart",outfit:{base:"oxford"}}; $("outfitCard").style.display="block";
+      fetch=async()=>{ throw new Error("offline"); }; fetchWeatherLocal=async()=>{ throw new Error("offline"); };`);
+  try { await ev("run()"); } catch (e) {}
+  check("an office outfit does not stay on screen under a new day off", ev("!lastRes||lastRes.occasion!=='office'")
+    && ev(`$("outfitCard").style.display`) === "none", {res: ev("JSON.stringify(lastRes)"), disp: ev(`$("outfitCard").style.display`)});
+
   console.log("\n--- 4. the morning push (Kotlin twin) --------------------------------");
   const worker = fs.readFileSync(path.join(SRC, "AdviceWorker.kt"), "utf8");
   const fn = worker.slice(worker.indexOf("private fun dayKind("));
@@ -134,7 +143,8 @@ function kotlinRegex(src, name) {
                    "Annual leave", "有給", "お休み", "夏休み", "代休", "オフ", "ＰＴＯ"])
     check(`time off: ${t}`, says(t), t);
   for (const t of ["Office", "Office day", "Kick-off", "PTO planning", "Holiday party", "Team lunch", "Coffee",
-                   "オフィス出社", "オフ会", "有給申請", "Offsite", "Trade-off review", "Dentist"])
+                   "オフィス出社", "オフ会", "有給申請", "Offsite", "Off-site", "Off site", "Team offsite",
+                   "全社オフサイト", "Trade-off review", "Dentist"])
     check(`not time off: ${t}`, !says(t), t);
   check("Google's observance description is skipped",
     obs.test("Observance\nTo hide observances, go to Google Calendar Settings > Holidays in United States"));

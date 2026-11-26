@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as srv
+import fit
 import funnel
 import layers
 import picks as pk
@@ -23,19 +24,21 @@ def api(monkeypatch):
 
 
 def test_a_rule_given_up_outranks_the_knit_under_the_coat():
-    """The layering the weather asks for is a soft preference: it never buys a broken
-    pairing rule (pre-push gate, 2026-11-24: fit.layering had moved ahead of the
-    relaxation cost)."""
+    """From 5C to 8C felt the knit under a light coat is a soft preference: it never
+    buys a broken pairing rule (pre-push gate, 2026-11-24: fit.layering had moved ahead
+    of the relaxation cost). Below 5C it is the weather (test_cold_knit.py)."""
     import funnel
     from test_funnel import CHINOS, LOAFERS, PARKA
     from wardrobe_fixtures import UNDER, day, g
     shirt = g("chkshirt1", "checked shirt", "tops", "shirt", ["base", "mid", "outer"], 2, pattern="checked")
     knit = g("strknit01", "striped sweater", "tops", "sweater", ["base", "mid", "outer"], 4, pattern="striped")
-    d = day(3, UNDER, shirt, knit, PARKA, CHINOS, LOAFERS, hi=8)
+    light = {**PARKA, "warmth": 3}   # not warm enough alone at 6C: layering wants the knit
+    d = day(6, UNDER, shirt, knit, light, CHINOS, LOAFERS, hi=10)
     c = funnel.Ctx(d, funnel.target_level(d.look), frozenset({"colour"}))
-    base = {"inner": UNDER["id"], "base": shirt["id"], "outer": PARKA["id"], "bottoms": CHINOS["id"],
+    base = {"inner": UNDER["id"], "base": shirt["id"], "outer": light["id"], "bottoms": CHINOS["id"],
             "footwear": LOAFERS["id"]}
     shapes = [(("base", "mid", "outer"), {**base, "mid": knit["id"]}), (("base", "outer"), base)]
+    assert fit.layering(c, {**base, "mid": None}) == 1, "the knit is wanted here, softly"
     today = frozenset(base) | {"mid"}
     got = sorted(funnel._evaluate(c, shapes, funnel.priority_for(c), today), key=lambda o: o.rank)
     assert got and got[0].picks.get("mid") is None and got[0].relaxed == (), [(o.picks.get("mid"), o.rank) for o in got]

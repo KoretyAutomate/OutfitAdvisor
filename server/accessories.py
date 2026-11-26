@@ -1,0 +1,93 @@
+"""
+accessories.py — one slot per body area, chosen after the outfit (user, 2026-11-24).
+
+User: "Accessories needs to be split. Belt and scarf can go together." Asked how far,
+they chose by body area: belt, neck (scarf, tie), head (hat), hands (gloves) and an
+umbrella. vocab.ACCESSORY_SLOTS names them.
+
+Each is worn for a reason, never for the points: a belt with trousers or jeans, a
+scarf on a coat morning, a hat and gloves below 5C (engine.py's generic bar), an
+umbrella on a wet day (funnel's bar). A tie is still never chosen, as before the split.
+
+They are NOT part of the outfit search. Five optional slots there multiplied every
+combination the exhaustive walk tries (three of each: 4^5 = 1,024 per outfit) and
+let equal scarf variants crowd different trousers out of the beam (Codex plan review,
+2026-11-24). So the search dresses the six clothing slots, and each outfit it finds
+gets its accessories here: per slot, the best candidate the day has a reason for that
+breaks no rule and no pairing (a brown belt with black shoes) with what is worn.
+"""
+# funnel imports this module; the cycle is safe because funnel's names are only
+# read when dress() runs, long after both modules have loaded.
+import funnel
+import garment
+import layers
+import season
+from vocab import ACCESSORY_SLOTS
+
+COLD_HANDS_C = 5.0        # a hat and gloves below this (engine.py's generic advice)
+WARM_HAT = 3              # a cap or sun hat (warmth 1-2) is no cold-weather hat
+_KIND = {"belt": "belt", "neck": "scarf", "head": "hat", "hands": "gloves", "umbrella": "umbrella"}
+_BELTED = ("trousers", "jeans")
+
+
+def wanted(slot: str, day, picks: dict) -> bool:
+    """Does today, with these clothes, call for something in this slot?"""
+    if slot == "belt":
+        return (day.wd.by_item.get(picks.get("bottoms")) or {}).get("type") in _BELTED
+    if slot == "neck":
+        return day.plan < layers.COAT_BELOW_C
+    if slot in ("head", "hands"):
+        return day.plan < COLD_HANDS_C
+    return slot == "umbrella" and garment.wet(day.w)
+
+
+def reason(slot: str, item: dict, day, picks: dict) -> bool:
+    """This garment, in this slot, is worn for a reason today."""
+    if item.get("type") != _KIND.get(slot) or not wanted(slot, day, picks):
+        return False
+    return slot != "head" or int(item.get("warmth") or WARM_HAT) >= WARM_HAT
+
+
+def score(day, picks: dict) -> float:
+    """+0.5 for each accessory worn for a reason, -1 for one worn without (a model's
+    or a re-roll's pick): the rank's old accessory term, per slot."""
+    by = day.wd.by_item
+    return sum(0.5 if reason(s, by[i], day, picks) else -1.0
+               for s in ACCESSORY_SLOTS if (i := picks.get(s)) and i in by)
+
+
+def _candidates(ctx, priority, keeps, widen: int) -> dict:
+    """{slot: [ids, best first]} for this pass: what funnel._keeps and the priority
+    depend on. Kept on the request's Day (Day.memo), never in the module: a module
+    cache kept a wardrobe past its request (pre-push gate, 2026-11-24)."""
+    memo = ctx.day.memo.setdefault("accessories.candidates", {})
+    k = (ctx.target, ctx.relaxed, ctx.width, ctx.cold_ok)
+    if k not in memo:
+        wd = ctx.wd
+
+        def ranked(s: str) -> list:
+            ids = [i for i in wd.ids if s in (wd.by_roles.get(i) or ()) and keeps(ctx, s, i, widen) is None]
+            return sorted(ids, key=lambda i: (-priority(i, s), i))
+        memo[k] = {s: ranked(s) for s in ACCESSORY_SLOTS}
+    return memo[k]
+
+
+def dress(ctx, picks: dict, priority) -> dict:
+    """The outfit with its accessories: per slot, the best candidate worn for a reason
+    that breaks nothing (funnel.clash), gives up no rule the clothes did not already
+    (funnel.needed), and is in season. Optional, so never worth a rule or the season:
+    a relaxed pass let a black belt in beside brown shoes (pre-push gate, 2026-11-24).
+    Accessories already in the outfit are kept."""
+    if any(picks.get(s) for s in ACCESSORY_SLOTS):
+        return picks
+    out = dict(picks)
+    gave = funnel.cost(funnel.needed(ctx, funnel._full(out)))
+    for slot, ids in _candidates(ctx, priority, funnel._keeps, funnel._widen(ctx)).items():
+        for iid in ids:
+            trial = {**out, slot: iid}
+            if (reason(slot, ctx.wd.by_item[iid], ctx.day, out) and not funnel.clash(ctx, trial)
+                    and not season.counts(ctx.day, slot, iid)
+                    and funnel.cost(funnel.needed(ctx, funnel._full(trial))) <= gave):
+                out = trial
+                break
+    return out

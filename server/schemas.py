@@ -40,12 +40,17 @@ def _clean(s: str, max_len: int) -> str:
     return _TEXT_OK.sub("", s)[:max_len].strip()
 
 
+# The eleven slots, plus `accessories` from phones before v1.62 (vocab.LEGACY_CATEGORY).
+Slot = Literal["inner", "base", "mid", "outer", "bottoms", "footwear",
+               "belt", "neck", "head", "hands", "umbrella", "accessories"]
+
+
 class ClosetItem(BaseModel):
     id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9\-]+$")
     label: str = Field(..., min_length=1, max_length=60)
     # `category` is the item's PRIMARY layer — still the tie-breaker when the model
     # duplicates a pick — but it no longer decides what the item may be worn as.
-    category: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    category: Slot
     # What the garment IS, for grouping the wardrobe into folders (2026-08-10).
     # Optional: closets saved before this field exist, and are mapped from category.
     #
@@ -74,8 +79,7 @@ class ClosetItem(BaseModel):
     # Every layer this ONE garment can play across the year — a shirt is the outer
     # layer at 30C and a base under a coat at 8C. Empty/absent => [category], i.e.
     # exactly the old fixed behaviour, so an old closet is unchanged.
-    roles: list[Literal["inner", "base", "mid", "outer", "bottoms",
-                        "footwear", "accessories"]] = Field(default_factory=list, max_length=7)
+    roles: list[Slot] = Field(default_factory=list, max_length=12)
     colors: list[str] = Field(default_factory=list, max_length=3)
     warmth: int = Field(3, ge=1, le=5)
     # WHICH SCALE that number was written on (2026-08-31). "absolute" is the old
@@ -245,7 +249,7 @@ class ClosetItem(BaseModel):
 class Prefer(BaseModel):
     """One garment the wearer keeps choosing for a slot, and how often."""
 
-    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories"]
+    slot: Slot
     # The id as well as the label: two garments can share a name, and a preference
     # that names only the label cannot say which was reached for — so the advisor
     # could honour it faithfully with the wrong item.
@@ -462,12 +466,10 @@ class KnownPlace(BaseModel):
 class Gap(BaseModel):
     """One slot the wardrobe could not fill, and the weather it happened in.
 
-    Counted on the PHONE across the period, so this server still stores nothing.
-    "legs" (gaps.LEGS_GAP) is warm leg cover: answered by trousers or a warm dress,
-    never a top (shopping.py).
+    Counted on the PHONE, so this server stores nothing. "legs": warm leg cover (gaps.LEGS_GAP).
     """
 
-    slot: Literal["inner", "base", "mid", "outer", "bottoms", "footwear", "accessories", "legs"]
+    slot: Slot | Literal["legs"]
     n: int = Field(1, ge=1, le=400)
     loC: int = Field(0, ge=-60, le=60)
     hiC: int = Field(0, ge=-60, le=60)
@@ -493,6 +495,11 @@ class ShoppingRequest(BaseModel):
     gaps: list[Gap] = Field(default_factory=list, max_length=20)
     rules: list[dict] | None = Field(None, max_length=24)
     tempOffset: float = Field(0.0, ge=-6, le=6)
+
+    @field_validator("gaps")   # an old accessories gap names no body area (2026-11-24)
+    @classmethod
+    def _no_legacy_gaps(cls, v: list) -> list:
+        return [g for g in v if g.slot != vocab.LEGACY_CATEGORY]
 
 
 # Moved here from app.py on 2026-08-31, at the 600-line ceiling. They were the

@@ -1382,7 +1382,8 @@ const GARMENT={
   dress:gi("M36 12 L42 12 Q50 20 58 12 L64 12 L70 40 L60 48 L74 88 H26 L40 48 L30 40 Z"),
 };
 const CAT_ICON={inner:GARMENT.tank,base:GARMENT.tee,mid:GARMENT.hoodie,outer:GARMENT.jacket,
-  bottoms:GARMENT.pants,footwear:GARMENT.shoe,accessories:GARMENT.scarf};
+  bottoms:GARMENT.pants,footwear:GARMENT.shoe,accessories:GARMENT.scarf,
+  belt:GARMENT.scarf,neck:GARMENT.scarf,head:GARMENT.scarf,hands:GARMENT.scarf,umbrella:GARMENT.scarf};
 /* Clothing GROUPS — what a garment IS, used to file the wardrobe into folders.
    Deliberately NOT the layering slots: an oxford shirt is a Top whether it is the
    outer layer in July or a base under a coat in November (user, 2026-08-10).
@@ -1398,11 +1399,18 @@ const GROUP_ICON={underwear:GARMENT.tank,tops:GARMENT.tee,outerwear:GARMENT.jack
    into tops, where sweater/cardigan/hoodie/fleece live on as TYPES). Translated on
    load, never rejected — the folder moved down a level, the items did not move. */
 const GROUP_ALIAS={knitwear:"tops"};
+/* The accessories are one slot per body area (user, 2026-11-24: "Accessories needs to
+   be split. Belt and scarf can go together"). "accessories" stays the FOLDER and what
+   closets saved before v1.62 call any accessory; reconcileItem files it by type. Twin
+   of vocab.ACCESSORY_SLOTS. */
+const ACC_SLOTS=["belt","neck","head","hands","umbrella"];
 const GROUP_FROM_CAT={inner:"underwear",base:"tops",mid:"tops",outer:"outerwear",
-  bottoms:"bottoms",footwear:"footwear",accessories:"accessories"};
+  bottoms:"bottoms",footwear:"footwear",accessories:"accessories",
+  belt:"accessories",neck:"accessories",head:"accessories",hands:"accessories",umbrella:"accessories"};
 const ROLE_LABEL={inner:"Inner",base:"Base",mid:"Mid",outer:"Outer",
-  bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
-const CATS=["inner","base","mid","outer","bottoms","footwear","accessories"];
+  bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories",
+  belt:"Belt",neck:"Neck",head:"Head",hands:"Hands",umbrella:"Umbrella"};
+const CATS=["inner","base","mid","outer","bottoms","footwear",...ACC_SLOTS];
 /* Second taxonomy level — "Tops > Polo shirt" (user, 2026-08-14; re-asked 2026-08-20).
    The subdivision follows the World Customs Organization's Harmonized System
    (chapters 61/62 apparel, 64 footwear, 65 headgear), not somebody's taste; the HS
@@ -1542,9 +1550,9 @@ const LEGACY_TYPE_GROUP={"bottoms|dress":"onepiece","underwear|socks":"footwear"
    could be filed as a Top and simultaneously offered for the undershirt slot. */
 const GROUP_CATS={underwear:["inner"],tops:["base","mid","outer"],
   outerwear:["mid","outer"],bottoms:["bottoms"],onepiece:["base"],
-  footwear:["footwear"],accessories:["accessories"]};
+  footwear:["footwear"],accessories:ACC_SLOTS};
 const GROUP_DEF_CAT={underwear:"inner",tops:"base",outerwear:"outer",
-  bottoms:"bottoms",onepiece:"base",footwear:"footwear",accessories:"accessories"};
+  bottoms:"bottoms",onepiece:"base",footwear:"footwear",accessories:"neck"};
 /* What a KNOWN type implies about the layers it can play — it NARROWS the group's
    set, because the type is the narrowest true statement about the garment. Twin of
    the `roles` key of TYPE_DEFAULTS in server/vocab.py; warmth and formality live
@@ -1559,8 +1567,8 @@ const TYPE_ROLES={
   dress:["base"],jumpsuit:["base"],overalls:["base"],
   sneakers:["footwear"],dress_shoes:["footwear"],boots:["footwear"],sandals:["footwear"],
   loafers:["footwear"],socks:["footwear"],
-  scarf:["accessories"],gloves:["accessories"],hat:["accessories"],belt:["accessories"],
-  tie:["accessories"],umbrella:["accessories"]};
+  scarf:["neck"],gloves:["hands"],hat:["head"],belt:["belt"],
+  tie:["neck"],umbrella:["umbrella"]};
 /* A type is only meaningful inside its group, so one that belongs to a different
    group is DROPPED rather than kept — the group is what files the item. Absent is
    always legitimate: every closet saved before 2026-08-14 has no types at all. */
@@ -1946,7 +1954,7 @@ let UPD_WATCH_TRIES=30, UPD_WATCH_MS=2000;   // after a tap: a minute of watchin
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.61";
+const WEB_BUILD="1.62";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -4279,7 +4287,16 @@ async function getAdvice(lat,lon){
 
 /* ───────── rendering ───────── */
 const ICONS=CAT_ICON;
-const LABELS={inner:"Inner layer",base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",accessories:"Accessories"};
+// "accessories" stays: the on-device suggestion's one line of accessory advice, and
+// outfits saved before v1.62 (CARD_SLOTS).
+const LABELS={inner:"Inner layer",base:"Base layer",mid:"Mid layer",outer:"Outer layer",bottoms:"Bottoms",footwear:"Footwear",
+  belt:"Belt",neck:"Scarf / tie",head:"Hat",hands:"Gloves",umbrella:"Umbrella",accessories:"Accessories"};
+const CARD_SLOTS=[...CATS,"accessories"];
+// The server folds the five into one "accessories" line for older phones
+// (vocab.fold_accessories); a card that draws the five leaves that line out.
+// An outfit without the five (the generic suggestion, one saved before v1.62) has the
+// one line instead.
+const cardSlots=o=>ACC_SLOTS.some(k=>o&&k in o)?CATS:CARD_SLOTS.filter(k=>!ACC_SLOTS.includes(k));
 function renderWeather(w){
   $("wxCard").style.display="block";
   // The one coloured mark on the page follows the day (paper & ink, 2026-09-07):
@@ -4390,7 +4407,7 @@ function drawOutfit(o,res){
   // headline 2026-08-26). A slot filled by a generic suggestion keeps its category
   // icon and a dashed border, so "mine" and "suggested" are told apart at a glance
   // without reading either.
-  const SLOTS=["inner","base","mid","outer","bottoms","footwear","accessories"];
+  const SLOTS=cardSlots(shown);
   // Empty slots are LEFT OUT of the pictures. "Mid layer — (nothing)" is a tile of
   // nothing to look at, and on a warm day half the grid would be blanks; the
   // item-by-item list below still names every slot, including the empty ones.
@@ -4412,7 +4429,8 @@ function drawOutfit(o,res){
        <div class="who">${esc(LABELS[k])}</div>
        <div class="nm2">${esc(shown[k])}</div>
      </div>`).join("");
-  $("outfitList").innerHTML=SLOTS.map(k=>
+  // Every clothing slot, empty ones too; an accessory only when one is worn.
+  $("outfitList").innerHTML=SLOTS.filter(k=>!ACC_SLOTS.includes(k)||!slotIsEmpty(shown[k])).map(k=>
     `<li data-slot="${k}" data-pick="${esc(pickOf[k]||"")}"><span class="ic" data-ic="${k}">${ICONS[k]}</span><div><div class="lbl2">${LABELS[k]}</div><div class="val">${esc(shown[k]??"")}</div></div></li>`).join("");
   for(const k of Object.keys(pickOf)){
     const id=pickOf[k]; if(!id) continue;
@@ -4807,7 +4825,7 @@ function renderPacking(trip,d){
   $("pkPlan").innerHTML=plan.length?`<p class="note" style="margin:12px 0 2px"><b>Your first mornings</b></p>`+
     plan.map(day=>{
       const when=new Date(isoMs(day.date)).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
-      const tiles=CATS.filter(k=>day.picks&&day.picks[k]).map(k=>{
+      const tiles=CARD_SLOTS.filter(k=>day.picks&&day.picks[k]).map(k=>{
         const it=closet.find(x=>x.id===day.picks[k]);
         return `<div class="wearIt" data-pick="${esc(day.picks[k])}"><div class="ph">${ICONS[k]}</div>
           <div class="who">${esc(LABELS[k])}</div><div class="nm2">${esc(it?it.label:"")}</div></div>`;
@@ -5206,11 +5224,11 @@ async function readWoreRecord(){
 function applyWoreRaw(raw){
   try{
     const d=raw?JSON.parse(raw):null;
-    woreLogged=(d&&d.day===todayISO()&&d.map)?d.map:null;
+    woreLogged=(d&&d.day===todayISO()&&d.map)?accPicks(d.map):null;
     woreDay=woreLogged?d.day:null;
     // A record from an older build has neither: served is then what was logged.
-    woreEntry=woreLogged&&d.entry&&d.entry.day===d.day&&d.entry.picks?d.entry:null;
-    woreServed=woreLogged?(d.served&&typeof d.served==="object"?d.served:d.map):null;
+    woreEntry=woreLogged&&d.entry&&d.entry.day===d.day&&d.entry.picks?{...d.entry,picks:accPicks(d.entry.picks)}:null;
+    woreServed=woreLogged?accPicks(d.served&&typeof d.served==="object"?d.served:d.map):null;
   }catch(e){ woreLogged=null; woreDay=null; woreEntry=null; woreServed=null; }
 }
 
@@ -5937,6 +5955,40 @@ async function saveRules(){
    perfectly, and never once enforced. Every dead entry gets a warning and a button
    that reads the original sentence again — the wearer should not have to work out
    which of their own rules is a ghost. */
+/* A rule saved when the accessories were one slot (before v1.62): "worn as an
+   accessory" is the folder now. Twin of rules.clean_descriptor; a pair whose two
+   sides both said so was dead and stays dead (ruleIsDead), never "no two
+   accessories together". A side that is no accessory never matched, and still won't. */
+const accSlotOf=id=>{ const c=((closet||[]).find(i=>i.id===id)||{}).category; return ACC_SLOTS.includes(c)?c:null; };
+/* A pick map saved before v1.62 (today's wear record, served advice, the morning's
+   advice) holds its accessory under "accessories": moved to the garment's own slot,
+   or the sheet shows a recorded scarf as nothing and saving drops it (pre-push gate,
+   2026-11-24). Left alone when the garment is gone. */
+function accPicks(p){
+  if(!p||typeof p!=="object"||!p.accessories) return p;
+  const slot=accSlotOf(p.accessories);
+  if(!slot||p[slot]) return p;
+  const {accessories,...rest}=p; return {...rest,[slot]:accessories};
+}
+/* Saved advice: the line moves with the id, or the card draws an owned scarf as a
+   generic tile and closet-only clears it (pre-push gate, 2026-11-24). */
+function accAdvice(outfit,picks){
+  const moved=accPicks(picks);
+  if(!outfit||moved===picks||!picks) return {outfit,picks:moved};
+  const slot=Object.keys(moved).find(k=>ACC_SLOTS.includes(k)&&moved[k]===picks.accessories&&!(picks&&picks[k]));
+  if(!slot||!("accessories" in outfit)) return {outfit,picks:moved};
+  const {accessories,...rest}=outfit; return {outfit:{...rest,[slot]:accessories},picks:moved};
+}
+function accSide(d){
+  if(!d||d.role!=="accessories") return d;
+  const kind=(d.type&&Object.keys(TYPES).find(g=>TYPES[g].includes(d.type)))||d.group||"accessories";
+  if((d.group||kind)!==kind||kind!=="accessories") return d;
+  const {role,...rest}=d; return {...rest,group:"accessories"};
+}
+function accRule(r){
+  if(!r||(r.a&&r.b&&r.a.role==="accessories"&&r.b.role==="accessories")) return r;
+  return {...r,a:accSide(r.a),...(r.b?{b:accSide(r.b)}:{})};
+}
 function ruleIsDead(r){
   if(!r||(r.kind!=="avoid_pair"&&r.kind!=="avoid_same_color")) return false;
   // A pair with only one side has nothing to pair WITH.
@@ -6199,7 +6251,8 @@ async function saveToday(res,how){
 function closetOnlyView(rec){
   if(!closetComplete||!rec) return rec;
   const outfit={...rec.outfit};
-  for(const k of CATS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
+  // CARD_SLOTS: an outfit saved before v1.62 shows its one generic accessories line too.
+  for(const k of CARD_SLOTS) if(!(rec.picks&&rec.picks[k])&&outfit[k]&&!String(outfit[k]).startsWith("None"))
     outfit[k]="None — nothing in your closet for this";
   const text=String(rec.text||"").split("\n").filter(l=>!/not in your closet yet/i.test(l)).join("\n");
   return {...rec,outfit,text};
@@ -6210,7 +6263,8 @@ async function savedToday(){
   try{
     const d=JSON.parse(await prefGet(TODAY_KEY,"")||"null");
     if(!d||d.day!==todayISO()||!d.outfit) return null;
-    return {at:d.at||null,outfit:d.outfit,text:d.outfit_text||"",picks:d.picks||null,
+    const a=accAdvice(d.outfit,d.picks);
+    return {at:d.at||null,outfit:a.outfit,text:d.outfit_text||"",picks:a.picks||null,
             closetUsed:!!d.closetUsed,closetSent:!!d.closetUsed,missing:[],weather:d.weather||null,
             place:d.place||null,occasion:d.occasion||"",style:d.style||null,
             rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
@@ -6224,11 +6278,12 @@ async function loadToday(){
   // launch and on resume as offline (pre-push reviewer, 2026-10-12).
   if(!fitsKind(d,dayKind())) return false;
   adviceWanted=true;
-  lastWeather=d.weather; lastOutfit=d.outfit||null;
+  const a=accAdvice(d.outfit,d.picks);
+  lastWeather=d.weather; lastOutfit=a.outfit||null;
   lastText=d.outfit_text||""; lastSource=d.source||"llm";
-  lastRes={weather:d.weather,outfit:d.outfit,text:d.outfit_text,source:d.source,
+  lastRes={weather:d.weather,outfit:a.outfit,text:d.outfit_text,source:d.source,
            at:d.at||null,   // when it was made — both writers stamp it; the suitcase note compares against it
-           picks:d.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
+           picks:a.picks||null,closetUsed:!!d.closetUsed,occasion:d.occasion||"",style:d.style||null,
            rawPlanTemp:d.rawPlanTemp??null,rawPeakTemp:d.rawPeakTemp??null};
   if(d.place&&!state.place) state.place=d.place;
   // Gaps the MORNING PUSH found. The push is how most advice actually arrives, and
@@ -6527,8 +6582,12 @@ async function load(){
   // Likewise "legs" (gaps.LEGS_GAP), which an app before v1.61 filed as a slot.
   gaps=gaps.map(g=>g&&g.slot===LEGS_GAP?{...g,slot:"base",legs:true}:g);
   try{ swaps=JSON.parse(await prefGet("oa.swaps","[]"))||[]; }catch(e){ swaps=[]; }
+  // Saved when the accessories were one slot (before v1.62): a swap takes its
+  // garment's slot now, and a gap, which names no body area, goes.
+  swaps=swaps.map(x=>x&&x.slot==="accessories"?{...x,slot:accSlotOf(x.wore)}:x).filter(x=>!x||x.slot!==null);
+  gaps=gaps.filter(g=>!(g&&g.slot==="accessories"));
   gaps=liveGaps();     // an app opened after a long gap must not read expired evidence
-  try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES); }
+  try{ userRules=(JSON.parse(await prefGet("oa.rules","[]"))||[]).slice(0,MAX_RULES).map(accRule); }
   catch(e){ userRules=[]; }
   // AFTER the rules and the closet are loaded: judging a queued morning calls
   // bannedOutright(), which reads userRules. Drained first, every withheld garment

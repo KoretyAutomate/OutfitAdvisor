@@ -7,10 +7,11 @@ called empty while a legal garment sat unused would recommend buying something t
 already have. The phone reads `missing` (index.html recordGaps), and COLD_GAP
 ("warmth") when nothing they own is warm enough for the morning.
 """
+import accessories
 import layers
 import scale
 from check import TORSO, Day
-from vocab import CATEGORIES
+from vocab import ACCESSORY_SLOTS, CATEGORIES
 
 COLD_GAP = "warmth"     # not a slot: nothing owned is warm enough
 LEGS_GAP = "legs"       # not a slot: a one-piece too thin for the morning's legs
@@ -21,7 +22,10 @@ def missing(picks: dict, day: Day, claimed: object) -> list[str]:
     fill, plus a missing top, trousers or shoes — each only if nothing they own,
     unused and legal, could have filled it."""
     onepiece = day.wd.by_group.get(picks.get("base")) == "onepiece"
-    named = {c for c in (claimed if isinstance(claimed, list) else []) if c in CATEGORIES}
+    # An accessory slot only on a day that calls for one: a closet with no umbrella
+    # is no shopping gap on a dry day (Codex plan review, 2026-11-24).
+    named = {c for c in (claimed if isinstance(claimed, list) else []) if c in CATEGORIES
+             and (c not in ACCESSORY_SLOTS or accessories.wanted(c, day, picks))}
     essential = {"bottoms", "footwear"} | ({"base"} if not any(picks.get(c) for c in TORSO) else set())
     candidates = {c for c in named | essential
                   if not picks.get(c) and not (c == "bottoms" and onepiece)}

@@ -26,6 +26,7 @@ import math
 import time
 from dataclasses import dataclass, field, replace
 
+import accessories
 import check
 import fit
 import garment
@@ -39,7 +40,7 @@ import style
 import taste
 import walks
 from llm import log
-from vocab import CATEGORIES
+from vocab import ACCESSORY_SLOTS, CATEGORIES
 
 K = 4                   # outfits the model chooses among
 # (candidates per slot, partial outfits kept after each slot): the narrow pass first,
@@ -54,7 +55,7 @@ WIDTHS = ((6, 120), (16, 400), (None, 400))
 EXHAUSTIVE = (None, None)
 CHECKED_CAP = 60        # complete outfits that pass check.issues, at most
 VISIBLE = pairing.VISIBLE
-OPTIONAL = ("inner", "accessories")
+OPTIONAL = ("inner",)   # accessories are chosen after the search (accessories.py)
 # Most constrained first, and on a tie the slots a stylist anchors on.
 _TIE = ("footwear", "bottoms", "base", "mid", "outer")
 # What a pass may give up, in order, when nothing survives. Their rules, the stacking
@@ -296,7 +297,8 @@ def _repeats(ctx: Ctx, picks: dict) -> int:
     counts the same in every outfit and decides nothing. A slot not yet decided counts
     only if the garment is worn."""
     worn = {i for i in picks.values() if i}
-    return sum(1 for s, i in ctx.day.prefs.shown_map.items() if i in worn or (s in picks and not picks[s]))
+    return sum(1 for s, i in ctx.day.prefs.shown_map.items()
+               if s not in ACCESSORY_SLOTS and (i in worn or (s in picks and not picks[s])))
 
 
 # ── step 5: priority ─────────────────────────────────────────────────────────────
@@ -395,8 +397,9 @@ def _full(picks: dict) -> dict:
 
 
 def look(picks: dict) -> frozenset:
-    """The garments worn, whatever slots they are filed in: one look on the person."""
-    return frozenset(i for i in picks.values() if i)
+    """The garments worn, whatever slots they are filed in: one look on the person. The
+    accessories are not the look: they follow the clothes (accessories.py)."""
+    return frozenset(i for s, i in picks.items() if i and s not in ACCESSORY_SLOTS)
 
 
 def key(picks: dict) -> tuple:
@@ -428,19 +431,11 @@ def _pass(ctx: Ctx, priority) -> tuple[list, dict, frozenset]:
 
 
 def _accessory(ctx: Ctx, picks: dict) -> float:
-    """An accessory is worn for a reason, never for the points: a belt with trousers or
-    jeans, a scarf, gloves or a hat on a cold morning. Anything else stays home."""
-    it = ctx.wd.by_item.get(picks.get("accessories"))
-    if not it:
-        return 0.0
-    legs = (ctx.wd.by_item.get(picks.get("bottoms")) or {}).get("type")
-    if it.get("type") == "belt":
-        return 0.5 if legs in ("trousers", "jeans") else -1.0
-    return 0.5 if it.get("type") in ("scarf", "gloves", "hat") and ctx.day.plan < layers.COAT_BELOW_C else -1.0
+    return accessories.score(ctx.day, picks)
 
 
 def _score(ctx: Ctx, picks: dict, priority, liked) -> float:
-    worn = [(s, i) for s, i in picks.items() if i and s != "accessories"]
+    worn = [(s, i) for s, i in picks.items() if i and s not in ACCESSORY_SLOTS]
     mean = sum(priority(i, s) for s, i in worn) / max(1, len(worn))
     ids = {i for _, i in worn}
     return (mean + _accessory(ctx, picks) + sum(1.0 for a, b in liked if a in ids and b in ids)
@@ -481,6 +476,7 @@ def _evaluate(c: Ctx, found: list, priority, today: frozenset) -> list:
     # The rank's own order before any cut (pre-push gate, 2026-10-20): a cap reached by
     # well-rotated outfits without the knit or the undershirt must not hide the ones
     # with them.
+    found = [(shape, accessories.dress(c, p, priority)) for shape, p in found]
     prelim = sorted(((_score(c, p, priority, c.day.look.liked), shape, p) for shape, p in found
                      if look(p) not in c.exclude),
                     key=lambda r: (cost(needed(c, _full(r[2]))), fit.layering(c, r[2]), season.mismatches(c.day, r[2]),

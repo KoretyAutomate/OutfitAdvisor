@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import handles as _handles
 import rules
 import scale
+import vocab
 
 # Re-exported: the naming moved to handles.py at the 600-line ceiling (2026-09-01),
 # and closet.py reads them through this module — one import site rather than a churn
@@ -89,7 +90,7 @@ class Prefs:
 # needed" on a hot day: an undershirt is optional. Without it, somebody whose only
 # undershirt is a thermal was told to wear it in 32C, because there was nothing
 # cooler to swap in. Raised by the pre-push reviewer, 2026-09-01.
-_SHEDDABLE = ("inner", "mid", "outer", "accessories")
+_SHEDDABLE = ("inner", "mid", "outer", *vocab.ACCESSORY_SLOTS)
 
 # What you are still wearing at three in the afternoon. The rest comes off when it
 # warms up — that is what a layer IS — so the two are judged against different hours.

@@ -29,7 +29,14 @@ branches that had each built half of this and never met.
 # because widening this tuple ripples through the picks schema, engine.py, the outfit
 # card and the Kotlin push path — and the failure mode of getting that wrong is the
 # morning notification not arriving.
-CATEGORIES = ("inner", "base", "mid", "outer", "bottoms", "footwear", "accessories")
+# The accessories are one slot per body area (user, 2026-11-24: "Accessories needs
+# to be split. Belt and scarf can go together"). `accessories` is the closet FOLDER
+# (GROUPS) and a legacy input value (LEGACY_CATEGORY), never a slot.
+ACCESSORY_SLOTS = ("belt", "neck", "head", "hands", "umbrella")
+CATEGORIES = ("inner", "base", "mid", "outer", "bottoms", "footwear", *ACCESSORY_SLOTS)
+# What old phones, saved closets and the saved push snapshot still call any
+# accessory. Accepted at the boundary; reconcile() files it by type.
+LEGACY_CATEGORY = "accessories"
 STYLES = ("casual", "smart", "active")
 
 # What a garment IS, independent of the layer it happens to play today (user
@@ -58,6 +65,7 @@ GROUP_ALIASES = {"knitwear": "tops"}
 GROUP_FROM_CATEGORY = {
     "inner": "underwear", "base": "tops", "mid": "tops", "outer": "outerwear",
     "bottoms": "bottoms", "footwear": "footwear", "accessories": "accessories",
+    **{a: "accessories" for a in ACCESSORY_SLOTS},
 }
 
 # ── the second level ────────────────────────────────────────────────────────────
@@ -199,7 +207,7 @@ GROUP_CATEGORIES = {
     "bottoms": ("bottoms",),
     "onepiece": ("base",),
     "footwear": ("footwear",),
-    "accessories": ("accessories",),
+    "accessories": ACCESSORY_SLOTS,
 }
 
 # The slot a garment falls back to when its stated category is illegal for its
@@ -208,7 +216,9 @@ GROUP_CATEGORIES = {
 GROUP_DEFAULT_CATEGORY = {
     "underwear": "inner", "tops": "base", "outerwear": "outer",
     "bottoms": "bottoms", "onepiece": "base", "footwear": "footwear",
-    "accessories": "accessories",
+    # Only an UNTYPED accessory lands here (a typed one is narrowed to its own
+    # slot). It needs exactly one slot; funnel._accessory never picks it.
+    "accessories": "neck",
 }
 
 # What a KNOWN type implies, for the fields the classifier is least reliable on.
@@ -274,12 +284,12 @@ TYPE_DEFAULTS: dict[str, dict] = {
     "loafers": {"roles": ("footwear",), "warmth": 2, "formality": ("casual", "smart")},
     "socks": {"roles": ("footwear",), "warmth": 2, "formality": STYLES},
     # accessories
-    "scarf": {"roles": ("accessories",), "warmth": 4, "formality": ("casual", "smart")},
-    "gloves": {"roles": ("accessories",), "warmth": 4, "formality": STYLES},
-    "hat": {"roles": ("accessories",), "warmth": 3, "formality": STYLES},
-    "belt": {"roles": ("accessories",), "warmth": 1, "formality": ("casual", "smart")},
-    "tie": {"roles": ("accessories",), "warmth": 1, "formality": ("smart",)},
-    "umbrella": {"roles": ("accessories",), "warmth": 1, "formality": STYLES},
+    "scarf": {"roles": ("neck",), "warmth": 4, "formality": ("casual", "smart")},
+    "gloves": {"roles": ("hands",), "warmth": 4, "formality": STYLES},
+    "hat": {"roles": ("head",), "warmth": 3, "formality": STYLES},
+    "belt": {"roles": ("belt",), "warmth": 1, "formality": ("casual", "smart")},
+    "tie": {"roles": ("neck",), "warmth": 1, "formality": ("smart",)},
+    "umbrella": {"roles": ("umbrella",), "warmth": 1, "formality": STYLES},
 }
 
 
@@ -412,6 +422,21 @@ def reconcile(
         default = GROUP_DEFAULT_CATEGORY[grp]
         category = default if default in clean else clean[0]
     return category, grp, kind, clean
+
+
+def fold_accessories(outfit: dict, picks: dict | None = None) -> None:
+    """The five accessory lines as the one `accessories` line a phone before v1.62
+    draws (its card has a fixed slot list), and the first worn one's id as its
+    `accessories` pick, which its closet-only view and photos read (pre-push gate,
+    2026-11-24). Only on an outfit that has them: the generic engine's own line is
+    left alone. Newer cards hide the line and file the pick by its garment."""
+    if not any(s in outfit for s in ACCESSORY_SLOTS):
+        return
+    if picks is not None and (first := next((picks[s] for s in ACCESSORY_SLOTS if picks.get(s)), None)):
+        picks[LEGACY_CATEGORY] = first
+    worn = [str(v) for s in ACCESSORY_SLOTS if (v := outfit.get(s)) and not str(v).startswith("None")]
+    gone = next((str(outfit[s]) for s in ACCESSORY_SLOTS if str(outfit.get(s, "")).startswith("None — ")), None)
+    outfit[LEGACY_CATEGORY] = ", ".join(worn) or gone or "None needed"
 
 
 def apply_type_defaults(kind: str | None, warmth: int | None, formality: list[str] | None):

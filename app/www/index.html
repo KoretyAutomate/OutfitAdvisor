@@ -3178,6 +3178,9 @@ async function saveCalSel(){
   }
   await prefSet("oa.calendars",JSON.stringify({mode:calMode,ids:calSel,shared:calShared}));
   renderCalSel();
+  // The ticks decide which time-off entries count: today is re-read and the advice
+  // on screen re-judged by it (pre-push gate, 2026-11-26).
+  await refreshDayOff(); paintDay(); refreshForDay(false);
 }
 
 /* ── place-codes sheet ── */

@@ -105,6 +105,16 @@ function kotlinRegex(src, name) {
   check("holiday advice from the morning push is restored once the calendar is read",
     await ev("refreshDayOff().then(()=>loadToday())") === true);
 
+  // Ticking or unticking calendars re-reads today and re-judges the advice.
+  ev(`window.__dayOffCalls=0; Plugins.OutfitAlarm.dayOff=async()=>{ window.__dayOffCalls++; return {off:false}; };
+      calendarOff={day:todayISO(),source:"entry",label:"PTO"}; window.__rfd=0;
+      { const real=refreshForDay; refreshForDay=(c)=>{ window.__rfd++; return real(c); }; }`);
+  ev(`document.getElementById("calList").innerHTML='<input type="checkbox" data-cal="1">'`);
+  await ev("saveCalSel()");
+  check("saving the calendar ticks re-reads today's day off", ev("window.__dayOffCalls") >= 1 && ev("dayKind()") === "office",
+    {calls: ev("window.__dayOffCalls"), kind: ev("dayKind()")});
+  check("…and re-judges the advice on screen", ev("window.__rfd") >= 1);
+
   console.log("\n--- 4. the morning push (Kotlin twin) --------------------------------");
   const worker = fs.readFileSync(path.join(SRC, "AdviceWorker.kt"), "utf8");
   const fn = worker.slice(worker.indexOf("private fun dayKind("));

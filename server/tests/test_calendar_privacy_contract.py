@@ -232,6 +232,10 @@ def test_the_day_off_check_reads_own_ticked_calendars_and_public_holiday_feeds_o
     reader = evening[evening.index("internal fun allowedCalendars"):]
     assert "val sharedIds = if (shared) sharedTicked else emptySet()" in reader
     assert '"#holiday@group.v.calendar.google.com"' in day and "endsWith(HOLIDAY_OWNER)" in day
+    # The query names its calendars, as CalendarInstances.list does: no other row is read.
+    assert re.search(r'val ids = \(holidays \+ own\)\.toList\(\)\s*val selection = "\$\{CalendarContract\.Instances'
+                     r'\.CALENDAR_ID\} IN', day)
+    assert "query(uri, projection, selection, args," in day
     # Every row is classified by its calendar: a holiday feed, or one of the own set.
     assert re.search(r"if \(cal in holidays\) \{.*?\} else if \(cal in own ", day, re.S)
     worker = (EVENING.parent / "AdviceWorker.kt").read_text()

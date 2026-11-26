@@ -104,14 +104,21 @@ object DayOff {
             CalendarContract.Instances.DESCRIPTION,
             CalendarContract.Instances.SELF_ATTENDEE_STATUS
         )
+        // Only the holiday feeds and their own ticked calendars are queried: a row from
+        // any other calendar is never read, not even to be skipped (pre-push gate,
+        // 2026-11-26; the same posture as CalendarInstances.list).
+        val ids = (holidays + own).toList()
+        val selection = "${CalendarContract.Instances.CALENDAR_ID} IN (${ids.joinToString(",") { "?" }})"
+        val args = ids.map { it.toString() }.toTypedArray()
         var entry: Off? = null
-        ctx.contentResolver.query(uri, projection, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
+        ctx.contentResolver.query(uri, projection, selection, args, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
             while (c.moveToNext()) {
+                val cal = c.getLong(4)
+                if (cal !in holidays && cal !in own) continue
                 val title = c.getString(0).orEmpty().trim()
                 val begin = c.getLong(1)
                 val end = c.getLong(2)
                 val allDay = c.getInt(3) == 1
-                val cal = c.getLong(4)
                 if (!c.isNull(6) && c.getInt(6) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue
                 // An all-day instance runs UTC midnight to the exclusive UTC midnight
                 // after its last day: read its dates in UTC (CalendarInstances).

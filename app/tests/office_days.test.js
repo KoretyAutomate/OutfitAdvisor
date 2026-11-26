@@ -112,7 +112,7 @@ const WX = {lo: 12, hi: 20, desc: "Cloudy", rain: 10, wind: 3, code: 3, emoji: "
   console.log("\n--- 6. the morning push reads the same keys ----------------------");
   const kt = fs.readFileSync(WORKER, "utf8");
   check("the worker sends the occasion and the kind's style",
-    /val occasion = dayKind\(prefs\)/.test(kt) && /styleFor\(prefs, occasion\)/.test(kt)
+    /val occasion = dayKind\(prefs, DayOff\.today\(applicationContext\) != null\)/.test(kt) && /styleFor\(prefs, occasion\)/.test(kt)
     && /b\.put\("occasion", occasion\)/.test(kt));
   check("…from the app's keys and defaults",
     /"oa\.dayKind"/.test(kt) && /"oa\.officeDays"/.test(kt) && /"oa\.styleOffice", "smart"/.test(kt)

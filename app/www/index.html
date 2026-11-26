@@ -1092,10 +1092,23 @@ function paintSeg(seg, kind){ [...seg.children].forEach(b=>
    None set = no schedule: the advisor is told nothing about the day, as before.
    oa.dayKind {day, kind}: the Today screen's override, for that date only.
    Style: state.styleOffice on office days, state.style on every other day.
+   calendarOff: today is a day off by the calendar — a public holiday or their own
+   time-off entry (user, 2026-11-26), read natively by DayOff.kt. It beats the office
+   days; the override beats it.
    Twin: AdviceWorker.dayKind() — change them together. */
 const DAY_KINDS={office:"an office day",wfh:"a WFH day",off:"a day off"};
 let dayKindOverride=null;   // {day, kind} | null
+let calendarOff=null;       // {day, source, label} | null
+async function refreshDayOff(){
+  try{ const P=Plugins.OutfitAlarm; if(!P||!P.dayOff){ calendarOff=null; return; }
+       const r=await P.dayOff();
+       calendarOff=r&&r.off?{day:todayISO(),source:r.source==="holiday"?"holiday":"entry",
+                             label:String(r.label||"").slice(0,60)}:null; }
+  catch(e){ calendarOff=null; }
+}
+function offByCalendar(){ return calendarOff&&calendarOff.day===todayISO()?calendarOff:null; }
 function scheduledKind(d=new Date()){
+  if(dayISO(d.getTime())===todayISO()&&offByCalendar()) return "off";   // the calendar speaks for today only
   if(!state.officeDays||!state.officeDays.length) return "";
   const dow=d.getDay();
   return state.officeDays.includes(dow)?"office":(dow===0||dow===6?"off":"wfh");
@@ -1117,8 +1130,10 @@ function paintDay(){
   [...$("styleOfficeSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.s===state.styleOffice));
   paintSeg($("styleSeg"),"s");
   const o=dayKindOverride, changed=o&&o.day===todayISO()&&o.kind!==scheduledKind();
+  const cal=offByCalendar();
   $("kindNote").textContent=!k?"Set your office days in Settings → Profile."
     :(changed?`Today only: ${DAY_KINDS[k]}. Tap the other kind to change it.`
+      :cal?`A day off — ${cal.label||(cal.source==="holiday"?"a public holiday":"your time off")}, from your calendar.`
       :`${DAY_KINDS[k][0].toUpperCase()+DAY_KINDS[k].slice(1)}, from your office days.`)
      +` Dressed ${st} — set in Settings → Profile.`;
 }
@@ -1954,7 +1969,7 @@ let UPD_WATCH_TRIES=30, UPD_WATCH_MS=2000;   // after a tap: a minute of watchin
    left "I don't see it and it says it's up to date" undiagnosable (2026-08-19).
    publish_apk.py refuses to publish an APK whose bundled index.html does not
    carry the same string as build.gradle's versionName. */
-const WEB_BUILD="1.62";
+const WEB_BUILD="1.63";
 let APP_VERSION="web";
 (async()=>{ try{ if(Plugins.AppUpdate){ const c=await Plugins.AppUpdate.current();
   APP_VERSION=c.versionName||"?"; } }catch(e){} })();
@@ -4175,6 +4190,7 @@ async function getAdvice(lat,lon){
   // primary: DGX /advice (LLM text; closet-constrained when we own things)
   const cl=closetPayload();
   const outUntil=await eveningOut();
+  await refreshDayOff(); paintDay();
   // Taken with the closet: the kind of day this request is FOR (and its saved copy).
   const kind=dayKind(), kindStyle=styleFor(kind);
   try{
@@ -6489,7 +6505,7 @@ async function reloadShared(){
 // …and the day's advice is re-checked only AFTER reloadShared: the morning push
 // may already have saved advice for today's kind of day, which is then kept
 // rather than asked for again (pre-push reviewer, 2026-10-12).
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ paintDay(); refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion();
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ paintDay(); refreshDayOff().then(paintDay); refreshSchedStatus(); refreshReadiness(); checkUpdate(); renderVersion();
   (async()=>{ try{ await reloadShared(); }catch(e){} refreshForDay(false); })(); } });
 
 /* ───────── the three sheets (2026-08-20) ─────────
@@ -7738,7 +7754,7 @@ $("pkPacked").onclick=async()=>{
 const appReady=(async()=>{
   await load();
   $("city").value=state.city||""; $("baseUrl").value=state.baseUrl; $("pushTime").value=state.pushTime; $("pushEnabled").checked=state.pushEnabled;
-  paintSeg($("genderSeg"),"g"); paintDay();
+  paintSeg($("genderSeg"),"g"); paintDay(); refreshDayOff().then(paintDay);
   showTab(tab,false);   // false: restoring where you were is not a new choice
   // renderCloset is async — it reads a photo per item off disk. Awaiting it is what
   // makes appReady mean "the page is painted": without it the promise resolves with

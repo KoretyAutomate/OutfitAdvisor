@@ -313,6 +313,14 @@ class OutfitAlarmPlugin : Plugin() {
         call.resolve(ret)
     }
 
+    /** Today's day off by the calendar, {off, source, label}, or {off: false} — see DayOff. */
+    @PluginMethod
+    fun dayOff(call: PluginCall) {
+        val ret = JSObject().put("off", false)
+        DayOff.today(context)?.let { ret.put("off", true).put("source", it.source).put("label", it.label) }
+        call.resolve(ret)
+    }
+
     @PluginMethod
     fun listCalendars(call: PluginCall) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)

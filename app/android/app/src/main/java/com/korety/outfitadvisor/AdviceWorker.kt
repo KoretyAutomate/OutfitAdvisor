@@ -67,7 +67,7 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
         val base = (prefs.getString("oa.baseUrl", DEFAULT_BASE) ?: DEFAULT_BASE).trimEnd('/')
         val gender = prefs.getString("oa.gender", "man") ?: "man"
         // Office, WFH or a day off, and the style for it (user, 2026-10-12).
-        val occasion = dayKind(prefs)
+        val occasion = dayKind(prefs, DayOff.today(applicationContext) != null)
         val style = styleFor(prefs, occasion)
         val offset = prefs.getString(FeedbackReceiver.KEY_OFFSET, "0")?.toDoubleOrNull() ?: 0.0
 
@@ -531,16 +531,18 @@ class AdviceWorker(context: Context, params: WorkerParameters) : Worker(context,
     /** Local calendar day, the same "yyyy-MM-dd" the app compares against. */
     /**
      * "office" | "wfh" | "off" | "" — twin of dayKind() in index.html (user, 2026-10-12).
-     * The app's one-day override (oa.dayKind, for TODAY only) wins; then the office
-     * days (oa.officeDays, Date.getDay() numbers); none set = "" and nothing is sent.
-     * Read only: the app owns all three keys.
+     * The app's one-day override (oa.dayKind, for TODAY only) wins; then a day off by
+     * the calendar (DayOff: a public holiday or their own time-off entry, user,
+     * 2026-11-26); then the office days (oa.officeDays, Date.getDay() numbers); none
+     * set = "" and nothing is sent. Read only: the app owns all three keys.
      */
-    private fun dayKind(prefs: android.content.SharedPreferences): String {
+    private fun dayKind(prefs: android.content.SharedPreferences, calendarOff: Boolean): String {
         try {
             val o = JSONObject(prefs.getString("oa.dayKind", "") ?: "")
             val k = o.optString("kind")
             if (o.optString("day") == today() && k in setOf("office", "wfh", "off")) return k
         } catch (e: Exception) { /* no override */ }
+        if (calendarOff) return "off"
         val days = try { JSONArray(prefs.getString("oa.officeDays", "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
         if (days.length() == 0) return ""
         val dow = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1   // 0 = Sunday, as JS
